@@ -120,8 +120,15 @@ class SocialService {
         final newPosts = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
         if (newPosts.isNotEmpty) {
           await localDb.saveCommunityPosts(newPosts);           // Upsert-merge
+          // Store the NEWEST post's timestamp as the high-watermark cursor.
+          // Next delta sync will request posts created AFTER this time.
           await localDb.setSyncCursor('feed:$userId', newPosts.first['created_at']);
+          debugPrint('[Feed] Synced ${newPosts.length} posts. Cursor → ${newPosts.first['created_at']}');
+        } else {
+          debugPrint('[Feed] No new posts since cursor.');
         }
+      } else if (res.data != null) {
+        debugPrint('[Feed] Edge function error: ${res.data['error']}');
       }
     } catch (e) {
       debugPrint('[LazySync] Feed sync error: $e');
@@ -590,7 +597,7 @@ class SocialService {
     try {
       await client.functions.invoke('clever-processor', body: {
         'action': 'toggle-like',
-        'post_id': postId
+        'payload': {'post_id': postId},
       });
       
       // 🚀 NOTIFIER SYNC (Local & Remote)
@@ -720,7 +727,7 @@ class SocialService {
         if (action['action_type'] == 'like') {
           await client.functions.invoke('clever-processor', body: {
             'action': 'toggle-like',
-            'post_id': action['post_id']
+            'payload': {'post_id': action['post_id']},
           });
         } else if (action['action_type'] == 'follow') {
           await toggleFollow(action['post_id']); // post_id is used as target_user_id here

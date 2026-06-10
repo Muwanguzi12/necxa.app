@@ -331,18 +331,23 @@ async function handleSearchListings(payload: any = {}) {
 /**
  * FETCH-SHOWCASE: Instant retrieval of a vendor's storefront.
  */
-async function handleFetchShowcase(userId: string) {
+async function handleFetchShowcase(payload: any) {
   // 🛡️ RECTIFIED: Showcases are now strictly Supabase-driven for 100% integrity.
+  // Reads target user from payload.user_id so public profile views work correctly.
+  const targetUserId = payload.user_id;
+  if (!targetUserId) return err("user_id required for showcase");
 
   const { data, error } = await supabase
     .from('listings')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .select('*, profiles:user_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')
+    .eq('user_id', targetUserId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(50);
 
   if (error) return err(error.message);
 
-  return json({ success: true, data });
+  return json({ success: true, data: (data || []).map(rewriteMediaUrls) });
 }
 
 /**
@@ -1112,7 +1117,8 @@ Deno.serve(async (req: Request) => {
       case "submit-review":        return handleSubmitReview(userId, payload);
       case "fetch-reviews":        return handleFetchReviews(payload);
       case "fetch-shop-feed":      return handleFetchShopFeed(payload);
-      case "fetch-showcase":       return handleFetchShowcase(userId);
+      case "fetch-comments":       return handleFetchComments(payload);
+      case "fetch-showcase":       return handleFetchShowcase(payload);
       case "create-listing":       return handleCreateListing(userId, payload);
       case "hydrate-post":         return handleHydratePost(payload);
       case "sync-music-library":   return handleSyncMusicLibrary();
