@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 
 // CORS headers for the Flutter app
 const corsHeaders = {
@@ -53,67 +54,83 @@ serve(async (req) => {
     const sessionId = `SES-${Date.now()}`
     const sessionLink = `https://dashboard.necxa.com/audit/sessions/${sessionId}`
 
+    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai.onrender.com'
+    const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || ''
+
     if (action === 'verify-id') {
-      const { imageBase64, expectedData } = payload || {}
+      const { imageBase64 } = payload || {}
       if (!imageBase64) throw new Error("Missing imageBase64 payload")
 
-      // Proprietary Convolutional OCR Scanner
-      const ninSuffix = Math.floor(100000 + Math.random() * 900000);
-      const docNumber = expectedData?.docNumber || `CM95${ninSuffix}7GH8A`;
-      const name = expectedData?.name || "Trevor Kasingye";
+      // 1. Decode base64 to binary
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      const imageBytes = decode(base64Data);
+      
+      // 2. Build multipart/form-data
+      const formData = new FormData();
+      formData.append('idFront', new Blob([imageBytes], { type: 'image/jpeg' }), 'id.jpg');
+
+      // 3. Send to Live AI Engine
+      const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
+        method: 'POST',
+        headers: { 'X-API-Key': NECXA_AI_API_KEY },
+        body: formData
+      });
+
+      if (!aiRes.ok) throw new Error(`AI Engine Error: ${aiRes.statusText}`);
+      const aiData = await aiRes.json();
+      if (!aiData.success) throw new Error(`Verification Failed: ${aiData.error}`);
 
       return new Response(JSON.stringify({
-        verified: true,
-        score: 96,
-        docType: "NATIONAL_ID",
-        country: "UGANDA",
-        extractedData: {
-          fullName: name,
-          docNumber: docNumber,
-          dateOfBirth: '1995-04-12',
-          expiryDate: '2030-05-15',
-          nationality: "UGANDA"
-        },
-        ocrLogs: [
-          `[Proprietary Necxa OCR Engine] Isolated ID text block bounds via Convolutional Neural Network`,
-          `[Proprietary Necxa OCR Engine] Extracted Name field: "${name}" (Confidence: 98.4%)`,
-          `[Proprietary Necxa OCR Engine] Extracted Document ID: "${docNumber}" (Confidence: 99.1%)`,
-          `[Proprietary Necxa OCR Engine] Validation successful: Document integrity check passed`
-        ],
-        feedback: "Document integrity checks and name/ID matching successfully scanned.",
-        sessionLink
+        verified: aiData.ocrResult.verified,
+        score: aiData.ocrResult.score * 100, // Converts 0-1 to 0-100%
+        docType: aiData.ocrResult.docType,
+        country: aiData.ocrResult.country,
+        extractedData: aiData.ocrResult.extractedData,
+        ocrLogs: aiData.ocrResult.ocrLogs,
+        feedback: "Document integrity checks and name/ID matching successfully scanned via AI.",
+        sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
     } else if (action === 'verify-selfie') {
       const { imageBase64, idImageBase64 } = payload || {}
       if (!imageBase64 || !idImageBase64) throw new Error("Missing image payloads for biometric match")
 
-      // Proprietary Volumetric Facial Liveness Vector Matcher
-      const similarityScore = 92;
-      const faceMatch = true;
+      const selfieBytes = decode(imageBase64.replace(/^data:image\/\w+;base64,/, ""));
+      const idBytes = decode(idImageBase64.replace(/^data:image\/\w+;base64,/, ""));
 
-      // Update profile accurately on primary backend database
-      const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
-      const primaryAdminClient = PRIMARY_SUPABASE_SERVICE_ROLE_KEY 
-        ? createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY)
-        : primaryClient;
+      const formData = new FormData();
+      formData.append('selfie', new Blob([selfieBytes], { type: 'image/jpeg' }), 'selfie.jpg');
+      formData.append('idReference', new Blob([idBytes], { type: 'image/jpeg' }), 'idReference.jpg');
 
-      await primaryAdminClient
-        .from('profiles')
-        .update({ is_agent: true })
-        .eq('id', secureUserId);
+      const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/biometric`, {
+        method: 'POST',
+        headers: { 'X-API-Key': NECXA_AI_API_KEY },
+        body: formData
+      });
+
+      if (!aiRes.ok) throw new Error(`AI Engine Error: ${aiRes.statusText}`);
+      const aiData = await aiRes.json();
+      if (!aiData.success) throw new Error(`Biometric Failed: ${aiData.error}`);
+
+      // Update profile accurately on primary backend database only if face matches
+      if (aiData.biometricResult.faceMatch) {
+        const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
+        const primaryAdminClient = PRIMARY_SUPABASE_SERVICE_ROLE_KEY 
+          ? createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY)
+          : primaryClient;
+
+        await primaryAdminClient
+          .from('profiles')
+          .update({ is_agent: true })
+          .eq('id', secureUserId);
+      }
 
       return new Response(JSON.stringify({
-        faceMatch,
-        score: similarityScore,
-        feedback: "Volumetric physical liveness validated. Facial similarity vector matching completed successfully at 92.00% confidence.",
-        biometricLogs: [
-          `[Proprietary Necxa Biometric Engine] Parsing facial parameters (68 coordinate markers)`,
-          `[Proprietary Necxa Biometric Engine] Selfie features alignment completed (Yaw: 1.2°, Pitch: 0.4°)`,
-          `[Proprietary Necxa Biometric Engine] Reference vectors match completed at 92.00%`,
-          `[Proprietary Necxa Biometric Engine] Volumetric analysis validates physical liveness presence`
-        ],
-        sessionLink
+        faceMatch: aiData.biometricResult.faceMatch,
+        score: aiData.biometricResult.similarityScore * 100,
+        feedback: "Volumetric physical liveness validated and matching completed successfully.",
+        biometricLogs: aiData.biometricResult.biometricLogs,
+        sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 

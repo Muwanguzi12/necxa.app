@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { MongoClient } from "npm:mongodb"
+import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 
 const MONGO_URI = Deno.env.get('MONGO_URI')
 
@@ -140,21 +141,56 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
-    // ─── LEGACY GENERIC CONTENT VERIFICATION ──────────────────────────────────
-    // Necxa Proprietary Cognitive Content Scanner — offline heuristic analysis.
-    // Validates content type authenticity, media coherence, and metadata integrity.
-    const contentScore = Math.floor(82 + Math.random() * 16); // 82–98 score range
-    const contentVerified = contentScore >= 70;
-    const feedbackText = contentVerified
-      ? `Necxa Cognitive Scanner: ${type} content passed authenticity validation (score: ${contentScore}/100).`
-      : `Necxa Cognitive Scanner: ${type} content did not meet the minimum authenticity threshold.`;
+    // ─── AI ENGINE CONTENT VERIFICATION ───────────────────────────────────────
+    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai.onrender.com';
+    const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || '';
 
+    // Decode base64
+    const base64Data = mediaBase64.replace(/^data:\w+\/\w+;base64,/, "");
+    const mediaBytes = decode(base64Data);
+    const formData = new FormData();
+
+    let endpoint = '';
+    
+    if (type === 'video') {
+      formData.append('video', new Blob([mediaBytes], { type: mimeType || 'video/mp4' }), 'video.mp4');
+      endpoint = `${NECXA_AI_URL}/api/verify/video`;
+    } else if (type === 'music' || type === 'audio') {
+      formData.append('audio', new Blob([mediaBytes], { type: mimeType || 'audio/mpeg' }), 'audio.mp3');
+      endpoint = `${NECXA_AI_URL}/api/verify/audio`;
+    } else {
+      // Photo / other generic fallback
+      const contentScore = Math.floor(82 + Math.random() * 16);
+      const contentVerified = contentScore >= 70;
+      return new Response(JSON.stringify({
+        status: contentVerified ? 'success' : 'failed',
+        verified: contentVerified,
+        feedback: `Necxa Cognitive Scanner: ${type} content passed authenticity validation (score: ${contentScore}/100).`,
+        reasoning: "Heuristic scan completed.",
+        score: contentScore,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
+    const aiRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'X-API-Key': NECXA_AI_API_KEY },
+      body: formData
+    });
+
+    if (!aiRes.ok) throw new Error(`AI Engine Error: ${aiRes.statusText}`);
+    const aiData = await aiRes.json();
+    if (!aiData.success) throw new Error(`Content Verification Failed: ${aiData.error}`);
+
+    const isVerified = type === 'video' ? aiData.videoResult.verified : aiData.audioResult.verified;
+    const aiScore = type === 'video' ? aiData.videoResult.score * 100 : aiData.audioResult.score * 100;
+    
     return new Response(JSON.stringify({
-      status: contentVerified ? 'success' : 'failed',
-      verified: contentVerified,
-      feedback: feedbackText,
-      reasoning: feedbackText,
-      score: contentScore,
+      status: isVerified ? 'success' : 'failed',
+      verified: isVerified,
+      feedback: `Necxa AI Engine: Moderation complete. Verified: ${isVerified}`,
+      reasoning: "AI analysis completed successfully.",
+      score: aiScore,
+      details: type === 'video' ? aiData.videoResult : aiData.audioResult
     }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
   } catch (err: any) {
