@@ -310,7 +310,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.verificationSubStep = 3;
         
         // Auto-toggle to selfie camera for 3D Biometric Match
-        scannerKey.currentState?.switchCamera(CameraLensDirection.front);
+        _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
       } else if (state.verificationSubStep == 3) {
         final xfile = await cameraCtrl!.takePicture();
         state.faceImage = File(xfile.path);
