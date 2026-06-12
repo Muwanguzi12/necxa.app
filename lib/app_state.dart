@@ -842,32 +842,35 @@ class AppState extends ChangeNotifier {
 
     // 2. AI Verification Node
     Map<String, dynamic> aiReport;
-    if (pickedMedia != null) {
-      final isVideo = pickedMedia!.path.toLowerCase().endsWith('.mp4') || pickedMedia!.path.toLowerCase().endsWith('.mov');
-      final isAudio = pickedMedia!.path.toLowerCase().endsWith('.mp3') || pickedMedia!.path.toLowerCase().endsWith('.m4a') || pickedMedia!.path.toLowerCase().endsWith('.wav');
-      
-      final mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'photo');
-      aiReport = await NecxaAI.verifyMediaFile(
-        file: pickedMedia!,
-        type: mediaType,
-        textContent: data['title'] ?? data['description'],
-        userId: user!.id,
-      );
-    } else {
-      aiReport = await NecxaAI.verifyContent(
-        type: 'text',
-        mediaBase64: '',
-        mimeType: 'text/plain',
-        textContent: data['title'] ?? data['description'],
-        userId: user!.id,
-      );
-    }
+
+    if (data['type'] == 'post') {
+      if (pickedMedia != null) {
+        final isVideo = pickedMedia!.path.toLowerCase().endsWith('.mp4') || pickedMedia!.path.toLowerCase().endsWith('.mov');
+        final isAudio = pickedMedia!.path.toLowerCase().endsWith('.mp3') || pickedMedia!.path.toLowerCase().endsWith('.m4a') || pickedMedia!.path.toLowerCase().endsWith('.wav');
+        
+        final mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'photo');
+        aiReport = await NecxaAI.verifyMediaFile(
+          file: pickedMedia!,
+          type: mediaType,
+          textContent: data['title'] ?? data['description'],
+          userId: user!.id,
+        );
+      } else {
+        aiReport = await NecxaAI.verifyContent(
+          type: 'text',
+          mediaBase64: '',
+          mimeType: 'text/plain',
+          textContent: data['title'] ?? data['description'],
+          userId: user!.id,
+        );
+      }
       // ── COMMUNITY V2: NEURAL SYNDICATION ──
       await social.createPost(user!.id, {
         ...data,
         'community_id': data['community_id'] ?? 'global_node_01', 
       });
     } else {
+      final b64 = pickedMedia != null ? await NecxaAI.fileToBase64(pickedMedia!) : '';
       aiReport = await NecxaAI.createVerifiedListing(
         title: data['title'],
         description: data['description'] ?? '',
