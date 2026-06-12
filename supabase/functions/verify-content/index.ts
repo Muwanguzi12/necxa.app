@@ -70,14 +70,19 @@ serve(async (req) => {
     const payload = await req.json()
     const { type, mediaBase64, mimeType, textContent, action, channelId } = payload
 
-    if (!mediaBase64) {
-      return new Response(JSON.stringify({ error: 'No mediaBase64 provided' }), {
+    if (!mediaBase64 && !payload.videoFrames) {
+      return new Response(JSON.stringify({ error: 'No mediaBase64 or videoFrames provided' }), {
         status: 400, headers: corsHeaders
       })
     }
 
       // ─── LIVE SAFETY SCAN ─────────────────────────────────────────────────────
     if (action === 'live_safety_scan') {
+      if (!mediaBase64) {
+        return new Response(JSON.stringify({ error: 'No mediaBase64 provided for live safety scan' }), {
+          status: 400, headers: corsHeaders
+        })
+      }
       const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk';
       
       const base64Data = mediaBase64.replace(/^data:\w+\/\w+;base64,/, "");
