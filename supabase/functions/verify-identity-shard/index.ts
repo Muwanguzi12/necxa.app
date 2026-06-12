@@ -54,7 +54,7 @@ serve(async (req) => {
     const sessionId = `SES-${Date.now()}`
     const sessionLink = `https://dashboard.necxa.com/audit/sessions/${sessionId}`
 
-    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
+    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk'
     const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || ''
 
     if (action === 'verify-id') {
