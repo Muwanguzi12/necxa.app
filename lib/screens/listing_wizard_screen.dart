@@ -297,21 +297,23 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
       if (state.verificationSubStep == 0) {
         state.captureGps().timeout(const Duration(seconds: 5), onTimeout: () {}).catchError((e) {});
-        // Mock capture front
-        await Future.delayed(const Duration(milliseconds: 500));
-        state.idImage = File(''); // mock
+        final xfile = await cameraCtrl!.takePicture();
+        state.idImage = File(xfile.path);
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        state.idBackImage = File('');
+        final xfile = await cameraCtrl!.takePicture();
+        state.idBackImage = File(xfile.path);
         state.verificationSubStep = 2;
       } else if (state.verificationSubStep == 2) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        state.idHoldingImage = File('');
+        final xfile = await cameraCtrl!.takePicture();
+        state.idHoldingImage = File(xfile.path);
         state.verificationSubStep = 3;
+        
+        // Auto-toggle to selfie camera for 3D Biometric Match
+        scannerKey.currentState?.switchCamera(CameraLensDirection.front);
       } else if (state.verificationSubStep == 3) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        state.faceImage = File('');
+        final xfile = await cameraCtrl!.takePicture();
+        state.faceImage = File(xfile.path);
         
         final res = await ListingSyncService.submitIdentityShard(
           country: 'Uganda',
@@ -670,6 +672,7 @@ class _NeuralScannerOverlay extends StatefulWidget {
 class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
   CameraController? cameraCtrl;
+  CameraLensDirection _currentDirection = CameraLensDirection.back;
 
   @override
   void initState() {
@@ -699,6 +702,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with Singl
 
     try {
       await cameraCtrl!.initialize();
+      _currentDirection = direction;
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Camera initialization error: $e');
@@ -707,6 +711,13 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with Singl
 
   Future<void> switchCamera(CameraLensDirection direction) async {
     await _initCamera(direction);
+  }
+  
+  Future<void> toggleCamera() async {
+    final newDirection = _currentDirection == CameraLensDirection.back 
+        ? CameraLensDirection.front 
+        : CameraLensDirection.back;
+    await switchCamera(newDirection);
   }
 
   @override
@@ -744,7 +755,16 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with Singl
                 ),
               ),
             ),
-            const Positioned(top: 10, right: 10, child: _ScannerNodeStatus()),
+            const Positioned(top: 10, left: 10, child: _ScannerNodeStatus()),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: IconButton(
+                onPressed: toggleCamera,
+                icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+                style: IconButton.styleFrom(backgroundColor: Colors.black45),
+              ),
+            ),
           ],
         ),
       ),

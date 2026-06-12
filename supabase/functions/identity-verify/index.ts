@@ -50,21 +50,37 @@ Deno.serve(async (req) => {
     const country = formData.get('country') as string || 'Uganda'
     const docNumber = formData.get('doc_number') as string || 'UNKNOWN'
 
-    // 3. AI Processing — Necxa Proprietary Biometric Engine
-    // Multi-document coordinate vector analysis: compares facial landmark geometry
-    // across ID Front, ID Holding, and Face Photo to compute a liveness-weighted
-    // similarity score without any external API dependency.
-    const similarity = Math.floor(88 + Math.random() * 10); // 88–98% realistic range
-    const verified = similarity >= 72;
+    // 3. AI Processing — Cloudflare Workers AI Biometric Engine
+    const aiFormData = new FormData();
+    aiFormData.append('selfie', facePhoto);
+    aiFormData.append('idReference', idHolding); // or idFront
+
+    const aiRes = await fetch("https://api.necxa.uk/api/verify/biometric", {
+      method: "POST",
+      body: aiFormData
+    });
+
+    if (!aiRes.ok) {
+       console.error("AI Error:", await aiRes.text());
+       return json({ error: "Cloudflare Biometric Engine offline" }, 500);
+    }
+    const aiData = await aiRes.json();
+    
+    if (!aiData.success) {
+       return json({ error: "AI Processing Failed: " + aiData.error }, 500);
+    }
+
+    const similarity = aiData.biometricResult?.similarityScore || 0;
+    const verified = aiData.biometricResult?.faceMatch || false;
     const fraud_risk = similarity >= 88 ? "low" : similarity >= 72 ? "medium" : "high";
 
     const aiResponse = {
       verified,
       similarity,
-      extracted_name: "Trevor Kasingye",
+      extracted_name: "Verified User",
       extracted_nin: docNumber,
       fraud_risk,
-      rejection_reason: verified ? null : "Biometric similarity below the 72% verification threshold.",
+      rejection_reason: verified ? null : "Biometric similarity below verification threshold.",
     }
 
     // 4. Persistence (Storage)
