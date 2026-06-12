@@ -51,12 +51,16 @@ Deno.serve(async (req) => {
     const docNumber = formData.get('doc_number') as string || 'UNKNOWN'
 
     // 3. AI Processing — Cloudflare Workers AI Biometric Engine
+    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk';
+    const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || '';
+
     const aiFormData = new FormData();
     aiFormData.append('selfie', facePhoto);
     aiFormData.append('idReference', idHolding); // or idFront
 
-    const aiRes = await fetch("https://api.necxa.uk/api/verify/biometric", {
+    const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/biometric`, {
       method: "POST",
+      headers: { 'X-API-Key': NECXA_AI_API_KEY },
       body: aiFormData
     });
 
