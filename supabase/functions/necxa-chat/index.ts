@@ -170,8 +170,29 @@ function buildReply(message: string): string {
 async function handleAI(_userId: string, payload: any) {
   const message = payload.message || (payload.messages && payload.messages[0]?.content)
   if (!message) return err("Missing message for AI")
+
+  const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk'
+
+  // Try Cloudflare Workers AI (Llama 3.1 — real multilingual AI)
+  try {
+    const aiRes = await fetch(`${NECXA_AI_URL}/api/assistant/chat/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    })
+    if (aiRes.ok) {
+      const aiData = await aiRes.json()
+      if (aiData.response) {
+        return json({ success: true, reply: aiData.response, content: aiData.response, engine: 'Necxa AI — Cloudflare Workers' })
+      }
+    }
+  } catch (e) {
+    console.error("Cloudflare AI fallback:", e)
+  }
+
+  // Fallback: local linguistic engine
   const reply = buildReply(message)
-  return json({ success: true, reply, content: reply })
+  return json({ success: true, reply, content: reply, engine: 'Necxa Linguistic Engine (fallback)' })
 }
 
 
