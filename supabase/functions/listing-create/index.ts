@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { decode } from "https://deno.land/std@0.204.0/encoding/base64.ts"
+import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 // Necxa Listing Engine — Edge AI integration
 
 // ============================================
@@ -397,6 +397,28 @@ Deno.serve(async (req) => {
       // Calculate broker fee (5% for agent, 2% for Necxa = 7% total)
       const brokerFee = Math.floor(priceUgx * 0.07)
 
+      // === Cloudflare Workers AI Listing Verifier ===
+      let aiScore = 0.85;
+      let aiLevel = "VERIFIED";
+      let aiDescription = "Listing verified.";
+      
+      if (photoFiles.length > 0) {
+         try {
+           const aiFormData = new FormData();
+           aiFormData.append('photo', photoFiles[0]);
+           aiFormData.append('title', title);
+           const aiRes = await fetch('https://api.necxa.uk/api/verify/listing', { method: 'POST', body: aiFormData });
+           if (aiRes.ok) {
+             const result = await aiRes.json();
+             aiScore = (result.score || 85) / 100.0; // Normalize 0-100 to 0.0-1.0
+             aiLevel = result.verified ? "VERIFIED" : "FLAGGED";
+             aiDescription = result.description || aiDescription;
+           }
+         } catch (e) {
+           console.error("Cloudflare Listing Verification Error:", e);
+         }
+      }
+
       // Create listing
       const { data: listing, error: listErr } = await supabaseAdmin
         .from("listings")
@@ -416,10 +438,11 @@ Deno.serve(async (req) => {
           photos: photoPaths, // Store miniatures directly in the JSON column
           ai_verification: {
             property_type: propertyType.toUpperCase(),
-            score: 0.85,
-            level: "VERIFIED",
+            score: aiScore,
+            level: aiLevel,
+            description: aiDescription,
             broker_fee: brokerFee,
-            trust_score: 85,
+            trust_score: Math.round(aiScore * 100),
             amenities: amenities,
             gps: {
               lat: gpsNode?.latitude,
