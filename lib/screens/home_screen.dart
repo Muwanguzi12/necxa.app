@@ -79,9 +79,9 @@ class HomeScreen extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                   const Icon(Icons.auto_awesome, color: Colors.blue, size: 14),
+                   Image.asset('assets/images/necxa ai.jpeg', width: 14, height: 14),
                    const SizedBox(width: 6),
-                   Text('Gemini', style: syne(sz: 11, c: Colors.blue)),
+                   Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
                 ],
               ),
             ),
