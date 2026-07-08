@@ -57,19 +57,17 @@ serve(async (req) => {
     const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk'
     const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || ''
 
-    if (action === 'verify-id') {
+    if (action === 'verify-id' || action === 'verify-id-front' || action === 'verify-id-back' || action === 'verify-id-holding') {
       const { imageBase64 } = payload || {}
       if (!imageBase64) throw new Error("Missing imageBase64 payload")
 
-      // 1. Decode base64 to binary
+      const stage = action === 'verify-id' ? 'front' : action.replace('verify-id-', '')
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
       const imageBytes = decode(base64Data);
       
-      // 2. Build multipart/form-data
       const formData = new FormData();
-      formData.append('idFront', new Blob([imageBytes], { type: 'image/jpeg' }), 'id.jpg');
+      formData.append('idFront', new Blob([imageBytes], { type: 'image/jpeg' }), `${stage}.jpg`);
 
-      // 3. Send to Live AI Engine
       const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
         method: 'POST',
         headers: { 'X-API-Key': NECXA_AI_API_KEY },
@@ -82,27 +80,32 @@ serve(async (req) => {
 
       return new Response(JSON.stringify({
         verified: aiData.ocrResult.verified,
-        score: aiData.ocrResult.score * 100, // Converts 0-1 to 0-100%
+        score: aiData.ocrResult.score * 100,
         docType: aiData.ocrResult.docType,
         country: aiData.ocrResult.country,
         extractedData: aiData.ocrResult.extractedData,
         ocrLogs: aiData.ocrResult.ocrLogs,
-        feedback: "Document integrity checks and name/ID matching successfully scanned via AI.",
+        stage,
+        feedback: `Document scan (${stage}) verified via AI.`,
         sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
-    } else if (action === 'verify-selfie') {
+    } else if (action === 'verify-selfie' || action === 'verify-face-only') {
       const { imageBase64, idImageBase64 } = payload || {}
-      if (!imageBase64 || !idImageBase64) throw new Error("Missing image payloads for biometric match")
+      if (!imageBase64) throw new Error("Missing image payloads for biometric match")
+      if (action === 'verify-selfie' && !idImageBase64) throw new Error("Missing idImageBase64 payload for selfie verification")
 
       const selfieBytes = decode(imageBase64.replace(/^data:image\/\w+;base64,/, ""));
-      const idBytes = decode(idImageBase64.replace(/^data:image\/\w+;base64,/, ""));
-
       const formData = new FormData();
       formData.append('selfie', new Blob([selfieBytes], { type: 'image/jpeg' }), 'selfie.jpg');
-      formData.append('idReference', new Blob([idBytes], { type: 'image/jpeg' }), 'idReference.jpg');
 
-      const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/biometric`, {
+      if (idImageBase64) {
+        const idBytes = decode(idImageBase64.replace(/^data:image\/\w+;base64,/, ""));
+        formData.append('idReference', new Blob([idBytes], { type: 'image/jpeg' }), 'idReference.jpg');
+      }
+
+      const endpoint = action === 'verify-face-only' ? '/api/verify/face-only' : '/api/verify/biometric';
+      const aiRes = await fetch(`${NECXA_AI_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'X-API-Key': NECXA_AI_API_KEY },
         body: formData
@@ -112,8 +115,7 @@ serve(async (req) => {
       const aiData = await aiRes.json();
       if (!aiData.success) throw new Error(`Biometric Failed: ${aiData.error}`);
 
-      // Update profile accurately on primary backend database only if face matches
-      if (aiData.biometricResult.faceMatch) {
+      if (action === 'verify-selfie' && aiData.biometricResult.faceMatch) {
         const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
         const primaryAdminClient = PRIMARY_SUPABASE_SERVICE_ROLE_KEY 
           ? createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY)
@@ -128,7 +130,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({
         faceMatch: aiData.biometricResult.faceMatch,
         score: aiData.biometricResult.similarityScore * 100,
-        feedback: "Volumetric physical liveness validated and matching completed successfully.",
+        feedback: action === 'verify-face-only'
+          ? 'Face-only liveness verification completed successfully.'
+          : 'Volumetric physical liveness validated and matching completed successfully.',
         biometricLogs: aiData.biometricResult.biometricLogs,
         sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })

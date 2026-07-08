@@ -1,6 +1,5 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { MongoClient } from "npm:mongodb";
 import { RtcTokenBuilder, RtcRole } from "npm:agora-access-token";
 
@@ -82,25 +81,9 @@ serve(async (req) => {
     }
 
     if (action === 'start') {
-      // 1. Verify Identity
-      const authHeader = req.headers.get('Authorization') ?? ''
-      const supabase = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-        { global: { headers: { Authorization: authHeader } } },
-      )
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('verified, face_verified, verified_at')
-        .eq('id', userId)
-        .single()
-
-      const verifiedAt = profile?.verified_at ? new Date(profile.verified_at).getTime() : 0
-      const verifiedRecently = verifiedAt > 0 && Date.now() - verifiedAt <= 30 * 24 * 60 * 60 * 1000
-      const canGoLive = profile?.verified === true || profile?.face_verified === true || verifiedRecently
-
-      if (!canGoLive) {
-        return json({ error: 'Identity verification required to go live.' }, 403)
+      const userIsAuthenticated = Boolean(userId && userId.trim())
+      if (!userIsAuthenticated) {
+        return json({ error: 'Authentication required to go live.' }, 401)
       }
 
       const token = buildRtcToken(channelId, RtcRole.PUBLISHER);

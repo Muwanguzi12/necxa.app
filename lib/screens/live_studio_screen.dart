@@ -221,6 +221,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
       final errStr = e.toString();
       final is403 = errStr.contains('403') || errStr.toLowerCase().contains('identity verification required');
       if (is403) {
+        final verified = await _hasCompletedIdentityVerification();
+        if (verified) {
+          debugPrint('🛡️ Live: 403 received but the user is already signed in or has prior face verification state — retrying in 2s.');
+          await _markLiveVerified();
+          await Future.delayed(const Duration(seconds: 2));
+          if (mounted) _initAgora();
+          return;
+        }
+
         // Only show the verification card if their cached credential is expired or absent.
         // Otherwise clear the error and let them retry transparently.
         final prefs = await SharedPreferences.getInstance();
@@ -254,8 +263,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     final rawTs = prefs.getString(_liveVerifPrefKey);
     final lastVerified = rawTs != null ? DateTime.tryParse(rawTs) : null;
     final expired = lastVerified == null || DateTime.now().difference(lastVerified) > _reverifyPeriod;
-    // Pre-set the flag so _initAgora knows whether to surface the card on a 403.
-    _requiresVerification = expired;
+    final hasCompletedVerification = await _hasCompletedIdentityVerification();
+    // Authenticated users should not be blocked by a second identity prompt.
+    _requiresVerification = false;
   }
 
   /// Stamps the current timestamp as verified in SharedPreferences.
@@ -263,6 +273,25 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_liveVerifPrefKey, DateTime.now().toIso8601String());
     _requiresVerification = false;
+  }
+
+  Future<bool> _hasCompletedIdentityVerification() async {
+    if (widget.state.isAuthenticated) {
+      return true;
+    }
+
+    await widget.state.loadMyProfile();
+    final profile = widget.state.myProfile ?? {};
+    final verifiedAtRaw = profile['verified_at']?.toString();
+    final verifiedAt = verifiedAtRaw != null ? DateTime.tryParse(verifiedAtRaw) : null;
+    final verifiedRecently = verifiedAt != null && DateTime.now().difference(verifiedAt) <= _reverifyPeriod;
+
+    final localVerificationComplete = widget.state.lastIDResult?.verified == true ||
+        widget.state.lastSelfieResult?.faceMatch == true ||
+        widget.state.idVerified;
+    final profileVerified = profile['verified'] == true || profile['face_verified'] == true || verifiedRecently;
+
+    return localVerificationComplete || profileVerified;
   }
 
   // ── SILENT BACKGROUND FACE PULSE ────────────────────────────────────────
@@ -358,12 +387,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     try {
       if (!mounted) return;
 
-      await widget.state.loadMyProfile();
-      final profile = widget.state.myProfile ?? {};
-      final verifiedAtRaw = profile['verified_at']?.toString();
-      final verifiedAt = verifiedAtRaw != null ? DateTime.tryParse(verifiedAtRaw) : null;
-      final verifiedRecently = verifiedAt != null && DateTime.now().difference(verifiedAt) <= _reverifyPeriod;
-      final verified = profile['verified'] == true || profile['face_verified'] == true || verifiedRecently;
+      final verified = await _hasCompletedIdentityVerification();
 
       if (!verified) {
         throw 'Complete real identity verification before going live.';

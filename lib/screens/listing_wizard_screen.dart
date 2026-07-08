@@ -335,10 +335,16 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       }
 
       if (state.verificationSubStep == 0) {
+        await _scannerKey.currentState?.switchCamera(CameraLensDirection.back);
+        await Future.delayed(const Duration(milliseconds: 300));
         state.captureGps().timeout(const Duration(seconds: 5), onTimeout: () {}).catchError((e) {});
         final xfile = await cameraCtrl.takePicture();
         state.idImage = File(xfile.path);
-        final result = await NecxaAI.verifyID(state.idImage!, userId: state.user?.id);
+        final result = await NecxaAI.verifyID(
+          state.idImage!,
+          userId: state.user?.id,
+          action: 'verify-id-front',
+        );
         final idResult = _idResultFrom(result);
         if (!idResult.verified) {
           throw Exception(_aiFeedback(result, 'National ID front scan failed. Please retake a clearer photo.'));
@@ -346,9 +352,15 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
+        await _scannerKey.currentState?.switchCamera(CameraLensDirection.back);
+        await Future.delayed(const Duration(milliseconds: 300));
         final xfile = await cameraCtrl.takePicture();
         state.idBackImage = File(xfile.path);
-        final result = await NecxaAI.verifyID(state.idBackImage!, userId: state.user?.id);
+        final result = await NecxaAI.verifyID(
+          state.idBackImage!,
+          userId: state.user?.id,
+          action: 'verify-id-back',
+        );
         final idResult = _idResultFrom(result);
         if (!idResult.verified) {
           throw Exception(_aiFeedback(result, 'National ID back scan failed. Please retake the back side clearly.'));
@@ -356,9 +368,15 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDBackResult = idResult;
         state.verificationSubStep = 2;
       } else if (state.verificationSubStep == 2) {
+        await _scannerKey.currentState?.switchCamera(CameraLensDirection.back);
+        await Future.delayed(const Duration(milliseconds: 300));
         final xfile = await cameraCtrl.takePicture();
         state.idHoldingImage = File(xfile.path);
-        final result = await NecxaAI.verifyID(state.idHoldingImage!, userId: state.user?.id);
+        final result = await NecxaAI.verifyID(
+          state.idHoldingImage!,
+          userId: state.user?.id,
+          action: 'verify-id-holding',
+        );
         final idResult = _idResultFrom(result);
         if (!idResult.verified) {
           throw Exception(_aiFeedback(result, 'Holding-ID scan failed. Keep your face and ID visible, then retry.'));
@@ -368,6 +386,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         
         // Auto-toggle to selfie camera for 3D Biometric Match
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
+        await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
         final xfile = await cameraCtrl.takePicture();
         state.faceImage = File(xfile.path);
@@ -819,7 +838,12 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with Singl
         child: Stack(
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
-              SizedBox.expand(child: CameraPreview(cameraCtrl!))
+              SizedBox.expand(
+                child: AspectRatio(
+                  aspectRatio: cameraCtrl!.value.aspectRatio,
+                  child: CameraPreview(cameraCtrl!),
+                ),
+              )
             else
               const Center(child: Opacity(opacity: 0.1, child: Icon(Icons.document_scanner, size: 100, color: C.brand))),
             

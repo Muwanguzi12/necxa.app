@@ -46,6 +46,27 @@ class LiveSafetyResult {
 class NecxaAI {
   // ── USING PRIMARY SUPABASE CLIENT FOR DECOUPLED AI SERVICES ──
 
+  static Map<String, dynamic> buildIdentityShardPayload({
+    required String action,
+    required String primaryBase64,
+    String? secondaryBase64,
+    String? userId,
+  }) {
+    final payload = <String, dynamic>{
+      'action': action,
+      'payload': {
+        'imageBase64': primaryBase64,
+        'userId': userId,
+      },
+    };
+
+    if (secondaryBase64 != null) {
+      payload['payload']['idImageBase64'] = secondaryBase64;
+    }
+
+    return payload;
+  }
+
   // ── CLOUDFLARE WORKER DIRECT REST CLIENT ──
   // necxa-ai v2: Runs on Cloudflare Workers at api.necxa.uk
   // Endpoints: /api/verify/photo, /api/verify/video, /api/verify/audio,
@@ -226,30 +247,67 @@ class NecxaAI {
   }
 
   // ── IDENTITY VERIFICATION ──
-  static Future<Map<String, dynamic>> verifyID(File imageFile, {String? userId}) async {
+  static Future<Map<String, dynamic>> verifyID(File imageFile, {String? userId, String action = 'verify-id'}) async {
     try {
       final session = Supabase.instance.client.auth.currentSession;
       if (session == null) throw Exception("User must be logged in to verify ID natively.");
 
-      final req = http.MultipartRequest('POST', Uri.parse('$_workerBase/api/verify/id'))
-        ..headers.addAll(_workerHeaders())
-        ..files.add(await http.MultipartFile.fromPath('idFront', imageFile.path));
-      
-      final streamed = await req.send().timeout(const Duration(seconds: 15));
-      final body = await streamed.stream.bytesToString();
-      final aiData = jsonDecode(body) as Map<String, dynamic>;
-      
-      if (aiData['success'] == true) {
-        final ocr = aiData['ocrResult'] as Map<String, dynamic>? ?? {};
-        if (ocr['similarityScore'] != null && ocr['score'] == null) {
-           ocr['score'] = ocr['similarityScore'];
-        }
-        return ocr;
-      } else {
-        return {'verified': false, 'feedback': aiData['error'] ?? 'ID verification failed', 'score': 0};
-      }
+      final primaryBase64 = await fileToBase64(imageFile);
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-identity-shard',
+        headers: _aiHeaders(),
+        body: buildIdentityShardPayload(
+          action: action,
+          primaryBase64: primaryBase64,
+          userId: userId ?? session.user.id,
+        ),
+      );
+
+      final data = Map<String, dynamic>.from(res.data ?? {});
+      final verified = data['verified'] == true;
+      final feedback = data['feedback']?.toString() ?? data['error']?.toString() ?? 'ID verification failed';
+      final score = data['score'] is num ? data['score'] : num.tryParse(data['score']?.toString() ?? '');
+
+      return {
+        ...data,
+        'verified': verified,
+        'feedback': feedback,
+        'score': score ?? 0,
+      };
     } catch (e) {
-      return {'verified': false, 'feedback': 'Capture audit failed: $e', 'score': 0};
+      return {'verified': false, 'feedback': 'Verification failed: $e', 'score': 0};
+    }
+  }
+
+  static Future<Map<String, dynamic>> verifyFaceOnly(File selfieFile, {String? userId}) async {
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) throw Exception("User must be logged in to verify biometrics natively.");
+
+      final primaryBase64 = await fileToBase64(selfieFile);
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-identity-shard',
+        headers: _aiHeaders(),
+        body: buildIdentityShardPayload(
+          action: 'verify-face-only',
+          primaryBase64: primaryBase64,
+          userId: userId ?? session.user.id,
+        ),
+      );
+
+      final data = Map<String, dynamic>.from(res.data ?? {});
+      final faceMatch = data['faceMatch'] == true || data['verified'] == true;
+      final feedback = data['feedback']?.toString() ?? data['error']?.toString() ?? 'Face-only verification failed';
+      final score = data['score'] is num ? data['score'] : num.tryParse(data['score']?.toString() ?? '');
+
+      return {
+        ...data,
+        'faceMatch': faceMatch,
+        'feedback': feedback,
+        'score': score ?? 0,
+      };
+    } catch (e) {
+      return {'faceMatch': false, 'feedback': 'Verification failed: $e', 'score': 0};
     }
   }
 
@@ -294,26 +352,32 @@ class NecxaAI {
       final session = Supabase.instance.client.auth.currentSession;
       if (session == null) throw Exception("User must be logged in to verify biometrics natively.");
 
-      final req = http.MultipartRequest('POST', Uri.parse('$_workerBase/api/verify/biometric'))
-        ..headers.addAll(_workerHeaders())
-        ..files.add(await http.MultipartFile.fromPath('selfie', selfieFile.path))
-        ..files.add(await http.MultipartFile.fromPath('idReference', idReferenceFile.path));
-      
-      final streamed = await req.send().timeout(const Duration(seconds: 15));
-      final body = await streamed.stream.bytesToString();
-      final aiData = jsonDecode(body) as Map<String, dynamic>;
-      
-      if (aiData['success'] == true) {
-        final bio = aiData['biometricResult'] as Map<String, dynamic>? ?? {};
-        if (bio['similarityScore'] != null && bio['score'] == null) {
-          bio['score'] = bio['similarityScore'];
-        }
-        return bio;
-      } else {
-        return {'faceMatch': false, 'feedback': aiData['error'] ?? 'Biometric verification failed', 'score': 0};
-      }
+      final primaryBase64 = await fileToBase64(selfieFile);
+      final secondaryBase64 = await fileToBase64(idReferenceFile);
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-identity-shard',
+        headers: _aiHeaders(),
+        body: buildIdentityShardPayload(
+          action: 'verify-selfie',
+          primaryBase64: primaryBase64,
+          secondaryBase64: secondaryBase64,
+          userId: userId ?? session.user.id,
+        ),
+      );
+
+      final data = Map<String, dynamic>.from(res.data ?? {});
+      final faceMatch = data['faceMatch'] == true || data['verified'] == true;
+      final feedback = data['feedback']?.toString() ?? data['error']?.toString() ?? 'Biometric verification failed';
+      final score = data['score'] is num ? data['score'] : num.tryParse(data['score']?.toString() ?? '');
+
+      return {
+        ...data,
+        'faceMatch': faceMatch,
+        'feedback': feedback,
+        'score': score ?? 0,
+      };
     } catch (e) {
-      return {'faceMatch': false, 'feedback': 'Biometric audit failed: $e', 'score': 0};
+      return {'faceMatch': false, 'feedback': 'Verification failed: $e', 'score': 0};
     }
   }
 
