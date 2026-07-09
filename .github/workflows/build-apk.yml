@@ -14,6 +14,23 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # ── Free up disk space (~10GB) before heavy Flutter/FFmpeg build ──
+    - name: Free disk space
+      run: |
+        echo "=== Disk before cleanup ==="
+        df -h
+        sudo rm -rf /usr/local/lib/android/sdk/emulator
+        sudo rm -rf /usr/local/lib/android/sdk/system-images
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /opt/hostedtoolcache/go
+        sudo rm -rf /opt/hostedtoolcache/node
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/.ghcup
+        sudo apt-get clean
+        docker image prune -af || true
+        echo "=== Disk after cleanup ==="
+        df -h
+
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
@@ -25,27 +42,17 @@ jobs:
       with:
         flutter-version: '3.38.6'
         channel: 'stable'
+        cache: true
 
     - name: Get dependencies
       run: flutter pub get
 
-    - name: Build APK (Debug)
-      run: flutter build apk --debug --split-per-abi
-
-    - name: Build APK (Release)
+    - name: Build APK Release (split per ABI)
       run: flutter build apk --release --split-per-abi
 
-    - name: Upload APK artifacts
+    - name: Upload Release APKs
       uses: actions/upload-artifact@v4
       with:
-        name: apk-builds
-        path: build/app/outputs/flutter-apk/
-        retention-days: 7
-
-    - name: Upload Release APK
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: necxa-app-release
-        path: build/app/outputs/flutter-apk/app-release*.apk
+        name: necxa-apk-release
+        path: build/app/outputs/flutter-apk/app-*-release.apk
         retention-days: 30
