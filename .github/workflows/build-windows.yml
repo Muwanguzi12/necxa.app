@@ -1,0 +1,43 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.38.6'
+        channel: 'stable'
+
+    - name: Enable Windows Desktop
+      run: flutter config --enable-windows-desktop
+
+    - name: Get dependencies
+      run: flutter pub get
+
+    - name: Build Windows
+      run: flutter build windows --release
+
+    - name: Archive Windows Release
+      uses: actions/upload-artifact@v4
+      with:
+        name: necxa-windows-release
+        path: build/windows/x64/runner/Release
+        retention-days: 30
