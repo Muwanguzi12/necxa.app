@@ -8,7 +8,7 @@ import 'dart:io';
 import 'dart:async';
 import '../theme.dart';
 import '../app_state.dart';
-import '../widgets/media_editor_screen.dart';
+import 'pro_media_editor_screen.dart';
 import '../widgets/campaign_ui_kit.dart';
 import '../utils/content_sanitizer.dart';
 import '../utils/media_helpers.dart';
@@ -231,7 +231,7 @@ class _UploadScreenState extends State<UploadScreen>
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => MediaEditorScreen(
+        builder: (context) => ProMediaEditorScreen(
           initialImage: isVideo ? null : file,
           initialVideo: isVideo ? file : null,
           initialTrack: _bakedTrack,
@@ -244,7 +244,7 @@ class _UploadScreenState extends State<UploadScreen>
     
     if (result is Map) {
       final List? sequence = result['sequence'];
-      final File? enhanced = result['file'] ?? (sequence != null && sequence.isNotEmpty ? (sequence.first is VideoClip ? (sequence.first as VideoClip).file : sequence.first as File) : null);
+      final File? enhanced = result['combined_file'] ?? (sequence != null && sequence.isNotEmpty ? (sequence.first as VideoClip).file : null);
       final MusicTrack? track = result['track'];
 
       if (sequence != null) {
@@ -1500,7 +1500,7 @@ class _UploadScreenState extends State<UploadScreen>
       final res = await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => MediaEditorScreen(
+          builder: (_) => ProMediaEditorScreen(
             state: widget.state,
             initialVideo: file,
             initialTrack: track,
