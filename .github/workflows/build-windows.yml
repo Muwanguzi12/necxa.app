@@ -62,35 +62,35 @@ jobs:
         }
         Write-Host "Using Agora plugin directory: $pluginDir"
 
-        # 2. Read the CMakeLists.txt to get dynamic URLs
-        $cmakeFile = "$pluginDir\windows\CMakeLists.txt"
+        # 2. Read the Agora download manifest to get dynamic URLs
+        $cmakeFile = Join-Path $pluginDir 'windows\cmake\DownloadSDK.cmake'
         if (-not (Test-Path $cmakeFile)) {
-            Write-Host "FATAL: CMakeLists.txt not found at $cmakeFile"
+            Write-Host "FATAL: DownloadSDK.cmake not found at $cmakeFile"
             exit 1
         }
         $cmakeContent = Get-Content $cmakeFile -Raw
 
-        # 3. Helper function to extract SDK info using Regex
-        function Get-SdkInfo($sdkName, $content) {
-            $pattern = "(?s)FetchContent_Declare\(\s*${sdkName}\s*URL\s*""([^""]+)""";
-            $match = [regex]::Match($content, $pattern);
+        # 3. Helper function to extract SDK url variables from DownloadSDK.cmake
+        function Get-SdkInfo($varName, $content) {
+            $pattern = "set\s*\(\s*${varName}\s*\"([^\"]+)\"\s*\)"
+            $match = [regex]::Match($content, $pattern)
             if ($match.Success) {
-                $url = $match.Groups[1].Value;
-                $fileName = $url.Split('/')[-1];
-                return @{ Url = $url; FileName = $fileName };
+                $url = $match.Groups[1].Value
+                $fileName = $url.Split('/')[-1]
+                return @{ Url = $url; FileName = $fileName }
             }
-            return $null;
+            return $null
         }
 
-        $irisInfo = Get-SdkInfo "iris_sdk" $cmakeContent
-        $nativeInfo = Get-SdkInfo "native_sdk" $cmakeContent
+        $irisInfo = Get-SdkInfo 'IRIS_SDK_DOWNLOAD_URL' $cmakeContent
+        $nativeInfo = Get-SdkInfo 'NATIVE_SDK_DOWNLOAD_URL' $cmakeContent
 
         if (-not $irisInfo) {
-            Write-Host "FATAL: Could not extract Iris SDK URL from CMakeLists.txt"
+            Write-Host "FATAL: Could not extract Iris SDK URL from DownloadSDK.cmake"
             exit 1
         }
         if (-not $nativeInfo) {
-            Write-Host "FATAL: Could not extract Native SDK URL from CMakeLists.txt"
+            Write-Host "FATAL: Could not extract Native SDK URL from DownloadSDK.cmake"
             exit 1
         }
 
