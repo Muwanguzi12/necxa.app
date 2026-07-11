@@ -35,7 +35,7 @@ class ContentSanitizer {
     List<String> explicitTags = sanitizeTags(manualTags);
     List<String> inlineTags = extractHashtagsFromText(description);
     
-    return {...explicitTags, ...inlineTags}.toList();
+    return <String>{...explicitTags, ...inlineTags}.toList();
   }
 
   /// Cleans the descriptions to prevent text injections, excessive whitespace, 

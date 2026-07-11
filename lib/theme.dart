@@ -18,6 +18,7 @@ class C {
 
   static Color get bg      => isDark ? const Color(0xFF030A14) : const Color(0xFFF9FAFB);
   static Color get card    => isDark ? const Color(0xFF0A1324) : const Color(0xFFFFFFFF);
+  static Color get surface => isDark ? const Color(0xFF101B2E) : const Color(0xFFF3F4F6);
   static Color get card2   => isDark ? const Color(0xFF101B2E) : const Color(0xFFF3F4F6);
   static Color get border  => isDark ? const Color(0xFF1A263D) : const Color(0xFFE5E7EB);
   static Color get dark    => isDark ? const Color(0xFF1A263D) : const Color(0xFFD1D5DB);

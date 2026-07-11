@@ -8,6 +8,7 @@ import 'dart:io';
 import 'dart:async';
 import '../theme.dart';
 import 'pro_media_editor_screen.dart';
+import 'responsive_media_editor.dart';
 import '../widgets/campaign_ui_kit.dart';
 import '../utils/content_sanitizer.dart';
 import '../services/music_library_service.dart';
@@ -184,13 +185,13 @@ class _UploadScreenState extends State<UploadScreen>
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ProMediaEditorScreen(
+        builder: (context) => ResponsiveMediaEditor(
+          state: widget.state,
           initialImage: isVideo ? null : file,
           initialVideo: isVideo ? file : null,
           initialTrack: _bakedTrack,
           multiFiles: _multiFiles,
           isFastSync: isFastSync,
-          state: widget.state,
         ),
       ),
     );
@@ -1241,7 +1242,7 @@ class _UploadScreenState extends State<UploadScreen>
       final res = await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ProMediaEditorScreen(
+          builder: (_) => ResponsiveMediaEditor(
             state: widget.state,
             initialVideo: file,
             initialTrack: track,
