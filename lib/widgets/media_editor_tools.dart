@@ -61,7 +61,7 @@ class _TrimToolState extends State<TrimTool> {
             ),
             min: 0,
             max: widget.trimOperation.maxDuration.inMilliseconds.toDouble(),
-            activeColor: C.brand.withOpacity(0.5), // Make it semi-transparent
+            activeColor: C.brand.withAlpha(128), // Make it semi-transparent
             inactiveColor: Colors.transparent, // Hide the inactive track
             onChanged: (values) => widget.onTrimChanged(
                 Duration(milliseconds: values.start.round()), Duration(milliseconds: values.end.round())),

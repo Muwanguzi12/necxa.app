@@ -49,6 +49,7 @@ class TextOverlay extends EditOperation {
         'rotation': rotation,
         'font': style.fontFamily,
         'fontSize': style.fontSize,
+        // ignore: deprecated_member_use
         'color': '#${style.color?.value.toRadixString(16)}',
       };
 }

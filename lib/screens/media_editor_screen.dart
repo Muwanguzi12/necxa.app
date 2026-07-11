@@ -352,7 +352,7 @@ class _PreviewCanvas extends StatelessWidget {
   const _PreviewCanvas({required this.controller, required this.activeFilter});
 
   // A map of filter names to ColorFilter objects for demonstration.
-  static const Map<String, ColorFilter> _filterMap = {
+  static final Map<String, ColorFilter> _filterMap = {
     'None': ColorFilter.mode(Colors.transparent, BlendMode.dst), // No effect
     'Sepia': ColorFilter.matrix(<double>[
       0.393, 0.769, 0.189, 0, 0, //
@@ -371,7 +371,7 @@ class _PreviewCanvas extends StatelessWidget {
     'Warm': ColorFilter.mode(Color(0xFFFFDAB9), BlendMode.softLight),
     'Vivid': ColorFilter.mode(Colors.red, BlendMode.colorBurn),
     'Chrome': ColorFilter.mode(Colors.grey, BlendMode.saturation),
-    'Fade': ColorFilter.mode(Colors.black.withOpacity(0.3), BlendMode.darken),
+    'Fade': ColorFilter.mode(Colors.black.withAlpha(77), BlendMode.darken),
   };
   @override
   Widget build(BuildContext context) {
@@ -636,7 +636,7 @@ class _TimelineTrackItem extends StatelessWidget {
                 onDragEnd: onClipDragEnd,
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -669,16 +669,16 @@ class _TimelineClipItem extends StatelessWidget {
 
     switch (clip.operation.type) {
       case 'trim':
-        clipColor = C.blue.withOpacity(0.7);
+        clipColor = C.blue.withAlpha(179);
         break;
       case 'text':
-        clipColor = C.purple.withOpacity(0.7);
+        clipColor = C.purple.withAlpha(179);
         break;
       case 'audio':
-        clipColor = C.green.withOpacity(0.7);
+        clipColor = C.green.withAlpha(179);
         break;
       default:
-        clipColor = C.gold.withOpacity(0.7);
+        clipColor = C.gold.withAlpha(179);
     }
 
     return GestureDetector(
@@ -700,7 +700,7 @@ class _TimelineClipItem extends StatelessWidget {
         decoration: BoxDecoration(
           color: clipColor,
           borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.white.withOpacity(0.5), width: 1),
+          border: Border.all(color: Colors.white.withAlpha(128), width: 1),
         ),
         child: Stack(
           alignment: Alignment.center,
@@ -720,7 +720,7 @@ class _TimelineClipItem extends StatelessWidget {
                 child: Container(
                   width: _handleWidth,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withAlpha(51),
                     borderRadius: const BorderRadius.only(topLeft: Radius.circular(3), bottomLeft: Radius.circular(3)),
                   ),
                   child: const Center(child: Icon(Icons.drag_handle, color: Colors.white54, size: 14)),
@@ -732,7 +732,7 @@ class _TimelineClipItem extends StatelessWidget {
                 child: Container(
                   width: _handleWidth,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withAlpha(51),
                     borderRadius: const BorderRadius.only(topRight: Radius.circular(3), bottomRight: Radius.circular(3)),
                   ),
                   child: const Center(child: Icon(Icons.drag_handle, color: Colors.white54, size: 14)),
