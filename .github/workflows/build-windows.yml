@@ -127,9 +127,17 @@ jobs:
     - name: Build Windows Release
       run: flutter build windows --release
 
-    - name: Archive Windows Release
+    - name: Setup Inno Setup
+      uses: ammaraskar/setup-inno-setup@v1.0.0
+
+    - name: Build Windows Installer
+      # This command runs the Inno Setup compiler on the script we just created.
+      run: iscc.exe "windows\packaging\inno_setup.iss"
+
+    - name: Archive Windows Installer
       uses: actions/upload-artifact@v4
       with:
-        name: necxa-windows-release
-        path: build/windows/x64/runner/Release
+        # The artifact will now be a single, easy-to-distribute installer file.
+        name: necxa-windows-installer
+        path: build/windows/installer/*.exe
         retention-days: 30
