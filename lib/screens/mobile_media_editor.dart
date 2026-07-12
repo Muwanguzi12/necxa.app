@@ -1,8 +1,11 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import '../theme.dart';
 import '../app_state.dart';
+import '../widgets/media_editor_tools.dart';
+import '../widgets/mobile_editor_panels.dart';
 import 'pro_media_editor_screen.dart';
 
 // ══════════════════════════════════════════════════════════════
@@ -41,11 +44,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   
   // ── Canvas State ─────────────────────────────────────────────
   double _canvasScale = 1.0;
+  double _gestureScale = 1.0;
+  double _canvasRotation = 0.0;
+  double _gestureRotation = 0.0;
   Offset _canvasOffset = Offset.zero;
+  
+  // ── Media Playback ─────────────────────────────────────────
+  VideoPlayerController? _videoController;
+  bool _isVideoReady = false;
   
   // ── UI State ─────────────────────────────────────────────────
   int _activeToolPanel = 0; // 0: Timeline, 1: Media, 2: Audio, 3: Text, 4: Effects
   bool _showFullscreenPreview = false;
+  String _selectedAspectRatio = '9:16';
+  String _selectedResolution = '1080p';
+  String _selectedFps = '30fps';
   
   // ── Controllers ──────────────────────────────────────────────
   late TabController _bottomNavController;
@@ -58,15 +71,63 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
   
   void _initializeEditor() {
-    // Create default tracks
-    _tracks.addAll([
-      EditorTrack(id: 'video-1', name: 'Video', type: TrackType.video),
-      EditorTrack(id: 'audio-1', name: 'Audio', type: TrackType.audio),
-    ]);
+    final videoTrack = EditorTrack(id: 'video-1', name: 'Video', type: TrackType.video);
+    videoTrack.clips.add(EditorObject(
+      id: 'video-clip-1',
+      name: 'Main Clip',
+      type: 'video',
+      startTime: Duration.zero,
+      duration: const Duration(seconds: 12),
+    ));
+
+    final audioTrack = EditorTrack(id: 'audio-1', name: 'Audio', type: TrackType.audio);
+    audioTrack.clips.add(EditorObject(
+      id: 'audio-clip-1',
+      name: 'Voiceover',
+      type: 'audio',
+      startTime: Duration.zero,
+      duration: const Duration(seconds: 12),
+    ));
+
+    final textTrack = EditorTrack(id: 'text-1', name: 'Text', type: TrackType.text);
+    textTrack.clips.add(EditorObject(
+      id: 'text-clip-1',
+      name: 'Caption',
+      type: 'text',
+      startTime: const Duration(seconds: 2),
+      duration: const Duration(seconds: 4),
+    ));
+
+    final effectsTrack = EditorTrack(id: 'effects-1', name: 'Effects', type: TrackType.effects);
+    effectsTrack.clips.add(EditorObject(
+      id: 'effect-clip-1',
+      name: 'Glow',
+      type: 'effects',
+      startTime: const Duration(seconds: 4),
+      duration: const Duration(seconds: 3),
+    ));
+
+    _tracks.addAll([videoTrack, audioTrack, textTrack, effectsTrack]);
+
+    if (widget.initialMedia != null && widget.initialMedia!.existsSync()) {
+      _videoController = VideoPlayerController.file(widget.initialMedia!)
+        ..initialize().then((_) {
+          if (!mounted) return;
+          setState(() {
+            _isVideoReady = true;
+            _totalDuration = _videoController!.value.duration;
+          });
+          _videoController!.setLooping(true);
+          _videoController!.addListener(_syncVideoState);
+          _videoController!.play();
+        });
+    }
   }
   
   @override
   void dispose() {
+    _videoController?.removeListener(_syncVideoState);
+    _videoController?.dispose();
     _bottomNavController.dispose();
     super.dispose();
   }
@@ -81,31 +142,152 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return ProMediaEditorScreen(state: widget.state);
     }
     
-    // Portrait: use mobile layout
     return Scaffold(
       backgroundColor: C.bg,
-      body: Column(
-        children: [
-          _buildMobileHeader(screenSize),
-          Expanded(
-            child: Column(
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Column(
               children: [
-                _buildPreviewCanvas(screenSize),
-                _buildPlaybackControls(screenSize),
+                _buildMobileHeader(screenSize),
                 Expanded(
-                  child: _buildTimelineWorkspace(screenSize),
+                  child: Column(
+                    children: [
+                      _buildPreviewCanvas(screenSize),
+                      _buildPlaybackControls(screenSize),
+                      Expanded(
+                        child: _buildTimelineWorkspace(screenSize),
+                      ),
+                    ],
+                  ),
                 ),
+                _buildContextToolbar(screenSize),
+                _buildBottomNavigation(screenSize),
               ],
             ),
-          ),
-          _buildContextToolbar(screenSize),
-          _buildBottomNavigation(screenSize),
-        ],
+            if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
+          ],
+        ),
       ),
       floatingActionButton: _buildFloatingActions(),
     );
   }
   
+  Widget _buildFullscreenPreviewOverlay() {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.96),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => setState(() => _showFullscreenPreview = false),
+                      icon: const Icon(Icons.close, color: Colors.white),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'Fullscreen Preview',
+                        style: dm(sz: 11, c: Colors.white, w: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: 9 / 16,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.white24),
+                        color: Colors.black,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: _buildCanvasContent(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(_formatDuration(_currentTime), style: dm(sz: 12, c: Colors.white, w: FontWeight.w700)),
+                        Text(_formatDuration(_totalDuration), style: dm(sz: 12, c: Colors.white70)),
+                      ],
+                    ),
+                    Slider(
+                      value: _totalDuration.inMilliseconds > 0
+                          ? _currentTime.inMilliseconds / _totalDuration.inMilliseconds
+                          : 0.0,
+                      onChanged: (value) {
+                        if (_videoController != null && _totalDuration.inMilliseconds > 0) {
+                          final target = Duration(milliseconds: (value * _totalDuration.inMilliseconds).round());
+                          _videoController!.seekTo(target);
+                        }
+                      },
+                      activeColor: C.brand,
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildFullscreenControl(Icons.skip_previous, () => _previousFrame()),
+                        const SizedBox(width: 12),
+                        _buildFullscreenControl(
+                          _isPlaying ? Icons.pause : Icons.play_arrow,
+                          () => _togglePlayback(),
+                          isLarge: true,
+                        ),
+                        const SizedBox(width: 12),
+                        _buildFullscreenControl(Icons.skip_next, () => _nextFrame()),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFullscreenControl(IconData icon, VoidCallback onTap, {bool isLarge = false}) {
+    return Container(
+      width: isLarge ? 56 : 44,
+      height: isLarge ? 56 : 44,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(isLarge ? 28 : 12),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(isLarge ? 28 : 12),
+          child: Icon(icon, color: Colors.white, size: isLarge ? 28 : 22),
+        ),
+      ),
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════
   // A. HEADER (8–10% of screen)
   // ═══════════════════════════════════════════════════════════
@@ -118,7 +300,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         color: C.card,
         border: Border(bottom: BorderSide(color: C.border)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
           // Logo & Project Name
@@ -129,46 +311,58 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               children: [
                 Text(
                   'NECXA EDITOR',
-                  style: syne(sz: 12, w: FontWeight.w800, c: C.brand),
+                  style: syne(sz: 11, w: FontWeight.w800, c: C.brand),
                 ),
                 Text(
                   'Project 1',
-                  style: dm(sz: 9, w: FontWeight.w500, c: C.dim),
+                  style: dm(sz: 8.5, w: FontWeight.w500, c: C.dim),
                 ),
               ],
             ),
           ),
           
-          // Quick Settings: Aspect Ratio
-          GestureDetector(
-            onTap: () => _showAspectRatioMenu(),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: C.surface,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: C.border),
-              ),
-              child: Text('9:16', style: dm(sz: 8, w: FontWeight.w600)),
-            ),
+          // Quick Settings
+          Row(
+            children: [
+              _buildSettingsChip(_selectedAspectRatio, () => _showSelectionSheet('Aspect ratio', ['9:16', '16:9', '1:1', '4:5'], (value) => setState(() => _selectedAspectRatio = value))),
+              const SizedBox(width: 4),
+              _buildSettingsChip(_selectedResolution, () => _showSelectionSheet('Resolution', ['480p', '720p', '1080p', '4K'], (value) => setState(() => _selectedResolution = value))),
+              const SizedBox(width: 4),
+              _buildSettingsChip(_selectedFps, () => _showSelectionSheet('FPS', ['24fps', '30fps', '60fps'], (value) => setState(() => _selectedFps = value))),
+            ],
           ),
           
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           
           // Undo/Redo
-          _buildIconButton(Icons.undo, () => _undo(), size: 18),
-          const SizedBox(width: 4),
-          _buildIconButton(Icons.redo, () => _redo(), size: 18),
+          _buildIconButton(Icons.undo, () => _undo(), size: 16),
+          const SizedBox(width: 2),
+          _buildIconButton(Icons.redo, () => _redo(), size: 16),
           
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           
           // Export
-          _buildIconButton(Icons.download, () => _export(), size: 18),
+          _buildIconButton(Icons.download, () => _export(), size: 16),
         ],
       ),
     );
   }
   
+  Widget _buildSettingsChip(String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: C.border),
+        ),
+        child: Text(label, style: dm(sz: 7.5, w: FontWeight.w600)),
+      ),
+    );
+  }
+
   Widget _buildIconButton(IconData icon, VoidCallback onTap, {double size = 24}) {
     return Material(
       color: Colors.transparent,
@@ -197,11 +391,28 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Canvas with touch gestures
           GestureDetector(
+            onTap: () => setState(() {
+              _selectedObject = EditorObject(
+                id: 'preview-clip',
+                name: 'Preview',
+                type: 'video',
+                startTime: _currentTime,
+                duration: const Duration(seconds: 1),
+              );
+            }),
             onDoubleTap: () => setState(() {
-              _canvasScale = _canvasScale == 1.0 ? 2.0 : 1.0;
+              _canvasScale = _canvasScale == 1.0 ? 1.8 : 1.0;
+              _canvasRotation = 0.0;
               _canvasOffset = Offset.zero;
+            }),
+            onScaleStart: (_) => setState(() {
+              _gestureScale = _canvasScale;
+              _gestureRotation = _canvasRotation;
+            }),
+            onScaleUpdate: (details) => setState(() {
+              _canvasScale = (_gestureScale * details.scale).clamp(0.85, 3.0);
+              _canvasRotation = _gestureRotation + details.rotation;
             }),
             onPanUpdate: (details) {
               if (_canvasScale > 1.0) {
@@ -212,22 +423,24 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             },
             child: Transform.translate(
               offset: _canvasOffset,
-              child: Transform.scale(
-                scale: _canvasScale,
-                child: Container(
-                  width: maxCanvasWidth,
-                  height: canvasHeight,
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    border: Border.all(color: C.dim.withAlpha(51)),
+              child: Transform.rotate(
+                angle: _canvasRotation,
+                child: Transform.scale(
+                  scale: _canvasScale,
+                  child: Container(
+                    width: maxCanvasWidth,
+                    height: canvasHeight,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      border: Border.all(color: C.dim.withAlpha(51)),
+                    ),
+                    child: _buildCanvasContent(),
                   ),
-                  child: _buildCanvasContent(),
                 ),
               ),
             ),
           ),
           
-          // Safe area overlay
           Positioned.fill(
             child: IgnorePointer(
               child: Container(
@@ -241,7 +454,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             ),
           ),
           
-          // Zoom indicator (when scaled)
           if (_canvasScale > 1.0)
             Positioned(
               top: 8,
@@ -265,7 +477,34 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
   
   Widget _buildCanvasContent() {
-    // Placeholder for actual media content
+    if (_isVideoReady && _videoController != null) {
+      return Stack(
+        children: [
+          Center(
+            child: AspectRatio(
+              aspectRatio: _videoController!.value.aspectRatio,
+              child: VideoPlayer(_videoController!),
+            ),
+          ),
+          Positioned(
+            bottom: 10,
+            left: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                _isPlaying ? 'Playing' : 'Paused',
+                style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -297,13 +536,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Time Display
           Text(
             _formatDuration(_currentTime),
             style: dm(sz: 12, w: FontWeight.w600, c: C.brand),
           ),
-          
-          // Playback Buttons
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -318,8 +554,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               _buildPlaybackButton(Icons.skip_next, () => _nextFrame()),
             ],
           ),
-          
-          // Duration Display
           Text(
             _formatDuration(_totalDuration),
             style: dm(sz: 12, c: C.dim),
@@ -361,12 +595,27 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       color: C.bg,
       child: Column(
         children: [
-          // Timeline ruler
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            child: Row(
+              children: [
+                Text('Timeline', style: syne(sz: 12, w: FontWeight.w800, c: C.text)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: C.brand.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text('4 Tracks', style: dm(sz: 9, c: C.brand, w: FontWeight.w700)),
+                ),
+              ],
+            ),
+          ),
           _buildTimelineRuler(screenSize),
-          
-          // Tracks
           Expanded(
             child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 8),
               itemCount: _tracks.length,
               itemBuilder: (context, index) {
                 return _buildTrackRow(_tracks[index], index, screenSize);
@@ -379,52 +628,58 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
   
   Widget _buildTimelineRuler(Size screenSize) {
-    const rulerHeight = 24.0;
-    final rulerWidth = screenSize.width * 0.85;
+    const rulerHeight = 28.0;
+    final timelineWidth = (screenSize.width - 96).clamp(0.0, double.infinity);
+    final playheadOffset = _totalDuration.inMilliseconds > 0
+        ? ((screenSize.width - 96) * (_currentTime.inMilliseconds / _totalDuration.inMilliseconds)).clamp(0.0, timelineWidth)
+        : 0.0;
     
     return Container(
       height: rulerHeight,
       color: C.card,
       padding: const EdgeInsets.only(left: 48),
-      child: Stack(
-        children: [
-          // Time markers
-          Row(
-            children: List.generate(
-              (_totalDuration.inSeconds / 5).ceil(),
-              (i) => Expanded(
-                child: Column(
-                  children: [
-                    Container(
-                      width: 1,
-                      height: 4,
-                      color: C.dim.withAlpha(128),
-                    ),
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          '${i * 5}s',
-                          style: dm(sz: 7, c: C.dim),
+      child: GestureDetector(
+        onTapDown: (details) {
+          if (_totalDuration.inMilliseconds > 0) {
+            final localX = details.localPosition.dx.clamp(0.0, timelineWidth);
+            final targetMs = ((localX / timelineWidth) * _totalDuration.inMilliseconds).round();
+            _videoController?.seekTo(Duration(milliseconds: targetMs));
+          }
+        },
+        child: Stack(
+          children: [
+            Row(
+              children: List.generate(
+                (_totalDuration.inSeconds / 5).ceil(),
+                (i) => Expanded(
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 1,
+                        height: 4,
+                        color: C.dim.withAlpha(128),
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            '${i * 5}s',
+                            style: dm(sz: 7, c: C.dim),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          
-          // Playhead
-          Positioned(
-            left: 48 + _playheadPosition,
-            top: 0,
-            bottom: 0,
-            child: Container(
-              width: 2,
-              color: C.brand,
+            Positioned(
+              left: playheadOffset,
+              top: 0,
+              bottom: 0,
+              child: Container(width: 2, color: C.brand),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -435,29 +690,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
       decoration: BoxDecoration(
-        color: isSelected ? C.brand.withAlpha(26) : C.surface,
+        color: isSelected ? C.brand.withOpacity(0.12) : C.surface,
         border: Border.all(
           color: isSelected ? C.brand : C.border,
           width: isSelected ? 1.5 : 1,
         ),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
-          // Track Label
           GestureDetector(
             onTap: () => setState(() => _selectedTrackIndex = index),
             child: Container(
               width: 48,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    _getTrackIcon(track.type),
-                    style: const TextStyle(fontSize: 16),
-                  ),
+                  Text(_getTrackIcon(track.type), style: const TextStyle(fontSize: 16)),
                   Text(
                     track.name.substring(0, min(3, track.name.length)),
                     style: dm(sz: 7, c: C.dim),
@@ -466,44 +717,54 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               ),
             ),
           ),
-          
-          // Clips & Timeline
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: track.clips.map((clip) {
-                  return GestureDetector(
-                    onTap: () => setState(() {
-                      _selectedObject = clip;
-                      _selectedTrackId = track.id;
-                    }),
-                    child: Container(
-                      width: (clip.duration.inMilliseconds / 100).toDouble(),
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: clip == _selectedObject ? C.brand : C.dim.withAlpha(77),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: clip == _selectedObject ? C.brand : Colors.transparent,
-                          width: 2,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: track.clips.map((clip) {
+                    final clipWidth = (clip.duration.inMilliseconds / 140).clamp(70.0, 220.0).toDouble();
+                    return GestureDetector(
+                      onTap: () => setState(() {
+                        _selectedObject = clip;
+                        _selectedTrackId = track.id;
+                      }),
+                      child: Container(
+                        width: clipWidth,
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: clip == _selectedObject ? C.brand : _trackColorForType(track.type),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: clip == _selectedObject ? C.brand : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              clip.name,
+                              style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                            Text(
+                              _formatDuration(clip.duration),
+                              style: dm(sz: 7, c: Colors.white70),
+                            ),
+                          ],
                         ),
                       ),
-                      child: Text(
-                        clip.name,
-                        style: dm(sz: 8, c: Colors.white, w: FontWeight.w600),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                    ),
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
           ),
-          
-          // Track Controls
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: Row(
@@ -518,6 +779,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ],
       ),
     );
+  }
+
+  Color _trackColorForType(TrackType type) {
+    switch (type) {
+      case TrackType.video:
+        return const Color(0xFF4F46E5);
+      case TrackType.audio:
+        return const Color(0xFF0891B2);
+      case TrackType.text:
+        return const Color(0xFFF59E0B);
+      case TrackType.effects:
+        return const Color(0xFFEC4899);
+      default:
+        return C.dim.withOpacity(0.8);
+    }
   }
   
   Widget _buildTrackButton(IconData icon, VoidCallback onTap, {double size = 20}) {
@@ -551,22 +827,22 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // ═══════════════════════════════════════════════════════════
   Widget _buildContextToolbar(Size screenSize) {
     return Container(
-      height: 48,
+      height: 64,
       decoration: BoxDecoration(
         color: C.card,
         border: Border(top: BorderSide(color: C.border)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: _buildContextualTools(),
     );
   }
   
   Widget _buildContextualTools() {
     if (_selectedObject == null) {
-      return Center(
-        child: Text(
-          'Select an item to edit',
-          style: dm(sz: 11, c: C.dim, w: FontWeight.w500),
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: _buildToolsForSelection(),
         ),
       );
     }
@@ -577,6 +853,46 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         children: _buildToolsForObject(_selectedObject!),
       ),
     );
+  }
+  
+  List<Widget> _buildToolsForSelection() {
+    switch (_activeToolPanel) {
+      case 1:
+        return [
+          _buildToolButton('Media', () => _showToolPanel('Media')),
+          _buildToolButton('Trim', () => _trimClip()),
+          _buildToolButton('Crop', () => _showSnack('Crop frame')), 
+          _buildToolButton('Speed', () => _adjustSpeed()),
+        ];
+      case 2:
+        return [
+          _buildToolButton('Volume', () => _adjustVolume()),
+          _buildToolButton('Fade', () => _addFade()),
+          _buildToolButton('EQ', () => _showSnack('EQ presets')), 
+          _buildToolButton('Noise', () => _showSnack('Noise removal')),
+        ];
+      case 3:
+        return [
+          _buildToolButton('Font', () => _changeFont()),
+          _buildToolButton('Size', () => _changeFontSize()),
+          _buildToolButton('Color', () => _changeTextColor()),
+          _buildToolButton('Shadow', () => _addShadow()),
+        ];
+      case 4:
+        return [
+          _buildToolButton('Filter', () => _applyFilter()),
+          _buildToolButton('Blur', () => _showSnack('Blur effect')), 
+          _buildToolButton('Glow', () => _showSnack('Glow effect')), 
+          _buildToolButton('Overlay', () => _showSnack('Overlay layer')),
+        ];
+      default:
+        return [
+          _buildToolButton('Split', () => _splitClip()),
+          _buildToolButton('Trim', () => _trimClip()),
+          _buildToolButton('Lock', () => _showSnack('Track locked')), 
+          _buildToolButton('Hide', () => _showSnack('Track hidden')),
+        ];
+    }
   }
   
   List<Widget> _buildToolsForObject(EditorObject obj) {
@@ -647,7 +963,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     ];
     
     return Container(
-      height: 56,
+      height: 52,
       decoration: BoxDecoration(
         color: C.card,
         border: Border(top: BorderSide(color: C.border)),
@@ -657,14 +973,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         children: List.generate(
           navItems.length,
           (index) => GestureDetector(
-            onTap: () => setState(() => _bottomNavController.index = index),
+            onTap: () => setState(() {
+              _activeToolPanel = index;
+              _bottomNavController.index = index;
+            }),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(navItems[index].$1, style: const TextStyle(fontSize: 18)),
+                Text(
+                  navItems[index].$1,
+                  style: TextStyle(fontSize: 16, color: index == _activeToolPanel ? C.brand : C.dim),
+                ),
                 Text(
                   navItems[index].$2,
-                  style: dm(sz: 7, c: C.dim),
+                  style: dm(sz: 6.5, c: index == _activeToolPanel ? C.brand : C.dim),
                 ),
               ],
             ),
@@ -713,33 +1035,110 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // ═══════════════════════════════════════════════════════════
   
   void _showAspectRatioMenu() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Aspect ratio selector')),
+    _showSelectionSheet('Aspect ratio', ['9:16', '16:9', '1:1', '4:5'], (value) => setState(() => _selectedAspectRatio = value));
+  }
+
+  void _showSelectionSheet(String title, List<String> values, ValueChanged<String> onSelect) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: C.card,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: syne(sz: 14, w: FontWeight.w800, c: C.text)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: values.map((value) => GestureDetector(
+                  onTap: () {
+                    onSelect(value);
+                    Navigator.pop(context);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: C.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: C.border),
+                    ),
+                    child: Text(value, style: dm(sz: 11, w: FontWeight.w600)),
+                  ),
+                )).toList(),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
   
-  void _undo() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Undo')));
-  void _redo() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Redo')));
-  void _export() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Export')));
-  void _togglePlayback() => setState(() => _isPlaying = !_isPlaying);
-  void _previousFrame() => setState(() => _currentTime = Duration(milliseconds: math.max(0, _currentTime.inMilliseconds - 100)));
-  void _nextFrame() => setState(() => _currentTime = Duration(milliseconds: _currentTime.inMilliseconds + 100));
-  void _toggleTrackVisibility(int index) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Toggle visibility: ${_tracks[index].name}')));
-  void _toggleTrackLock(int index) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Toggle lock: ${_tracks[index].name}')));
-  void _splitClip() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Split clip')));
-  void _trimClip() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trim clip')));
-  void _adjustSpeed() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Adjust speed')));
-  void _adjustOpacity() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Adjust opacity')));
-  void _applyFilter() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Apply filter')));
-  void _deleteClip() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delete clip')));
-  void _changeFont() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Change font')));
-  void _changeFontSize() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Change font size')));
-  void _changeTextColor() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Change text color')));
-  void _addShadow() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add shadow')));
-  void _adjustVolume() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Adjust volume')));
-  void _addFade() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add fade')));
-  void _saveDraft() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Draft saved')));
-  void _showPreview() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Playing preview')));
+  void _undo() => _showSnack('Undo');
+  void _redo() => _showSnack('Redo');
+  void _export() => _showSnack('Export');
+  void _togglePlayback() {
+    if (_videoController == null) {
+      setState(() => _isPlaying = !_isPlaying);
+      return;
+    }
+
+    if (_videoController!.value.isPlaying) {
+      _videoController!.pause();
+    } else {
+      _videoController!.play();
+    }
+  }
+
+  void _previousFrame() {
+    if (_videoController == null) return;
+    final target = _videoController!.value.position - const Duration(milliseconds: 100);
+    _videoController!.seekTo(target < Duration.zero ? Duration.zero : target);
+  }
+
+  void _nextFrame() {
+    if (_videoController == null) return;
+    final target = _videoController!.value.position + const Duration(milliseconds: 100);
+    final maxDuration = _videoController!.value.duration;
+    _videoController!.seekTo(target > maxDuration ? maxDuration : target);
+  }
+  void _toggleTrackVisibility(int index) => _showSnack('Toggle visibility: ${_tracks[index].name}');
+  void _toggleTrackLock(int index) => _showSnack('Toggle lock: ${_tracks[index].name}');
+  void _splitClip() => _showSnack('Split clip');
+  void _trimClip() => _showSnack('Trim clip');
+  void _adjustSpeed() => _showSnack('Adjust speed');
+  void _adjustOpacity() => _showSnack('Adjust opacity');
+  void _applyFilter() => _showSnack('Apply filter');
+  void _deleteClip() => _showSnack('Delete clip');
+  void _changeFont() => _showSnack('Change font');
+  void _changeFontSize() => _showSnack('Change font size');
+  void _changeTextColor() => _showSnack('Change text color');
+  void _addShadow() => _showSnack('Add shadow');
+  void _adjustVolume() => _showSnack('Adjust volume');
+  void _addFade() => _showSnack('Add fade');
+  void _saveDraft() => _showSnack('Draft saved');
+  void _showPreview() => _showSnack('Playing preview');
+
+  void _showToolPanel(String toolName) => _showSnack('$toolName panel opened');
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _syncVideoState() {
+    if (!mounted || _videoController == null) return;
+    setState(() {
+      _currentTime = _videoController!.value.position;
+      _totalDuration = _videoController!.value.duration;
+      _isPlaying = _videoController!.value.isPlaying;
+      if (_totalDuration.inMilliseconds > 0) {
+        _playheadPosition = (_currentTime.inMilliseconds / _totalDuration.inMilliseconds) * 200;
+      }
+    });
+  }
   
   String _formatDuration(Duration duration) {
     final minutes = duration.inMinutes;
