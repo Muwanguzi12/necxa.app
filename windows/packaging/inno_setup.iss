@@ -3,9 +3,9 @@
 
 #define MyAppName "Necxa"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Necxa, Inc."
+#define MyAppPublisher "Necxa"
 #define MyAppURL "https://necxa.app"
-#define MyAppExeName "necxa_flutter.exe"
+#define MyAppExeName "Necxa.exe"
 
 [Setup]
 AppId={{AUTO}}
@@ -29,6 +29,7 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+Source: ".\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: ".\build\windows\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

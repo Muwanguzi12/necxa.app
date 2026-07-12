@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "necxa_flutter" "\0"
+            VALUE "CompanyName", "Necxa" "\0"
+            VALUE "FileDescription", "Necxa" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "necxa_flutter" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "necxa_flutter.exe" "\0"
-            VALUE "ProductName", "necxa_flutter" "\0"
+            VALUE "InternalName", "Necxa" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Necxa. All rights reserved." "\0"
+            VALUE "OriginalFilename", "Necxa.exe" "\0"
+            VALUE "ProductName", "Necxa" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
