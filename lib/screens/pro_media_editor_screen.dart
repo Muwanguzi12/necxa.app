@@ -2705,14 +2705,59 @@ final ImageEnhancementService _enhancementService = ImageEnhancementService();
   }
 
   void _showTransitionSheet() {
-    // In a real app, this status would be fetched from the user's profile.
     if (_transitionsUnlocked) {
-      // TODO: Implement the actual UI for selecting a transition.
-      _feedback("Transitions Unlocked! Picker UI coming soon.");
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF1A1D23),
+        builder: (sheetContext) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Choose Transition', style: syne(sz: 15, w: FontWeight.w800, c: Colors.white)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: TransitionPreset.presets.map((preset) {
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() => _transitions[_activeClipIndex] = preset.name);
+                          Navigator.pop(sheetContext);
+                          _feedback('${preset.name} transition selected');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withOpacity(0.12)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(preset.icon, style: const TextStyle(fontSize: 18)),
+                              const SizedBox(width: 8),
+                              Text(preset.name, style: dm(sz: 12, w: FontWeight.w600, c: Colors.white)),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
       return;
     }
 
-    // If not unlocked, show a dialog to purchase the feature.
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
