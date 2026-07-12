@@ -63,8 +63,102 @@ class FilterOperation extends EditOperation {
   Map<String, dynamic> toJson() => {'type': type, 'name': filterName};
 }
 
+/// Shared audio operation used by desktop and mobile editors for music,
+/// voiceovers, and sound effects inserted into the timeline.
+class AudioClipOperation extends EditOperation {
+  final String sourceType;
+  final String? sourceUrl;
+  final String? label;
+  final double volume;
+  final double? startOffset;
+  final double? endOffset;
+
+  AudioClipOperation({
+    required this.sourceType,
+    this.sourceUrl,
+    this.label,
+    this.volume = 1.0,
+    this.startOffset,
+    this.endOffset,
+  }) : super('audio');
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'sourceType': sourceType,
+        'sourceUrl': sourceUrl,
+        'label': label,
+        'volume': volume,
+        'startOffset': startOffset,
+        'endOffset': endOffset,
+      };
+}
+
 /// Represents the type of a timeline track.
-enum TrackType { video, audio, text, effect }
+enum TrackType {
+  video,
+  audio,
+  text,
+  images,
+  captions,
+  overlay,
+  effects,
+  music,
+  voiceOver,
+  soundEffects,
+}
+
+extension TrackTypeExtension on TrackType {
+  String get defaultLabel {
+    switch (this) {
+      case TrackType.video:
+        return 'Video';
+      case TrackType.audio:
+        return 'Audio';
+      case TrackType.text:
+        return 'Text';
+      case TrackType.images:
+        return 'Images';
+      case TrackType.captions:
+        return 'Captions';
+      case TrackType.overlay:
+        return 'Overlay';
+      case TrackType.effects:
+        return 'Effects';
+      case TrackType.music:
+        return 'Music';
+      case TrackType.voiceOver:
+        return 'Voiceover';
+      case TrackType.soundEffects:
+        return 'Sound Effects';
+    }
+  }
+
+  IconData get defaultIcon {
+    switch (this) {
+      case TrackType.video:
+        return Icons.videocam;
+      case TrackType.audio:
+        return Icons.music_note;
+      case TrackType.text:
+        return Icons.text_fields;
+      case TrackType.images:
+        return Icons.image;
+      case TrackType.captions:
+        return Icons.closed_caption;
+      case TrackType.overlay:
+        return Icons.layers;
+      case TrackType.effects:
+        return Icons.auto_awesome;
+      case TrackType.music:
+        return Icons.queue_music;
+      case TrackType.voiceOver:
+        return Icons.mic;
+      case TrackType.soundEffects:
+        return Icons.spatial_audio;
+    }
+  }
+}
 
 /// Represents a single clip on a timeline track.
 class TimelineClip {
@@ -79,6 +173,15 @@ class TimelineClip {
     required this.duration,
     required this.operation,
   });
+
+  TimelineClip copyWith({String? id, Duration? start, Duration? duration, EditOperation? operation}) {
+    return TimelineClip(
+      id: id ?? this.id,
+      start: start ?? this.start,
+      duration: duration ?? this.duration,
+      operation: operation ?? this.operation,
+    );
+  }
 }
 
 /// Represents a full track in the timeline, containing multiple clips.
@@ -100,4 +203,55 @@ class TimelineTrack {
     this.isLocked = false,
     this.isVisible = true,
   });
+}
+
+class TimelineModelUtils {
+  static TimelineTrack ensureTrackForType(
+    List<TimelineTrack> tracks,
+    TrackType type, {
+      String? id,
+      String? label,
+      IconData? icon,
+    },
+  ) {
+    for (final track in tracks) {
+      if (track.type == type) {
+        return track;
+      }
+    }
+
+    final newTrack = TimelineTrack(
+      id: id ?? '${type.name}-track-${tracks.length + 1}',
+      type: type,
+      label: label ?? type.defaultLabel,
+      icon: icon ?? type.defaultIcon,
+      clips: [],
+    );
+    tracks.add(newTrack);
+    return newTrack;
+  }
+
+  static TimelineClip insertClip(
+    List<TimelineTrack> tracks,
+    TimelineClip clip,
+    TrackType type, {
+      String? id,
+      String? label,
+      IconData? icon,
+    },
+  ) {
+    final targetTrack = ensureTrackForType(tracks, type, id: id, label: label, icon: icon);
+    targetTrack.clips.add(clip);
+    return clip;
+  }
+
+  static void pruneEmptyTracks(List<TimelineTrack> tracks) {
+    tracks.removeWhere((track) => track.type != TrackType.video && track.clips.isEmpty);
+  }
+
+  static List<TimelineTrack> visibleTracks(List<TimelineTrack> tracks) {
+    return tracks
+        .where((track) => track.isVisible && (track.type == TrackType.video || track.clips.isNotEmpty))
+        .toList();
+  }
 }

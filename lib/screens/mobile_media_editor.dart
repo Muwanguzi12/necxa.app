@@ -1,12 +1,19 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import '../theme.dart';
 import '../app_state.dart';
+import '../models/edit_models.dart';
 import '../widgets/media_editor_tools.dart';
 import '../widgets/mobile_editor_panels.dart';
+import '../services/music_library_service.dart';
+import '../models/music_models.dart';
 import 'pro_media_editor_screen.dart';
+import 'music_library_screen.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 
 // ══════════════════════════════════════════════════════════════
 // MOBILE MEDIA EDITOR - Responsive adaptation of desktop editor
@@ -32,10 +39,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // ── Selection & State ────────────────────────────────────────
   String? _selectedTrackId;
   int? _selectedTrackIndex;
-  EditorObject? _selectedObject;
+  TimelineClip? _selectedClip;
   
   // ── Timeline ─────────────────────────────────────────────────
-  final List<EditorTrack> _tracks = [];
+  final List<TimelineTrack> _tracks = [];
   double _playheadPosition = 0.0;
   double _timelineZoom = 1.0;
   bool _isPlaying = false;
@@ -62,6 +69,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   
   // ── Controllers ──────────────────────────────────────────────
   late TabController _bottomNavController;
+
+  // ── Audio State ─────────────────────────────────────────────
+  final MusicLibraryService _musicService = MusicLibraryService();
+  final AudioRecorder _voiceRecorder = AudioRecorder();
+  File? _voiceOverFile;
+  bool _isRecordingVoice = false;
+  double _audioVolume = 0.8;
+  bool _isPreviewingMusic = false;
   
   @override
   void initState() {
@@ -71,43 +86,24 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
   
   void _initializeEditor() {
-    final videoTrack = EditorTrack(id: 'video-1', name: 'Video', type: TrackType.video);
-    videoTrack.clips.add(EditorObject(
+    final videoTrack = TimelineModelUtils.ensureTrackForType(
+      _tracks,
+      TrackType.video,
+      id: 'video-1',
+      label: 'Video',
+    );
+    videoTrack.clips.add(TimelineClip(
       id: 'video-clip-1',
-      name: 'Main Clip',
-      type: 'video',
-      startTime: Duration.zero,
+      start: Duration.zero,
       duration: const Duration(seconds: 12),
+      operation: TrimOperation(
+        start: Duration.zero,
+        end: const Duration(seconds: 12),
+        maxDuration: const Duration(seconds: 12),
+      ),
     ));
 
-    final audioTrack = EditorTrack(id: 'audio-1', name: 'Audio', type: TrackType.audio);
-    audioTrack.clips.add(EditorObject(
-      id: 'audio-clip-1',
-      name: 'Voiceover',
-      type: 'audio',
-      startTime: Duration.zero,
-      duration: const Duration(seconds: 12),
-    ));
-
-    final textTrack = EditorTrack(id: 'text-1', name: 'Text', type: TrackType.text);
-    textTrack.clips.add(EditorObject(
-      id: 'text-clip-1',
-      name: 'Caption',
-      type: 'text',
-      startTime: const Duration(seconds: 2),
-      duration: const Duration(seconds: 4),
-    ));
-
-    final effectsTrack = EditorTrack(id: 'effects-1', name: 'Effects', type: TrackType.effects);
-    effectsTrack.clips.add(EditorObject(
-      id: 'effect-clip-1',
-      name: 'Glow',
-      type: 'effects',
-      startTime: const Duration(seconds: 4),
-      duration: const Duration(seconds: 3),
-    ));
-
-    _tracks.addAll([videoTrack, audioTrack, textTrack, effectsTrack]);
+    TimelineModelUtils.pruneEmptyTracks(_tracks);
 
     if (widget.initialMedia != null && widget.initialMedia!.existsSync()) {
       _videoController = VideoPlayerController.file(widget.initialMedia!)
@@ -129,6 +125,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _videoController?.removeListener(_syncVideoState);
     _videoController?.dispose();
     _bottomNavController.dispose();
+    _musicService.dispose();
+    _voiceRecorder.dispose();
     super.dispose();
   }
   
@@ -393,13 +391,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         children: [
           GestureDetector(
             onTap: () => setState(() {
-              _selectedObject = EditorObject(
+              _selectedClip = TimelineClip(
                 id: 'preview-clip',
-                name: 'Preview',
-                type: 'video',
-                startTime: _currentTime,
+                start: _currentTime,
                 duration: const Duration(seconds: 1),
+                operation: TrimOperation(
+                  start: _currentTime,
+                  end: _currentTime + const Duration(seconds: 1),
+                  maxDuration: _totalDuration,
+                ),
               );
+              _selectedTrackId = 'video-1';
+              _selectedTrackIndex = _tracks.indexWhere((track) => track.id == _selectedTrackId);
             }),
             onDoubleTap: () => setState(() {
               _canvasScale = _canvasScale == 1.0 ? 1.8 : 1.0;
@@ -591,6 +594,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // D. TIMELINE WORKSPACE (30%)
   // ═══════════════════════════════════════════════════════════
   Widget _buildTimelineWorkspace(Size screenSize) {
+    final visibleTracks = TimelineModelUtils.visibleTracks(_tracks);
+
     return Container(
       color: C.bg,
       child: Column(
@@ -601,13 +606,32 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               children: [
                 Text('Timeline', style: syne(sz: 12, w: FontWeight.w800, c: C.text)),
                 const Spacer(),
+                Material(
+                  color: C.brand.withOpacity(0.16),
+                  borderRadius: BorderRadius.circular(999),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: _pickMediaFromLibrary,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.add, size: 14, color: Colors.white),
+                          const SizedBox(width: 4),
+                          Text('Add', style: dm(sz: 9, c: C.brand, w: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: C.brand.withOpacity(0.16),
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: Text('4 Tracks', style: dm(sz: 9, c: C.brand, w: FontWeight.w700)),
+                  child: Text('${visibleTracks.length} Tracks', style: dm(sz: 9, c: C.brand, w: FontWeight.w700)),
                 ),
               ],
             ),
@@ -616,9 +640,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.only(bottom: 8),
-              itemCount: _tracks.length,
+              itemCount: visibleTracks.length,
               itemBuilder: (context, index) {
-                return _buildTrackRow(_tracks[index], index, screenSize);
+                return _buildTrackRow(visibleTracks[index], index, screenSize);
               },
             ),
           ),
@@ -684,8 +708,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
   
-  Widget _buildTrackRow(EditorTrack track, int index, Size screenSize) {
-    final isSelected = _selectedTrackIndex == index;
+  Widget _buildTrackRow(TimelineTrack track, int index, Size screenSize) {
+    final isSelected = _selectedTrackId == track.id;
     
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
@@ -700,7 +724,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => setState(() => _selectedTrackIndex = index),
+            onTap: () => setState(() {
+              _selectedTrackId = track.id;
+              _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == track.id);
+            }),
             child: Container(
               width: 48,
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
@@ -710,7 +737,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 children: [
                   Text(_getTrackIcon(track.type), style: const TextStyle(fontSize: 16)),
                   Text(
-                    track.name.substring(0, min(3, track.name.length)),
+                    track.label.substring(0, math.min(3, track.label.length)),
                     style: dm(sz: 7, c: C.dim),
                   ),
                 ],
@@ -720,47 +747,60 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: track.clips.map((clip) {
-                    final clipWidth = (clip.duration.inMilliseconds / 140).clamp(70.0, 220.0).toDouble();
-                    return GestureDetector(
-                      onTap: () => setState(() {
-                        _selectedObject = clip;
-                        _selectedTrackId = track.id;
-                      }),
-                      child: Container(
+              child: GestureDetector(
+                onScaleStart: (_) {},
+                onScaleUpdate: (details) {
+                  if (details.scale != 1.0) {
+                    setState(() => _timelineZoom = (_timelineZoom * details.scale).clamp(0.7, 2.2));
+                  }
+                },
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: track.clips.map((clip) {
+                      final clipWidth = (clip.duration.inMilliseconds / (140 / _timelineZoom)).clamp(70.0, 220.0).toDouble();
+                      return GestureDetector(
+                        onTap: () => setState(() {
+                          _selectedClip = clip;
+                          _selectedTrackId = track.id;
+                          _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == track.id);
+                          if (_videoController != null && _totalDuration.inMilliseconds > 0) {
+                            _videoController!.seekTo(clip.start);
+                          }
+                        }),
+                        onLongPress: () => _showClipActions(track, clip),
+                        child: Container(
                         width: clipWidth,
                         margin: const EdgeInsets.symmetric(horizontal: 2),
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: clip == _selectedObject ? C.brand : _trackColorForType(track.type),
+                          color: clip == _selectedClip ? C.brand : _trackColorForType(track.type),
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                            color: clip == _selectedObject ? C.brand : Colors.transparent,
+                            color: clip == _selectedClip ? C.brand : Colors.transparent,
                             width: 2,
                           ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              clip.name,
-                              style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                            Text(
-                              _formatDuration(clip.duration),
-                              style: dm(sz: 7, c: Colors.white70),
-                            ),
-                          ],
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                _clipLabelForTrack(track.type),
+                                style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                              Text(
+                                _formatDuration(clip.duration),
+                                style: dm(sz: 7, c: Colors.white70),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  }).toList(),
+                      );
+                    }).toList(),
+                  ),
                 ),
               ),
             ),
@@ -770,9 +810,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildTrackButton(Icons.visibility, () => _toggleTrackVisibility(index), size: 18),
+                _buildTrackButton(Icons.visibility, () => _toggleTrackVisibility(track), size: 18),
                 const SizedBox(width: 2),
-                _buildTrackButton(Icons.lock, () => _toggleTrackLock(index), size: 18),
+                _buildTrackButton(Icons.lock, () => _toggleTrackLock(track), size: 18),
               ],
             ),
           ),
@@ -789,10 +829,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         return const Color(0xFF0891B2);
       case TrackType.text:
         return const Color(0xFFF59E0B);
+      case TrackType.images:
+        return const Color(0xFF14B8A6);
+      case TrackType.captions:
+        return const Color(0xFF06B6D4);
+      case TrackType.overlay:
+        return const Color(0xFFF472B6);
       case TrackType.effects:
         return const Color(0xFFEC4899);
-      default:
-        return C.dim.withOpacity(0.8);
+      case TrackType.music:
+        return const Color(0xFF8B5CF6);
+      case TrackType.voiceOver:
+        return const Color(0xFF22C55E);
+      case TrackType.soundEffects:
+        return const Color(0xFFF59E0B);
     }
   }
   
@@ -814,11 +864,38 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       case TrackType.video: return '🎬';
       case TrackType.audio: return '🎵';
       case TrackType.text: return '📝';
-      case TrackType.effects: return '✨';
-      case TrackType.stickers: return '⭐';
-      case TrackType.voiceOver: return '🎙️';
+      case TrackType.images: return '🖼️';
       case TrackType.captions: return '📄';
-      default: return '📌';
+      case TrackType.overlay: return '🪟';
+      case TrackType.effects: return '✨';
+      case TrackType.music: return '🎼';
+      case TrackType.voiceOver: return '🎙️';
+      case TrackType.soundEffects: return '🔊';
+    }
+  }
+
+  String _clipLabelForTrack(TrackType type) {
+    switch (type) {
+      case TrackType.video:
+        return 'Video';
+      case TrackType.audio:
+        return 'Audio';
+      case TrackType.text:
+        return 'Text';
+      case TrackType.images:
+        return 'Image';
+      case TrackType.captions:
+        return 'Caption';
+      case TrackType.overlay:
+        return 'Overlay';
+      case TrackType.effects:
+        return 'Effect';
+      case TrackType.music:
+        return 'Music';
+      case TrackType.voiceOver:
+        return 'Voice';
+      case TrackType.soundEffects:
+        return 'SFX';
     }
   }
   
@@ -826,6 +903,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // E. CONTEXT TOOLBAR
   // ═══════════════════════════════════════════════════════════
   Widget _buildContextToolbar(Size screenSize) {
+    if (_selectedClip == null) {
+      return const SizedBox.shrink();
+    }
+
     return Container(
       height: 64,
       decoration: BoxDecoration(
@@ -838,7 +919,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
   
   Widget _buildContextualTools() {
-    if (_selectedObject == null) {
+    if (_selectedClip == null) {
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -850,7 +931,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
-        children: _buildToolsForObject(_selectedObject!),
+        children: _buildToolsForClip(_selectedClip!),
       ),
     );
   }
@@ -859,17 +940,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     switch (_activeToolPanel) {
       case 1:
         return [
-          _buildToolButton('Media', () => _showToolPanel('Media')),
+          _buildToolButton('Media', () => _pickMediaFromLibrary()),
           _buildToolButton('Trim', () => _trimClip()),
           _buildToolButton('Crop', () => _showSnack('Crop frame')), 
           _buildToolButton('Speed', () => _adjustSpeed()),
         ];
       case 2:
         return [
+          _buildToolButton('Music', () => _showAudioPicker()),
+          _buildToolButton('Voice', () => _toggleVoiceOver()),
+          _buildToolButton('SFX', () => _addSoundEffect()),
           _buildToolButton('Volume', () => _adjustVolume()),
-          _buildToolButton('Fade', () => _addFade()),
-          _buildToolButton('EQ', () => _showSnack('EQ presets')), 
-          _buildToolButton('Noise', () => _showSnack('Noise removal')),
         ];
       case 3:
         return [
@@ -895,34 +976,46 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
   }
   
-  List<Widget> _buildToolsForObject(EditorObject obj) {
+  List<Widget> _buildToolsForClip(TimelineClip clip) {
     final tools = <Widget>[];
-    
-    if (obj.type == 'video') {
-      tools.addAll([
-        _buildToolButton('Split', () => _splitClip()),
-        _buildToolButton('Trim', () => _trimClip()),
-        _buildToolButton('Speed', () => _adjustSpeed()),
-        _buildToolButton('Opacity', () => _adjustOpacity()),
-        _buildToolButton('Filter', () => _applyFilter()),
-        _buildToolButton('Delete', () => _deleteClip()),
-      ]);
-    } else if (obj.type == 'text') {
-      tools.addAll([
-        _buildToolButton('Font', () => _changeFont()),
-        _buildToolButton('Size', () => _changeFontSize()),
-        _buildToolButton('Color', () => _changeTextColor()),
-        _buildToolButton('Shadow', () => _addShadow()),
-        _buildToolButton('Delete', () => _deleteClip()),
-      ]);
-    } else if (obj.type == 'audio') {
-      tools.addAll([
-        _buildToolButton('Volume', () => _adjustVolume()),
-        _buildToolButton('Fade', () => _addFade()),
-        _buildToolButton('Delete', () => _deleteClip()),
-      ]);
+
+    if (_selectedTrackId != null && _tracks.isNotEmpty) {
+      final selectedTrack = _tracks.firstWhere(
+        (candidate) => candidate.id == _selectedTrackId,
+        orElse: () => _tracks.first,
+      );
+      if (selectedTrack.type == TrackType.video) {
+        tools.addAll([
+          _buildToolButton('Split', () => _splitClip()),
+          _buildToolButton('Trim', () => _trimClip()),
+          _buildToolButton('Crop', () => _showSnack('Crop frame')),
+          _buildToolButton('Speed', () => _adjustSpeed()),
+          _buildToolButton('Opacity', () => _adjustOpacity()),
+          _buildToolButton('Delete', () => _deleteClip()),
+        ]);
+      } else if (selectedTrack.type == TrackType.text) {
+        tools.addAll([
+          _buildToolButton('Edit Text', () => _changeFont()),
+          _buildToolButton('Font', () => _changeFont()),
+          _buildToolButton('Size', () => _changeFontSize()),
+          _buildToolButton('Color', () => _changeTextColor()),
+          _buildToolButton('Delete', () => _deleteClip()),
+        ]);
+      } else if (selectedTrack.type == TrackType.audio) {
+        tools.addAll([
+          _buildToolButton('Volume', () => _adjustVolume()),
+          _buildToolButton('Fade', () => _addFade()),
+          _buildToolButton('Delete', () => _deleteClip()),
+        ]);
+      } else {
+        tools.addAll([
+          _buildToolButton('Resize', () => _showSnack('Resize clip')),
+          _buildToolButton('Opacity', () => _adjustOpacity()),
+          _buildToolButton('Delete', () => _deleteClip()),
+        ]);
+      }
     }
-    
+
     return tools;
   }
   
@@ -952,7 +1045,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // ═══════════════════════════════════════════════════════════
   Widget _buildBottomNavigation(Size screenSize) {
     final navItems = [
-      ('🎬', 'Timeline'),
+      ('🎬', 'Editor'),
       ('📁', 'Media'),
       ('🎵', 'Audio'),
       ('📝', 'Text'),
@@ -1077,6 +1170,52 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
   
+  Future<void> _pickMediaFromLibrary() async {
+    try {
+      final picked = await ImagePicker().pickMultipleMedia();
+      if (picked.isEmpty) return;
+
+      final insertedClips = <TimelineClip>[];
+      for (final media in picked) {
+        final path = media.path.toLowerCase();
+        final isVideo = path.endsWith('.mp4') || path.endsWith('.mov') || path.endsWith('.mkv') || path.endsWith('.avi');
+        final trackType = isVideo ? TrackType.video : TrackType.images;
+        final targetTrack = TimelineModelUtils.ensureTrackForType(_tracks, trackType);
+        final clip = TimelineClip(
+          id: '${trackType.name}-${DateTime.now().millisecondsSinceEpoch}-${insertedClips.length}',
+          start: _currentTime,
+          duration: const Duration(seconds: 4),
+          operation: TrimOperation(
+            start: _currentTime,
+            end: _currentTime + const Duration(seconds: 4),
+            maxDuration: _totalDuration,
+          ),
+        );
+
+        TimelineModelUtils.insertClip(_tracks, clip, trackType);
+        insertedClips.add(clip);
+        _selectedTrackId = targetTrack.id;
+        _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == targetTrack.id);
+      }
+
+      if (insertedClips.isNotEmpty) {
+        setState(() {
+          _selectedClip = insertedClips.last;
+          _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(insertedClips.last)).id;
+          _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == _selectedTrackId);
+        });
+      }
+
+      if (mounted) {
+        _showSnack('${insertedClips.length} item${insertedClips.length == 1 ? '' : 's'} added to timeline');
+      }
+    } catch (_) {
+      if (mounted) {
+        _showSnack('Unable to load media right now');
+      }
+    }
+  }
+
   void _undo() => _showSnack('Undo');
   void _redo() => _showSnack('Redo');
   void _export() => _showSnack('Export');
@@ -1105,8 +1244,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final maxDuration = _videoController!.value.duration;
     _videoController!.seekTo(target > maxDuration ? maxDuration : target);
   }
-  void _toggleTrackVisibility(int index) => _showSnack('Toggle visibility: ${_tracks[index].name}');
-  void _toggleTrackLock(int index) => _showSnack('Toggle lock: ${_tracks[index].name}');
+  void _toggleTrackVisibility(TimelineTrack track) {
+    track.isVisible = !track.isVisible;
+    if (!track.isVisible) {
+      TimelineModelUtils.pruneEmptyTracks(_tracks);
+    }
+    setState(() {});
+  }
+
+  void _toggleTrackLock(TimelineTrack track) {
+    track.isLocked = !track.isLocked;
+    setState(() {});
+  }
   void _splitClip() => _showSnack('Split clip');
   void _trimClip() => _showSnack('Trim clip');
   void _adjustSpeed() => _showSnack('Adjust speed');
@@ -1121,6 +1270,146 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _addFade() => _showSnack('Add fade');
   void _saveDraft() => _showSnack('Draft saved');
   void _showPreview() => _showSnack('Playing preview');
+
+  Future<void> _showAudioPicker() async {
+    if (!mounted) return;
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MusicLibraryScreen()),
+    );
+
+    if (result is MusicTrack) {
+      final clip = TimelineClip(
+        id: 'music-${DateTime.now().millisecondsSinceEpoch}',
+        start: _currentTime,
+        duration: Duration(seconds: (result.duration / 1000).ceil()),
+        operation: AudioClipOperation(
+          sourceType: 'music',
+          sourceUrl: result.audioUrl,
+          label: result.title,
+          volume: _audioVolume,
+        ),
+      );
+
+      TimelineModelUtils.insertClip(_tracks, clip, TrackType.music);
+      setState(() {
+        _selectedClip = clip;
+        _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(clip)).id;
+        _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == _selectedTrackId);
+        _isPreviewingMusic = true;
+      });
+      await _musicService.previewMusic(result.audioUrl);
+      _showSnack('Music synced to timeline');
+    }
+  }
+
+  Future<void> _toggleVoiceOver() async {
+    if (_isRecordingVoice) {
+      final path = await _voiceRecorder.stop();
+      if (path != null) {
+        final file = File(path);
+        final clip = TimelineClip(
+          id: 'voice-${DateTime.now().millisecondsSinceEpoch}',
+          start: _currentTime,
+          duration: const Duration(seconds: 8),
+          operation: AudioClipOperation(
+            sourceType: 'voiceover',
+            sourceUrl: file.path,
+            label: 'Voiceover',
+            volume: _audioVolume,
+          ),
+        );
+
+        TimelineModelUtils.insertClip(_tracks, clip, TrackType.voiceOver);
+        setState(() {
+          _voiceOverFile = file;
+          _selectedClip = clip;
+          _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(clip)).id;
+          _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == _selectedTrackId);
+          _isRecordingVoice = false;
+        });
+        _showSnack('Voiceover added to timeline');
+      }
+      return;
+    }
+
+    if (await _voiceRecorder.hasPermission()) {
+      final tempDir = await getTemporaryDirectory();
+      final path = '${tempDir.path}/voiceover_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _voiceRecorder.start(const RecordConfig(), path: path);
+      setState(() => _isRecordingVoice = true);
+      _showSnack('Recording voiceover…');
+    } else {
+      _showSnack('Microphone permission denied');
+    }
+  }
+
+  Future<void> _addSoundEffect() async {
+    final clip = TimelineClip(
+      id: 'sfx-${DateTime.now().millisecondsSinceEpoch}',
+      start: _currentTime,
+      duration: const Duration(seconds: 3),
+      operation: AudioClipOperation(
+        sourceType: 'sfx',
+        sourceUrl: 'builtin://sfx',
+        label: 'Sound effect',
+        volume: _audioVolume,
+      ),
+    );
+
+    TimelineModelUtils.insertClip(_tracks, clip, TrackType.soundEffects);
+    setState(() {
+      _selectedClip = clip;
+      _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(clip)).id;
+      _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == _selectedTrackId);
+    });
+    _showSnack('Sound effect added to timeline');
+  }
+
+  void _showClipActions(TimelineTrack track, TimelineClip clip) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: C.card,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Clip actions', style: syne(sz: 14, w: FontWeight.w800, c: C.text)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildActionChip('Split', () { Navigator.pop(context); _splitClip(); }),
+                  _buildActionChip('Trim', () { Navigator.pop(context); _trimClip(); }),
+                  _buildActionChip('Duplicate', () { Navigator.pop(context); _showSnack('Clip duplicated'); }),
+                  _buildActionChip('Delete', () { Navigator.pop(context); _deleteClip(); }),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionChip(String label, VoidCallback onTap) {
+    return Material(
+      color: C.surface,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Text(label, style: dm(sz: 11, w: FontWeight.w600, c: C.brand)),
+        ),
+      ),
+    );
+  }
 
   void _showToolPanel(String toolName) => _showSnack('$toolName panel opened');
 
@@ -1150,46 +1439,5 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 // ══════════════════════════════════════════════════════════════
 // DATA MODELS
 // ══════════════════════════════════════════════════════════════
-
-enum TrackType {
-  video,
-  audio,
-  text,
-  effects,
-  stickers,
-  voiceOver,
-  captions,
-}
-
-class EditorTrack {
-  final String id;
-  final String name;
-  final TrackType type;
-  final List<EditorObject> clips = [];
-  bool isVisible = true;
-  bool isLocked = false;
-  
-  EditorTrack({
-    required this.id,
-    required this.name,
-    required this.type,
-  });
-}
-
-class EditorObject {
-  final String id;
-  final String name;
-  final String type; // 'video', 'audio', 'text', etc.
-  final Duration startTime;
-  final Duration duration;
-  
-  EditorObject({
-    required this.id,
-    required this.name,
-    required this.type,
-    required this.startTime,
-    required this.duration,
-  });
-}
 
 int min(int a, int b) => a < b ? a : b;

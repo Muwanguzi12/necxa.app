@@ -90,7 +90,8 @@ class _MobileMediaEditorScreenState extends State<MediaEditorScreen> {
 
   List<TimelineTrack> _generateInitialTracks() {
     if (_trimOp == null) return [];
-    return [
+
+    final tracks = <TimelineTrack>[
       TimelineTrack(
         id: 'video-track-1',
         type: TrackType.video,
@@ -105,28 +106,10 @@ class _MobileMediaEditorScreenState extends State<MediaEditorScreen> {
           ),
         ],
       ),
-      TimelineTrack(
-        id: 'text-track-1',
-        type: TrackType.text,
-        label: 'Text',
-        icon: Icons.text_fields,
-        clips: [
-          TimelineClip(
-            id: 'text-clip-1',
-            start: const Duration(seconds: 1),
-            duration: const Duration(seconds: 3),
-            operation: TextOverlay(text: 'Hello World'),
-          ),
-        ],
-      ),
-      TimelineTrack(
-        id: 'audio-track-1',
-        type: TrackType.audio,
-        label: 'Music',
-        icon: Icons.music_note,
-        clips: [],
-      ),
     ];
+
+    TimelineModelUtils.pruneEmptyTracks(tracks);
+    return tracks;
   }
 
   void _syncTimelineWithPlayhead() {
