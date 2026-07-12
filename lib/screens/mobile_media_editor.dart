@@ -10,6 +10,8 @@ import '../widgets/media_editor_tools.dart';
 import '../widgets/mobile_editor_panels.dart';
 import '../services/music_library_service.dart';
 import '../models/music_models.dart';
+import '../services/editor_subscription_service.dart';
+import '../services/editor_export_service.dart';
 import 'pro_media_editor_screen.dart';
 import 'music_library_screen.dart';
 import 'package:record/record.dart';
@@ -77,12 +79,22 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   bool _isRecordingVoice = false;
   double _audioVolume = 0.8;
   bool _isPreviewingMusic = false;
+  bool _isProEnabled = false;
+  bool _isExporting = false;
+  String _exportStatus = 'Ready';
   
   @override
   void initState() {
     super.initState();
     _bottomNavController = TabController(length: 8, vsync: this);
     _initializeEditor();
+    _loadProState();
+  }
+
+  Future<void> _loadProState() async {
+    final isPro = await EditorSubscriptionService.isProEnabled();
+    if (!mounted) return;
+    setState(() => _isProEnabled = isPro);
   }
   
   void _initializeEditor() {
@@ -301,7 +313,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       child: Row(
         children: [
-          // Logo & Project Name
+          IconButton(
+            onPressed: () => Navigator.maybePop(context),
+            icon: const Icon(Icons.arrow_back_ios_new, size: 16),
+            tooltip: 'Back',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+          const SizedBox(width: 6),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -309,7 +328,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               children: [
                 Text(
                   'NECXA EDITOR',
-                  style: syne(sz: 11, w: FontWeight.w800, c: C.brand),
+                  style: syne(sz: 10.5, w: FontWeight.w800, c: C.brand),
                 ),
                 Text(
                   'Project 1',
@@ -318,29 +337,39 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               ],
             ),
           ),
-          
-          // Quick Settings
-          Row(
-            children: [
-              _buildSettingsChip(_selectedAspectRatio, () => _showSelectionSheet('Aspect ratio', ['9:16', '16:9', '1:1', '4:5'], (value) => setState(() => _selectedAspectRatio = value))),
-              const SizedBox(width: 4),
-              _buildSettingsChip(_selectedResolution, () => _showSelectionSheet('Resolution', ['480p', '720p', '1080p', '4K'], (value) => setState(() => _selectedResolution = value))),
-              const SizedBox(width: 4),
-              _buildSettingsChip(_selectedFps, () => _showSelectionSheet('FPS', ['24fps', '30fps', '60fps'], (value) => setState(() => _selectedFps = value))),
-            ],
+          Flexible(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildSettingsChip(_selectedAspectRatio, () => _showSelectionSheet('Aspect ratio', ['9:16', '16:9', '1:1', '4:5'], (value) => setState(() => _selectedAspectRatio = value))),
+                  const SizedBox(width: 4),
+                  _buildSettingsChip(_selectedResolution, () => _showSelectionSheet('Resolution', ['480p', '720p', '1080p', '4K'], (value) => setState(() => _selectedResolution = value))),
+                  const SizedBox(width: 4),
+                  _buildSettingsChip(_selectedFps, () => _showSelectionSheet('FPS', ['24fps', '30fps', '60fps'], (value) => setState(() => _selectedFps = value))),
+                ],
+              ),
+            ),
           ),
-          
           const SizedBox(width: 6),
-          
-          // Undo/Redo
           _buildIconButton(Icons.undo, () => _undo(), size: 16),
           const SizedBox(width: 2),
           _buildIconButton(Icons.redo, () => _redo(), size: 16),
-          
           const SizedBox(width: 6),
-          
-          // Export
-          _buildIconButton(Icons.download, () => _export(), size: 16),
+          _buildProButton(),
+          const SizedBox(width: 4),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _buildExportButton(),
+              if (_isExporting || _exportStatus != 'Ready')
+                Text(
+                  _exportStatus,
+                  style: dm(sz: 7.2, w: FontWeight.w600, c: C.dim),
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -370,6 +399,48 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         child: Padding(
           padding: const EdgeInsets.all(6),
           child: Icon(icon, size: size, color: C.brand),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProButton() {
+    return Material(
+      color: _isProEnabled ? C.brand : C.surface,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: _showProSheet,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: Row(
+            children: [
+              Icon(Icons.star, size: 13, color: _isProEnabled ? Colors.white : C.brand),
+              const SizedBox(width: 4),
+              Text('Pro', style: dm(sz: 8.5, w: FontWeight.w700, c: _isProEnabled ? Colors.white : C.brand)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExportButton() {
+    return Material(
+      color: _isExporting ? C.surface : C.brand,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: _isExporting ? null : _export,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: Row(
+            children: [
+              Icon(_isExporting ? Icons.hourglass_top : Icons.upload, size: 13, color: Colors.white),
+              const SizedBox(width: 4),
+              Text(_isExporting ? 'Working' : 'Export', style: dm(sz: 8.5, w: FontWeight.w700, c: Colors.white)),
+            ],
+          ),
         ),
       ),
     );
@@ -1277,7 +1348,99 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   void _undo() => _showSnack('Undo');
   void _redo() => _showSnack('Redo');
-  void _export() => _showSnack('Export');
+
+  Future<void> _showProSheet() async {
+    final features = await EditorSubscriptionService.getPremiumFeatures();
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text('NECXA Pro', style: syne(sz: 16, w: FontWeight.w800, c: C.text)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () async {
+                      await EditorSubscriptionService.setProEnabled(true);
+                      if (!mounted) return;
+                      setState(() => _isProEnabled = true);
+                      Navigator.pop(context);
+                      _showSnack('Pro unlocked for editor workflows');
+                    },
+                    child: const Text('Unlock'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text('Unlock premium capabilities across the NECXA ecosystem.', style: dm(sz: 12, c: C.dim)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: features.map((feature) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: C.surface,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(feature, style: dm(sz: 10.5, w: FontWeight.w600, c: C.brand)),
+                )).toList(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _export() async {
+    if (_isExporting) return;
+    setState(() {
+      _isExporting = true;
+      _exportStatus = 'Saving Project';
+    });
+
+    final sourcePath = _videoController?.dataSource;
+    if (sourcePath is String) {
+      final source = File(sourcePath);
+      if (await source.exists()) {
+        setState(() => _exportStatus = 'Finalizing Timeline');
+        setState(() => _exportStatus = 'Compressing Video');
+        final result = await EditorExportService.exportProject(
+          sourceVideo: source,
+          projectName: 'Project 1',
+          description: 'Published from NECXA Editor',
+          creatorName: widget.state.currentProfile?['full_name']?.toString() ?? 'Creator',
+        );
+        if (!mounted) return;
+        setState(() {
+          _isExporting = false;
+          _exportStatus = result.success ? 'Export Complete' : 'Export Failed';
+        });
+        if (result.success) {
+          _showSnack(result.verificationSummary ?? 'Export complete');
+        } else {
+          _showSnack(result.issues.join(', '));
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isExporting = false;
+      _exportStatus = 'Export Failed';
+    });
+    _showSnack('Unable to export without a source video');
+  }
   void _togglePlayback() {
     if (_videoController == null) {
       setState(() => _isPlaying = !_isPlaying);
