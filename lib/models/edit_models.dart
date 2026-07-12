@@ -245,6 +245,34 @@ class TimelineModelUtils {
     return clip;
   }
 
+  static TimelineClip insertTextClip(
+    List<TimelineTrack> tracks, {
+      required String text,
+      required Duration start,
+      Duration? duration,
+      TextStyle? style,
+      Offset? position,
+      double? scale,
+      double? rotation,
+      String? id,
+    },
+  ) {
+    final clip = TimelineClip(
+      id: id ?? 'text-${DateTime.now().millisecondsSinceEpoch}',
+      start: start,
+      duration: duration ?? const Duration(seconds: 4),
+      operation: TextOverlay(
+        text: text,
+        position: position ?? const Offset(0.5, 0.5),
+        scale: scale ?? 1.0,
+        rotation: rotation ?? 0.0,
+        style: style ?? const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+      ),
+    );
+    insertClip(tracks, clip, TrackType.text);
+    return clip;
+  }
+
   static void pruneEmptyTracks(List<TimelineTrack> tracks) {
     tracks.removeWhere((track) => track.type != TrackType.video && track.clips.isEmpty);
   }

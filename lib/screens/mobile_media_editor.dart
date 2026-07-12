@@ -489,6 +489,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               child: VideoPlayer(_videoController!),
             ),
           ),
+          ..._buildTimelineOverlayWidgets(),
           Positioned(
             bottom: 10,
             left: 10,
@@ -521,6 +522,59 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ],
       ),
     );
+  }
+
+  List<Widget> _buildTimelineOverlayWidgets() {
+    final widgets = <Widget>[];
+    final currentTime = _currentTime;
+
+    for (final track in _tracks) {
+      if (track.type != TrackType.text && track.type != TrackType.captions && track.type != TrackType.overlay) {
+        continue;
+      }
+
+      for (final clip in track.clips) {
+        if (clip.start > currentTime || clip.start + clip.duration < currentTime) {
+          continue;
+        }
+
+        if (clip.operation is! TextOverlay) {
+          continue;
+        }
+
+        final overlay = clip.operation as TextOverlay;
+        final alignment = Alignment(
+          (overlay.position.dx * 2) - 1,
+          (overlay.position.dy * 2) - 1,
+        );
+
+        widgets.add(
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Align(
+                alignment: alignment,
+                child: Transform.rotate(
+                  angle: overlay.rotation,
+                  child: Transform.scale(
+                    scale: overlay.scale,
+                    child: Text(
+                      overlay.text,
+                      textAlign: TextAlign.center,
+                      style: overlay.style.copyWith(
+                        color: overlay.style.color ?? Colors.white,
+                        fontSize: overlay.style.fontSize ?? 28,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    return widgets;
   }
   
   // ═══════════════════════════════════════════════════════════
@@ -954,10 +1008,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ];
       case 3:
         return [
-          _buildToolButton('Font', () => _changeFont()),
-          _buildToolButton('Size', () => _changeFontSize()),
-          _buildToolButton('Color', () => _changeTextColor()),
-          _buildToolButton('Shadow', () => _addShadow()),
+          _buildToolButton('Text Hub', () => _showTextHubSheet()),
+          _buildToolButton('Edit', () => _showTextEditorSheet()),
+          _buildToolButton('Font', () => _showTextEditorSheet()),
+          _buildToolButton('Color', () => _showTextEditorSheet()),
         ];
       case 4:
         return [
@@ -993,12 +1047,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           _buildToolButton('Opacity', () => _adjustOpacity()),
           _buildToolButton('Delete', () => _deleteClip()),
         ]);
-      } else if (selectedTrack.type == TrackType.text) {
+      } else if (selectedTrack.type == TrackType.text || selectedTrack.type == TrackType.captions) {
         tools.addAll([
-          _buildToolButton('Edit Text', () => _changeFont()),
-          _buildToolButton('Font', () => _changeFont()),
-          _buildToolButton('Size', () => _changeFontSize()),
-          _buildToolButton('Color', () => _changeTextColor()),
+          _buildToolButton('Edit', () => _showTextEditorSheet()),
+          _buildToolButton('Font', () => _showTextEditorSheet()),
+          _buildToolButton('Size', () => _showTextEditorSheet()),
+          _buildToolButton('Color', () => _showTextEditorSheet()),
           _buildToolButton('Delete', () => _deleteClip()),
         ]);
       } else if (selectedTrack.type == TrackType.audio) {
@@ -1066,10 +1120,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         children: List.generate(
           navItems.length,
           (index) => GestureDetector(
-            onTap: () => setState(() {
-              _activeToolPanel = index;
-              _bottomNavController.index = index;
-            }),
+            onTap: () {
+              setState(() {
+                _activeToolPanel = index;
+                _bottomNavController.index = index;
+              });
+              if (index == 3) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => _showTextHubSheet());
+              }
+            },
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -1270,6 +1329,221 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _addFade() => _showSnack('Add fade');
   void _saveDraft() => _showSnack('Draft saved');
   void _showPreview() => _showSnack('Playing preview');
+
+  TimelineClip _insertTextLayer(String text, {TextStyle? style, Offset? position}) {
+    final clip = TimelineModelUtils.insertTextClip(
+      _tracks,
+      text: text,
+      start: _currentTime,
+      duration: const Duration(seconds: 6),
+      style: style,
+      position: position,
+    );
+
+    setState(() {
+      _selectedClip = clip;
+      _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(clip)).id;
+      _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == _selectedTrackId);
+    });
+
+    return clip;
+  }
+
+  Future<void> _showTextHubSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Text Studio', style: syne(sz: 16, w: FontWeight.w800, c: C.text)),
+              const SizedBox(height: 12),
+              Text('Add text', style: dm(sz: 12, w: FontWeight.w700, c: C.dim)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildTextHubChip('Heading', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('Heading', style: const TextStyle(fontSize: 34, color: Colors.white, fontWeight: FontWeight.w800));
+                    _showTextEditorSheet();
+                  }),
+                  _buildTextHubChip('Subheading', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('Subheading', style: const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.w700));
+                    _showTextEditorSheet();
+                  }),
+                  _buildTextHubChip('Body', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('Body text', style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.w500));
+                    _showTextEditorSheet();
+                  }),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text('Templates', style: dm(sz: 12, w: FontWeight.w700, c: C.dim)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildTextHubChip('Intro Title', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('Intro Title', style: const TextStyle(fontSize: 30, color: Color(0xFF8B5CF6), fontWeight: FontWeight.w900));
+                    _showTextEditorSheet();
+                  }),
+                  _buildTextHubChip('Lower Third', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('Lower Third', style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.w700));
+                    _showTextEditorSheet();
+                  }),
+                  _buildTextHubChip('Quote', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('Quote', style: const TextStyle(fontSize: 22, color: Color(0xFF22C55E), fontWeight: FontWeight.w700));
+                    _showTextEditorSheet();
+                  }),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text('Captions & Stickers', style: dm(sz: 12, w: FontWeight.w700, c: C.dim)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildTextHubChip('Caption', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('Caption', style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.w600));
+                    _showTextEditorSheet();
+                  }),
+                  _buildTextHubChip('Sticker', () {
+                    Navigator.pop(context);
+                    _insertTextLayer('✨', style: const TextStyle(fontSize: 32, color: Colors.white));
+                    _showTextEditorSheet();
+                  }),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTextEditorSheet() async {
+    if (_selectedClip == null || _selectedClip!.operation is! TextOverlay) {
+      _showSnack('Select a text layer first');
+      return;
+    }
+
+    final overlay = _selectedClip!.operation as TextOverlay;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Text Editor', style: syne(sz: 15, w: FontWeight.w800, c: C.text)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: TextEditingController(text: overlay.text)
+                      ..selection = TextSelection.collapsed(offset: overlay.text.length),
+                    onChanged: (value) {
+                      overlay.text = value;
+                      setState(() {});
+                      setModalState(() {});
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Enter text',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Typography', style: dm(sz: 12, w: FontWeight.w700, c: C.dim)),
+                  const SizedBox(height: 8),
+                  Slider(
+                    value: (overlay.style.fontSize ?? 28).clamp(12.0, 72.0),
+                    min: 12,
+                    max: 72,
+                    onChanged: (value) {
+                      overlay.style = overlay.style.copyWith(fontSize: value);
+                      setState(() {});
+                      setModalState(() {});
+                    },
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildTextHubChip('Bold', () {
+                        overlay.style = overlay.style.copyWith(fontWeight: FontWeight.w800);
+                        setState(() {});
+                        setModalState(() {});
+                      }),
+                      _buildTextHubChip('Italic', () {
+                        overlay.style = overlay.style.copyWith(fontStyle: FontStyle.italic);
+                        setState(() {});
+                        setModalState(() {});
+                      }),
+                      _buildTextHubChip('Center', () {
+                        overlay.position = const Offset(0.5, 0.5);
+                        setState(() {});
+                        setModalState(() {});
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _buildTextHubChip('Delete', () {
+                        Navigator.pop(context);
+                        _deleteClip();
+                      }),
+                      const SizedBox(width: 8),
+                      _buildTextHubChip('Duplicate', () {
+                        Navigator.pop(context);
+                        final duplicated = _insertTextLayer(overlay.text, style: overlay.style, position: overlay.position);
+                        duplicated.start = _currentTime;
+                        setState(() {});
+                      }),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTextHubChip(String label, VoidCallback onTap) {
+    return Material(
+      color: C.surface,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Text(label, style: dm(sz: 11, w: FontWeight.w600, c: C.brand)),
+        ),
+      ),
+    );
+  }
 
   Future<void> _showAudioPicker() async {
     if (!mounted) return;

@@ -109,5 +109,14 @@ void main() {
       expect(json['label'], 'Intro Beat');
       expect(json['volume'], 0.75);
     });
+
+    test('inserts a shared text overlay clip into the text track', () {
+      final tracks = <TimelineTrack>[];
+      final clip = TimelineModelUtils.insertTextClip(tracks, text: 'Hello', start: Duration.zero);
+
+      expect(clip.operation is TextOverlay, isTrue);
+      expect(tracks.single.type, TrackType.text);
+      expect(tracks.single.clips.single.id, clip.id);
+    });
   });
 }
