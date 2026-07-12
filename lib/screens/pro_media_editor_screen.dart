@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../services/video_enhancement_service.dart';
 import '../services/image_enhancement_service.dart';
 import '../models/music_models.dart';
+import '../models/edit_models.dart';
 import '../screens/music_library_screen.dart';
 import '../services/music_library_service.dart';
 import '../theme.dart';

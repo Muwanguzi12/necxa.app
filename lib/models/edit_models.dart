@@ -539,7 +539,7 @@ class TimelineModelUtils {
       String? id,
       String? label,
       IconData? icon,
-    },
+    }
   ) {
     for (final track in tracks) {
       if (track.type == type) {
@@ -565,7 +565,7 @@ class TimelineModelUtils {
       String? id,
       String? label,
       IconData? icon,
-    },
+    }
   ) {
     final targetTrack = ensureTrackForType(tracks, type, id: id, label: label, icon: icon);
     targetTrack.clips.add(clip);
@@ -582,7 +582,7 @@ class TimelineModelUtils {
       double? scale,
       double? rotation,
       String? id,
-    },
+    }
   ) {
     final clip = TimelineClip(
       id: id ?? 'text-${DateTime.now().millisecondsSinceEpoch}',
