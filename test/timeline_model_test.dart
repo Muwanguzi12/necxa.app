@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:necxa_flutter/models/edit_models.dart';
 
@@ -90,9 +91,9 @@ void main() {
         TrackType.images,
       );
 
-      expect(inserted.type, TrackType.images);
       expect(tracks.where((track) => track.type == TrackType.images), hasLength(1));
-      expect(inserted.clips.single.id, 'image-1');
+      expect(tracks.firstWhere((track) => track.type == TrackType.images).clips.single.id, 'image-1');
+      expect(inserted.id, 'image-1');
     });
 
     test('serializes shared audio clip metadata', () {
