@@ -568,7 +568,14 @@ class TimelineModelUtils {
     }
   ) {
     final targetTrack = ensureTrackForType(tracks, type, id: id, label: label, icon: icon);
-    targetTrack.clips.add(clip);
+    // Insert clip keeping clips sorted by start time to make multi-clip
+    // operations and rendering predictable.
+    final insertIndex = targetTrack.clips.indexWhere((c) => clip.start < c.start);
+    if (insertIndex == -1) {
+      targetTrack.clips.add(clip);
+    } else {
+      targetTrack.clips.insert(insertIndex, clip);
+    }
     return clip;
   }
 

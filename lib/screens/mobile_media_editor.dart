@@ -1722,24 +1722,43 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       if (picked.isEmpty) return;
 
       final insertedClips = <TimelineClip>[];
+      // Track per-track next insertion start time so multiple selected items
+      // are chained sequentially per target track instead of overlapping.
+      final Map<TrackType, Duration> nextStart = {};
+
       for (final media in picked) {
         final path = media.path.toLowerCase();
         final isVideo = path.endsWith('.mp4') || path.endsWith('.mov') || path.endsWith('.mkv') || path.endsWith('.avi');
         final trackType = isVideo ? TrackType.video : TrackType.images;
         final targetTrack = TimelineModelUtils.ensureTrackForType(_tracks, trackType);
+
+        // Compute the next available start for this track
+        if (!nextStart.containsKey(trackType)) {
+          final lastEnd = targetTrack.clips.isEmpty
+              ? Duration.zero
+              : targetTrack.clips.map((c) => c.start + c.duration).reduce((a, b) => a > b ? a : b);
+          nextStart[trackType] = lastEnd > _currentTime ? lastEnd : _currentTime;
+        }
+
+        final startAt = nextStart[trackType]!;
+
         final clip = TimelineClip(
           id: '${trackType.name}-${DateTime.now().millisecondsSinceEpoch}-${insertedClips.length}',
-          start: _currentTime,
+          start: startAt,
           duration: const Duration(seconds: 4),
           operation: TrimOperation(
-            start: _currentTime,
-            end: _currentTime + const Duration(seconds: 4),
+            start: startAt,
+            end: startAt + const Duration(seconds: 4),
             maxDuration: _totalDuration,
           ),
         );
 
         TimelineModelUtils.insertClip(_tracks, clip, trackType);
         insertedClips.add(clip);
+
+        // Advance next start time for this track so subsequent items chain
+        nextStart[trackType] = startAt + clip.duration;
+
         _selectedTrackId = targetTrack.id;
         _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == targetTrack.id);
       }
