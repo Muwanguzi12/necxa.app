@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/video_enhancement_service.dart';
 
@@ -493,20 +494,23 @@ class TimelineClip {
   Duration start;
   Duration duration;
   final EditOperation operation;
+  File? file;
 
   TimelineClip({
     required this.id,
     required this.start,
     required this.duration,
     required this.operation,
+    this.file,
   });
 
-  TimelineClip copyWith({String? id, Duration? start, Duration? duration, EditOperation? operation}) {
+  TimelineClip copyWith({String? id, Duration? start, Duration? duration, EditOperation? operation, File? file}) {
     return TimelineClip(
       id: id ?? this.id,
       start: start ?? this.start,
       duration: duration ?? this.duration,
       operation: operation ?? this.operation,
+      file: file ?? this.file,
     );
   }
 }
