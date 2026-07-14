@@ -1417,37 +1417,34 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       case TrackType.captions:
         return 'Caption';
       case TrackType.overlay:
-        return Scaffold(
-          backgroundColor: C.bg,
-          body: SafeArea(
-            child: Stack(
-              children: [
-                Column(
-                  children: [
-                    _buildMobileHeader(screenSize),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          _buildPreviewCanvas(screenSize),
-                          _buildPlaybackControls(screenSize),
-                          Expanded(
-                            child: _buildEditorPanel(screenSize),
-                          ),
-                        ],
-                      ),
-                    ),
-                    _buildContextToolbar(screenSize),
-                    _buildBottomNavigation(screenSize),
-                  ],
-                ),
-                // Canvas toolbar (center-right)
-                _buildCanvasToolbar(),
-                if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
-              ],
-            ),
-          ),
-          floatingActionButton: null,
-        );
+        return 'Overlay';
+      case TrackType.effects:
+        return 'Effect';
+      case TrackType.music:
+        return 'Music';
+      case TrackType.voiceOver:
+        return 'Voice';
+      case TrackType.soundEffects:
+        return 'SFX';
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // E. CONTEXT TOOLBAR (shown when a clip is selected)
+  // ═══════════════════════════════════════════════════════════
+  Widget _buildContextToolbar(Size screenSize) {
+    if (_selectedClip == null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      height: 64,
+      decoration: BoxDecoration(
+        color: C.card,
+        border: Border(top: BorderSide(color: C.border)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      child: _buildContextualTools(),
+    );
   }
   
   Widget _buildContextualTools() {
@@ -2811,10 +2808,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _buildActionChip('Split', () { Navigator.pop(context); _splitClip(); }),
-                  _buildActionChip('Trim', () { Navigator.pop(context); _trimClip(); }),
-                  _buildActionChip('Duplicate', () { Navigator.pop(context); _showSnack('Clip duplicated'); }),
-                  _buildActionChip('Delete', () { Navigator.pop(context); _deleteClip(); }),
+                  _buildClipActionChip('Split', () { Navigator.pop(context); _splitClip(); }),
+                  _buildClipActionChip('Trim', () { Navigator.pop(context); _trimClip(); }),
+                  _buildClipActionChip('Duplicate', () { Navigator.pop(context); _showSnack('Clip duplicated'); }),
+                  _buildClipActionChip('Delete', () { Navigator.pop(context); _deleteClip(); }),
                 ],
               ),
             ],
@@ -2824,7 +2821,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  Widget _buildActionChip(String label, VoidCallback onTap) {
+  Widget _buildClipActionChip(String label, VoidCallback onTap) {
     return Material(
       color: C.surface,
       borderRadius: BorderRadius.circular(999),
