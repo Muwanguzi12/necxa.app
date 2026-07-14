@@ -203,15 +203,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             ),
             if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
             // Right-side canvas toolbar (Expand / Save / Preview)
-            Positioned.fill(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 12.0),
-                  child: _buildCanvasToolbar(),
-                ),
-              ),
-            ),
+            _buildCanvasToolbar(),
           ],
         ),
       ),
