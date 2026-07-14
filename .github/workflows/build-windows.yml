@@ -14,6 +14,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Free disk space
+      shell: pwsh
+      run: |
+        Write-Host "Initial Disk Space:"
+        Get-PSDrive C | Select-Object Used,Free
+        if (Test-Path "$env:ANDROID_HOME") { Remove-Item -Recurse -Force "$env:ANDROID_HOME" -ErrorAction SilentlyContinue }
+        Write-Host "Disk Space after cleanup:"
+        Get-PSDrive C | Select-Object Used,Free
+
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
@@ -127,6 +136,20 @@ jobs:
     - name: Build Windows Release
       run: flutter build windows --release
 
+    - name: Get Version from pubspec.yaml
+      id: get_version
+      shell: pwsh
+      run: |
+        $pubspec = Get-Content pubspec.yaml -Raw
+        if ($pubspec -match '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)') {
+            $ver = $matches[1]
+            Write-Host "Found version: $ver"
+            echo "version=$ver" >> $env:GITHUB_OUTPUT
+        } else {
+            Write-Host "Could not parse version. Defaulting to 1.0.0"
+            echo "version=1.0.0" >> $env:GITHUB_OUTPUT
+        }
+
     - name: Install Inno Setup
       shell: pwsh
       run: |
@@ -141,7 +164,8 @@ jobs:
       shell: pwsh
       run: |
         $isccPath = Join-Path $env:ProgramFiles(x86) 'Inno Setup 6\ISCC.exe'
-        & $isccPath "windows\packaging\inno_setup.iss"
+        $version = "${{ steps.get_version.outputs.version }}"
+        & $isccPath "/DMyAppVersion=$version" "windows\packaging\inno_setup.iss"
 
     - name: Archive Windows Installer
       uses: actions/upload-artifact@v4
