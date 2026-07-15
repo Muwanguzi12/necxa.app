@@ -34,14 +34,22 @@ class EditorExportService {
     String creatorName = 'Creator',
     String copyright = 'All rights reserved',
     String platform = 'NECXA Platform',
+    bool rightsConfirmed = false,
+    ValueChanged<String>? onStage,
   }) async {
     try {
+      if (!rightsConfirmed) {
+        return const EditorExportResult(success: false, issues: ['Confirm that you own or are licensed to use this content before publishing.']);
+      }
       final tempDir = await getTemporaryDirectory();
+      onStage?.call('Saving project');
       final outputFile = File('${tempDir.path}/$projectName-${DateTime.now().millisecondsSinceEpoch}.mp4');
       await sourceVideo.copy(outputFile.path);
 
+      onStage?.call('Compressing video');
       final compressedFile = await MediaCompressionService.compressVideo(outputFile);
 
+      onStage?.call('Preparing publishing package');
       final thumbnailFile = File('${tempDir.path}/${projectName}_thumb.jpg');
       await thumbnailFile.writeAsBytes(base64Decode(base64Encode(await compressedFile.readAsBytes())));
 
@@ -55,6 +63,7 @@ class EditorExportService {
         'thumbnailPath': thumbnailFile.path,
       };
 
+      onStage?.call('Uploading for AI verification');
       final verification = await NecxaAI.verifyVideoWorker([compressedFile]);
       final issues = <String>[];
       if (verification['success'] == false) {
@@ -68,6 +77,7 @@ class EditorExportService {
       history.add(jsonEncode(payload));
       await prefs.setStringList(_exportHistoryKey, history.take(20).toList());
 
+      onStage?.call(issues.isEmpty ? 'Preparing publishing targets' : 'Verification needs attention');
       return EditorExportResult(
         success: issues.isEmpty,
         outputPath: compressedFile.path,

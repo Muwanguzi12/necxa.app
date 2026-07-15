@@ -544,7 +544,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: enabled ? _export : null,
+          onTap: enabled ? _showExportSheet : null,
           borderRadius: BorderRadius.circular(10),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -2183,11 +2183,56 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  Future<void> _export() async {
+  Future<void> _showExportSheet() async {
+    final title = TextEditingController(text: 'NECXA_${DateTime.now().millisecondsSinceEpoch}');
+    final description = TextEditingController();
+    var flatten = true;
+    var rightsConfirmed = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewInsets.bottom),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Publish export', style: syne(sz: 16, w: FontWeight.w800, c: C.text)),
+              const SizedBox(height: 6),
+              Text('Finalize, compress, verify, then prepare your video for publishing.', style: dm(sz: 11, c: C.dim)),
+              const SizedBox(height: 14),
+              TextField(controller: title, style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'Project name')),
+              const SizedBox(height: 8),
+              TextField(controller: description, maxLines: 2, style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'Description')),
+              const SizedBox(height: 12),
+              RadioListTile<bool>(value: true, groupValue: flatten, onChanged: (value) => setSheetState(() => flatten = value!), title: Text('High-quality flatten', style: dm(sz: 12, c: C.text, w: FontWeight.w700)), subtitle: Text('Create a compressed video ready for publishing and local storage.', style: dm(sz: 10, c: C.dim))),
+              RadioListTile<bool>(value: false, groupValue: flatten, onChanged: (value) => setSheetState(() => flatten = value!), title: Text('Fast sync', style: dm(sz: 12, c: C.text, w: FontWeight.w700)), subtitle: Text('Prepare a NECXA publishing package using the project source.', style: dm(sz: 10, c: C.dim))),
+              CheckboxListTile(
+                value: rightsConfirmed,
+                onChanged: (value) => setSheetState(() => rightsConfirmed = value ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: Text('I own or have permission to use all media and audio in this project.', style: dm(sz: 10.5, c: C.text, w: FontWeight.w600)),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(width: double.infinity, child: FilledButton.icon(
+                onPressed: rightsConfirmed ? () { Navigator.pop(sheetContext); _export(projectName: title.text.trim(), description: description.text.trim(), flatten: flatten, rightsConfirmed: true); } : null,
+                icon: const Icon(Icons.verified_outlined), label: const Text('Finalize & verify'),
+              )),
+            ]),
+          ),
+        ),
+      ),
+    );
+    title.dispose();
+    description.dispose();
+  }
+
+  Future<void> _export({required String projectName, required String description, required bool flatten, required bool rightsConfirmed}) async {
     if (_isExporting) return;
     setState(() {
       _isExporting = true;
-      _exportStatus = 'Preparing Export';
+      _exportStatus = flatten ? 'Finalizing timeline' : 'Preparing sync package';
     });
 
     File? sourceVideo;
@@ -2215,13 +2260,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return;
     }
 
-    setState(() => _exportStatus = 'Finalizing Timeline');
-    setState(() => _exportStatus = 'Compressing Video');
     final result = await EditorExportService.exportProject(
       sourceVideo: sourceVideo,
-      projectName: 'NECXA_${DateTime.now().millisecondsSinceEpoch}',
-      description: 'Published from NECXA Editor',
+      projectName: projectName.isEmpty ? 'NECXA_${DateTime.now().millisecondsSinceEpoch}' : projectName,
+      description: description,
       creatorName: widget.state.currentProfile?['full_name']?.toString() ?? 'Creator',
+      rightsConfirmed: rightsConfirmed,
+      onStage: (stage) { if (mounted) setState(() => _exportStatus = stage); },
     );
     if (!mounted) return;
     setState(() {
