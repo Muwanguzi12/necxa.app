@@ -16,14 +16,18 @@ class TrimOperation extends EditOperation {
   Duration end;
   final Duration maxDuration;
 
-  TrimOperation({required this.start, required this.end, required this.maxDuration}) : super('trim');
+  TrimOperation({
+    required this.start,
+    required this.end,
+    required this.maxDuration,
+  }) : super('trim');
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'startTime': start.inMilliseconds / 1000.0,
-        'endTime': end.inMilliseconds / 1000.0,
-      };
+    'type': type,
+    'startTime': start.inMilliseconds / 1000.0,
+    'endTime': end.inMilliseconds / 1000.0,
+  };
 }
 
 /// Represents a text overlay with its properties.
@@ -39,21 +43,25 @@ class TextOverlay extends EditOperation {
     this.position = const Offset(0.5, 0.5),
     this.scale = 1.0,
     this.rotation = 0.0,
-    this.style = const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+    this.style = const TextStyle(
+      fontSize: 24,
+      color: Colors.white,
+      fontWeight: FontWeight.bold,
+    ),
   }) : super('text');
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'content': text,
-        'position': {'dx': position.dx, 'dy': position.dy},
-        'scale': scale,
-        'rotation': rotation,
-        'font': style.fontFamily,
-        'fontSize': style.fontSize,
-        // ignore: deprecated_member_use
-        'color': '#${style.color?.value.toRadixString(16)}',
-      };
+    'type': type,
+    'content': text,
+    'position': {'dx': position.dx, 'dy': position.dy},
+    'scale': scale,
+    'rotation': rotation,
+    'font': style.fontFamily,
+    'fontSize': style.fontSize,
+    // ignore: deprecated_member_use
+    'color': '#${style.color?.value.toRadixString(16)}',
+  };
 }
 
 /// Represents a color filter operation.
@@ -100,15 +108,93 @@ class TransitionPreset {
   });
 
   static const List<TransitionPreset> presets = <TransitionPreset>[
-    TransitionPreset(id: 'crossfade', name: 'Crossfade', category: 'Crossfade', icon: '🌫️', description: 'Smooth dissolve between clips.', tags: <String>['featured', 'recommended'], featured: true, recommended: true, defaultDuration: 0.7),
-    TransitionPreset(id: 'fade', name: 'Fade', category: 'Fade', icon: '⬜', description: 'Classic fade-to-black transition.', tags: <String>['fade'], recommended: true, defaultDuration: 0.55),
-    TransitionPreset(id: 'dissolve', name: 'Dissolve', category: 'Dissolve', icon: '✨', description: 'Soft pixel dissolve.', tags: <String>['new'], isNew: true, defaultDuration: 0.5),
-    TransitionPreset(id: 'slide', name: 'Slide', category: 'Slide', icon: '➡️', description: 'Directional slide motion.', tags: <String>['motion'], trending: true, defaultDuration: 0.6),
-    TransitionPreset(id: 'wipe', name: 'Wipe', category: 'Wipe', icon: '🧹', description: 'Clean wipe across the frame.', tags: <String>['creative'], defaultDuration: 0.65),
-    TransitionPreset(id: 'zoom', name: 'Zoom', category: 'Zoom', icon: '🔍', description: 'Punch-in transition with scale.', tags: <String>['cinematic'], defaultDuration: 0.75),
-    TransitionPreset(id: 'spin', name: 'Spin', category: 'Spin', icon: '🌀', description: 'Rotational transition.', tags: <String>['3d'], defaultDuration: 0.8),
-    TransitionPreset(id: 'blur', name: 'Blur', category: 'Blur', icon: '🌫️', description: 'Blurred transition between clips.', tags: <String>['creative'], defaultDuration: 0.6),
-    TransitionPreset(id: 'glitch', name: 'Glitch', category: 'Glitch', icon: '📡', description: 'Stylized glitch cut.', tags: <String>['trending'], trending: true, defaultDuration: 0.45),
+    TransitionPreset(
+      id: 'crossfade',
+      name: 'Crossfade',
+      category: 'Crossfade',
+      icon: '🌫️',
+      description: 'Smooth dissolve between clips.',
+      tags: <String>['featured', 'recommended'],
+      featured: true,
+      recommended: true,
+      defaultDuration: 0.7,
+    ),
+    TransitionPreset(
+      id: 'fade',
+      name: 'Fade',
+      category: 'Fade',
+      icon: '⬜',
+      description: 'Classic fade-to-black transition.',
+      tags: <String>['fade'],
+      recommended: true,
+      defaultDuration: 0.55,
+    ),
+    TransitionPreset(
+      id: 'dissolve',
+      name: 'Dissolve',
+      category: 'Dissolve',
+      icon: '✨',
+      description: 'Soft pixel dissolve.',
+      tags: <String>['new'],
+      isNew: true,
+      defaultDuration: 0.5,
+    ),
+    TransitionPreset(
+      id: 'slide',
+      name: 'Slide',
+      category: 'Slide',
+      icon: '➡️',
+      description: 'Directional slide motion.',
+      tags: <String>['motion'],
+      trending: true,
+      defaultDuration: 0.6,
+    ),
+    TransitionPreset(
+      id: 'wipe',
+      name: 'Wipe',
+      category: 'Wipe',
+      icon: '🧹',
+      description: 'Clean wipe across the frame.',
+      tags: <String>['creative'],
+      defaultDuration: 0.65,
+    ),
+    TransitionPreset(
+      id: 'zoom',
+      name: 'Zoom',
+      category: 'Zoom',
+      icon: '🔍',
+      description: 'Punch-in transition with scale.',
+      tags: <String>['cinematic'],
+      defaultDuration: 0.75,
+    ),
+    TransitionPreset(
+      id: 'spin',
+      name: 'Spin',
+      category: 'Spin',
+      icon: '🌀',
+      description: 'Rotational transition.',
+      tags: <String>['3d'],
+      defaultDuration: 0.8,
+    ),
+    TransitionPreset(
+      id: 'blur',
+      name: 'Blur',
+      category: 'Blur',
+      icon: '🌫️',
+      description: 'Blurred transition between clips.',
+      tags: <String>['creative'],
+      defaultDuration: 0.6,
+    ),
+    TransitionPreset(
+      id: 'glitch',
+      name: 'Glitch',
+      category: 'Glitch',
+      icon: '📡',
+      description: 'Stylized glitch cut.',
+      tags: <String>['trending'],
+      trending: true,
+      defaultDuration: 0.45,
+    ),
   ];
 }
 
@@ -142,18 +228,18 @@ class TransitionOperation extends EditOperation {
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'presetId': presetId,
-        'presetName': presetName,
-        'category': category,
-        'duration': duration,
-        'direction': direction,
-        'intensity': intensity,
-        'easeIn': easeIn,
-        'easeOut': easeOut,
-        'reverse': reverse,
-        'isFavorite': isFavorite,
-      };
+    'type': type,
+    'presetId': presetId,
+    'presetName': presetName,
+    'category': category,
+    'duration': duration,
+    'direction': direction,
+    'intensity': intensity,
+    'easeIn': easeIn,
+    'easeOut': easeOut,
+    'reverse': reverse,
+    'isFavorite': isFavorite,
+  };
 }
 
 /// Shared effect preset metadata reused by desktop and mobile editors.
@@ -374,21 +460,22 @@ class EffectOperation extends EditOperation {
 
   EffectPreset? get preset => EffectPreset.byId(presetId);
 
-  RenderEffects renderEffects() => (preset ?? EffectPreset.presets.first).toRenderEffects(intensity: intensity);
+  RenderEffects renderEffects() => (preset ?? EffectPreset.presets.first)
+      .toRenderEffects(intensity: intensity);
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'presetId': presetId,
-        'presetName': presetName,
-        'category': category,
-        'intensity': intensity,
-        'opacity': opacity,
-        'blendMode': blendMode,
-        'startOffset': startOffset,
-        'endOffset': endOffset,
-        'isFavorite': isFavorite,
-      };
+    'type': type,
+    'presetId': presetId,
+    'presetName': presetName,
+    'category': category,
+    'intensity': intensity,
+    'opacity': opacity,
+    'blendMode': blendMode,
+    'startOffset': startOffset,
+    'endOffset': endOffset,
+    'isFavorite': isFavorite,
+  };
 }
 
 /// Shared audio operation used by desktop and mobile editors for music,
@@ -397,7 +484,9 @@ class AudioClipOperation extends EditOperation {
   final String sourceType;
   final String? sourceUrl;
   final String? label;
-  final double volume;
+  double volume;
+  double speed;
+  bool reverse;
   final double? startOffset;
   final double? endOffset;
 
@@ -406,20 +495,24 @@ class AudioClipOperation extends EditOperation {
     this.sourceUrl,
     this.label,
     this.volume = 1.0,
+    this.speed = 1.0,
+    this.reverse = false,
     this.startOffset,
     this.endOffset,
   }) : super('audio');
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'sourceType': sourceType,
-        'sourceUrl': sourceUrl,
-        'label': label,
-        'volume': volume,
-        'startOffset': startOffset,
-        'endOffset': endOffset,
-      };
+    'type': type,
+    'sourceType': sourceType,
+    'sourceUrl': sourceUrl,
+    'label': label,
+    'volume': volume,
+    'speed': speed,
+    'reverse': reverse,
+    'startOffset': startOffset,
+    'endOffset': endOffset,
+  };
 }
 
 /// Represents the type of a timeline track.
@@ -495,6 +588,12 @@ class TimelineClip {
   Duration duration;
   final EditOperation operation;
   File? file;
+  Duration sourceStart;
+  Duration? sourceEnd;
+  double speed;
+  double volume;
+  String cropAspectRatio;
+  bool isReversed;
 
   TimelineClip({
     required this.id,
@@ -502,17 +601,44 @@ class TimelineClip {
     required this.duration,
     required this.operation,
     this.file,
+    this.sourceStart = Duration.zero,
+    this.sourceEnd,
+    this.speed = 1.0,
+    this.volume = 1.0,
+    this.cropAspectRatio = 'Original',
+    this.isReversed = false,
   });
 
-  TimelineClip copyWith({String? id, Duration? start, Duration? duration, EditOperation? operation, File? file}) {
+  TimelineClip copyWith({
+    String? id,
+    Duration? start,
+    Duration? duration,
+    EditOperation? operation,
+    File? file,
+    Duration? sourceStart,
+    Duration? sourceEnd,
+    double? speed,
+    double? volume,
+    String? cropAspectRatio,
+    bool? isReversed,
+  }) {
     return TimelineClip(
       id: id ?? this.id,
       start: start ?? this.start,
       duration: duration ?? this.duration,
       operation: operation ?? this.operation,
       file: file ?? this.file,
+      sourceStart: sourceStart ?? this.sourceStart,
+      sourceEnd: sourceEnd ?? this.sourceEnd,
+      speed: speed ?? this.speed,
+      volume: volume ?? this.volume,
+      cropAspectRatio: cropAspectRatio ?? this.cropAspectRatio,
+      isReversed: isReversed ?? this.isReversed,
     );
   }
+
+  Duration get sourceDuration =>
+      (sourceEnd ?? (sourceStart + duration)) - sourceStart;
 }
 
 /// Represents a full track in the timeline, containing multiple clips.
@@ -540,11 +666,10 @@ class TimelineModelUtils {
   static TimelineTrack ensureTrackForType(
     List<TimelineTrack> tracks,
     TrackType type, {
-      String? id,
-      String? label,
-      IconData? icon,
-    }
-  ) {
+    String? id,
+    String? label,
+    IconData? icon,
+  }) {
     for (final track in tracks) {
       if (track.type == type) {
         return track;
@@ -566,15 +691,22 @@ class TimelineModelUtils {
     List<TimelineTrack> tracks,
     TimelineClip clip,
     TrackType type, {
-      String? id,
-      String? label,
-      IconData? icon,
-    }
-  ) {
-    final targetTrack = ensureTrackForType(tracks, type, id: id, label: label, icon: icon);
+    String? id,
+    String? label,
+    IconData? icon,
+  }) {
+    final targetTrack = ensureTrackForType(
+      tracks,
+      type,
+      id: id,
+      label: label,
+      icon: icon,
+    );
     // Insert clip keeping clips sorted by start time to make multi-clip
     // operations and rendering predictable.
-    final insertIndex = targetTrack.clips.indexWhere((c) => clip.start < c.start);
+    final insertIndex = targetTrack.clips.indexWhere(
+      (c) => clip.start < c.start,
+    );
     if (insertIndex == -1) {
       targetTrack.clips.add(clip);
     } else {
@@ -585,16 +717,15 @@ class TimelineModelUtils {
 
   static TimelineClip insertTextClip(
     List<TimelineTrack> tracks, {
-      required String text,
-      required Duration start,
-      Duration? duration,
-      TextStyle? style,
-      Offset? position,
-      double? scale,
-      double? rotation,
-      String? id,
-    }
-  ) {
+    required String text,
+    required Duration start,
+    Duration? duration,
+    TextStyle? style,
+    Offset? position,
+    double? scale,
+    double? rotation,
+    String? id,
+  }) {
     final clip = TimelineClip(
       id: id ?? 'text-${DateTime.now().millisecondsSinceEpoch}',
       start: start,
@@ -604,7 +735,13 @@ class TimelineModelUtils {
         position: position ?? const Offset(0.5, 0.5),
         scale: scale ?? 1.0,
         rotation: rotation ?? 0.0,
-        style: style ?? const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold),
+        style:
+            style ??
+            const TextStyle(
+              fontSize: 28,
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
       ),
     );
     insertClip(tracks, clip, TrackType.text);
@@ -612,12 +749,18 @@ class TimelineModelUtils {
   }
 
   static void pruneEmptyTracks(List<TimelineTrack> tracks) {
-    tracks.removeWhere((track) => track.type != TrackType.video && track.clips.isEmpty);
+    tracks.removeWhere(
+      (track) => track.type != TrackType.video && track.clips.isEmpty,
+    );
   }
 
   static List<TimelineTrack> visibleTracks(List<TimelineTrack> tracks) {
     return tracks
-        .where((track) => track.isVisible && (track.type == TrackType.video || track.clips.isNotEmpty))
+        .where(
+          (track) =>
+              track.isVisible &&
+              (track.type == TrackType.video || track.clips.isNotEmpty),
+        )
         .toList();
   }
 }
