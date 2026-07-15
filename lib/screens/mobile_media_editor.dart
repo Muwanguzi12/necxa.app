@@ -1019,6 +1019,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               ),
             ),
         ],
+      ),
     );
   }
 
@@ -2103,6 +2104,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             )),
           ]),
         ),
+      ),
     );
   }
 
