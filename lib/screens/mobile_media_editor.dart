@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -17,10 +16,11 @@ import '../services/music_library_service.dart';
 import '../models/music_models.dart';
 import '../services/editor_subscription_service.dart';
 import '../services/editor_export_service.dart';
+import '../services/editor_media_service.dart';
 import 'pro_media_editor_screen.dart';
 import 'music_library_screen.dart';
-import 'package:record/record.dart';
-import 'package:path_provider/path_provider.dart';
+import '../services/editor_voiceover_service.dart';
+import '../services/editor_audio_service.dart';
 
 // ══════════════════════════════════════════════════════════════
 // MOBILE MEDIA EDITOR - Responsive adaptation of desktop editor
@@ -50,6 +50,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   
   // ── Timeline ─────────────────────────────────────────────────
   final List<TimelineTrack> _tracks = [];
+  final EditorMediaService _mediaService = EditorMediaService();
+  final Set<String> _selectedMediaPaths = <String>{};
+  final Set<String> _favoriteMediaPaths = <String>{};
+  String _mediaCategory = 'Recent';
+  String _mediaQuery = '';
+  bool _mediaGridView = true;
+  bool _mediaNewestFirst = true;
   double _playheadPosition = 0.0;
   double _timelineZoom = 1.0;
   final double _pixelsPerSecond = 80.0; // Base width per second
@@ -86,7 +93,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   // ── Audio State ─────────────────────────────────────────────
   final MusicLibraryService _musicService = MusicLibraryService();
-  final AudioRecorder _voiceRecorder = AudioRecorder();
+  final EditorVoiceoverService _voiceoverService = EditorVoiceoverService();
+  final EditorAudioService _editorAudioService = EditorAudioService();
   final AudioPlayer _audioPreviewPlayer = AudioPlayer();
   String? _activeAudioPreviewUrl;
   File? _voiceOverFile;
@@ -145,6 +153,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
   
   void _initializeEditor() {
+    if (widget.initialMedia != null) _mediaService.registerFile(widget.initialMedia!);
     final videoTrack = TimelineModelUtils.ensureTrackForType(
       _tracks,
       TrackType.video,
@@ -200,7 +209,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _bottomNavController.dispose();
     _musicService.dispose();
     _audioPreviewPlayer.dispose();
-    _voiceRecorder.dispose();
+    _voiceoverService.dispose();
+    _editorAudioService.dispose();
     _timelineScrollController.dispose();
     _verticalScrollController.dispose();
     _sidebarScrollController.dispose();
@@ -238,11 +248,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 ),
                 _buildContextToolbar(screenSize),
                 _buildBottomNavigation(screenSize),
-              ],
-            ),
-            if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
-            // Right-side canvas toolbar (Expand / Save / Preview)
-            _buildCanvasToolbar(),
+            ],
+          ),
+          if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
           ],
         ),
       ),
@@ -347,26 +355,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Widget _buildCanvasToolbar() {
-    return Positioned.fill(
-      child: IgnorePointer(
-        ignoring: false,
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 12.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildCanvasToolButton(Icons.fullscreen, 'Expand', () => setState(() => _showFullscreenPreview = true)),
-                const SizedBox(height: 10),
-                _buildCanvasToolButton(Icons.save, 'Save', _saveDraft, color: C.green),
-                const SizedBox(height: 10),
-                _buildCanvasToolButton(Icons.play_arrow, 'Preview', _showPreview),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildCanvasToolButton(Icons.fullscreen_outlined, 'Expand', () => setState(() => _showFullscreenPreview = true)),
+        const SizedBox(height: 8),
+        _buildCanvasToolButton(Icons.save_outlined, 'Save', _saveDraft, color: C.green),
+        const SizedBox(height: 8),
+        _buildCanvasToolButton(Icons.play_circle_outline, 'Preview', _showPreview),
+      ],
     );
   }
 
@@ -375,22 +372,22 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         child: Container(
-          width: 78,
-          height: 56,
+          width: 54,
+          height: 50,
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.6),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white10),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6)],
+            color: const Color(0xFF0C111A).withOpacity(0.94),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withOpacity(0.09)),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.28), blurRadius: 8, offset: const Offset(0, 3))],
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color ?? Colors.white, size: 18),
-              const SizedBox(height: 4),
-              Text(label.toUpperCase(), style: dm(sz: 9, c: Colors.white, w: FontWeight.w700)),
+              Icon(icon, color: color ?? Colors.white, size: 19),
+              const SizedBox(height: 3),
+              Text(label, style: dm(sz: 8, c: Colors.white70, w: FontWeight.w700)),
             ],
           ),
         ),
@@ -664,6 +661,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 ),
               ),
             ),
+          // Keep canvas actions beside the preview, never over the playback or timeline.
+          Positioned(
+            right: 14,
+            top: 0,
+            bottom: 0,
+            child: Center(child: _buildCanvasToolbar()),
+          ),
         ],
       ),
     );
@@ -897,10 +901,145 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // D. TIMELINE WORKSPACE (30%)
   // ═══════════════════════════════════════════════════════════
   Widget _buildEditorPanel(Size screenSize) {
+    if (_activeToolPanel == 1) {
+      return _buildMediaLibraryPanel();
+    }
     if (_activeToolPanel == 2) {
       return _buildAudioPanel(screenSize);
     }
     return _buildTimelineWorkspace(screenSize);
+  }
+
+  Widget _buildMediaLibraryPanel() {
+    final assets = _mediaService.recentAssets.where((asset) {
+      final matchesCategory = switch (_mediaCategory) {
+        'Recent' => true,
+        'Favorites' => _favoriteMediaPaths.contains(asset.path),
+        'Downloads' => asset.path.toLowerCase().contains('download'),
+        'Camera' => asset.path.toLowerCase().contains('camera') || asset.path.toLowerCase().contains('dcim'),
+        'NECXA Cloud' => false,
+        _ => asset.category == _mediaCategory,
+      };
+      final query = _mediaQuery.toLowerCase();
+      return matchesCategory && (query.isEmpty || asset.name.toLowerCase().contains(query));
+    }).toList()
+      ..sort((a, b) => _mediaNewestFirst
+          ? b.importedAt.compareTo(a.importedAt)
+          : a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    const categories = ['Recent', 'Videos', 'Photos', 'Downloads', 'Camera', 'Files', 'Favorites', 'NECXA Cloud'];
+    return Container(
+      color: C.bg,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Row(children: [
+              Text('Media library', style: syne(sz: 13, w: FontWeight.w800, c: C.text)),
+              const Spacer(),
+              IconButton(
+                tooltip: _mediaGridView ? 'List view' : 'Grid view',
+                onPressed: () => setState(() => _mediaGridView = !_mediaGridView),
+                icon: Icon(_mediaGridView ? Icons.view_list_outlined : Icons.grid_view_outlined, color: C.dim, size: 20),
+              ),
+              IconButton(
+                tooltip: 'Sort media',
+                onPressed: () => setState(() => _mediaNewestFirst = !_mediaNewestFirst),
+                icon: Icon(_mediaNewestFirst ? Icons.schedule : Icons.sort_by_alpha, color: C.dim, size: 20),
+              ),
+              FilledButton.icon(
+                onPressed: _importMediaToLibrary,
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Import'),
+              ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: TextField(
+              onChanged: (value) => setState(() => _mediaQuery = value),
+              style: dm(sz: 11, c: C.text),
+              decoration: InputDecoration(
+                hintText: 'Search imported media',
+                hintStyle: dm(sz: 11, c: C.dim),
+                prefixIcon: const Icon(Icons.search, size: 18),
+                isDense: true,
+                filled: true,
+                fillColor: C.surface,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: C.border)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 34,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              scrollDirection: Axis.horizontal,
+              itemCount: categories.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              itemBuilder: (context, index) {
+                final category = categories[index];
+                final selected = category == _mediaCategory;
+                return ChoiceChip(
+                  label: Text(category, style: dm(sz: 9, c: selected ? Colors.white : C.dim, w: FontWeight.w600)),
+                  selected: selected,
+                  onSelected: (_) => setState(() => _mediaCategory = category),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: assets.isEmpty
+                ? Center(child: Text('No ${_mediaCategory.toLowerCase()} media yet', style: dm(sz: 12, c: C.dim)))
+                : _mediaGridView
+                    ? GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, childAspectRatio: .82, crossAxisSpacing: 8, mainAxisSpacing: 8),
+                        itemCount: assets.length,
+                        itemBuilder: (context, index) => _buildMediaAssetCard(assets[index]),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        itemCount: assets.length,
+                        itemBuilder: (context, index) => _buildMediaAssetCard(assets[index], list: true),
+                      ),
+          ),
+          if (_selectedMediaPaths.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => _insertMediaAssets(_mediaService.recentAssets.where((asset) => _selectedMediaPaths.contains(asset.path)).toList()),
+                  icon: const Icon(Icons.add_to_queue, size: 18),
+                  label: Text('Add ${_selectedMediaPaths.length} to timeline'),
+                ),
+              ),
+            ),
+        ],
+    );
+  }
+
+  Widget _buildMediaAssetCard(EditorMediaAsset asset, {bool list = false}) {
+    final selected = _selectedMediaPaths.contains(asset.path);
+    final favorite = _favoriteMediaPaths.contains(asset.path);
+    final preview = asset.isImage
+        ? Image.file(asset.file, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(Icons.broken_image_outlined, color: C.dim))
+        : Icon(asset.isVideo ? Icons.videocam_outlined : Icons.insert_drive_file_outlined, color: C.brand, size: list ? 26 : 34);
+    return GestureDetector(
+      onTap: () => setState(() => selected ? _selectedMediaPaths.remove(asset.path) : _selectedMediaPaths.add(asset.path)),
+      onLongPress: () => _showMediaInfo(asset),
+      child: Container(
+        margin: list ? const EdgeInsets.only(bottom: 8) : EdgeInsets.zero,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(color: selected ? C.brand.withOpacity(.15) : C.surface, borderRadius: BorderRadius.circular(10), border: Border.all(color: selected ? C.brand : C.border)),
+        child: list
+            ? Row(children: [SizedBox(width: 42, height: 42, child: Center(child: preview)), const SizedBox(width: 8), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(asset.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: dm(sz: 10, c: C.text, w: FontWeight.w600)), Text('${asset.category} • ${_formatMediaBytes(asset.sizeBytes)}', style: dm(sz: 9, c: C.dim))])), IconButton(onPressed: () => setState(() => favorite ? _favoriteMediaPaths.remove(asset.path) : _favoriteMediaPaths.add(asset.path)), icon: Icon(favorite ? Icons.star : Icons.star_border, color: favorite ? Colors.amber : C.dim, size: 18))])
+            : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Expanded(child: SizedBox(width: double.infinity, child: Center(child: preview))), Text(asset.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: dm(sz: 9, c: C.text, w: FontWeight.w600)), Text(_formatMediaBytes(asset.sizeBytes), style: dm(sz: 8, c: C.dim))]),
+      ),
+    );
   }
 
   Widget _buildTimelineWorkspace(Size screenSize) {
@@ -922,7 +1061,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                   borderRadius: BorderRadius.circular(999),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(999),
-                    onTap: _pickMediaFromLibrary,
+                    onTap: _showTimelineInsertMenu,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       child: Row(
@@ -1278,14 +1417,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
                 _buildActionChip('Music', Icons.music_note, _showAudioPicker),
                 const SizedBox(width: 8),
-                _buildActionChip(_isRecordingVoice ? 'Stop' : 'Voice', Icons.mic, _toggleVoiceOver),
+                _buildActionChip(_isRecordingVoice ? 'Recording' : 'Voice', Icons.mic, _showVoiceoverRecorder),
                 const SizedBox(width: 8),
                 _buildActionChip('SFX', Icons.speaker, _addSoundEffect),
-              ],
+                const SizedBox(width: 8),
+                _buildActionChip('Files', Icons.folder_open_outlined, _importDeviceAudio),
+              ]),
             ),
           ),
           const SizedBox(height: 16),
@@ -1314,23 +1456,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Widget _buildActionChip(String label, IconData icon, VoidCallback onTap) {
-    return Expanded(
-      child: Material(
-        color: C.surface,
+    return Material(
+      color: C.surface,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
         borderRadius: BorderRadius.circular(999),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(999),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 16, color: C.brand),
-                const SizedBox(width: 8),
-                Text(label, style: dm(sz: 12, c: C.text, w: FontWeight.w700)),
-              ],
-            ),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: C.brand),
+              const SizedBox(width: 8),
+              Text(label, style: dm(sz: 12, c: C.text, w: FontWeight.w700)),
+            ],
           ),
         ),
       ),
@@ -1582,7 +1722,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       case 2:
         return [
           _buildToolButton('Music', () => _showAudioPicker()),
-          _buildToolButton('Voice', () => _toggleVoiceOver()),
+          _buildToolButton('Voice', _showVoiceoverRecorder),
           _buildToolButton('SFX', () => _addSoundEffect()),
           _buildToolButton('Volume', () => _adjustVolume()),
         ];
@@ -1818,10 +1958,28 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
   
-  Future<void> _pickMediaFromLibrary() async {
+  Future<void> _importMediaToLibrary() async {
     try {
-      final picked = await ImagePicker().pickMultipleMedia();
+      final picked = await _mediaService.pickMedia();
       if (picked.isEmpty) return;
+      if (mounted) setState(() {});
+    } catch (_) {
+      if (mounted) _showSnack('Unable to import media right now');
+    }
+  }
+
+  Future<void> _pickMediaFromLibrary({TrackType? targetType}) async {
+    try {
+      final picked = await _mediaService.pickMedia();
+      if (picked.isEmpty) return;
+      await _insertMediaAssets(picked, targetType: targetType);
+    } catch (_) {
+      if (mounted) _showSnack('Unable to load media right now');
+    }
+  }
+
+  Future<void> _insertMediaAssets(List<EditorMediaAsset> picked, {TrackType? targetType}) async {
+    if (picked.isEmpty) return;
 
       final insertedClips = <TimelineClip>[];
       // Track per-track next insertion start time so multiple selected items
@@ -1829,10 +1987,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       final Map<TrackType, Duration> nextStart = {};
 
       for (final media in picked) {
-        final path = media.path;
-        final pathLower = path.toLowerCase();
-        final isVideo = pathLower.endsWith('.mp4') || pathLower.endsWith('.mov') || pathLower.endsWith('.mkv') || pathLower.endsWith('.avi');
-        final trackType = isVideo ? TrackType.video : TrackType.images;
+        final isVideo = media.isVideo;
+        final trackType = targetType ?? (isVideo ? TrackType.video : TrackType.images);
         final targetTrack = TimelineModelUtils.ensureTrackForType(_tracks, trackType);
 
         // Compute the next available start for this track
@@ -1845,7 +2001,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
         final startAt = nextStart[trackType]!;
 
-        final mediaFile = File(path);
+        final mediaFile = media.file;
         Duration actualDuration = const Duration(seconds: 4);
         if (isVideo) {
           try {
@@ -1888,13 +2044,86 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       }
 
       if (mounted) {
+        _selectedMediaPaths.clear();
+        setState(() {});
         _showSnack('${insertedClips.length} item${insertedClips.length == 1 ? '' : 's'} added to timeline');
       }
-    } catch (_) {
-      if (mounted) {
-        _showSnack('Unable to load media right now');
+  }
+
+  void _showTimelineInsertMenu() {
+    TimelineTrack? track;
+    for (final item in _tracks) {
+      if (item.id == _selectedTrackId) {
+        track = item;
+        break;
       }
     }
+    final type = track?.type ?? TrackType.video;
+    final actions = switch (type) {
+      TrackType.video || TrackType.images => [
+          ('Add video', Icons.videocam_outlined, () => _pickMediaFromLibrary(targetType: TrackType.video)),
+          ('Add image', Icons.image_outlined, () => _pickMediaFromLibrary(targetType: TrackType.images)),
+        ],
+      TrackType.music || TrackType.audio || TrackType.voiceOver || TrackType.soundEffects => [
+          ('Add music', Icons.music_note_outlined, _showAudioPicker),
+          ('Record voice', Icons.mic_none_outlined, _showVoiceoverRecorder),
+          ('Add sound effect', Icons.graphic_eq_outlined, _addSoundEffect),
+        ],
+      TrackType.text || TrackType.captions => [
+          ('Add title', Icons.title_outlined, () => _insertTextLayer('Title', style: const TextStyle(fontSize: 34, color: Colors.white, fontWeight: FontWeight.w800))),
+          ('Add subtitle', Icons.subtitles_outlined, () => _insertTextLayer('Subtitle', style: const TextStyle(fontSize: 22, color: Colors.white, fontWeight: FontWeight.w600))),
+          ('Add caption', Icons.closed_caption_outlined, () => _insertTextLayer('Caption', style: const TextStyle(fontSize: 18, color: Colors.white))),
+        ],
+      TrackType.overlay => [
+          ('Add overlay video', Icons.video_library_outlined, () => _pickMediaFromLibrary(targetType: TrackType.overlay)),
+          ('Add image', Icons.image_outlined, () => _pickMediaFromLibrary(targetType: TrackType.overlay)),
+          ('Add sticker', Icons.emoji_emotions_outlined, () => _insertTextLayer('✨')),
+          ('Add logo', Icons.branding_watermark_outlined, () => _pickMediaFromLibrary(targetType: TrackType.overlay)),
+        ],
+      TrackType.effects => [
+          ('Add effect', Icons.auto_awesome_outlined, _showEffectLibrarySheet),
+          ('Add filter', Icons.filter_alt_outlined, _showEffectLibrarySheet),
+          ('Add adjustment layer', Icons.tune_outlined, _showEffectEditorSheet),
+        ],
+    };
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: C.card,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Add to ${track?.label ?? 'Video'} track', style: syne(sz: 14, w: FontWeight.w800, c: C.text)),
+            const SizedBox(height: 8),
+            ...actions.map((action) => ListTile(
+              leading: Icon(action.$2, color: C.brand),
+              title: Text(action.$1, style: dm(sz: 12, c: C.text, w: FontWeight.w600)),
+              onTap: () { Navigator.pop(context); action.$3(); },
+            )),
+          ]),
+        ),
+    );
+  }
+
+  void _showMediaInfo(EditorMediaAsset asset) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: C.card,
+      builder: (context) => SafeArea(
+        child: ListTile(
+          leading: Icon(asset.isVideo ? Icons.videocam_outlined : Icons.image_outlined, color: C.brand),
+          title: Text(asset.name, style: dm(sz: 12, c: C.text, w: FontWeight.w700)),
+          subtitle: Text('${asset.category} • ${_formatMediaBytes(asset.sizeBytes)}\n${asset.path}', style: dm(sz: 10, c: C.dim)),
+          isThreeLine: true,
+        ),
+      ),
+    );
+  }
+
+  String _formatMediaBytes(int bytes) {
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   void _undo() => _showSnack('Undo');
@@ -2281,6 +2510,37 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
+  Future<void> _importDeviceAudio() async {
+    try {
+      final assets = await _editorAudioService.importDeviceAudio();
+      if (assets.isEmpty) return;
+      TimelineClip? lastClip;
+      var start = _currentTime;
+      for (final asset in assets) {
+        final duration = asset.duration == Duration.zero ? const Duration(seconds: 4) : asset.duration;
+        final clip = TimelineClip(
+          id: asset.id,
+          start: start,
+          duration: duration,
+          operation: AudioClipOperation(sourceType: 'device', sourceUrl: asset.source, label: asset.name, volume: _audioVolume),
+        );
+        TimelineModelUtils.insertClip(_tracks, clip, TrackType.audio);
+        start += duration;
+        lastClip = clip;
+      }
+      if (lastClip != null && mounted) {
+        setState(() {
+          _selectedClip = lastClip;
+          _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(lastClip)).id;
+          _selectedTrackIndex = _tracks.indexWhere((track) => track.id == _selectedTrackId);
+        });
+        _showSnack('${assets.length} audio file${assets.length == 1 ? '' : 's'} added to timeline');
+      }
+    } catch (_) {
+      if (mounted) _showSnack('Unable to import audio files');
+    }
+  }
+
   Future<void> _showAudioPicker() async {
     if (!mounted) return;
     final result = await Navigator.push(
@@ -2313,45 +2573,78 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
   }
 
-  Future<void> _toggleVoiceOver() async {
-    if (_isRecordingVoice) {
-      final path = await _voiceRecorder.stop();
-      if (path != null) {
-        final file = File(path);
-        final clip = TimelineClip(
-          id: 'voice-${DateTime.now().millisecondsSinceEpoch}',
-          start: _currentTime,
-          duration: const Duration(seconds: 8),
-          operation: AudioClipOperation(
-            sourceType: 'voiceover',
-            sourceUrl: file.path,
-            label: 'Voiceover',
-            volume: _audioVolume,
+  Future<void> _showVoiceoverRecorder() async {
+    final nameController = TextEditingController(text: 'Voiceover');
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Icon(_voiceoverService.isRecording ? Icons.mic : Icons.mic_none_outlined, color: _voiceoverService.isRecording ? Colors.redAccent : C.brand, size: 42),
+              const SizedBox(height: 10),
+              Text(_voiceoverService.isRecording ? 'Recording voiceover' : _voiceoverService.isPaused ? 'Recording paused' : 'Record voiceover', style: syne(sz: 16, w: FontWeight.w800, c: C.text)),
+              const SizedBox(height: 6),
+              Text('This will be added at ${_formatDuration(_currentTime)} on the Voiceover track.', textAlign: TextAlign.center, style: dm(sz: 11, c: C.dim)),
+              const SizedBox(height: 16),
+              TextField(controller: nameController, enabled: !_voiceoverService.isRecording && !_voiceoverService.isPaused, style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'Recording name')),
+              const SizedBox(height: 18),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (_voiceoverService.isRecording || _voiceoverService.isPaused)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      if (_voiceoverService.isRecording) { await _voiceoverService.pause(); } else { await _voiceoverService.resume(); }
+                      setSheetState(() {});
+                    },
+                    icon: Icon(_voiceoverService.isRecording ? Icons.pause : Icons.play_arrow),
+                    label: Text(_voiceoverService.isRecording ? 'Pause' : 'Resume'),
+                  )
+                else
+                  FilledButton.icon(
+                    onPressed: () async {
+                      if (!await _voiceoverService.start()) { if (mounted) _showSnack('Microphone permission denied'); return; }
+                      setState(() => _isRecordingVoice = true);
+                      setSheetState(() {});
+                    },
+                    icon: const Icon(Icons.fiber_manual_record), label: const Text('Start recording'),
+                  ),
+                if (_voiceoverService.isRecording || _voiceoverService.isPaused) ...[
+                  const SizedBox(width: 10),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+                    onPressed: () async {
+                      final recording = await _voiceoverService.stop();
+                      if (recording == null) return;
+                      _insertVoiceover(recording, nameController.text.trim().isEmpty ? 'Voiceover' : nameController.text.trim());
+                      if (mounted) setState(() => _isRecordingVoice = false);
+                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                    },
+                    icon: const Icon(Icons.stop), label: const Text('Stop & add'),
+                  ),
+                ],
+              ]),
+            ]),
           ),
-        );
+        ),
+      ),
+    );
+    nameController.dispose();
+  }
 
-        TimelineModelUtils.insertClip(_tracks, clip, TrackType.voiceOver);
-        setState(() {
-          _voiceOverFile = file;
-          _selectedClip = clip;
-          _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(clip)).id;
-          _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == _selectedTrackId);
-          _isRecordingVoice = false;
-        });
-        _showSnack('Voiceover added to timeline');
-      }
-      return;
-    }
-
-    if (await _voiceRecorder.hasPermission()) {
-      final tempDir = await getTemporaryDirectory();
-      final path = '${tempDir.path}/voiceover_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      await _voiceRecorder.start(const RecordConfig(), path: path);
-      setState(() => _isRecordingVoice = true);
-      _showSnack('Recording voiceover…');
-    } else {
-      _showSnack('Microphone permission denied');
-    }
+  void _insertVoiceover(RecordedVoiceover recording, String label) {
+    final duration = recording.duration > const Duration(seconds: 1) ? recording.duration : const Duration(seconds: 1);
+    final clip = TimelineClip(id: 'voice-${DateTime.now().millisecondsSinceEpoch}', start: _currentTime, duration: duration, operation: AudioClipOperation(sourceType: 'voiceover', sourceUrl: recording.file.path, label: label, volume: _audioVolume));
+    TimelineModelUtils.insertClip(_tracks, clip, TrackType.voiceOver);
+    setState(() {
+      _voiceOverFile = recording.file;
+      _selectedClip = clip;
+      _selectedTrackId = _tracks.firstWhere((track) => track.clips.contains(clip)).id;
+      _selectedTrackIndex = _tracks.indexWhere((candidate) => candidate.id == _selectedTrackId);
+    });
+    _showSnack('$label added to timeline');
   }
 
   Future<void> _addSoundEffect() async {

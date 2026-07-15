@@ -11,13 +11,12 @@ import '../models/music_models.dart';
 import '../models/edit_models.dart';
 import '../screens/music_library_screen.dart';
 import '../services/music_library_service.dart';
+import '../services/editor_media_service.dart';
 import '../theme.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import '../app_state.dart';
-import 'package:record/record.dart';
+import '../services/editor_voiceover_service.dart';
 import 'dart:math' as math;
 
 enum ImageFilter { normal, warm, cool, vivid, cinematic, vintage, blackAndWhite, noir, softGlow }
@@ -99,6 +98,7 @@ class ProMediaEditorScreen extends StatefulWidget {
 }
 
 class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
+  final EditorMediaService _mediaService = EditorMediaService();
 final ImageEnhancementService _enhancementService = ImageEnhancementService();
   final VideoEnhancementService _videoService = VideoEnhancementService();
   
@@ -132,7 +132,7 @@ final ImageEnhancementService _enhancementService = ImageEnhancementService();
   // Voice Over State
   bool _isRecordingVoice = false;
   File? _voiceOverFile;
-  final AudioRecorder _voiceRecorder = AudioRecorder();
+  final EditorVoiceoverService _voiceoverService = EditorVoiceoverService();
 
   // Mask Mode
   bool _isMaskMode = false;
@@ -321,7 +321,7 @@ final ImageEnhancementService _enhancementService = ImageEnhancementService();
     _videoController?.dispose();
     _musicPlayer.dispose();
     _voicePlayer.dispose();
-    _voiceRecorder.dispose();
+    _voiceoverService.dispose();
     _enhancementService.dispose();
     super.dispose();
   }
@@ -353,10 +353,10 @@ final ImageEnhancementService _enhancementService = ImageEnhancementService();
   }
 
   Future<void> _addClip() async {
-    final picked = await ImagePicker().pickMultipleMedia();
+    final picked = await _mediaService.pickMedia();
     if (picked.isNotEmpty) {
       _saveHistory();
-      final newClips = picked.map((x) => VideoClip(file: File(x.path))).toList();
+      final newClips = picked.map((asset) => VideoClip(file: asset.file)).toList();
       
       setState(() {
         _sequence.addAll(newClips);
@@ -2679,20 +2679,17 @@ final ImageEnhancementService _enhancementService = ImageEnhancementService();
   void _toggleVoiceOver() async {
     if (_isRecordingVoice) {
       // Stop recording
-      final path = await _voiceRecorder.stop();
-      if (path != null) {
+      final recording = await _voiceoverService.stop();
+      if (recording != null) {
         setState(() {
-          _voiceOverFile = File(path);
+          _voiceOverFile = recording.file;
           _isRecordingVoice = false;
         });
         _feedback("Voiceover recorded!");
       }
     } else {
       // Start recording
-      if (await _voiceRecorder.hasPermission()) {
-        final tempDir = await getTemporaryDirectory();
-        final path = '${tempDir.path}/voiceover_${DateTime.now().millisecondsSinceEpoch}.m4a';
-        await _voiceRecorder.start(const RecordConfig(), path: path);
+      if (await _voiceoverService.start()) {
         setState(() => _isRecordingVoice = true);
         _feedback("Recording voice... 🎤");
       } else {
