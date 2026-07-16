@@ -784,11 +784,17 @@ class AppState extends ChangeNotifier {
   Future<Map<String, dynamic>> buyShards(String packId, {
     String method = 'fiat_balance',
     required String idempotencyKey,
+    String? contextType,
+    String? contextId,
+    String? targetGiftItemId,
   }) async {
     if (user == null) throw Exception('Sign in before buying coins');
     
     // 🛡️ GATHER SECURITY METADATA
     final securityData = await getFullSecurityMetadata();
+    if (contextType != null) securityData['purchase_context'] = contextType;
+    if (contextId != null) securityData['context_id'] = contextId;
+    if (targetGiftItemId != null) securityData['target_gift_item_id'] = targetGiftItemId;
     
     final result = await financeCoinPurchases.purchase(
       packId: packId,

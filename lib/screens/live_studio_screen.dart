@@ -13,6 +13,7 @@ import '../services/live_streaming_service.dart';
 import '../services/finance_gifting_service.dart';
 import '../widgets/live_overlays.dart';
 import '../widgets/checkout_container.dart';
+import '../widgets/vault_buy_shards_overlay.dart';
 import '../services/ai_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
@@ -1212,6 +1213,40 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
                 SnackBar(content: Text('You cannot gift your own live stream.', style: dm())),
               );
               return;
+            }
+            if (widget.state.coinBalance < gift.ncxValue) {
+              if (widget.state.coinPacks.isEmpty) {
+                widget.state.coinPacks = await widget.state.financeCoinPurchases.packs();
+              }
+              if (!context.mounted) return;
+              if (widget.state.coinPacks.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Coin packs are temporarily unavailable.', style: dm())),
+                );
+                return;
+              }
+              final purchased = await showModalBottomSheet<bool>(
+                context: context,
+                backgroundColor: Colors.transparent,
+                isScrollControlled: true,
+                builder: (_) => VaultBuyShardsOverlay(
+                  state: widget.state,
+                  minimumNcx: gift.ncxValue - widget.state.coinBalance.toInt(),
+                  purchaseContextType: 'live_stream_gift',
+                  purchaseContextId: widget.channelName,
+                  targetGiftItemId: gift.id,
+                ),
+              );
+              if (!context.mounted) return;
+              if (purchased != true) return;
+              await widget.state.syncVault();
+              if (!context.mounted) return;
+              if (widget.state.coinBalance < gift.ncxValue) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('The wallet still needs more NCX for this gift.', style: dm())),
+                );
+                return;
+              }
             }
 
             setModalState(() => sending = true);

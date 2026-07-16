@@ -8,7 +8,18 @@ import '../services/finance_backend.dart';
 
 class VaultBuyShardsOverlay extends StatefulWidget {
   final AppState state;
-  const VaultBuyShardsOverlay({super.key, required this.state});
+  final int minimumNcx;
+  final String? purchaseContextType;
+  final String? purchaseContextId;
+  final String? targetGiftItemId;
+  const VaultBuyShardsOverlay({
+    super.key,
+    required this.state,
+    this.minimumNcx = 0,
+    this.purchaseContextType,
+    this.purchaseContextId,
+    this.targetGiftItemId,
+  });
 
   @override
   State<VaultBuyShardsOverlay> createState() => _VaultBuyShardsOverlayState();
@@ -26,7 +37,15 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
   void initState() {
     super.initState();
     if (widget.state.coinPacks.isNotEmpty) {
-      _selectedPackId = widget.state.coinPacks.first['id'].toString();
+      final sorted = [...widget.state.coinPacks]
+        ..sort((a, b) => ((a['ncx_amount'] as num?)?.toInt() ?? 0)
+            .compareTo((b['ncx_amount'] as num?)?.toInt() ?? 0));
+      final requiredNcx = widget.minimumNcx;
+      final selected = sorted.firstWhere(
+        (pack) => ((pack['ncx_amount'] as num?)?.toInt() ?? 0) >= requiredNcx,
+        orElse: () => sorted.last,
+      );
+      _selectedPackId = selected['id'].toString();
     }
   }
 
@@ -175,6 +194,9 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
         _selectedPackId!,
         method: _selectedPaymentMethod,
         idempotencyKey: _idempotencyKey!,
+        contextType: widget.purchaseContextType,
+        contextId: widget.purchaseContextId,
+        targetGiftItemId: widget.targetGiftItemId,
       );
       final redirectUrl = result['redirectUrl']?.toString() ?? result['redirect_url']?.toString();
       final paymentId = result['paymentId']?.toString();
@@ -229,7 +251,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
           const SizedBox(height: 24),
           _ConversionCard(coins: (pack['ncx_amount'] ?? 0).toString()),
           const SizedBox(height: 60),
-          _BottomBtn(label: 'Done', icon: Icons.sync, color: Colors.white, onTap: () => Navigator.pop(context)),
+          _BottomBtn(label: 'Continue gifting', icon: Icons.card_giftcard, color: Colors.white, onTap: () => Navigator.pop(context, true)),
         ],
       ),
     );
