@@ -219,23 +219,34 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
     }
 
     try {
-      final res = await widget.state.firebaseVault.initiatePesapalPayment(
-        amount: amount,
-        currency: 'UGX',
-        description: 'Necxa Wallet Top-up',
-        type: 'wallet_topup', // The new type for direct fiat deposit
-        email: widget.state.user?.email ?? 'guest@necxa.com',
+      final res = await widget.state.depositFiat(
+        amount,
         phone: _phoneController.text,
       );
 
       if (res['success'] == true) {
-        final redirectUrl = res['redirect_url'];
+        final redirectUrl = res['redirectUrl']?.toString() ?? res['redirect_url']?.toString();
+        final paymentId = res['paymentId']?.toString() ?? res['order_id']?.toString();
+        if (redirectUrl == null || paymentId == null) {
+          throw Exception('The payment provider returned an incomplete checkout response.');
+        }
         if (await canLaunchUrlString(redirectUrl)) {
           await launchUrlString(redirectUrl, mode: LaunchMode.externalApplication);
         }
-        Navigator.pop(context); // Close the sheet
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Complete payment in the window that opened. Your balance will update shortly.')),
+          const SnackBar(content: Text('Complete payment in the window that opened. Verifying your deposit…')),
+        );
+        final completed = await widget.state.financeDeposits.waitForCompletion(paymentId);
+        if (!mounted) return;
+        if (!completed) {
+          throw Exception('Deposit is not confirmed yet. Your wallet will only be credited after Pesapal confirms payment.');
+        }
+        await widget.state.syncVault();
+        if (!mounted) return;
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Deposit confirmed and wallet credited.')),
         );
       } else {
         throw Exception(res['message'] ?? 'Failed to initiate Pesapal payment.');

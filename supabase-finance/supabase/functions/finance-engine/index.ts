@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { pesapalIpnId, pesapalToken, submitPesapalOrder } from "../_shared/pesapal.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,6 +86,73 @@ Deno.serve(async (req) => {
       const { data, error } = await admin.from("gift_items").select("*").eq("is_active", true).order("sort_order");
       if (error) throw error;
       return reply({ success: true, giftItems: data });
+    }
+
+    if (action === "initiate_deposit") {
+      const amount = positiveInteger(body.amount, "amount");
+      if (amount < 500 || amount > 5_000_000) {
+        return reply({ success: false, code: "invalid_amount", message: "Deposit must be between UGX 500 and UGX 5,000,000." }, 400);
+      }
+      const idempotencyKey = requiredString(body.idempotencyKey, "idempotencyKey");
+      const phone = typeof body.phone === "string" ? body.phone.replace(/\D/g, "") : "";
+      const { data: existing } = await admin.from("payments").select("*").eq("idempotency_key", idempotencyKey).maybeSingle();
+      if (existing?.response?.redirect_url) {
+        return reply({ success: true, paymentId: existing.id, order_id: existing.id, redirectUrl: existing.response.redirect_url, redirect_url: existing.response.redirect_url, status: existing.status });
+      }
+
+      const { data: payment, error: paymentError } = await admin.from("payments").insert({
+        user_id: user.id,
+        provider: "pesapal",
+        purpose: "wallet_deposit",
+        amount,
+        currency: "UGX",
+        status: "pending",
+        idempotency_key: idempotencyKey,
+        request: { phone, email: user.email ?? null },
+      }).select("*").single();
+      if (paymentError) throw paymentError;
+
+      try {
+        const token = await pesapalToken();
+        const webhookUrl = `${financeUrl}/functions/v1/finance-payment-webhook`;
+        const notificationId = await pesapalIpnId(token, webhookUrl);
+        const callbackBase = Deno.env.get("PESAPAL_CALLBACK_URL") ?? "https://necxa.uk/payment-callback";
+        const order = await submitPesapalOrder(token, {
+          id: payment.id,
+          currency: "UGX",
+          amount: amount.toFixed(2),
+          description: "Necxa Wallet Deposit",
+          callback_url: `${callbackBase}?paymentId=${payment.id}`,
+          notification_id: notificationId,
+          billing_address: {
+            email_address: user.email ?? "no-reply@necxa.uk",
+            phone_number: phone,
+            country_code: "UG",
+            first_name: user.user_metadata?.first_name ?? "Necxa",
+            last_name: user.user_metadata?.last_name ?? "User",
+            line_1: "Kampala",
+            city: "Kampala",
+          },
+        });
+        const { error: updateError } = await admin.from("payments").update({
+          status: "processing",
+          provider_reference: order.order_tracking_id,
+          response: order,
+          updated_at: new Date().toISOString(),
+        }).eq("id", payment.id);
+        if (updateError) throw updateError;
+        return reply({ success: true, paymentId: payment.id, order_id: payment.id, orderTrackingId: order.order_tracking_id, redirectUrl: order.redirect_url, redirect_url: order.redirect_url, status: "processing" });
+      } catch (error) {
+        await admin.from("payments").update({ status: "failed", response: { error: error instanceof Error ? error.message : String(error) }, updated_at: new Date().toISOString() }).eq("id", payment.id);
+        throw error;
+      }
+    }
+
+    if (action === "deposit_status") {
+      const paymentId = requiredString(body.paymentId, "paymentId");
+      const { data, error } = await admin.from("payments").select("id,status,amount,currency,updated_at").eq("id", paymentId).eq("user_id", user.id).eq("purpose", "wallet_deposit").single();
+      if (error) throw error;
+      return reply({ success: true, payment: data, status: data.status });
     }
 
     if (action === "send_gift") {

@@ -37,6 +37,8 @@ import 'services/firebase_gifting_service.dart';
 import 'services/firebase_liquidation_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/firebase_vault_service.dart';
+import 'services/finance_backend.dart';
+import 'services/finance_deposit_service.dart';
 import 'package:audio_waveforms/audio_waveforms.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
@@ -301,6 +303,7 @@ class AppState extends ChangeNotifier {
   final VaultService  vault  = VaultService();
   late final SocialService social;
   final FirebaseVaultService firebaseVault = FirebaseVaultService();
+  final FinanceDepositService financeDeposits = FinanceDepositService();
   final FirebaseLiquidationService firebaseLiquidation = FirebaseLiquidationService();
   final NecxaCloud     cloud  = NecxaCloud();
   final LocalDbService localDb = LocalDbService();
@@ -654,25 +657,11 @@ class AppState extends ChangeNotifier {
   Future<void> _syncVault() async {
     if (user == null) return;
     try {
-      // 🚀 MIGRATION: Fetch primarily from Firebase
-      final firebaseDoc = await FirebaseFirestore.instance.collection('wallets').doc(user!.id).get();
-      
-      if (firebaseDoc.exists && firebaseDoc.data() != null) {
-        userWallet = Wallet.fromJson(firebaseDoc.data()!, docId: firebaseDoc.id);
+      final result = await FinanceBackend.instance.invoke('get_wallet');
+      final wallet = Map<String, dynamic>.from(result['wallet'] as Map? ?? const {});
+      if (wallet.isNotEmpty) {
+        userWallet = Wallet.fromJson(wallet);
         notify();
-      } else {
-        // Fallback to Supabase if not found in Firebase
-        final res = await Supabase.instance.client
-            .from('wallets')
-            .select()
-            .eq('user_id', user!.id)
-            .maybeSingle();
-            
-        if (res != null) {
-          userWallet = Wallet.fromJson(res);
-          await syncVaultToFirebase();
-          notify();
-        }
       }
     } catch (e) {
       debugPrint('Vault Sync Error: $e');
@@ -695,23 +684,12 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> depositFiat(double amt) async {
-    if (user == null) return;
-    
-    final result = await firebaseVault.initiatePesapalPayment(
-      amount: amt,
-      currency: 'UGX',
-      description: 'Wallet Deposit',
-      type: 'wallet_topup',
-      email: myProfile?['email'] ?? user!.email,
-      phone: myProfile?['phone_number'],
+  Future<Map<String, dynamic>> depositFiat(double amt, {String? phone}) async {
+    if (user == null) throw Exception('Sign in before depositing.');
+    return financeDeposits.initiate(
+      amountUgx: amt.round(),
+      phone: phone ?? myProfile?['phone_number'],
     );
-    
-    if (result['success'] == true) {
-      await _syncVault();
-    } else {
-      throw Exception(result['message'] ?? 'Deposit initiation failed');
-    }
   }
 
   double currentForexRate = 3800.0;
