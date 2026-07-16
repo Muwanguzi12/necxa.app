@@ -39,6 +39,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/firebase_vault_service.dart';
 import 'services/finance_backend.dart';
 import 'services/finance_deposit_service.dart';
+import 'services/finance_withdrawal_service.dart';
 import 'package:audio_waveforms/audio_waveforms.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
@@ -304,6 +305,7 @@ class AppState extends ChangeNotifier {
   late final SocialService social;
   final FirebaseVaultService firebaseVault = FirebaseVaultService();
   final FinanceDepositService financeDeposits = FinanceDepositService();
+  final FinanceWithdrawalService financeWithdrawals = FinanceWithdrawalService();
   final FirebaseLiquidationService firebaseLiquidation = FirebaseLiquidationService();
   final NecxaCloud     cloud  = NecxaCloud();
   final LocalDbService localDb = LocalDbService();
@@ -763,13 +765,11 @@ class AppState extends ChangeNotifier {
 
     final securityData = await getFullSecurityMetadata();
     
-    final result = await firebaseVault.withdrawFiat(
-      userId: user!.id,
-      amount: amount,
+    final result = await financeWithdrawals.request(
+      amountUgx: amount.round(),
       method: method,
       accountNumber: accountNumber,
       recipientName: recipientName,
-      totpToken: totpToken,
       emailOtp: emailOtp,
       securityMetadata: securityData,
     );

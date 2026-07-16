@@ -24,6 +24,21 @@ function positiveInteger(value: unknown, name: string): number {
   return parsed;
 }
 
+async function sha256(value: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function encryptDestination(value: string) {
+  const secret = Deno.env.get("FINANCE_ENCRYPTION_KEY");
+  if (!secret) throw new Error("Finance encryption is not configured");
+  const keyBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(value));
+  return btoa(String.fromCharCode(...iv, ...new Uint8Array(encrypted)));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return reply({ success: false, code: "method_not_allowed" }, 405);
@@ -153,6 +168,72 @@ Deno.serve(async (req) => {
       const { data, error } = await admin.from("payments").select("id,status,amount,currency,updated_at").eq("id", paymentId).eq("user_id", user.id).eq("purpose", "wallet_deposit").single();
       if (error) throw error;
       return reply({ success: true, payment: data, status: data.status });
+    }
+
+    if (action === "send_withdrawal_otp") {
+      if (!user.email) return reply({ success: false, code: "email_required", message: "Add a verified email before withdrawing." }, 400);
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      const otpPepper = Deno.env.get("WITHDRAWAL_OTP_PEPPER");
+      if (!resendKey || !otpPepper) throw new Error("Withdrawal verification is not configured");
+      const code = crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000;
+      const padded = code.toString().padStart(6, "0");
+      const codeHash = await sha256(`${user.id}:${padded}:${otpPepper}`);
+      const { error } = await admin.from("withdrawal_otps").upsert({
+        user_id: user.id, code_hash: codeHash,
+        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        attempts: 0, consumed_at: null, created_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      const emailResponse = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: "Necxa Finance <no-reply@necxa.uk>", to: [user.email], subject: "Your Necxa withdrawal code", text: `Your withdrawal verification code is ${padded}. It expires in 10 minutes.` }),
+      });
+      if (!emailResponse.ok) {
+        await admin.from("withdrawal_otps").delete().eq("user_id", user.id);
+        throw new Error("Unable to send withdrawal verification email");
+      }
+      return reply({ success: true, message: "Verification code sent." });
+    }
+
+    if (action === "request_withdrawal") {
+      const amount = positiveInteger(body.amount, "amount");
+      const method = requiredString(body.method, "method").toLowerCase();
+      const destination = requiredString(body.accountNumber, "accountNumber");
+      const recipientName = requiredString(body.recipientName, "recipientName");
+      const emailOtp = requiredString(body.emailOtp, "emailOtp");
+      const securityMetadata = body.securityMetadata as Record<string, unknown> | undefined;
+      if (!securityMetadata?.device_id || securityMetadata.lat == null) {
+        throw new Error("Device and location verification are required");
+      }
+      const otpPepper = Deno.env.get("WITHDRAWAL_OTP_PEPPER");
+      if (!otpPepper) throw new Error("Withdrawal verification is not configured");
+      if (destination.replace(/\D/g, "").length < 9) throw new Error("A valid payout account is required");
+      const otpHash = await sha256(`${user.id}:${emailOtp}:${otpPepper}`);
+      const { data: otp, error: otpError } = await admin.from("withdrawal_otps").select("*").eq("user_id", user.id).single();
+      if (otpError || !otp || otp.consumed_at || new Date(otp.expires_at) < new Date() || otp.attempts >= 5) {
+        throw new Error("Withdrawal code is invalid or expired");
+      }
+      if (otp.code_hash !== otpHash) {
+        await admin.from("withdrawal_otps").update({ attempts: otp.attempts + 1 }).eq("user_id", user.id);
+        throw new Error("Withdrawal code is invalid or expired");
+      }
+      const ciphertext = await encryptDestination(destination);
+      const { data, error } = await admin.rpc("create_withdrawal_request", {
+        p_user_id: user.id, p_amount: amount, p_method: method,
+        p_destination_ciphertext: ciphertext, p_recipient_name: recipientName,
+        p_otp_hash: otpHash, p_idempotency_key: requiredString(body.idempotencyKey, "idempotencyKey"),
+        p_metadata: securityMetadata,
+      });
+      if (error) throw error;
+      return reply({ success: true, withdrawal: data, withdrawalId: data.id, status: data.status, message: "Withdrawal submitted for secure payout review." });
+    }
+
+    if (action === "withdrawal_status") {
+      const withdrawalId = requiredString(body.withdrawalId, "withdrawalId");
+      const { data, error } = await admin.from("withdrawals").select("id,amount,currency,method,status,provider_reference,created_at,updated_at").eq("id", withdrawalId).eq("user_id", user.id).single();
+      if (error) throw error;
+      return reply({ success: true, withdrawal: data, status: data.status });
     }
 
     if (action === "send_gift") {

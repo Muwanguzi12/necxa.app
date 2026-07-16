@@ -309,7 +309,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
               // Request Email OTP when moving to verification
               setState(() => _sendingEmail = true);
               try {
-                await widget.state.firebaseVault.sendWithdrawalOTP();
+                await widget.state.financeWithdrawals.sendOtp();
                 if (!mounted) return;
                 setState(() => _stage = 5);
               } catch (e) {
@@ -349,7 +349,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
           TextButton(
             onPressed: _sendingEmail ? null : () async {
               setState(() => _sendingEmail = true);
-              await widget.state.firebaseVault.sendWithdrawalOTP();
+              await widget.state.financeWithdrawals.sendOtp();
               if (!mounted) return;
               setState(() => _sendingEmail = false);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code resent to your email.')));
@@ -396,9 +396,9 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
   void _initExtraction() async {
     setState(() => _stage = 6);
     await Future.delayed(const Duration(seconds: 1));
-    setState(() => _statusText = 'Transferring funds');
+    setState(() => _statusText = 'Securing withdrawal request');
     await Future.delayed(const Duration(seconds: 1));
-    setState(() => _statusText = 'Almost done');
+    setState(() => _statusText = 'Submitting for payout review');
     await Future.delayed(const Duration(seconds: 1));
     
     await _finalizeWithdraw();
@@ -607,7 +607,7 @@ class _SummaryCard extends StatelessWidget {
     Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       const Icon(Icons.verified_user, color: Colors.blue, size: 10),
       const SizedBox(width: 6),
-      Text('Transfer secured', style: dm(sz: 10, w: FontWeight.w600, c: Colors.blue)),
+      Text('Payout pending review', style: dm(sz: 10, w: FontWeight.w600, c: Colors.blue)),
     ]),
     const SizedBox(height: 8),
     Text('Sent to: $_methodLabel', style: dm(sz: 11, c: Colors.white38))
