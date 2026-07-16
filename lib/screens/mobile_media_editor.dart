@@ -1026,6 +1026,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               const SizedBox(width: 8),
               _buildPlaybackButton(Icons.skip_next, () => _nextFrame()),
               const SizedBox(width: 8),
+              // Expand belongs directly after the forward control.
               _buildPlaybackButton(
                 Icons.fullscreen_outlined,
                 () => setState(() => _showFullscreenPreview = true),
@@ -2227,7 +2228,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       case 4:
         return [
           _buildToolButton('Library', () => _toggleEffectLibrary()),
-          _buildToolButton('Preview', () => _showEffectLibrarySheet()),
           _buildToolButton('Intensity', () => _showEffectEditorSheet()),
           _buildToolButton('Apply', () => _applySelectedEffect()),
         ];
@@ -4900,10 +4900,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _buildEffectChip(
-                        'Preview',
-                        () => _showSnack('Previewing transition'),
-                      ),
                       _buildEffectChip(
                         'Replace',
                         () => _showTransitionLibrarySheet(),
