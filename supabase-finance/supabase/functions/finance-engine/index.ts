@@ -184,6 +184,30 @@ Deno.serve(async (req) => {
       return reply({ success: true, giftItems: data });
     }
 
+    if (action === "list_live_gifts") {
+      const contextId = requiredString(body.contextId, "contextId");
+      const { data, error } = await admin.from("gifts")
+        .select("id,sender_id,receiver_id,ncx_amount,receiver_ncx,platform_fee_ncx,is_anonymous,metadata,created_at,gift_items(name,emoji,ugx_value)")
+        .eq("context_type", "live_stream")
+        .eq("context_id", contextId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      return reply({ success: true, gifts: (data ?? []).map((gift: Record<string, any>) => ({
+        id: gift.id,
+        senderId: gift.is_anonymous ? null : gift.sender_id,
+        receiverId: gift.receiver_id,
+        userName: gift.is_anonymous ? "Anonymous" : (gift.metadata?.sender_name ?? "Viewer"),
+        name: gift.gift_items?.name ?? "Gift",
+        emoji: gift.gift_items?.emoji ?? "\u{1F381}",
+        ncxAmount: gift.ncx_amount,
+        receiverNcx: gift.receiver_ncx,
+        platformFeeNcx: gift.platform_fee_ncx,
+        ugxEquivalent: gift.gift_items?.ugx_value ?? 0,
+        createdAt: gift.created_at,
+      })) });
+    }
+
     if (action === "initiate_deposit") {
       const amount = positiveInteger(body.amount, "amount");
       if (amount < 500 || amount > 5_000_000) {
@@ -335,7 +359,10 @@ Deno.serve(async (req) => {
         p_fee_basis_points: 2000,
         p_is_anonymous: body.isAnonymous === true,
         p_idempotency_key: idempotencyKey,
-        p_metadata: body.metadata ?? {},
+        p_metadata: {
+          ...((body.metadata && typeof body.metadata === "object") ? body.metadata as Record<string, unknown> : {}),
+          sender_name: user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? "Viewer",
+        },
       });
       if (error) throw error;
       return reply({success:true,gift:data,giftId:data.id,giftEmoji:giftItem.emoji,giftName:giftItem.name,

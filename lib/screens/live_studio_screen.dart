@@ -51,6 +51,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   List<Map<String, dynamic>> _liveComments = [];
   Timer? _commentsTimer;
   StreamSubscription<Map<String, dynamic>>? _eventsSubscription;
+  StreamSubscription<Map<String, dynamic>>? _giftEventsSubscription;
+  late final Stream<Map<String, dynamic>> _liveGiftEvents;
   String? _lastHandledEventKey;
   bool _requiresVerification = false;
 
@@ -80,6 +82,18 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
 
     // Initialize with empty real comments. Sync will fetch existing comments.
     _liveComments = [];
+
+    _liveGiftEvents = widget.state.financeGifting
+        .watchLiveGifts(widget.channelName)
+        .map((gift) => <String, dynamic>{'type': 'gift', 'data': gift})
+        .asBroadcastStream();
+    _giftEventsSubscription = _liveGiftEvents.listen((event) {
+      final gift = Map<String, dynamic>.from(event['data'] as Map? ?? const {});
+      final userId = widget.state.user?.id;
+      if (userId != null && (gift['senderId'] == userId || gift['receiverId'] == userId)) {
+        widget.state.syncVault();
+      }
+    });
 
     _startCommentsSync();
 
@@ -411,6 +425,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
     _eventsSubscription?.cancel();
+    _giftEventsSubscription?.cancel();
     _stopSilentFacePulse();
     _commentController.dispose();
     widget.state.live.leaveChannel();
@@ -465,7 +480,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
 
           // ── Gifting Layer ──
           LiveGiftingOverlay(
-            eventStream: widget.state.live.listenToEvents(widget.channelName),
+            eventStream: _liveGiftEvents,
           ),
 
           // ── Glass Overlay Layer ──
@@ -1208,6 +1223,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
               contextType: 'live_stream',
               contextId: widget.channelName,
               contextNote: 'Live gift: ${gift.name}',
+              senderName: widget.state.myProfile?['full_name']?.toString() ?? 'Viewer',
             );
 
             if (!mounted) return;
@@ -1219,19 +1235,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
               return;
             }
 
-            await widget.state.live.sendLiveGift(
-              widget.channelName,
-              senderId,
-              {
-                'id': gift.id,
-                'name': gift.name,
-                'emoji': gift.emoji,
-                'price': gift.ncxValue,
-                'giftId': result.giftId,
-                'receiverNcx': result.receiverNcx,
-                'userName': widget.state.myProfile?['full_name'] ?? 'Viewer',
-              },
-            );
             Navigator.pop(context);
           }
 

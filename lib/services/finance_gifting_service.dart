@@ -34,13 +34,14 @@ class FinanceGiftingService {
 
   Future<GiftResult> sendGift({required String senderId, required String receiverId,
     required String giftItemId, required int ncxAmount, required String contextType,
-    String? contextId, String? contextNote, bool isAnonymous = false, String? idempotencyKey}) async {
+    String? contextId, String? contextNote, String? senderName, bool isAnonymous = false, String? idempotencyKey}) async {
     try {
       await FinanceInitializer.instance.ensureInitialized();
       final result = await FinanceBackend.instance.invoke('send_gift', body: {
         'receiverId': receiverId, 'giftItemId': giftItemId, 'ncxAmount': ncxAmount,
         'contextType': contextType, 'contextId': contextId ?? 'direct:$receiverId',
         'contextNote': contextNote, 'isAnonymous': isAnonymous,
+        'metadata': {'context_note': contextNote, 'sender_name': senderName},
         'idempotencyKey': idempotencyKey ?? 'gift-${DateTime.now().microsecondsSinceEpoch}',
       });
       return GiftResult(success: true, giftId: result['giftId']?.toString() ?? '',
@@ -54,6 +55,35 @@ class FinanceGiftingService {
       return GiftResult(success: false, giftId: '', giftEmoji: '\u{1F48E}', giftName: '',
         ncxAmount: ncxAmount, receiverNcx: 0, platformFeeNcx: 0, ugxEquivalent: 0,
         isHighlighted: false, message: error.toString());
+    }
+  }
+
+  Stream<Map<String, dynamic>> watchLiveGifts(String contextId) async* {
+    final seen = <String>{};
+    var initialized = false;
+    while (true) {
+      try {
+        await FinanceInitializer.instance.ensureInitialized();
+        final result = await FinanceBackend.instance.invoke(
+          'list_live_gifts',
+          body: {'contextId': contextId},
+        );
+        final gifts = (result['gifts'] as List? ?? const [])
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+        if (!initialized) {
+          seen.addAll(gifts.map((gift) => gift['id']?.toString() ?? ''));
+          initialized = true;
+        } else {
+          for (final gift in gifts.reversed) {
+            final id = gift['id']?.toString() ?? '';
+            if (id.isNotEmpty && seen.add(id)) yield gift;
+          }
+        }
+      } catch (_) {
+        // A temporary network failure must not terminate live gift updates.
+      }
+      await Future<void>.delayed(const Duration(seconds: 1));
     }
   }
 }
