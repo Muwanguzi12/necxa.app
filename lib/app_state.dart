@@ -40,6 +40,7 @@ import 'services/firebase_vault_service.dart';
 import 'services/finance_backend.dart';
 import 'services/finance_deposit_service.dart';
 import 'services/finance_withdrawal_service.dart';
+import 'services/finance_coin_purchase_service.dart';
 import 'package:audio_waveforms/audio_waveforms.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
@@ -306,6 +307,7 @@ class AppState extends ChangeNotifier {
   final FirebaseVaultService firebaseVault = FirebaseVaultService();
   final FinanceDepositService financeDeposits = FinanceDepositService();
   final FinanceWithdrawalService financeWithdrawals = FinanceWithdrawalService();
+  final FinanceCoinPurchaseService financeCoinPurchases = FinanceCoinPurchaseService();
   final FirebaseLiquidationService firebaseLiquidation = FirebaseLiquidationService();
   final NecxaCloud     cloud  = NecxaCloud();
   final LocalDbService localDb = LocalDbService();
@@ -627,13 +629,7 @@ class AppState extends ChangeNotifier {
   Future<void> loadCoinPacks() async {
     isLoadingPacks = true; notify();
     try {
-      // Prioritize Firebase Coin Packs
-      final firebasePacks = await firebaseVault.fetchCoinPacks();
-      if (firebasePacks.isNotEmpty) {
-        coinPacks = firebasePacks;
-      } else {
-        coinPacks = await vault.fetchPacks();
-      }
+      coinPacks = await financeCoinPurchases.packs();
     } catch (e) {
       debugPrint('Error loading coin packs: $e');
     }
@@ -785,21 +781,25 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> buyShards(String packId, {String method = 'google_pay'}) async {
-    if (user == null) return;
+  Future<Map<String, dynamic>> buyShards(String packId, {
+    String method = 'fiat_balance',
+    required String idempotencyKey,
+  }) async {
+    if (user == null) throw Exception('Sign in before buying coins');
     
     // 🛡️ GATHER SECURITY METADATA
     final securityData = await getFullSecurityMetadata();
     
-    final result = await firebaseVault.buyCoins(
-      userId: user!.id,
+    final result = await financeCoinPurchases.purchase(
       packId: packId,
-      paymentMethod: method,
+      method: method,
+      idempotencyKey: idempotencyKey,
       securityMetadata: securityData,
     );
 
     if (result['success'] == true) {
       await _syncVault(); // Refresh local wallet
+      return result;
     } else {
       throw Exception(result['message']);
     }

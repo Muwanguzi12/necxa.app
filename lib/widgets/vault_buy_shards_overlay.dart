@@ -3,6 +3,7 @@ import '../theme.dart';
 import '../app_state.dart';
 import 'dart:ui';
 import 'dart:async';
+import 'package:url_launcher/url_launcher_string.dart';
 
 class VaultBuyShardsOverlay extends StatefulWidget {
   final AppState state;
@@ -15,7 +16,8 @@ class VaultBuyShardsOverlay extends StatefulWidget {
 class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
   int _stage = 1; // 1: Selection, 2: Transit, 3: Synthesis, 4: Success
   String? _selectedPackId; 
-  String _selectedPaymentMethod = 'google_pay';
+  String _selectedPaymentMethod = 'fiat_balance';
+  String? _idempotencyKey;
   int _yield = 0;
   Timer? _yieldTimer;
 
@@ -25,6 +27,12 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
     if (widget.state.coinPacks.isNotEmpty) {
       _selectedPackId = widget.state.coinPacks.first['id'].toString();
     }
+  }
+
+  @override
+  void dispose() {
+    _yieldTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -117,26 +125,24 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
         children: [
           Text('Pay with', style: dm(sz: 12, w: FontWeight.w600, c: Colors.white38)),
           const SizedBox(height: 24),
-          const _TransitRailNode(label: 'Vault Balance', category: 'Balance', icon: Icons.account_balance_wallet, status: 'Ready'),
-          const SizedBox(height: 16),
           GestureDetector(
-            onTap: () => setState(() => _selectedPaymentMethod = 'apple_pay'),
-            child: _TransitRailNode(label: 'Apple Pay / Card', category: 'Global', icon: Icons.public, status: _selectedPaymentMethod == 'apple_pay' ? 'Selected' : 'Ready'),
+            onTap: () => setState(() => _selectedPaymentMethod = 'fiat_balance'),
+            child: _TransitRailNode(label: 'Vault Balance', category: 'Instant', icon: Icons.account_balance_wallet, status: _selectedPaymentMethod == 'fiat_balance' ? 'Selected' : 'Ready'),
           ),
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: () => setState(() => _selectedPaymentMethod = 'momo'),
-            child: _TransitRailNode(label: 'MTN MoMo / M-PESA', category: 'Mobile', icon: Icons.phone_android, status: _selectedPaymentMethod == 'momo' ? 'Selected' : 'Ready'),
+            onTap: () => setState(() => _selectedPaymentMethod = 'card'),
+            child: _TransitRailNode(label: 'Card via Pesapal', category: 'External', icon: Icons.credit_card, status: _selectedPaymentMethod == 'card' ? 'Selected' : 'Ready'),
           ),
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: () => setState(() => _selectedPaymentMethod = 'airtel_money'),
-            child: _TransitRailNode(label: 'Airtel Money', category: 'Mobile', icon: Icons.phone_android, status: _selectedPaymentMethod == 'airtel_money' ? 'Selected' : 'Ready'),
+            onTap: () => setState(() => _selectedPaymentMethod = 'mtn'),
+            child: _TransitRailNode(label: 'MTN MoMo via Pesapal', category: 'Mobile', icon: Icons.phone_android, status: _selectedPaymentMethod == 'mtn' ? 'Selected' : 'Ready'),
           ),
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: () => setState(() => _selectedPaymentMethod = 'usdt_polygon'),
-            child: _TransitRailNode(label: 'USDT (Polygon)', category: 'Crypto', icon: Icons.currency_bitcoin, status: _selectedPaymentMethod == 'usdt_polygon' ? 'Selected' : 'Ready'),
+            onTap: () => setState(() => _selectedPaymentMethod = 'airtel'),
+            child: _TransitRailNode(label: 'Airtel Money via Pesapal', category: 'Mobile', icon: Icons.phone_android, status: _selectedPaymentMethod == 'airtel' ? 'Selected' : 'Ready'),
           ),
           const Spacer(),
           _BottomBtn(label: 'Buy Now', icon: Icons.bolt, color: Colors.cyanAccent, onTap: () => _startSynthesis()),
@@ -163,7 +169,22 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
   void _finalizeSynthesis() async {
     if (_selectedPackId == null) return;
     try {
-      await widget.state.buyShards(_selectedPackId!, method: _selectedPaymentMethod);
+      _idempotencyKey ??= 'coin-purchase-${DateTime.now().microsecondsSinceEpoch}';
+      final result = await widget.state.buyShards(
+        _selectedPackId!,
+        method: _selectedPaymentMethod,
+        idempotencyKey: _idempotencyKey!,
+      );
+      final redirectUrl = result['redirectUrl']?.toString() ?? result['redirect_url']?.toString();
+      final paymentId = result['paymentId']?.toString();
+      if (redirectUrl != null) {
+        if (!await canLaunchUrlString(redirectUrl)) throw Exception('Unable to open Pesapal checkout');
+        await launchUrlString(redirectUrl, mode: LaunchMode.externalApplication);
+        if (paymentId == null) throw Exception('Payment reference is missing');
+        final completed = await widget.state.financeCoinPurchases.waitForCompletion(paymentId);
+        if (!completed) throw Exception('Payment is not confirmed. Coins will only be added after Pesapal confirms payment.');
+        await widget.state.syncVault();
+      }
       if (mounted) setState(() => _stage = 4);
     } catch (e) {
       if (mounted) {
@@ -201,7 +222,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
           const SizedBox(height: 32),
           Text('Coins added!', style: syne(sz: 28, w: FontWeight.w700, c: Colors.white)),
           const SizedBox(height: 24),
-          _ConversionCard(coins: (pack['coin_volume'] ?? 0).toString()),
+          _ConversionCard(coins: (pack['ncx_amount'] ?? 0).toString()),
           const SizedBox(height: 60),
           _BottomBtn(label: 'Done', icon: Icons.sync, color: Colors.white, onTap: () => Navigator.pop(context)),
         ],
@@ -248,7 +269,7 @@ class _ShardCard extends StatelessWidget {
               if (active) Icon(Icons.check_circle_rounded, color: color, size: 16),
             ]),
             const Spacer(),
-            Text((data['coin_volume'] ?? 0).toInt().toString(), style: syne(sz: 32, w: FontWeight.w900, fs: FontStyle.italic)),
+            Text((data['ncx_amount'] ?? 0).toInt().toString(), style: syne(sz: 32, w: FontWeight.w900, fs: FontStyle.italic)),
             const SizedBox(height: 4),
             Text('SHARDS', style: dm(sz: 11, w: FontWeight.w600, c: Colors.white38)),
             const Spacer(),

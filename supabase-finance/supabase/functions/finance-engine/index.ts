@@ -97,6 +97,61 @@ Deno.serve(async (req) => {
       return reply({ success: true, coinPacks: data });
     }
 
+    if (action === "purchase_coins") {
+      const packId = requiredString(body.packId, "packId");
+      const method = requiredString(body.method, "method").toLowerCase();
+      const idempotencyKey = requiredString(body.idempotencyKey, "idempotencyKey");
+      const { data: pack, error: packError } = await admin.from("coin_packs").select("*").eq("id", packId).eq("is_active", true).single();
+      if (packError || !pack) return reply({ success: false, code: "pack_not_found", message: "Coin pack is unavailable." }, 404);
+      if (method === "fiat_balance") {
+        const { data, error } = await admin.rpc("purchase_coins_from_wallet", {
+          p_user_id: user.id, p_pack_id: packId, p_idempotency_key: idempotencyKey,
+          p_metadata: body.securityMetadata ?? {},
+        });
+        if (error) throw error;
+        return reply({ success: true, paymentId: data.id, status: data.status, ncxAmount: pack.ncx_amount, message: `${pack.ncx_amount} NCX added to your wallet.` });
+      }
+      if (!["pesapal", "card", "mtn", "airtel"].includes(method)) {
+        return reply({ success: false, code: "unsupported_payment_method", message: "Choose wallet balance, card, MTN or Airtel through Pesapal." }, 400);
+      }
+      const { data: existing } = await admin.from("payments").select("*").eq("user_id", user.id).eq("idempotency_key", idempotencyKey).eq("purpose", "coin_purchase").maybeSingle();
+      if (existing?.response?.redirect_url) {
+        return reply({ success: true, paymentId: existing.id, status: existing.status, redirectUrl: existing.response.redirect_url, redirect_url: existing.response.redirect_url });
+      }
+      const { data: payment, error: paymentError } = await admin.from("payments").insert({
+        user_id: user.id, provider: "pesapal", purpose: "coin_purchase",
+        amount: pack.fiat_price, currency: pack.fiat_currency, status: "pending",
+        idempotency_key: idempotencyKey,
+        request: { pack_id: pack.id, ncx_amount: pack.ncx_amount, method, security_metadata: body.securityMetadata ?? {} },
+      }).select("*").single();
+      if (paymentError) throw paymentError;
+      try {
+        const providerToken = await pesapalToken();
+        const webhookUrl = `${financeUrl}/functions/v1/finance-payment-webhook`;
+        const notificationId = await pesapalIpnId(providerToken, webhookUrl);
+        const callbackBase = Deno.env.get("PESAPAL_CALLBACK_URL") ?? "https://necxa.uk/payment-callback";
+        const order = await submitPesapalOrder(providerToken, {
+          id: payment.id, currency: String(pack.fiat_currency), amount: Number(pack.fiat_price).toFixed(2),
+          description: `Necxa ${pack.label}`,
+          callback_url: `${callbackBase}?paymentId=${payment.id}&purpose=coin_purchase`, notification_id: notificationId,
+          billing_address: { email_address: user.email ?? "no-reply@necxa.uk", phone_number: "", country_code: "UG", first_name: user.user_metadata?.first_name ?? "Necxa", last_name: user.user_metadata?.last_name ?? "User", line_1: "Kampala", city: "Kampala" },
+        });
+        const { error: updateError } = await admin.from("payments").update({ status: "processing", provider_reference: order.order_tracking_id, response: order, updated_at: new Date().toISOString() }).eq("id", payment.id);
+        if (updateError) throw updateError;
+        return reply({ success: true, paymentId: payment.id, status: "processing", redirectUrl: order.redirect_url, redirect_url: order.redirect_url, ncxAmount: pack.ncx_amount });
+      } catch (error) {
+        await admin.from("payments").update({ status: "failed", response: { error: error instanceof Error ? error.message : String(error) }, updated_at: new Date().toISOString() }).eq("id", payment.id);
+        throw error;
+      }
+    }
+
+    if (action === "coin_purchase_status") {
+      const paymentId = requiredString(body.paymentId, "paymentId");
+      const { data, error } = await admin.from("payments").select("id,status,amount,currency,request,updated_at").eq("id", paymentId).eq("user_id", user.id).eq("purpose", "coin_purchase").single();
+      if (error) throw error;
+      return reply({ success: true, payment: data, status: data.status });
+    }
+
     if (action === "list_gift_items") {
       const { data, error } = await admin.from("gift_items").select("*").eq("is_active", true).order("sort_order");
       if (error) throw error;

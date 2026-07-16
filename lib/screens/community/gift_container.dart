@@ -103,7 +103,7 @@ class _GiftContainerState extends State<GiftContainer> {
     if (widget.state.user == null) { _showError('Sync error: User not authenticated.'); return; }
     setState(() => _sending = true);
     try {
-      // Route recharge through Firebase buyCoins flow
+      // Route recharge through the Supabase 2 coin purchase flow.
       final packId = _resolveMiniPackId(_rechargeUGX);
       await widget.state.buyShards(packId, method: method);
       _next(0);

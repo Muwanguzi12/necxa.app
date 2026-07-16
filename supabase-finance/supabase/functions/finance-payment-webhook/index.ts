@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(supabaseUrl, serviceRole, { auth: { persistSession: false } });
-    const { data: payment, error: paymentError } = await admin.from("payments").select("*").eq("id", merchantReference).eq("purpose", "wallet_deposit").single();
+    const { data: payment, error: paymentError } = await admin.from("payments").select("*").eq("id", merchantReference).in("purpose", ["wallet_deposit", "coin_purchase"]).single();
     if (paymentError || !payment) return json({ error: "unknown_payment" }, 404);
     if (payment.provider_reference && payment.provider_reference !== trackingId) {
       return json({ error: "provider_reference_mismatch" }, 409);
@@ -48,7 +48,8 @@ Deno.serve(async (req) => {
     const failed = ["FAILED", "INVALID", "CANCELLED", "REVERSED"].includes(description);
 
     if (completed) {
-      const { error } = await admin.rpc("complete_deposit", {
+      const completionRpc = payment.purpose === "coin_purchase" ? "complete_coin_purchase" : "complete_deposit";
+      const { error } = await admin.rpc(completionRpc, {
         p_payment_id: payment.id,
         p_provider_reference: trackingId,
         p_provider_response: verified,
