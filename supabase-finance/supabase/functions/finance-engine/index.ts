@@ -160,10 +160,15 @@ Deno.serve(async (req) => {
         await admin.from("payments").update({ status: "pending", response: { initialization_error: error instanceof Error ? error.message : String(error), order_state: "unknown" }, updated_at: new Date().toISOString() }).eq("id", payment.id);
         return reply({ success: false, code: "payment_pending", message: "Pesapal may still be preparing this payment. Retry shortly with the same purchase." }, 409);
       }
-      const { error: updateError } = await admin.from("payments").update({ status: "processing", provider_reference: order.order_tracking_id, response: order, updated_at: new Date().toISOString() }).eq("id", payment.id);
+      const { data: updatedPayment, error: updateError } = await admin.from("payments").update({ status: "processing", provider_reference: order.order_tracking_id, response: order, updated_at: new Date().toISOString() }).eq("id", payment.id).neq("status", "completed").select("status").maybeSingle();
       // The merchant reference is the Supabase payment UUID, so the verified
       // webhook can still recover and complete even if this write fails.
-      return reply({ success: true, paymentId: payment.id, status: updateError ? "pending" : "processing", redirectUrl: order.redirect_url, redirect_url: order.redirect_url, ncxAmount: pack.ncx_amount, recoveryPending: Boolean(updateError) });
+      let persistedStatus = updatedPayment?.status;
+      if (!persistedStatus) {
+        const { data: current } = await admin.from("payments").select("status").eq("id",payment.id).single();
+        persistedStatus=current?.status??"pending";
+      }
+      return reply({ success: true, paymentId: payment.id, status: persistedStatus, redirectUrl: order.redirect_url, redirect_url: order.redirect_url, ncxAmount: pack.ncx_amount, recoveryPending: Boolean(updateError) });
     }
 
     if (action === "coin_purchase_status") {
@@ -317,10 +322,13 @@ Deno.serve(async (req) => {
       const contextType = requiredString(body.contextType, "contextType");
       const contextId = requiredString(body.contextId, "contextId");
       const idempotencyKey = requiredString(body.idempotencyKey, "idempotencyKey");
+      const giftItemId=requiredString(body.giftItemId,"giftItemId");
+      const { data: giftItem, error: itemError }=await admin.from("gift_items").select("*").eq("id",giftItemId).eq("is_active",true).single();
+      if(itemError||!giftItem)return reply({success:false,code:"gift_unavailable",message:"Gift item is unavailable."},404);
       const { data, error } = await admin.rpc("process_gift", {
         p_sender_id: user.id,
         p_receiver_id: receiverId,
-        p_gift_item_id: body.giftItemId ?? null,
+        p_gift_item_id: giftItemId,
         p_context_type: contextType,
         p_context_id: contextId,
         p_ncx_amount: positiveInteger(body.ncxAmount, "ncxAmount"),
@@ -330,7 +338,10 @@ Deno.serve(async (req) => {
         p_metadata: body.metadata ?? {},
       });
       if (error) throw error;
-      return reply({ success: true, gift: data });
+      return reply({success:true,gift:data,giftId:data.id,giftEmoji:giftItem.emoji,giftName:giftItem.name,
+        ncxAmount:data.ncx_amount,receiverNcx:data.receiver_ncx,platformFeeNcx:data.platform_fee_ncx,
+        ugxEquivalent:giftItem.ugx_value,isHighlighted:data.ncx_amount>=100,
+        message:`${giftItem.name} sent successfully.`});
     }
 
     if (action === "liquidate") {

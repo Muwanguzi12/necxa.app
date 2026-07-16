@@ -4,7 +4,7 @@ import '../../theme.dart';
 import '../../app_state.dart';
 import '../../data.dart';
 import '../../services/sound_service.dart';
-import '../../services/firebase_gifting_service.dart';
+import '../../services/finance_gifting_service.dart';
 import '../../utils/error_handler.dart';
 import '../../services/finance_coin_purchase_service.dart';
 import '../../services/finance_backend.dart';
@@ -49,7 +49,7 @@ class _GiftContainerState extends State<GiftContainer> {
   Future<void> _initData() async {
     setState(() => _loading = true);
     try {
-      _presets = await widget.state.fbGifting.fetchGiftItems();
+      _presets = await widget.state.financeGifting.fetchGiftItems();
       _presets.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
       await widget.state.syncVault();
     } catch (e) {
@@ -76,7 +76,7 @@ class _GiftContainerState extends State<GiftContainer> {
     await SoundService().playGiftSound();
 
     try {
-      final res = await widget.state.fbGifting.sendGift(
+      final res = await widget.state.financeGifting.sendGift(
         senderId: widget.state.user!.id,
         receiverId: widget.receiverId,
         giftItemId: preset.id,

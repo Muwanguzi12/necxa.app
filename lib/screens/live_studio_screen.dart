@@ -10,7 +10,7 @@ import '../data.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/live_streaming_service.dart';
-import '../services/firebase_gifting_service.dart';
+import '../services/finance_gifting_service.dart';
 import '../widgets/live_overlays.dart';
 import '../widgets/checkout_container.dart';
 import '../services/ai_service.dart';
@@ -1172,7 +1172,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   }
 
   Future<void> _showGiftPicker() async {
-    final gifts = await widget.state.fbGifting.fetchGiftItems();
+    final gifts = await widget.state.financeGifting.fetchGiftItems();
     if (!mounted) return;
     var sending = false;
 
@@ -1200,7 +1200,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
             }
 
             setModalState(() => sending = true);
-            final result = await widget.state.fbGifting.sendGift(
+            final result = await widget.state.financeGifting.sendGift(
               senderId: senderId,
               receiverId: receiverId,
               giftItemId: gift.id,

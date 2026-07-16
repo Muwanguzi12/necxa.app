@@ -33,7 +33,7 @@ import 'models/music_models.dart';
 import 'services/music_library_service.dart';
 import 'services/draft_service.dart';
 import 'services/payment_service.dart';
-import 'services/firebase_gifting_service.dart';
+import 'services/finance_gifting_service.dart';
 import 'services/firebase_liquidation_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/firebase_vault_service.dart';
@@ -383,7 +383,7 @@ class AppState extends ChangeNotifier {
   final DraftService drafts = DraftService();
   final MusicLibraryService music = MusicLibraryService();
   final PaymentService payment = PaymentService();
-  final FirebaseGiftingService fbGifting = FirebaseGiftingService();
+  final FinanceGiftingService financeGifting = FinanceGiftingService();
   final FirebaseLiquidationService fbLiquidation = FirebaseLiquidationService();
   final ContactDiscoveryService discovery = ContactDiscoveryService(); // Restored Member
 
@@ -1252,48 +1252,39 @@ class AppState extends ChangeNotifier {
     giftEmoji = emoji; giftName = name; giftFee = fee;
     showGiftFloat = true;
     
-    // Optimistic UI update for legacy widgets using 'wallet' (coinBalance)
-    if (userWallet != null && userWallet!.coinBalance >= price) {
-      userWallet = Wallet(
-        id: userWallet!.id,
-        userId: userWallet!.userId,
-        coinBalance: userWallet!.coinBalance - price,
-        fiatBalance: userWallet!.fiatBalance,
-        escrowBalance: userWallet!.escrowBalance,
-        stakedBalance: userWallet!.stakedBalance,
-        totalEarned: userWallet!.totalEarned,
-        totalSpent: userWallet!.totalSpent,
-        totalCommissionEarned: userWallet!.totalCommissionEarned,
-        dailyWithdrawalLimit: userWallet!.dailyWithdrawalLimit,
-        monthlyWithdrawalLimit: userWallet!.monthlyWithdrawalLimit,
-        isFrozen: userWallet!.isFrozen,
-        freezeReason: userWallet!.freezeReason,
-        frozenAt: userWallet!.frozenAt,
-        createdAt: userWallet!.createdAt,
-        updatedAt: DateTime.now(),
-      );
-    }
     notify();
 
-    // Persist to backend asynchronously via Firebase Finance
+    // Supabase 2 is authoritative; refresh only after the atomic transfer.
     if (user != null) {
       try {
-        final result = await fbGifting.sendGift(
+        final catalog = await financeGifting.fetchGiftItems();
+        GiftItem? giftItem;
+        for (final item in catalog) {
+          if (item.name == name || (item.emoji == emoji && item.ncxValue == price)) {
+            giftItem = item;
+            break;
+          }
+        }
+        if (giftItem == null) {
+          throw StateError('Gift is not available in the finance catalogue.');
+        }
+        final result = await financeGifting.sendGift(
           senderId: user!.id,
-          receiverId: receiverId ?? 'platform_recipient', // default if missing from UI
-          giftItemId: name.toLowerCase(),
+          receiverId: receiverId ?? '00000000-0000-4000-8000-000000000001',
+          giftItemId: giftItem.id,
           ncxAmount: price,
           contextType: contextType ?? 'direct',
           contextId: contextId ?? 'general_feed',
         );
 
         if (result.success) {
-          await _syncVault(); // Resync real balances from Firebase
+          await _syncVault();
         } else {
-          debugPrint('🔥 Firebase Gifting failed: ${result.message}');
+          debugPrint('Supabase gifting failed: ${result.message}');
         }
       } catch (e) {
-        debugPrint('🔥 Gift persist error: $e');
+        await _syncVault();
+        debugPrint('Gift persist error: $e');
       }
     }
   }
