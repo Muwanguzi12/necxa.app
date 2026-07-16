@@ -1,6 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { pesapalStatus, pesapalToken } from "../_shared/pesapal.ts";
-import { mirrorDepositLedger } from "../_shared/primary-ledger.ts";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -28,10 +27,7 @@ Deno.serve(async (req) => {
     if (payment.provider_reference && payment.provider_reference !== trackingId) {
       return json({ error: "provider_reference_mismatch" }, 409);
     }
-    if (payment.status === "completed") {
-      await mirrorDepositLedger(admin, payment.id);
-      return json({ status: "success", message: "Already completed and ledger synchronized" });
-    }
+    if (payment.status === "completed") return json({ status: "success", message: "Already completed" });
 
     // The callback is never trusted by itself. Query Pesapal server-to-server
     // and use that verified result as the payment authority.
@@ -58,7 +54,6 @@ Deno.serve(async (req) => {
         p_provider_response: verified,
       });
       if (error) throw error;
-      await mirrorDepositLedger(admin, payment.id);
     } else if (failed) {
       const { error } = await admin.from("payments").update({
         status: description === "CANCELLED" ? "cancelled" : "failed",
