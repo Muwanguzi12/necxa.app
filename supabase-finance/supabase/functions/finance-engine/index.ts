@@ -115,8 +115,17 @@ Deno.serve(async (req) => {
         return reply({ success: false, code: "unsupported_payment_method", message: "Choose wallet balance, card, MTN or Airtel through Pesapal." }, 400);
       }
       const { data: existing } = await admin.from("payments").select("*").eq("user_id", user.id).eq("idempotency_key", idempotencyKey).eq("purpose", "coin_purchase").maybeSingle();
-      if (existing?.response?.redirect_url) {
-        return reply({ success: true, paymentId: existing.id, status: existing.status, redirectUrl: existing.response.redirect_url, redirect_url: existing.response.redirect_url });
+      if (existing) {
+        if (existing.status === "completed") {
+          return reply({ success: true, paymentId: existing.id, status: "completed", ncxAmount: existing.request?.ncx_amount, message: "Coins are already credited." });
+        }
+        if (["failed", "cancelled", "refunded"].includes(existing.status)) {
+          return reply({ success: false, code: "payment_final", message: "The previous payment attempt ended. Try again to create a new checkout." }, 409);
+        }
+        if (existing.response?.redirect_url) {
+          return reply({ success: true, paymentId: existing.id, status: existing.status, redirectUrl: existing.response.redirect_url, redirect_url: existing.response.redirect_url });
+        }
+        return reply({ success: false, code: "payment_pending", message: "This payment is still being prepared. Please try again shortly." }, 409);
       }
       const { data: payment, error: paymentError } = await admin.from("payments").insert({
         user_id: user.id, provider: "pesapal", purpose: "coin_purchase",
@@ -141,7 +150,7 @@ Deno.serve(async (req) => {
         return reply({ success: true, paymentId: payment.id, status: "processing", redirectUrl: order.redirect_url, redirect_url: order.redirect_url, ncxAmount: pack.ncx_amount });
       } catch (error) {
         await admin.from("payments").update({ status: "failed", response: { error: error instanceof Error ? error.message : String(error) }, updated_at: new Date().toISOString() }).eq("id", payment.id);
-        throw error;
+        return reply({ success: false, code: "payment_initialization_failed", message: "Pesapal checkout could not be started. Try again." }, 502);
       }
     }
 

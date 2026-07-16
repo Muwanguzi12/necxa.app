@@ -4,6 +4,7 @@ import '../app_state.dart';
 import 'dart:ui';
 import 'dart:async';
 import 'package:url_launcher/url_launcher_string.dart';
+import '../services/finance_backend.dart';
 
 class VaultBuyShardsOverlay extends StatefulWidget {
   final AppState state;
@@ -187,6 +188,10 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
       }
       if (mounted) setState(() => _stage = 4);
     } catch (e) {
+      if (e is FinanceBackendException &&
+          (e.code == 'payment_final' || e.code == 'payment_initialization_failed')) {
+        _idempotencyKey = null;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
         setState(() => _stage = 2); // Go back on failure

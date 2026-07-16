@@ -58,12 +58,12 @@ Deno.serve(async (req) => {
     } else if (failed) {
       const { error } = await admin.from("payments").update({
         status: description === "CANCELLED" ? "cancelled" : "failed",
-        response: verified,
+        response: { ...(payment.response ?? {}), verification: verified },
         updated_at: new Date().toISOString(),
       }).eq("id", payment.id).neq("status", "completed");
       if (error) throw error;
     } else {
-      await admin.from("payments").update({ response: verified, updated_at: new Date().toISOString() }).eq("id", payment.id).neq("status", "completed");
+      await admin.from("payments").update({ response: { ...(payment.response ?? {}), verification: verified }, updated_at: new Date().toISOString() }).eq("id", payment.id).neq("status", "completed");
     }
 
     return json({ status: "success", payment_status: completed ? "completed" : failed ? "failed" : "processing" });

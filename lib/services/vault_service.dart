@@ -52,30 +52,6 @@ class VaultService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> fetchPacks() async {
-    final res = await client
-        .from('ncx_coin_packs')
-        .select()
-        .eq('is_active', true)
-        .order('fiat_price', ascending: true);
-    return List<Map<String, dynamic>>.from(res);
-  }
-
-  Future<Map<String, dynamic>> buyShards(String userId, int packId) async {
-    final response = await client.rpc(
-      'buy_coins',
-      params: {
-        'p_user_id': userId,
-        'p_pack_id': packId,
-      },
-    );
-    
-    if (response['success'] == false) {
-      throw Exception(response['message'] ?? 'Insufficient Vault Liquidity');
-    }
-    return response;
-  }
-
   Future<void> sellShards(String userId, int shards) async {
     final response = await client.rpc(
       'liquidate_coins',

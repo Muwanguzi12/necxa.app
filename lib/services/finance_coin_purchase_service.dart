@@ -4,6 +4,18 @@ import 'finance_backend.dart';
 import 'finance_initializer.dart';
 
 class FinanceCoinPurchaseService {
+  static const supportedMethods = {'fiat_balance', 'pesapal', 'card', 'mtn', 'airtel'};
+
+  static String packIdForUgx(num ugx) {
+    if (ugx >= 500000) return 'whale';
+    if (ugx >= 100000) return 'elite';
+    if (ugx >= 50000) return 'pro';
+    return 'starter';
+  }
+
+  static bool isSupportedMethod(String method) =>
+      supportedMethods.contains(method.toLowerCase());
+
   Future<List<Map<String, dynamic>>> packs() async {
     await FinanceInitializer.instance.ensureInitialized();
     final result = await FinanceBackend.instance.invoke('list_coin_packs');
