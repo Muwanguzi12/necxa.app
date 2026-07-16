@@ -14,6 +14,7 @@ class FinanceWithdrawalService {
     required String recipientName,
     required String emailOtp,
     required Map<String, dynamic> securityMetadata,
+    required String idempotencyKey,
   }) async {
     await FinanceInitializer.instance.ensureInitialized();
     return FinanceBackend.instance.invoke(
@@ -25,7 +26,7 @@ class FinanceWithdrawalService {
         'recipientName': recipientName,
         'emailOtp': emailOtp,
         'securityMetadata': securityMetadata,
-        'idempotencyKey': 'withdrawal-${DateTime.now().microsecondsSinceEpoch}',
+        'idempotencyKey': idempotencyKey,
       },
     );
   }

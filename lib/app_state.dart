@@ -750,14 +750,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> withdraw(double amount, {
+  Future<Map<String, dynamic>> withdraw(double amount, {
     required String accountNumber, 
     required String recipientName,
     required String? totpToken,
     required String emailOtp,
+    required String idempotencyKey,
     String method = 'mtn'
   }) async {
-    if (user == null || fiatBalance < amount) return;
+    if (user == null) throw Exception('Sign in before withdrawing');
+    if (fiatBalance < amount) throw Exception('Insufficient wallet balance');
     
     // Security checkpoint
     final verified = await verifySensitiveAction();
@@ -772,10 +774,12 @@ class AppState extends ChangeNotifier {
       recipientName: recipientName,
       emailOtp: emailOtp,
       securityMetadata: securityData,
+      idempotencyKey: idempotencyKey,
     );
 
     if (result['success'] == true) {
       await _syncVault(); // Refresh local wallet
+      return result;
     } else {
       throw Exception(result['message']);
     }

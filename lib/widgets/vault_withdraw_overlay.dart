@@ -16,6 +16,10 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
   int _stage = 1; // 1: Bio-Shield, 2: Amount, 3: Destination, 4: Account, 5: Verification, 6: Pulse, 7: Success
   double _scanProgress = 0.0;
   Timer? _scanTimer;
+  Timer? _statusTimer;
+  String? _withdrawalId;
+  String? _idempotencyKey;
+  String _withdrawalStatus = 'initiated';
   String _selectedAmount = '10,000';
   String _selectedMethod = 'mtn'; // Default method
   String _statusText = 'Signing Intent';
@@ -34,6 +38,8 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
 
   @override
   void dispose() {
+    _scanTimer?.cancel();
+    _statusTimer?.cancel();
     _accountController.dispose();
     _nameController.dispose();
     _totpController.dispose();
@@ -407,21 +413,41 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
   Future<void> _finalizeWithdraw() async {
     final amt = double.parse(_selectedAmount.replaceAll(',', ''));
     try {
-      await widget.state.withdraw(
+      _idempotencyKey ??= 'withdrawal-${DateTime.now().microsecondsSinceEpoch}';
+      final result = await widget.state.withdraw(
         amt, 
         accountNumber: _accountController.text.trim(), 
         recipientName: _nameController.text.trim(),
         totpToken: widget.state.is2faEnabled ? _totpController.text.trim() : null,
         emailOtp: _emailOtpController.text.trim(),
-        method: _selectedMethod
+        method: _selectedMethod,
+        idempotencyKey: _idempotencyKey!,
       );
+      _withdrawalId = result['withdrawalId']?.toString();
+      _withdrawalStatus = result['status']?.toString() ?? 'initiated';
       if (mounted) setState(() => _stage = 7);
+      _startStatusPolling();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
         setState(() => _stage = 3); // Go back on failure
       }
     }
+  }
+
+  void _startStatusPolling() {
+    if (_withdrawalId == null) return;
+    _statusTimer?.cancel();
+    _statusTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      try {
+        final result = await widget.state.financeWithdrawals.status(_withdrawalId!);
+        final status = result['status']?.toString();
+        if (status != null && mounted) setState(() => _withdrawalStatus = status);
+        if (status == 'paid' || status == 'failed' || status == 'refunded') _statusTimer?.cancel();
+      } catch (_) {
+        // A temporary network failure must not change the last verified status.
+      }
+    });
   }
 
   // ── STAGE 4: EXTRACTION PULSE ──────────────────────────
@@ -449,9 +475,9 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
         children: [
           _SuccessHalo(),
           const SizedBox(height: 32),
-          Text('Done!', style: syne(sz: 28, w: FontWeight.w700, c: Colors.white)),
+          Text('Withdrawal ${_withdrawalStatus.toUpperCase()}', style: syne(sz: 22, w: FontWeight.w700, c: Colors.white)),
           const SizedBox(height: 24),
-          _SummaryCard(amt: _selectedAmount, method: _selectedMethod),
+          _SummaryCard(amt: _selectedAmount, method: _selectedMethod, status: _withdrawalStatus),
           const SizedBox(height: 48),
           _BottomBtn(label: 'Close', icon: Icons.check, onTap: () => Navigator.pop(context)),
         ],
@@ -587,7 +613,8 @@ class _SuccessHalo extends StatelessWidget {
 class _SummaryCard extends StatelessWidget {
   final String amt;
   final String method;
-  const _SummaryCard({required this.amt, required this.method});
+  final String status;
+  const _SummaryCard({required this.amt, required this.method, required this.status});
   
   String get _methodLabel {
     switch (method) {
@@ -600,14 +627,14 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: Colors.white.withOpacity(.02), borderRadius: BorderRadius.circular(24), border: Border.all(color: Colors.white.withOpacity(.05))), child: Column(children: [
-    Text('Amount withdrawn', style: dm(sz: 11, w: FontWeight.w600, c: Colors.white38)),
+    Text('Withdrawal amount', style: dm(sz: 11, w: FontWeight.w600, c: Colors.white38)),
     const SizedBox(height: 12),
     Text('UGX $amt', style: syne(sz: 24, w: FontWeight.w700, fs: FontStyle.italic, c: Colors.redAccent)),
     const SizedBox(height: 12),
     Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       const Icon(Icons.verified_user, color: Colors.blue, size: 10),
       const SizedBox(width: 6),
-      Text('Payout pending review', style: dm(sz: 10, w: FontWeight.w600, c: Colors.blue)),
+      Text('Payout ${status.toUpperCase()}', style: dm(sz: 10, w: FontWeight.w600, c: Colors.blue)),
     ]),
     const SizedBox(height: 8),
     Text('Sent to: $_methodLabel', style: dm(sz: 11, c: Colors.white38))

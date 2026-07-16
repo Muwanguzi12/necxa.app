@@ -226,14 +226,14 @@ Deno.serve(async (req) => {
         p_metadata: securityMetadata,
       });
       if (error) throw error;
-      return reply({ success: true, withdrawal: data, withdrawalId: data.id, status: data.status, message: "Withdrawal submitted for secure payout review." });
+      return reply({ success: true, withdrawal: data, withdrawalId: data.id, status: data.workflow_status, message: "Withdrawal initiated and awaiting team review." });
     }
 
     if (action === "withdrawal_status") {
       const withdrawalId = requiredString(body.withdrawalId, "withdrawalId");
-      const { data, error } = await admin.from("withdrawals").select("id,amount,currency,method,status,provider_reference,created_at,updated_at").eq("id", withdrawalId).eq("user_id", user.id).single();
+      const { data, error } = await admin.from("withdrawals").select("id,amount,currency,method,workflow_status,provider_reference,created_at,updated_at").eq("id", withdrawalId).eq("user_id", user.id).single();
       if (error) throw error;
-      return reply({ success: true, withdrawal: data, status: data.status });
+      return reply({ success: true, withdrawal: data, status: data.workflow_status });
     }
 
     if (action === "send_gift") {
