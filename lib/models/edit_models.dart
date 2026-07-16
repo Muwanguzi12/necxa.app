@@ -73,6 +73,134 @@ class FilterOperation extends EditOperation {
   Map<String, dynamic> toJson() => {'type': type, 'name': filterName};
 }
 
+/// Non-destructive visual transform shared by every editor surface and renderer.
+class TransformOperation extends EditOperation {
+  double scale;
+  double rotation;
+  Offset position;
+  double opacity;
+
+  TransformOperation({
+    this.scale = 1.0,
+    this.rotation = 0.0,
+    this.position = Offset.zero,
+    this.opacity = 1.0,
+  }) : super('transform');
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'scale': scale,
+    'rotation': rotation,
+    'position': {'dx': position.dx, 'dy': position.dy},
+    'opacity': opacity,
+  };
+}
+
+/// Typed overlay metadata shared by editor surfaces and the renderer.
+class OverlayOperation extends EditOperation {
+  String kind;
+  String text;
+  String? imagePath;
+  double start;
+  double end;
+  Offset position;
+  double scale;
+  double rotation;
+  double opacity;
+  double fontSize;
+  Color color;
+  Color background;
+  double backgroundOpacity;
+  bool shadow;
+  bool stroke;
+  String align;
+
+  OverlayOperation({
+    required this.kind,
+    required this.text,
+    this.imagePath,
+    this.start = 0,
+    this.end = 1,
+    this.position = const Offset(0.5, 0.5),
+    this.scale = 1,
+    this.rotation = 0,
+    this.opacity = 1,
+    this.fontSize = 28,
+    this.color = Colors.white,
+    this.background = Colors.transparent,
+    this.backgroundOpacity = 0,
+    this.shadow = true,
+    this.stroke = false,
+    this.align = 'center',
+  }) : super('overlay');
+
+  factory OverlayOperation.fromLegacy(Map<String, dynamic> values) {
+    return OverlayOperation(
+      kind: values['type'] as String? ?? 'text',
+      text: values['text'] as String? ?? '',
+      imagePath: values['image'] as String?,
+      start: (values['start'] as num?)?.toDouble() ?? 0,
+      end: (values['end'] as num?)?.toDouble() ?? 1,
+      position: Offset(
+        (values['x'] as num?)?.toDouble() ?? 0.5,
+        (values['y'] as num?)?.toDouble() ?? 0.5,
+      ),
+      scale: (values['scale'] as num?)?.toDouble() ?? 1,
+      rotation: (values['rotation'] as num?)?.toDouble() ?? 0,
+      opacity: (values['opacity'] as num?)?.toDouble() ?? 1,
+      fontSize: (values['fontSize'] as num?)?.toDouble() ?? 28,
+      color: values['color'] as Color? ?? Colors.white,
+      background: values['background'] as Color? ?? Colors.transparent,
+      backgroundOpacity: (values['backgroundOpacity'] as num?)?.toDouble() ?? 0,
+      shadow: values['shadow'] as bool? ?? true,
+      stroke: values['stroke'] as bool? ?? false,
+      align: values['align'] as String? ?? 'center',
+    );
+  }
+
+  OverlayOperation copy() => OverlayOperation(
+    kind: kind,
+    text: text,
+    imagePath: imagePath,
+    start: start,
+    end: end,
+    position: position,
+    scale: scale,
+    rotation: rotation,
+    opacity: opacity,
+    fontSize: fontSize,
+    color: color,
+    background: background,
+    backgroundOpacity: backgroundOpacity,
+    shadow: shadow,
+    stroke: stroke,
+    align: align,
+  );
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'operationType': type,
+    'type': kind,
+    'text': text,
+    'image': imagePath,
+    'start': start,
+    'end': end,
+    'x': position.dx,
+    'y': position.dy,
+    'scale': scale,
+    'rotation': rotation,
+    'opacity': opacity,
+    'fontSize': fontSize,
+    'color': color,
+    'background': background,
+    'backgroundOpacity': backgroundOpacity,
+    'shadow': shadow,
+    'stroke': stroke,
+    'align': align,
+  };
+}
+
 /// Shared transition preset metadata reused by desktop and mobile editors.
 class TransitionPreset {
   final String id;
@@ -594,6 +722,8 @@ class TimelineClip {
   double volume;
   String cropAspectRatio;
   bool isReversed;
+  TransformOperation transform;
+  FilterOperation? filter;
 
   TimelineClip({
     required this.id,
@@ -607,7 +737,9 @@ class TimelineClip {
     this.volume = 1.0,
     this.cropAspectRatio = 'Original',
     this.isReversed = false,
-  });
+    TransformOperation? transform,
+    this.filter,
+  }) : transform = transform ?? TransformOperation();
 
   TimelineClip copyWith({
     String? id,
@@ -621,6 +753,8 @@ class TimelineClip {
     double? volume,
     String? cropAspectRatio,
     bool? isReversed,
+    TransformOperation? transform,
+    FilterOperation? filter,
   }) {
     return TimelineClip(
       id: id ?? this.id,
@@ -634,6 +768,8 @@ class TimelineClip {
       volume: volume ?? this.volume,
       cropAspectRatio: cropAspectRatio ?? this.cropAspectRatio,
       isReversed: isReversed ?? this.isReversed,
+      transform: transform ?? this.transform,
+      filter: filter ?? this.filter,
     );
   }
 

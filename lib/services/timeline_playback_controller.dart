@@ -172,3 +172,169 @@ class TimelinePlaybackController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+class TimelineHistoryController {
+  final int limit;
+  final List<List<TimelineTrack>> _undoStack = [];
+  final List<List<TimelineTrack>> _redoStack = [];
+
+  TimelineHistoryController({this.limit = 50});
+
+  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canRedo => _redoStack.isNotEmpty;
+
+  void capture(List<TimelineTrack> tracks) {
+    _undoStack.add(_cloneTracks(tracks));
+    _redoStack.clear();
+    if (_undoStack.length > limit) _undoStack.removeAt(0);
+  }
+
+  List<TimelineTrack>? undo(List<TimelineTrack> current) {
+    if (_undoStack.isEmpty) return null;
+    _redoStack.add(_cloneTracks(current));
+    return _undoStack.removeLast();
+  }
+
+  List<TimelineTrack>? redo(List<TimelineTrack> current) {
+    if (_redoStack.isEmpty) return null;
+    _undoStack.add(_cloneTracks(current));
+    return _redoStack.removeLast();
+  }
+
+  static List<TimelineTrack> _cloneTracks(List<TimelineTrack> tracks) => tracks
+      .map(
+        (track) => TimelineTrack(
+          id: track.id,
+          type: track.type,
+          clips: track.clips.map(_cloneClip).toList(),
+          label: track.label,
+          icon: track.icon,
+          isLocked: track.isLocked,
+          isVisible: track.isVisible,
+        ),
+      )
+      .toList();
+
+  static TimelineClip _cloneClip(TimelineClip clip) => TimelineClip(
+    id: clip.id,
+    start: clip.start,
+    duration: clip.duration,
+    operation: _cloneOperation(clip.operation),
+    file: clip.file,
+    sourceStart: clip.sourceStart,
+    sourceEnd: clip.sourceEnd,
+    speed: clip.speed,
+    volume: clip.volume,
+    cropAspectRatio: clip.cropAspectRatio,
+    isReversed: clip.isReversed,
+    transform: TransformOperation(
+      scale: clip.transform.scale,
+      rotation: clip.transform.rotation,
+      position: clip.transform.position,
+      opacity: clip.transform.opacity,
+    ),
+    filter: clip.filter == null
+        ? null
+        : FilterOperation(filterName: clip.filter!.filterName),
+  );
+
+  static EditOperation _cloneOperation(EditOperation operation) {
+    if (operation is TrimOperation) {
+      return TrimOperation(
+        start: operation.start,
+        end: operation.end,
+        maxDuration: operation.maxDuration,
+      );
+    }
+    if (operation is TextOverlay) {
+      return TextOverlay(
+        text: operation.text,
+        position: operation.position,
+        scale: operation.scale,
+        rotation: operation.rotation,
+        style: operation.style,
+      );
+    }
+    if (operation is FilterOperation) {
+      return FilterOperation(filterName: operation.filterName);
+    }
+    if (operation is TransformOperation) {
+      return TransformOperation(
+        scale: operation.scale,
+        rotation: operation.rotation,
+        position: operation.position,
+        opacity: operation.opacity,
+      );
+    }
+    if (operation is OverlayOperation) {
+      return operation.copy();
+    }
+    if (operation is AudioClipOperation) {
+      return AudioClipOperation(
+        sourceType: operation.sourceType,
+        sourceUrl: operation.sourceUrl,
+        label: operation.label,
+        volume: operation.volume,
+        speed: operation.speed,
+        reverse: operation.reverse,
+        startOffset: operation.startOffset,
+        endOffset: operation.endOffset,
+      );
+    }
+    if (operation is EffectOperation) {
+      return EffectOperation(
+        presetId: operation.presetId,
+        presetName: operation.presetName,
+        category: operation.category,
+        icon: operation.icon,
+        intensity: operation.intensity,
+        opacity: operation.opacity,
+        blendMode: operation.blendMode,
+        startOffset: operation.startOffset,
+        endOffset: operation.endOffset,
+        isFavorite: operation.isFavorite,
+      );
+    }
+    if (operation is TransitionOperation) {
+      return TransitionOperation(
+        presetId: operation.presetId,
+        presetName: operation.presetName,
+        category: operation.category,
+        icon: operation.icon,
+        duration: operation.duration,
+        direction: operation.direction,
+        intensity: operation.intensity,
+        easeIn: operation.easeIn,
+        easeOut: operation.easeOut,
+        reverse: operation.reverse,
+        isFavorite: operation.isFavorite,
+      );
+    }
+    throw UnsupportedError(
+      'Unsupported edit operation: ${operation.runtimeType}',
+    );
+  }
+}
+
+class EditorProjectController {
+  final List<TimelineTrack> tracks;
+  final TimelinePlaybackController playback;
+  final TimelineHistoryController history;
+
+  EditorProjectController({
+    List<TimelineTrack>? tracks,
+    TimelinePlaybackController? playback,
+    TimelineHistoryController? history,
+  }) : tracks = tracks ?? <TimelineTrack>[],
+       playback = playback ?? TimelinePlaybackController(),
+       history = history ?? TimelineHistoryController();
+
+  void replaceTracks(List<TimelineTrack> replacement) {
+    tracks
+      ..clear()
+      ..addAll(replacement);
+    playback.updateProject(tracks);
+  }
+
+  void dispose() => playback.dispose();
+}

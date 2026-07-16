@@ -10,14 +10,11 @@ import 'dart:typed_data';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models/edit_models.dart';
-import '../widgets/media_editor_tools.dart';
-import '../widgets/mobile_editor_panels.dart';
 import '../services/music_library_service.dart';
 import '../models/music_models.dart';
 import '../services/editor_subscription_service.dart';
 import '../services/editor_export_service.dart';
 import '../services/editor_media_service.dart';
-import 'pro_media_editor_screen.dart';
 import 'music_library_screen.dart';
 import '../services/editor_voiceover_service.dart';
 import '../services/editor_audio_service.dart';
@@ -30,8 +27,20 @@ import '../services/timeline_playback_controller.dart';
 class MobileMediaEditor extends StatefulWidget {
   final AppState state;
   final File? initialMedia;
+  final MusicTrack? initialTrack;
+  final List<File>? multiFiles;
+  final bool isFastSync;
+  final EditorProjectController? projectController;
 
-  const MobileMediaEditor({super.key, required this.state, this.initialMedia});
+  const MobileMediaEditor({
+    super.key,
+    required this.state,
+    this.initialMedia,
+    this.initialTrack,
+    this.multiFiles,
+    this.isFastSync = false,
+    this.projectController,
+  });
 
   @override
   State<MobileMediaEditor> createState() => _MobileMediaEditorState();
@@ -47,7 +56,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   bool _isMultiSelectMode = false;
 
   // ── Timeline ─────────────────────────────────────────────────
-  final List<TimelineTrack> _tracks = [];
+  late final EditorProjectController _project;
+  late final List<TimelineTrack> _tracks;
+  late final TimelinePlaybackController _playback;
+  late final TimelineHistoryController _history;
+  late final bool _ownsProject;
   final EditorMediaService _mediaService = EditorMediaService();
   final Set<String> _selectedMediaPaths = <String>{};
   final Set<String> _favoriteMediaPaths = <String>{};
@@ -98,7 +111,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   final AudioPlayer _audioPreviewPlayer = AudioPlayer();
   final Map<String, AudioPlayer> _timelineAudioPlayers =
       <String, AudioPlayer>{};
-  final TimelinePlaybackController _playback = TimelinePlaybackController();
   String? _activeVisualClipId;
   TimelineClip? _compositionVisualClip;
   bool _isSynchronizingComposition = false;
@@ -137,6 +149,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   @override
   void initState() {
     super.initState();
+    _ownsProject = widget.projectController == null;
+    _project = widget.projectController ?? EditorProjectController();
+    _tracks = _project.tracks;
+    _playback = _project.playback;
+    _history = _project.history;
     _bottomNavController = TabController(length: 5, vsync: this);
 
     _verticalScrollController.addListener(() {
@@ -165,32 +182,53 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _initializeEditor() {
-    if (widget.initialMedia == null) return;
-    _mediaService.registerFile(widget.initialMedia!);
-    final videoTrack = TimelineModelUtils.ensureTrackForType(
-      _tracks,
-      TrackType.video,
-      id: 'video-1',
-      label: 'Video',
-    );
-    videoTrack.clips.add(
-      TimelineClip(
-        id: 'video-clip-1',
-        start: Duration.zero,
-        duration: const Duration(seconds: 12),
-        file: widget.initialMedia,
-        operation: TrimOperation(
-          start: Duration.zero,
-          end: const Duration(seconds: 12),
-          maxDuration: const Duration(seconds: 12),
+    if (_tracks.isNotEmpty) return;
+    final files =
+        widget.multiFiles ??
+        [if (widget.initialMedia != null) widget.initialMedia!];
+    var start = Duration.zero;
+    for (var index = 0; index < files.length; index++) {
+      final file = files[index];
+      _mediaService.registerFile(file);
+      final lower = file.path.toLowerCase();
+      final isVideo = lower.endsWith('.mp4') || lower.endsWith('.mov');
+      final duration = isVideo
+          ? const Duration(seconds: 12)
+          : const Duration(seconds: 4);
+      TimelineModelUtils.insertClip(
+        _tracks,
+        TimelineClip(
+          id: 'initial-${index}-${file.path.hashCode}',
+          start: start,
+          duration: duration,
+          file: file,
+          operation: TrimOperation(
+            start: Duration.zero,
+            end: duration,
+            maxDuration: duration,
+          ),
         ),
-      ),
-    );
-
-    TimelineModelUtils.pruneEmptyTracks(_tracks);
-
-    if (widget.initialMedia!.existsSync()) {
-      _loadClip(videoTrack.clips.first);
+        isVideo ? TrackType.video : TrackType.images,
+      );
+      start += duration;
+    }
+    if (widget.initialTrack != null) {
+      TimelineModelUtils.insertClip(
+        _tracks,
+        TimelineClip(
+          id: 'initial-music-${widget.initialTrack!.id}',
+          start: Duration.zero,
+          duration: start > Duration.zero
+              ? start
+              : Duration(seconds: widget.initialTrack!.duration),
+          operation: AudioClipOperation(
+            sourceType: 'music',
+            sourceUrl: widget.initialTrack!.audioUrl,
+            label: widget.initialTrack!.title,
+          ),
+        ),
+        TrackType.music,
+      );
     }
   }
 
@@ -258,7 +296,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _videoController?.removeListener(_syncVideoState);
     _reversePlaybackTimer?.cancel();
     _playback.removeListener(_onPlaybackStateChanged);
-    _playback.dispose();
+    if (_ownsProject) _project.dispose();
     for (final player in _timelineAudioPlayers.values) {
       player.dispose();
     }
@@ -277,13 +315,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    final isPortrait = screenSize.height > screenSize.width;
-
-    if (!isPortrait) {
-      // Landscape: use desktop editor
-      return ProMediaEditorScreen(state: widget.state);
-    }
-
     return Scaffold(
       backgroundColor: C.bg,
       body: SafeArea(
@@ -2066,6 +2097,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _removeClip(TimelineTrack track, TimelineClip clip) {
+    _captureTimeline();
     setState(() {
       track.clips.remove(clip);
       _selectedClipIds.remove(clip.id);
@@ -2469,6 +2501,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     TrackType? targetType,
   }) async {
     if (picked.isEmpty) return;
+    _captureTimeline();
 
     final insertedClips = <TimelineClip>[];
     // Track per-track next insertion start time so multiple selected items
@@ -2715,8 +2748,46 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  void _undo() => _showSnack('Undo');
-  void _redo() => _showSnack('Redo');
+  void _undo() {
+    final restored = _history.undo(_tracks);
+    if (restored == null) {
+      _showSnack('Nothing to undo');
+      return;
+    }
+    _restoreTimeline(restored);
+  }
+
+  void _redo() {
+    final restored = _history.redo(_tracks);
+    if (restored == null) {
+      _showSnack('Nothing to redo');
+      return;
+    }
+    _restoreTimeline(restored);
+  }
+
+  void _captureTimeline() => _history.capture(_tracks);
+
+  void _restoreTimeline(List<TimelineTrack> restored) {
+    _playback.pause();
+    for (final player in _timelineAudioPlayers.values) {
+      player.pause();
+    }
+    setState(() {
+      _tracks
+        ..clear()
+        ..addAll(restored);
+      _selectedClip = null;
+      _selectedClipIds.clear();
+      _selectedTrackId = null;
+      _selectedTrackIndex = null;
+      _isMultiSelectMode = false;
+      _activeVisualClipId = null;
+      _compositionVisualClip = null;
+    });
+    _playback.updateProject(_tracks);
+    _synchronizeComposition();
+  }
 
   Future<void> _showProSheet() async {
     final features = await EditorSubscriptionService.getPremiumFeatures();
@@ -2950,6 +3021,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       creatorName:
           widget.state.currentProfile?['full_name']?.toString() ?? 'Creator',
       rightsConfirmed: rightsConfirmed,
+      tracks: _tracks,
       onStage: (stage) {
         if (mounted) setState(() => _exportStatus = stage);
       },
@@ -3131,6 +3203,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _toggleTrackVisibility(TimelineTrack track) {
+    _captureTimeline();
     track.isVisible = !track.isVisible;
     if (!track.isVisible) {
       TimelineModelUtils.pruneEmptyTracks(_tracks);
@@ -3139,6 +3212,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _toggleTrackLock(TimelineTrack track) {
+    _captureTimeline();
     track.isLocked = !track.isLocked;
     setState(() {});
   }
@@ -3155,6 +3229,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _showSnack('Move the playhead inside the clip to split');
       return;
     }
+    _captureTimeline();
     final track = _tracks.firstWhere(
       (candidate) => candidate.clips.contains(clip),
     );
@@ -3182,6 +3257,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _trimClip() {
     final clip = _selectedClip;
     if (clip == null) return;
+    _captureTimeline();
     final selectedTrack = _tracks.firstWhere(
       (candidate) => candidate.clips.contains(clip),
     );
@@ -3253,6 +3329,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _adjustSpeed() {
     final clip = _selectedClip;
     if (clip == null) return;
+    _captureTimeline();
     _showClipSlider(
       title: 'Playback speed',
       value: clip.speed,
@@ -3281,6 +3358,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _cropClip() {
     final clip = _selectedClip;
     if (clip == null) return;
+    _captureTimeline();
     _showSelectionSheet('Crop', ['Original', '9:16', '16:9', '1:1', '4:5'], (
       value,
     ) {
@@ -3291,6 +3369,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _toggleReverse() {
     final clip = _selectedClip;
     if (clip == null) return;
+    _captureTimeline();
     setState(() {
       clip.isReversed = !clip.isReversed;
       if (clip.operation is AudioClipOperation) {
@@ -3318,6 +3397,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _applyFilter() => _showEffectLibrarySheet();
   void _deleteClip() {
     if (_selectedClipIds.isEmpty) return;
+    _captureTimeline();
     setState(() {
       for (final track in _tracks) {
         track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
@@ -3334,6 +3414,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   void _duplicateSelectedClips() {
     if (_selectedClipIds.isEmpty) return;
+    _captureTimeline();
     final timestamp = DateTime.now().microsecondsSinceEpoch;
     final duplicates = <TimelineClip>[];
     setState(() {
@@ -3361,6 +3442,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _lockSelectedTracks() {
+    _captureTimeline();
     setState(() {
       for (final track in _tracks) {
         if (track.clips.any((clip) => _selectedClipIds.contains(clip.id))) {
@@ -3377,6 +3459,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _adjustVolume() {
     final clip = _selectedClip;
     if (clip == null) return;
+    _captureTimeline();
     _showClipSlider(
       title: 'Clip volume',
       value: clip.volume,
@@ -3449,6 +3532,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     TextStyle? style,
     Offset? position,
   }) {
+    _captureTimeline();
     final clip = TimelineModelUtils.insertTextClip(
       _tracks,
       text: text,
@@ -3628,6 +3712,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Future<void> _showTextEditorSheet() async {
+    _captureTimeline();
     if (_selectedClip == null || _selectedClip!.operation is! TextOverlay) {
       _showSnack('Select a text layer first');
       return;
@@ -3778,6 +3863,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             volume: _audioVolume,
           ),
         );
+        _captureTimeline();
         TimelineModelUtils.insertClip(_tracks, clip, TrackType.audio);
         _playback.updateProject(_tracks);
         start += duration;
@@ -3847,6 +3933,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ),
       );
 
+      _captureTimeline();
       TimelineModelUtils.insertClip(_tracks, clip, TrackType.music);
       _playback.updateProject(_tracks);
       setState(() {
@@ -4005,6 +4092,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         volume: _audioVolume,
       ),
     );
+    _captureTimeline();
     TimelineModelUtils.insertClip(_tracks, clip, TrackType.voiceOver);
     _playback.updateProject(_tracks);
     setState(() {
@@ -4033,6 +4121,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       ),
     );
 
+    _captureTimeline();
     TimelineModelUtils.insertClip(_tracks, clip, TrackType.soundEffects);
     _playback.updateProject(_tracks);
     setState(() {
@@ -4079,6 +4168,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       ),
     );
 
+    _captureTimeline();
     TimelineModelUtils.insertClip(_tracks, clip, TrackType.effects);
     _playback.updateProject(_tracks);
     _recentEffectIds.remove(preset.id);
@@ -4351,6 +4441,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Future<void> _showEffectEditorSheet() async {
+    _captureTimeline();
     if (_selectedClip == null || _selectedClip!.operation is! EffectOperation) {
       _showSnack('Select an effect clip first');
       return;
@@ -4525,6 +4616,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       ),
     );
 
+    _captureTimeline();
     TimelineModelUtils.insertClip(_tracks, transition, TrackType.effects);
     _playback.updateProject(_tracks);
     _recentTransitionIds.remove(preset.id);
@@ -4757,6 +4849,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Future<void> _showTransitionEditorSheet() async {
+    _captureTimeline();
     if (_selectedClip == null ||
         _selectedClip!.operation is! TransitionOperation) {
       _showSnack('Select a transition first');

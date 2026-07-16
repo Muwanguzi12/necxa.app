@@ -234,4 +234,72 @@ void main() {
       controller.dispose();
     });
   });
+
+  group('Timeline undo and redo', () {
+    test('restores deep clip and operation state', () {
+      final trim = TrimOperation(
+        start: Duration.zero,
+        end: const Duration(seconds: 5),
+        maxDuration: const Duration(seconds: 10),
+      );
+      final clip = TimelineClip(
+        id: 'clip',
+        start: Duration.zero,
+        duration: const Duration(seconds: 5),
+        speed: 1,
+        operation: trim,
+      );
+      final tracks = <TimelineTrack>[
+        TimelineTrack(
+          id: 'video',
+          type: TrackType.video,
+          clips: [clip],
+          label: 'Video',
+          icon: Icons.videocam,
+        ),
+      ];
+      final history = TimelineHistoryController();
+
+      history.capture(tracks);
+      clip.speed = 2;
+      clip.duration = const Duration(milliseconds: 2500);
+      trim.end = const Duration(seconds: 4);
+
+      final undone = history.undo(tracks)!;
+      final restored = undone.single.clips.single;
+      expect(restored.speed, 1);
+      expect(restored.duration, const Duration(seconds: 5));
+      expect(
+        (restored.operation as TrimOperation).end,
+        const Duration(seconds: 5),
+      );
+
+      final redone = history.redo(undone)!;
+      expect(redone.single.clips.single.speed, 2);
+      expect(
+        (redone.single.clips.single.operation as TrimOperation).end,
+        const Duration(seconds: 4),
+      );
+    });
+
+    test('new capture clears redo history', () {
+      final tracks = <TimelineTrack>[];
+      final history = TimelineHistoryController();
+      history.capture(tracks);
+      tracks.add(
+        TimelineTrack(
+          id: 'text',
+          type: TrackType.text,
+          clips: const [],
+          label: 'Text',
+          icon: Icons.text_fields,
+        ),
+      );
+      final undone = history.undo(tracks)!;
+      expect(history.canRedo, isTrue);
+
+      history.capture(undone);
+      expect(history.canRedo, isFalse);
+    });
+  });
 }
