@@ -134,24 +134,36 @@ Deno.serve(async (req) => {
         request: { pack_id: pack.id, ncx_amount: pack.ncx_amount, method, security_metadata: body.securityMetadata ?? {} },
       }).select("*").single();
       if (paymentError) throw paymentError;
+      let providerToken: string;
+      let notificationId: string;
       try {
-        const providerToken = await pesapalToken();
+        providerToken = await pesapalToken();
         const webhookUrl = `${financeUrl}/functions/v1/finance-payment-webhook`;
-        const notificationId = await pesapalIpnId(providerToken, webhookUrl);
-        const callbackBase = Deno.env.get("PESAPAL_CALLBACK_URL") ?? "https://necxa.uk/payment-callback";
-        const order = await submitPesapalOrder(providerToken, {
+        notificationId = await pesapalIpnId(providerToken, webhookUrl);
+      } catch (error) {
+        await admin.from("payments").update({ status: "failed", response: { initialization_error: error instanceof Error ? error.message : String(error), order_created: false }, updated_at: new Date().toISOString() }).eq("id", payment.id);
+        return reply({ success: false, code: "payment_initialization_failed", message: "Pesapal checkout could not be started. Try again." }, 502);
+      }
+
+      const callbackBase = Deno.env.get("PESAPAL_CALLBACK_URL") ?? "https://necxa.uk/payment-callback";
+      let order: Record<string, any>;
+      try {
+        order = await submitPesapalOrder(providerToken, {
           id: payment.id, currency: String(pack.fiat_currency), amount: Number(pack.fiat_price).toFixed(2),
           description: `Necxa ${pack.label}`,
           callback_url: `${callbackBase}?paymentId=${payment.id}&purpose=coin_purchase`, notification_id: notificationId,
           billing_address: { email_address: user.email ?? "no-reply@necxa.uk", phone_number: "", country_code: "UG", first_name: user.user_metadata?.first_name ?? "Necxa", last_name: user.user_metadata?.last_name ?? "User", line_1: "Kampala", city: "Kampala" },
         });
-        const { error: updateError } = await admin.from("payments").update({ status: "processing", provider_reference: order.order_tracking_id, response: order, updated_at: new Date().toISOString() }).eq("id", payment.id);
-        if (updateError) throw updateError;
-        return reply({ success: true, paymentId: payment.id, status: "processing", redirectUrl: order.redirect_url, redirect_url: order.redirect_url, ncxAmount: pack.ncx_amount });
       } catch (error) {
-        await admin.from("payments").update({ status: "failed", response: { error: error instanceof Error ? error.message : String(error) }, updated_at: new Date().toISOString() }).eq("id", payment.id);
-        return reply({ success: false, code: "payment_initialization_failed", message: "Pesapal checkout could not be started. Try again." }, 502);
+        // A SubmitOrder network failure is ambiguous: Pesapal may have created
+        // the order before the response was lost. Keep the payment recoverable.
+        await admin.from("payments").update({ status: "pending", response: { initialization_error: error instanceof Error ? error.message : String(error), order_state: "unknown" }, updated_at: new Date().toISOString() }).eq("id", payment.id);
+        return reply({ success: false, code: "payment_pending", message: "Pesapal may still be preparing this payment. Retry shortly with the same purchase." }, 409);
       }
+      const { error: updateError } = await admin.from("payments").update({ status: "processing", provider_reference: order.order_tracking_id, response: order, updated_at: new Date().toISOString() }).eq("id", payment.id);
+      // The merchant reference is the Supabase payment UUID, so the verified
+      // webhook can still recover and complete even if this write fails.
+      return reply({ success: true, paymentId: payment.id, status: updateError ? "pending" : "processing", redirectUrl: order.redirect_url, redirect_url: order.redirect_url, ncxAmount: pack.ncx_amount, recoveryPending: Boolean(updateError) });
     }
 
     if (action === "coin_purchase_status") {
