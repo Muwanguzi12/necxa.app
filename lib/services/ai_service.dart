@@ -343,7 +343,7 @@ class NecxaAI {
   }
 
   // ── WORKER: SYNC CHAT (non-streaming, for mobile) ─────────────────────────
-  /// Calls `/api/assistant/chat/sync` — Llama 3.1 powered chat.
+  /// Calls `/api/assistant/chat/sync` — multilingual Workers AI chat.
   /// The [language] parameter locks the AI response to the user's preferred language.
   /// Falls back to the Supabase necxa-chat function if the worker is down.
   static Future<String> askNecxaWorker(
