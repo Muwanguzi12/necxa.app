@@ -1435,10 +1435,10 @@ packages:
     dependency: "direct overridden"
     description:
       name: record_platform_interface
-      sha256: b0065fdf1ec28f5a634d676724d388a77e43ce7646fb049949f58c69f3fcb4ed
+      sha256: "11f8b03ea8a0e279b0e306571dbe0db0202c0b8e866495c9fa1ad2281d5e4c15"
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.0"
+    version: "1.1.0"
   record_use:
     dependency: transitive
     description:
