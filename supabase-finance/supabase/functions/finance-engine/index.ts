@@ -24,6 +24,33 @@ function positiveInteger(value: unknown, name: string): number {
   return parsed;
 }
 
+function finiteNumber(value: unknown, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be a number`);
+  return parsed;
+}
+
+function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const dLat = radians(bLat - aLat);
+  const dLng = radians(bLng - aLng);
+  const value = Math.sin(dLat / 2) ** 2 + Math.cos(radians(aLat)) * Math.cos(radians(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function deliveryQuote(input: { distance: number; quantity: number; weight: number; length: number; width: number; height: number; method: string; speed: string }) {
+  const bases: Record<string, number> = { bike: 3000, van: 15000, truck: 45000 };
+  const included: Record<string, number> = { bike: 5, van: 50, truck: 500 };
+  const speedMultiplier: Record<string, number> = { batch: 0.6, standard: 1, express: 1.8 };
+  if (!(input.method in bases) || !(input.speed in speedMultiplier)) throw new Error("Unsupported delivery method or speed");
+  const actual = input.weight * input.quantity;
+  const volumetric = input.length * input.width * input.height / 5000 * input.quantity;
+  const chargeable = Math.max(actual, volumetric);
+  const fare = (bases[input.method] + Math.max(1, input.distance) * 2500 +
+    Math.max(0, chargeable - included[input.method]) * 500 + Math.max(0, input.quantity - 1) * 500) * speedMultiplier[input.speed];
+  return Math.ceil(fare);
+}
+
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -48,7 +75,8 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const primaryUrl = Deno.env.get("PRIMARY_SUPABASE_URL")!;
     const primaryPublishableKey = Deno.env.get("PRIMARY_SUPABASE_PUBLISHABLE_KEY")!;
-    if (!financeUrl || !serviceRoleKey || !primaryUrl || !primaryPublishableKey) {
+    const primaryServiceRoleKey = Deno.env.get("PRIMARY_SUPABASE_SERVICE_ROLE_KEY")!;
+    if (!financeUrl || !serviceRoleKey || !primaryUrl || !primaryPublishableKey || !primaryServiceRoleKey) {
       return reply({ success: false, code: "server_misconfigured", message: "Finance authentication is not configured." }, 500);
     }
 
@@ -71,6 +99,9 @@ Deno.serve(async (req) => {
     const admin = createClient(financeUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const primaryAdmin = createClient(primaryUrl, primaryServiceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
     const body = await req.json() as Record<string, unknown>;
     const action = requiredString(body.action, "action");
 
@@ -89,6 +120,152 @@ Deno.serve(async (req) => {
       const { data, error } = await admin.from("wallets").select("*").eq("user_id", user.id).single();
       if (error) throw error;
       return reply({ success: true, wallet: data });
+    }
+
+    if (action === "process_shop_purchase") {
+      const listingId = requiredString(body.listingId, "listingId");
+      const quantity = positiveInteger(body.quantity, "quantity");
+      const deliveryMethod = requiredString(body.deliveryMethod, "deliveryMethod").toLowerCase();
+      const deliverySpeed = requiredString(body.deliverySpeed, "deliverySpeed").toLowerCase();
+      const location = body.customerLocation as Record<string, unknown> | undefined;
+      const dropoffLat = finiteNumber(location?.lat, "customerLocation.lat");
+      const dropoffLng = finiteNumber(location?.lng, "customerLocation.lng");
+      const deliveryAddress = requiredString(body.deliveryAddress, "deliveryAddress");
+      const customerNumber = requiredString(body.customerNumber, "customerNumber");
+      const idempotencyKey = requiredString(body.idempotencyKey, "idempotencyKey");
+
+      const { data: listing, error: listingError } = await primaryAdmin.from("listings")
+        .select("id,user_id,lister_id,title,thumbnail_url,image_url,media_url,price_ugx,price,sku,stock_count,status,weight_kg,length_cm,width_cm,height_cm,latitude,longitude")
+        .eq("id", listingId).eq("status", "active").single();
+      if (listingError || !listing) return reply({ success: false, code: "listing_unavailable", message: "This product is no longer available." }, 404);
+      const vendorId = String(listing.user_id ?? listing.lister_id ?? "");
+      if (!vendorId) throw new Error("Listing vendor is missing");
+      if (vendorId === user.id) return reply({ success: false, code: "self_purchase", message: "You cannot purchase your own product." }, 409);
+      const stock = Number(listing.stock_count ?? 0);
+      if (!Number.isSafeInteger(stock) || stock < quantity) return reply({ success: false, code: "insufficient_stock", message: "The requested quantity is unavailable." }, 409);
+      const unitPrice = Math.round(Number(listing.price_ugx ?? listing.price));
+      const unitWeight = finiteNumber(listing.weight_kg, "listing weight");
+      const length = finiteNumber(listing.length_cm, "listing length");
+      const width = finiteNumber(listing.width_cm, "listing width");
+      const height = finiteNumber(listing.height_cm, "listing height");
+      const pickupLat = finiteNumber(listing.latitude, "vendor latitude");
+      const pickupLng = finiteNumber(listing.longitude, "vendor longitude");
+      const distance = distanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
+      const deliveryFee = deliveryQuote({ distance, quantity, weight: unitWeight, length, width, height, method: deliveryMethod, speed: deliverySpeed });
+      const estimateHours = deliverySpeed === "express" ? 1 : deliverySpeed === "standard" ? 6 : 24;
+
+      const { error: reservationError } = await primaryAdmin.rpc("reserve_commerce_inventory", {
+        p_listing_id: listingId, p_customer_id: user.id, p_quantity: quantity, p_idempotency_key: idempotencyKey,
+      });
+      if (reservationError) throw reservationError;
+      await admin.rpc("ensure_finance_wallet", { p_user_id: vendorId });
+      const { data: order, error } = await admin.rpc("create_commerce_order", {
+        p_customer_id: user.id, p_vendor_id: vendorId, p_listing_id: listing.id,
+        p_sku: listing.sku, p_product_title: listing.title,
+        p_product_thumbnail: listing.thumbnail_url ?? listing.image_url ?? listing.media_url,
+        p_quantity: quantity, p_unit_price_ugx: unitPrice, p_delivery_fee_ugx: deliveryFee,
+        p_delivery_method: deliveryMethod, p_delivery_speed: deliverySpeed,
+        p_delivery_address: deliveryAddress, p_delivery_phone: customerNumber,
+        p_pickup_lat: pickupLat, p_pickup_lng: pickupLng, p_dropoff_lat: dropoffLat, p_dropoff_lng: dropoffLng,
+        p_distance_km: distance, p_weight_kg: unitWeight * quantity,
+        p_package_dimensions: { length_cm: length, width_cm: width, height_cm: height },
+        p_estimated_delivery_at: new Date(Date.now() + estimateHours * 3600000).toISOString(),
+        p_idempotency_key: idempotencyKey, p_metadata: body.metadata ?? {},
+      });
+      if (error) {
+        await primaryAdmin.rpc("finalize_commerce_inventory", {
+          p_idempotency_key: idempotencyKey, p_finance_order_id: null, p_commit: false,
+        });
+        throw error;
+      }
+      const { error: commitError } = await primaryAdmin.rpc("finalize_commerce_inventory", {
+        p_idempotency_key: idempotencyKey, p_finance_order_id: order.id, p_commit: true,
+      });
+      if (commitError) {
+        console.error("Inventory reservation commit requires reconciliation", { orderId: order.id, error: commitError.message });
+      }
+      return reply({ success: true, order, orderId: order.id, orderNumber: order.order_number, status: order.status, deliveryFeeUgx: deliveryFee, totalUgx: order.total_ugx, message: "Order paid and secured in escrow." });
+    }
+
+    if (action === "list_shop_orders") {
+      const role = typeof body.role === "string" ? body.role : "customer";
+      const column = role === "vendor" ? "vendor_id" : role === "courier" ? "courier_id" : "customer_id";
+      const { data, error } = await admin.from("commerce_orders").select("*").eq(column, user.id).order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return reply({ success: true, orders: data ?? [] });
+    }
+
+    if (action === "get_shop_order") {
+      const orderId = requiredString(body.orderId, "orderId");
+      const { data: order, error } = await admin.from("commerce_orders").select("*,commerce_order_events(*)").eq("id", orderId).single();
+      if (error || !order || ![order.customer_id, order.vendor_id, order.courier_id].includes(user.id)) return reply({ success: false, code: "order_not_found", message: "Order not found." }, 404);
+      return reply({ success: true, order });
+    }
+
+    if (action === "update_shop_order") {
+      const { data, error } = await admin.rpc("transition_commerce_order", {
+        p_order_id: requiredString(body.orderId, "orderId"), p_actor_id: user.id,
+        p_next_status: requiredString(body.status, "status"), p_message: body.message ?? null,
+        p_courier_id: body.courierId ?? null, p_metadata: body.metadata ?? {},
+      });
+      if (error) throw error;
+      return reply({ success: true, order: data, status: data.status });
+    }
+
+    if (action === "approve_shop_delivery") {
+      const { data, error } = await admin.rpc("release_commerce_escrow", {
+        p_order_id: requiredString(body.orderId, "orderId"), p_customer_id: user.id,
+      });
+      if (error) throw error;
+      return reply({ success: true, order: data, status: data.status, message: "Delivery approved and escrow released." });
+    }
+
+    if (action === "open_shop_dispute") {
+      const orderId = requiredString(body.orderId, "orderId");
+      const reason = requiredString(body.reason, "reason");
+      const { data: order } = await admin.from("commerce_orders").select("*").eq("id", orderId).single();
+      if (!order || ![order.customer_id, order.vendor_id, order.courier_id].includes(user.id)) return reply({ success: false, code: "order_not_found" }, 404);
+      const { data, error } = await admin.from("commerce_disputes").insert({ order_id: orderId, opened_by: user.id, reason, evidence: body.evidence ?? [] }).select().single();
+      if (error) throw error;
+      await admin.from("commerce_orders").update({ status: "disputed", updated_at: new Date().toISOString() }).eq("id", orderId);
+      await admin.from("escrows").update({ status: "disputed", updated_at: new Date().toISOString() }).eq("context_type", "commerce_order").eq("context_id", orderId).eq("status", "held");
+      return reply({ success: true, dispute: data, status: "disputed" });
+    }
+
+    if (action === "submit_shop_review") {
+      const orderId = requiredString(body.orderId, "orderId");
+      const rating = positiveInteger(body.rating, "rating");
+      if (rating > 5) throw new Error("rating must be between 1 and 5");
+      const { data: order } = await admin.from("commerce_orders").select("*").eq("id", orderId).eq("customer_id", user.id).eq("status", "completed").single();
+      if (!order) return reply({ success: false, code: "review_not_allowed", message: "Only a completed purchase can be reviewed." }, 409);
+      const { data, error } = await admin.from("commerce_reviews").insert({ order_id: orderId, listing_id: order.listing_id, customer_id: user.id, vendor_id: order.vendor_id, rating, comment: body.comment ?? null }).select().single();
+      if (error) throw error;
+      return reply({ success: true, review: data });
+    }
+
+    if (action === "send_shop_message") {
+      const orderId = requiredString(body.orderId, "orderId");
+      const { data: order } = await admin.from("commerce_orders").select("customer_id,vendor_id,courier_id").eq("id", orderId).single();
+      if (!order || ![order.customer_id, order.vendor_id, order.courier_id].includes(user.id)) return reply({ success: false, code: "order_not_found" }, 404);
+      const messageType = typeof body.messageType === "string" ? body.messageType : "text";
+      const content = typeof body.content === "string" ? body.content.trim() : null;
+      const attachmentUrl = typeof body.attachmentUrl === "string" ? body.attachmentUrl.trim() : null;
+      if (!content && !attachmentUrl) throw new Error("Message content or attachment is required");
+      const { data, error } = await admin.from("commerce_order_messages").insert({
+        order_id: orderId, sender_id: user.id, message_type: messageType,
+        content, attachment_url: attachmentUrl, metadata: body.metadata ?? {},
+      }).select().single();
+      if (error) throw error;
+      return reply({ success: true, message: data });
+    }
+
+    if (action === "list_shop_messages") {
+      const orderId = requiredString(body.orderId, "orderId");
+      const { data: order } = await admin.from("commerce_orders").select("customer_id,vendor_id,courier_id").eq("id", orderId).single();
+      if (!order || ![order.customer_id, order.vendor_id, order.courier_id].includes(user.id)) return reply({ success: false, code: "order_not_found" }, 404);
+      const { data, error } = await admin.from("commerce_order_messages").select("*").eq("order_id", orderId).order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return reply({ success: true, messages: data ?? [] });
     }
 
     if (action === "list_coin_packs") {

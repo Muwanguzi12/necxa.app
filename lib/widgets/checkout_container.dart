@@ -5,12 +5,12 @@ import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/logistics_engine.dart';
 import '../models/transport_models.dart';
+import '../services/wallet_service.dart';
 
 class CheckoutContainer extends StatefulWidget {
   final AppState state;
@@ -35,8 +35,44 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   String? _currentOrderId;
   bool _loading = false;
   DeliveryTier _selectedTier = DeliveryTier.standard;
+  VehicleType _selectedVehicle = VehicleType.bike;
   double _deliveryFare = 0;
   int _quantity = 1;
+
+  double _listingNumber(String key) =>
+      double.tryParse(widget.listing[key]?.toString() ?? '') ?? 0;
+
+  List<double>? get _dropoffCoordinates {
+    final parts = _coordinates?.split(',');
+    if (parts == null || parts.length != 2) return null;
+    final latitude = double.tryParse(parts[0].trim());
+    final longitude = double.tryParse(parts[1].trim());
+    return latitude == null || longitude == null ? null : [latitude, longitude];
+  }
+
+  double _calculateDeliveryFare(DeliveryTier tier) =>
+      LogisticsEngine.calculateFare(
+        pickup:
+            widget.listing['pickup_address']?.toString() ?? 'Kampala Central',
+        dropoff: _addressController.text.isEmpty
+            ? 'Nakawa'
+            : _addressController.text,
+        vehicleType: _selectedVehicle,
+        tier: tier,
+        quantity: _quantity,
+        unitWeightKg: _listingNumber('weight_kg'),
+        lengthCm: _listingNumber('length_cm'),
+        widthCm: _listingNumber('width_cm'),
+        heightCm: _listingNumber('height_cm'),
+        pickupLatitude: double.tryParse(
+          widget.listing['latitude']?.toString() ?? '',
+        ),
+        pickupLongitude: double.tryParse(
+          widget.listing['longitude']?.toString() ?? '',
+        ),
+        dropoffLatitude: _dropoffCoordinates?.first,
+        dropoffLongitude: _dropoffCoordinates?.last,
+      );
 
   List<String> _getProductPhotos() {
     final rawPhotos =
@@ -69,7 +105,13 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     if (value == null) return null;
     if (value is String) return value.trim().isEmpty ? null : value.trim();
     if (value is Map) {
-      for (final key in ['url', 'image_url', 'thumbnail_url', 'media_url', 'path']) {
+      for (final key in [
+        'url',
+        'image_url',
+        'thumbnail_url',
+        'media_url',
+        'path',
+      ]) {
         final url = _extractImageUrl(value[key]);
         if (url != null) return url;
       }
@@ -89,14 +131,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   @override
   void initState() {
     super.initState();
-    _deliveryFare = LogisticsEngine.calculateFare(
-      pickup: 'Kampala Central', // Mock vendor location
-      dropoff: _addressController.text.isEmpty
-          ? 'Nakawa'
-          : _addressController.text,
-      vehicleType: VehicleType.bike,
-      tier: _selectedTier,
-    );
+    _deliveryFare = _calculateDeliveryFare(_selectedTier);
   }
 
   // Order Details
@@ -210,7 +245,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               itemCount: photos.isEmpty ? 1 : photos.length,
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (context, i) {
-                final url = photos.isNotEmpty ? photos[i] : _primaryListingImageUrl();
+                final url = photos.isNotEmpty
+                    ? photos[i]
+                    : _primaryListingImageUrl();
                 return Container(
                   width: 120,
                   decoration: BoxDecoration(
@@ -260,7 +297,13 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                         size: 16,
                       ),
                       onPressed: () {
-                        if (_quantity > 1) setState(() => _quantity--);
+                        if (_quantity > 1)
+                          setState(() {
+                            _quantity--;
+                            _deliveryFare = _calculateDeliveryFare(
+                              _selectedTier,
+                            );
+                          });
                       },
                     ),
                     Text(
@@ -276,7 +319,13 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                       onPressed: () {
                         // Max out at stock_count if available
                         final stock = widget.listing['stock_count'] ?? 999;
-                        if (_quantity < stock) setState(() => _quantity++);
+                        if (_quantity < stock)
+                          setState(() {
+                            _quantity++;
+                            _deliveryFare = _calculateDeliveryFare(
+                              _selectedTier,
+                            );
+                          });
                       },
                     ),
                   ],
@@ -399,12 +448,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             }
             // Re-calculate fare before showing options
             setState(() {
-              _deliveryFare = LogisticsEngine.calculateFare(
-                pickup: 'Kampala Central',
-                dropoff: _addressController.text,
-                vehicleType: VehicleType.bike,
-                tier: _selectedTier,
-              );
+              _deliveryFare = _calculateDeliveryFare(_selectedTier);
             });
             _next();
           }),
@@ -428,6 +472,26 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38),
           ),
           const SizedBox(height: 12),
+          Text(
+            'DELIVERY METHOD',
+            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            children: VehicleType.values.map((vehicle) {
+              final selected = vehicle == _selectedVehicle;
+              return ChoiceChip(
+                label: Text(vehicle.name.toUpperCase()),
+                selected: selected,
+                onSelected: (_) => setState(() {
+                  _selectedVehicle = vehicle;
+                  _deliveryFare = _calculateDeliveryFare(_selectedTier);
+                }),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 20),
           _deliveryOption(
             'Express Delivery',
             'Within 30-60 mins',
@@ -466,12 +530,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     Color? color,
   }) {
     final active = _selectedTier == tier;
-    final fare = LogisticsEngine.calculateFare(
-      pickup: 'Kampala Central',
-      dropoff: _addressController.text,
-      vehicleType: VehicleType.bike,
-      tier: tier,
-    );
+    final fare = _calculateDeliveryFare(tier);
 
     return GestureDetector(
       onTap: () => setState(() {
@@ -546,6 +605,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         setState(() {
           _coordinates =
               "${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}";
+          _deliveryFare = _calculateDeliveryFare(_selectedTier);
           _loading = false;
         });
       } else {
@@ -647,48 +707,51 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     (widget.listing['price'] ?? 0).toDouble() * _quantity;
                 final totalUgx = itemsUgx + _deliveryFare;
 
-                final id = await widget.state.orders.createOrder(
-                  listing: widget.listing,
-                  totalAmount: totalUgx,
-                  deliveryAddress:
-                      "${_addressController.text}\nContact: ${_contactController.text}${_coordinates != null ? '\nGPS: $_coordinates' : ''}\nDelivery: ${_selectedTier.name.toUpperCase()}\nQuantity: $_quantity",
-                  paymentMethod: _selectedPaymentMethod,
-                );
-
                 if (_selectedPaymentMethod == 'balance') {
-                  // Call processShopPurchase
-                  final res = await widget.state.firebaseVault.processShopPurchase(
-                    orderId: id,
+                  final coordinates = _dropoffCoordinates;
+                  if (coordinates == null) {
+                    throw Exception(
+                      'Pin your delivery location before paying.',
+                    );
+                  }
+                  final res = await WalletService().processShopPurchase(
                     listingId: widget.listing['id'],
-                    vendorId: widget.listing['user_id'],
-                    sku: widget.listing['sku'] ?? 'GENERIC',
-                    itemsTotalUgx: itemsUgx,
-                    deliveryFeeUgx: _deliveryFare,
                     quantity: _quantity,
+                    deliverySpeed: _selectedTier.name,
+                    deliveryMethod: _selectedVehicle.name,
+                    customerLocation: {
+                      'lat': coordinates[0],
+                      'lng': coordinates[1],
+                    },
+                    deliveryAddress: _addressController.text,
+                    customerNumber: _contactController.text,
                   );
 
-                  if (res['success'] == true) {
+                  if (res.isSuccess && res.orderId != null) {
                     setState(() {
-                      _currentOrderId = id;
+                      _currentOrderId = res.orderId;
+                      _deliveryFare = res.deliveryFeeUgx ?? _deliveryFare;
                       _loading = false;
                     });
+                    await widget.state.syncVault();
                     _next();
                   } else {
-                    throw Exception(res['message'] ?? 'Payment failed');
+                    throw Exception(res.message);
                   }
                 } else if (_selectedPaymentMethod == 'momo' ||
                     _selectedPaymentMethod == 'card') {
                   // Call initiatePesapalPayment via Vault
-                  final res = await widget.state.firebaseVault.initiatePesapalPayment(
-                    amount: totalUgx,
-                    currency: 'UGX',
-                    description: 'Shop order $id',
-                    type: 'shop_purchase',
-                    email: widget.state.user?.email ?? 'guest@necxa.com',
-                    phone: _contactController.text,
-                    packId: id, // Mapping orderId to packId for metadata
-                    listingId: widget.listing['id'],
-                  );
+                  final res = await widget.state.firebaseVault
+                      .initiatePesapalPayment(
+                        amount: totalUgx,
+                        currency: 'UGX',
+                        description: 'Shop purchase',
+                        type: 'shop_purchase',
+                        email: widget.state.user?.email ?? 'guest@necxa.com',
+                        phone: _contactController.text,
+                        packId: widget.listing['id'],
+                        listingId: widget.listing['id'],
+                      );
 
                   if (res['success'] == true) {
                     final redirectUrl = res['redirect_url'];
@@ -699,7 +762,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                       );
                     }
                     setState(() {
-                      _currentOrderId = id;
+                      _currentOrderId = res['order_id']?.toString();
                       _loading = false;
                     });
                     // Move to tracking; Webhook will mark as paid

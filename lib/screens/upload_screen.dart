@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/services.dart';
 import '../theme.dart';
 import 'pro_media_editor_screen.dart';
 import 'responsive_media_editor.dart';
@@ -17,6 +18,7 @@ import '../main.dart' show cameras;
 import '../app_state.dart';
 import '../models/music_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../services/media_compression_service.dart';
 import '../utils/error_handler.dart';
 
@@ -24,40 +26,49 @@ import '../utils/error_handler.dart';
 // CREATOR TYPE ENUM
 // ══════════════════════════════════════════════════════════════
 enum CreatorType {
-  unified,       // 🎭  Automatic Content Selector (Photo/Video/Music)
-  artist,        // 👨‍🎤  Artist Hub (Visual mood + beat track)
-  audio,         // 🎙️  Podcast & Voice (Simplified audio-first)
+  unified, // 🎭  Automatic Content Selector (Photo/Video/Music)
+  artist, // 👨‍🎤  Artist Hub (Visual mood + beat track)
+  audio, // 🎙️  Podcast & Voice (Simplified audio-first)
 }
 
 extension CreatorTypeX on CreatorType {
   String get label {
     switch (this) {
-      case CreatorType.unified: return 'Create';
-      case CreatorType.artist:  return 'Artist Hub';
-      case CreatorType.audio:   return 'Voice & Music';
+      case CreatorType.unified:
+        return 'Create';
+      case CreatorType.artist:
+        return 'Artist Hub';
+      case CreatorType.audio:
+        return 'Voice & Music';
     }
   }
 
   String get subtitle {
     switch (this) {
-      case CreatorType.unified: return 'Automatic selector for photos, videos, and music';
-      case CreatorType.artist:  return 'Select visual mood · Add your own beat';
-      case CreatorType.audio:   return 'Record or upload your next hit or podcast';
+      case CreatorType.unified:
+        return 'Automatic selector for photos, videos, and music';
+      case CreatorType.artist:
+        return 'Select visual mood · Add your own beat';
+      case CreatorType.audio:
+        return 'Record or upload your next hit or podcast';
     }
   }
 
   String get emoji {
     switch (this) {
-      case CreatorType.unified: return '✨';
-      case CreatorType.artist:  return '👨‍🎤';
-      case CreatorType.audio:   return '🎙️';
+      case CreatorType.unified:
+        return '✨';
+      case CreatorType.artist:
+        return '👨‍🎤';
+      case CreatorType.audio:
+        return '🎙️';
     }
   }
 
   bool get hasMusicLayer => true;
-  bool get hasAudio      => true;
-  bool get isArtist      => this == CreatorType.artist;
-  bool get isUnified     => this == CreatorType.unified;
+  bool get hasAudio => true;
+  bool get isArtist => this == CreatorType.artist;
+  bool get isUnified => this == CreatorType.unified;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -74,23 +85,22 @@ class UploadScreen extends StatefulWidget {
 
 class _UploadScreenState extends State<UploadScreen>
     with TickerProviderStateMixin {
-
   // ── Navigation ──────────────────────────────────────────────
   // NEW Campaign Hierarchy
   // Step 0: Goal Selection
   // Step 1: Setup (Budget/Target/Category)
   // Step 2: Creative (Film Hub)
   // Step 3: Review & Publish
-  int _step = 0;           
-  String? _objectiveId;    // awareness, conversion, sales
+  int _step = 0;
+  String? _objectiveId; // awareness, conversion, sales
 
   // ── Creative Metadata ───────────────────────────────────────
-  MusicTrack? _bakedTrack; 
-  File? _visualFile;       
+  MusicTrack? _bakedTrack;
+  File? _visualFile;
   List<File> _multiFiles = [];
   final List<File> _productPhotos = []; // 📸 Miniature product photos for Sales
   bool _isVideo = false;
-  
+
   // -- Audio / Recording --
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
@@ -114,15 +124,21 @@ class _UploadScreenState extends State<UploadScreen>
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _skuController = TextEditingController();
   final TextEditingController _stockController = TextEditingController();
-  
+  final TextEditingController _weightController = TextEditingController();
+  final TextEditingController _lengthController = TextEditingController();
+  final TextEditingController _widthController = TextEditingController();
+  final TextEditingController _heightController = TextEditingController();
+
   String _title = '';
-  String _desc  = '';
-  String _tags  = '';
+  String _desc = '';
+  String _tags = '';
   final String _category = 'Standard';
-  String _price    = '';
-  String _sku      = '';
-  String _stock    = '';
+  String _price = '';
+  String _sku = '';
+  String _stock = '';
   Map<String, dynamic>? _linkedListing;
+  double? _pickupLatitude;
+  double? _pickupLongitude;
 
   // ── Sync State ──────────────────────────────────────────────
   bool _isOptimizing = false;
@@ -157,17 +173,46 @@ class _UploadScreenState extends State<UploadScreen>
     _priceController.dispose();
     _skuController.dispose();
     _stockController.dispose();
+    _weightController.dispose();
+    _lengthController.dispose();
+    _widthController.dispose();
+    _heightController.dispose();
     super.dispose();
   }
 
   // ── Helpers ───────────────────────────────────────────────────
-  void _err(String m) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(m), backgroundColor: C.red));
+  void _err(String m) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(m), backgroundColor: C.red));
 
-  List<String> _cleanTags(String raw) => ContentSanitizer.generateUnifiedTagPayload(raw, _desc);
+  List<String> _cleanTags(String raw) =>
+      ContentSanitizer.generateUnifiedTagPayload(raw, _desc);
+
+  Future<void> _capturePickupLocation() async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied)
+      permission = await Geolocator.requestPermission();
+    if (permission != LocationPermission.whileInUse &&
+        permission != LocationPermission.always) {
+      _err('Pickup location permission is required for delivery pricing');
+      return;
+    }
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+    if (!mounted) return;
+    setState(() {
+      _pickupLatitude = position.latitude;
+      _pickupLongitude = position.longitude;
+    });
+  }
 
   // ── Media pickers ─────────────────────────────────────────────
-  Future<void> _processResult(XFile? f, bool isVideo, {bool isFastSync = false}) async {
+  Future<void> _processResult(
+    XFile? f,
+    bool isVideo, {
+    bool isFastSync = false,
+  }) async {
     if (f == null) {
       return;
     }
@@ -186,34 +231,40 @@ class _UploadScreenState extends State<UploadScreen>
         ),
       ),
     );
-    
+
     if (result is Map) {
       final List? sequence = result['sequence'];
-      final File? enhanced = result['combined_file'] ?? (sequence != null && sequence.isNotEmpty ? (sequence.first as VideoClip).file : null);
+      final File? enhanced =
+          result['combined_file'] ??
+          (sequence != null && sequence.isNotEmpty
+              ? (sequence.first as VideoClip).file
+              : null);
       final MusicTrack? track = result['track'];
 
       if (sequence != null) {
         setState(() {
           if (sequence.first is VideoClip) {
-            _multiFiles = (sequence as List<VideoClip>).map((c) => c.file).toList();
+            _multiFiles = (sequence as List<VideoClip>)
+                .map((c) => c.file)
+                .toList();
           } else {
             _multiFiles = sequence as List<File>;
           }
         });
       }
-      
+
       if (enhanced != null || (sequence != null && sequence.isNotEmpty)) {
-        setState(() { 
-          _visualFile = enhanced; 
-          _isVideo = enhanced?.path.toLowerCase().endsWith('.mp4') ?? isVideo; 
+        setState(() {
+          _visualFile = enhanced;
+          _isVideo = enhanced?.path.toLowerCase().endsWith('.mp4') ?? isVideo;
           _bakedTrack = track;
           _overlays = result['overlays'] ?? [];
           _voiceOverFile = result['voice_over'];
           if (track != null && (_title.isEmpty || _title == 'Original Sound')) {
-             _title = track.title; 
-             _titleController.text = _title;
+            _title = track.title;
+            _titleController.text = _title;
           }
-          _step = 3; // 🚀 JUMP straight to Final Review (Step 3) 
+          _step = 3; // 🚀 JUMP straight to Final Review (Step 3)
         });
       }
     }
@@ -226,51 +277,90 @@ class _UploadScreenState extends State<UploadScreen>
       setState(() {
         _multiFiles = res.map((x) => File(x.path)).toList();
         _visualFile = _multiFiles.first;
-        _isVideo = _visualFile!.path.toLowerCase().endsWith('.mp4') || _visualFile!.path.toLowerCase().endsWith('.mov');
+        _isVideo =
+            _visualFile!.path.toLowerCase().endsWith('.mp4') ||
+            _visualFile!.path.toLowerCase().endsWith('.mov');
       });
       await _processResult(res.first, _isVideo);
     }
   }
 
   Future<void> _captureMedia() async {
-     if (cameras.isEmpty) {
-       _err('No cameras detected on this device');
-       return;
-     }
+    if (cameras.isEmpty) {
+      _err('No cameras detected on this device');
+      return;
+    }
 
-     final dynamic result = await Navigator.push(
-       context,
-       MaterialPageRoute(builder: (_) => NecxaCameraCaptureScreen(cameras: cameras)),
-     );
+    final dynamic result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NecxaCameraCaptureScreen(cameras: cameras),
+      ),
+    );
 
-     if (result == 'OPEN_GALLERY') {
-       _pickUnifiedMedia();
-     } else if (result is File) {
-       _processResult(XFile(result.path), true);
-     } else if (result is List<File>) {
-       setState(() {
-         _multiFiles = [..._multiFiles, ...result];
-         _visualFile = _multiFiles.first;
-         _isVideo = true;
-       });
-       _processResult(XFile(_multiFiles.first.path), true);
-     }
+    if (result == 'OPEN_GALLERY') {
+      _pickUnifiedMedia();
+    } else if (result is File) {
+      _processResult(XFile(result.path), true);
+    } else if (result is List<File>) {
+      setState(() {
+        _multiFiles = [..._multiFiles, ...result];
+        _visualFile = _multiFiles.first;
+        _isVideo = true;
+      });
+      _processResult(XFile(_multiFiles.first.path), true);
+    }
   }
 
   // ── Step navigation ────────────────────────────────────────────
   void _next() {
     if (_step == 0) {
-      if (_objectiveId == null) { _err('Select an objective to continue'); return; }
+      if (_objectiveId == null) {
+        _err('Select an objective to continue');
+        return;
+      }
     }
     if (_step == 1) {
-      if (_title.isEmpty) { _err('Headline is required'); return; }
-      if (_objectiveId == 'sales' && _price.isEmpty) { _err('Price is required for sales'); return; }
+      if (_title.isEmpty) {
+        _err('Headline is required');
+        return;
+      }
+      if (_objectiveId == 'sales' && _price.isEmpty) {
+        _err('Price is required for sales');
+        return;
+      }
+      if (_objectiveId == 'sales' &&
+          !RegExp(r'^\d{4}[A-Za-z]{3}$').hasMatch(_sku.trim())) {
+        _err(
+          'SKU is required and must contain 4 digits followed by 3 letters (example: 1234ABC)',
+        );
+        return;
+      }
+      if (_objectiveId == 'sales' &&
+          (double.tryParse(_weightController.text) == null ||
+              double.tryParse(_lengthController.text) == null ||
+              double.tryParse(_widthController.text) == null ||
+              double.tryParse(_heightController.text) == null)) {
+        _err('Product weight and all package dimensions are required');
+        return;
+      }
+      if (_objectiveId == 'sales' &&
+          (_pickupLatitude == null || _pickupLongitude == null)) {
+        _err('Pin the product pickup location before continuing');
+        return;
+      }
     }
     if (_step == 2) {
-      if (_multiFiles.isEmpty && _visualFile == null) { _err('Assets are required for this campaign'); return; }
+      if (_multiFiles.isEmpty && _visualFile == null) {
+        _err('Assets are required for this campaign');
+        return;
+      }
     }
     if (_step == 3) {
-      if (!_agreedToPolicies) { _err('Please agree to Necxa policies'); return; }
+      if (!_agreedToPolicies) {
+        _err('Please agree to Necxa policies');
+        return;
+      }
       _publishPost();
       return;
     }
@@ -279,7 +369,7 @@ class _UploadScreenState extends State<UploadScreen>
   }
 
   Future<void> _publishPost() async {
-    setState(() => _step = 99); 
+    setState(() => _step = 99);
     try {
       if (_objectiveId == 'sales') {
         await _dispatchSalesCampaign();
@@ -297,13 +387,17 @@ class _UploadScreenState extends State<UploadScreen>
       final successMsg = (_objectiveId == 'sales')
           ? '🛍️ Your product is LIVE in the Shop!'
           : (_objectiveId == 'conversion')
-              ? '🎵 Your release is LIVE in the Feed!'
-              : '⚡ Your post is LIVE in the Feed!';
+          ? '🎵 Your release is LIVE in the Feed!'
+          : '⚡ Your post is LIVE in the Feed!';
 
       _onShareSuccess(successMsg, destinationTab: destinationTab);
     } catch (e) {
       debugPrint('Upload error: $e');
-      if (mounted) setState(() { _step = 3; _isOptimizing = false; });
+      if (mounted)
+        setState(() {
+          _step = 3;
+          _isOptimizing = false;
+        });
       _err(getUserFriendlyError(e));
     } finally {
       if (mounted) setState(() => _isOptimizing = false);
@@ -321,11 +415,15 @@ class _UploadScreenState extends State<UploadScreen>
       // 🚀 OPTIMIZED MULTI-UPLOAD WITH SEQUENTIAL COMPRESSION
       setState(() => _isOptimizing = true);
       final List<File> optimizedFiles = [];
-      
+
       for (int i = 0; i < _multiFiles.length; i++) {
         final f = _multiFiles[i];
-        if (f.path.toLowerCase().endsWith('.mp4') || f.path.toLowerCase().endsWith('.mov')) {
-          setState(() => _optimizingStatus = "Optimizing Clip ${i + 1} of ${_multiFiles.length}...");
+        if (f.path.toLowerCase().endsWith('.mp4') ||
+            f.path.toLowerCase().endsWith('.mov')) {
+          setState(
+            () => _optimizingStatus =
+                "Optimizing Clip ${i + 1} of ${_multiFiles.length}...",
+          );
           final mediaInfo = await VideoCompress.compressVideo(
             f.path,
             quality: VideoQuality.MediumQuality,
@@ -333,21 +431,28 @@ class _UploadScreenState extends State<UploadScreen>
           );
           optimizedFiles.add(mediaInfo?.file ?? f);
         } else {
-          setState(() => _optimizingStatus = "Compressing Photo ${i + 1} of ${_multiFiles.length}...");
+          setState(
+            () => _optimizingStatus =
+                "Compressing Photo ${i + 1} of ${_multiFiles.length}...",
+          );
           final compressed = await MediaCompressionService.compressImage(f);
           optimizedFiles.add(compressed);
         }
       }
-      
+
       setState(() => _optimizingStatus = "Synthesizing Layers...");
-      multiUrls = await widget.state.cloud.uploadMultiMedia(optimizedFiles, bucket: 'community-media');
+      multiUrls = await widget.state.cloud.uploadMultiMedia(
+        optimizedFiles,
+        bucket: 'community-media',
+      );
       visualUrl = multiUrls.isNotEmpty ? multiUrls.first : null;
       mediaType = _isVideo ? 'video' : 'gallery';
 
       // Auto capture cover photo for multi-files
       if (_multiFiles.isNotEmpty) {
         final firstFile = _multiFiles.first;
-        if (firstFile.path.toLowerCase().endsWith('.mp4') || firstFile.path.toLowerCase().endsWith('.mov')) {
+        if (firstFile.path.toLowerCase().endsWith('.mp4') ||
+            firstFile.path.toLowerCase().endsWith('.mov')) {
           setState(() => _optimizingStatus = "Capturing Cover Photo...");
           final thumbPath = await VideoThumbnail.thumbnailFile(
             video: firstFile.path,
@@ -356,7 +461,10 @@ class _UploadScreenState extends State<UploadScreen>
             quality: 40,
           );
           if (thumbPath != null) {
-            final tRes = await widget.state.cloud.uploadMedia(File(thumbPath), bucket: 'community-media');
+            final tRes = await widget.state.cloud.uploadMedia(
+              File(thumbPath),
+              bucket: 'community-media',
+            );
             thumbUrl = tRes?['url'] as String?;
           }
         } else {
@@ -365,8 +473,11 @@ class _UploadScreenState extends State<UploadScreen>
       }
     } else if (_isVideo && _visualFile != null) {
       // ⏳ VIDEO OPTIMIZATION
-      setState(() { _isOptimizing = true; _optimizingStatus = "Compressing Main Video..."; });
-      
+      setState(() {
+        _isOptimizing = true;
+        _optimizingStatus = "Compressing Main Video...";
+      });
+
       // 1. Generate Thumbnail
       final thumbPath = await VideoThumbnail.thumbnailFile(
         video: _visualFile!.path,
@@ -375,10 +486,13 @@ class _UploadScreenState extends State<UploadScreen>
         quality: 40,
       );
       if (thumbPath != null) {
-        final tRes = await widget.state.cloud.uploadMedia(File(thumbPath), bucket: 'community-media');
+        final tRes = await widget.state.cloud.uploadMedia(
+          File(thumbPath),
+          bucket: 'community-media',
+        );
         thumbUrl = tRes?['url'] as String?;
       }
-      
+
       // 2. Transcode Video
       final mediaInfo = await VideoCompress.compressVideo(
         _visualFile!.path,
@@ -388,22 +502,35 @@ class _UploadScreenState extends State<UploadScreen>
       if (mediaInfo != null && mediaInfo.file != null) {
         visualToUpload = mediaInfo.file!;
       }
-      
-      final res = await widget.state.cloud.uploadMedia(visualToUpload, bucket: 'community-media');
+
+      final res = await widget.state.cloud.uploadMedia(
+        visualToUpload,
+        bucket: 'community-media',
+      );
       visualUrl = res?['url'] as String?;
       mediaType = 'video';
     } else if (_visualFile != null) {
       setState(() => _optimizingStatus = "Compressing Visual Asset...");
-      final compressed = await MediaCompressionService.compressImage(_visualFile!);
-      final res = await widget.state.cloud.uploadMedia(compressed, bucket: 'community-media');
+      final compressed = await MediaCompressionService.compressImage(
+        _visualFile!,
+      );
+      final res = await widget.state.cloud.uploadMedia(
+        compressed,
+        bucket: 'community-media',
+      );
       visualUrl = res?['url'] as String?;
       mediaType = res?['media_type'] as String?;
       thumbUrl = visualUrl; // Auto capture cover photo for single image
     } else if (_multiFiles.isNotEmpty) {
       // Fallback if _multiFiles has exactly 1 image
       setState(() => _optimizingStatus = "Compressing Visual Asset...");
-      final compressed = await MediaCompressionService.compressImage(_multiFiles.first);
-      final res = await widget.state.cloud.uploadMedia(compressed, bucket: 'community-media');
+      final compressed = await MediaCompressionService.compressImage(
+        _multiFiles.first,
+      );
+      final res = await widget.state.cloud.uploadMedia(
+        compressed,
+        bucket: 'community-media',
+      );
       visualUrl = res?['url'] as String?;
       mediaType = 'gallery';
       thumbUrl = visualUrl;
@@ -421,19 +548,27 @@ class _UploadScreenState extends State<UploadScreen>
   Future<void> _dispatchSalesCampaign() async {
     final media = await _optimizeMediaAssets();
     final mediaType = media['mediaType'] as String?;
-    
+
     // 🛡️ Pre-calculate product photo URLs (Miniatures)
     List<String> productPhotoUrls = [];
     if (_productPhotos.isNotEmpty) {
       setState(() => _optimizingStatus = "Compressing Product Miniatures...");
       final List<File> compressedProductPhotos = [];
       for (int i = 0; i < _productPhotos.length; i++) {
-        setState(() => _optimizingStatus = "Compressing Photo ${i + 1} of ${_productPhotos.length}...");
-        final compressed = await MediaCompressionService.compressImage(_productPhotos[i]);
+        setState(
+          () => _optimizingStatus =
+              "Compressing Photo ${i + 1} of ${_productPhotos.length}...",
+        );
+        final compressed = await MediaCompressionService.compressImage(
+          _productPhotos[i],
+        );
         compressedProductPhotos.add(compressed);
       }
       setState(() => _optimizingStatus = "Syncing Product Miniatures...");
-      productPhotoUrls = await widget.state.cloud.uploadMultiMedia(compressedProductPhotos, bucket: 'listing-photos');
+      productPhotoUrls = await widget.state.cloud.uploadMultiMedia(
+        compressedProductPhotos,
+        bucket: 'listing-photos',
+      );
     }
 
     if (_linkedListing != null) {
@@ -443,9 +578,9 @@ class _UploadScreenState extends State<UploadScreen>
           .update({
             'media_url': media['visualUrl'],
             'media_type': mediaType,
-            'photos': productPhotoUrls.isNotEmpty 
-                      ? productPhotoUrls 
-                      : (_linkedListing!['photos'] ?? []),
+            'photos': productPhotoUrls.isNotEmpty
+                ? productPhotoUrls
+                : (_linkedListing!['photos'] ?? []),
           })
           .eq('id', _linkedListing!['id']);
     } else {
@@ -454,7 +589,14 @@ class _UploadScreenState extends State<UploadScreen>
         'title': _title,
         'description': _desc,
         'price': _price,
-        'sku': _sku.isNotEmpty ? _sku : 'SKU-${DateTime.now().millisecondsSinceEpoch}',
+        'sku': _sku.trim().toUpperCase(),
+        'tags': _cleanTags(_tags),
+        'weight_kg': double.parse(_weightController.text),
+        'length_cm': double.parse(_lengthController.text),
+        'width_cm': double.parse(_widthController.text),
+        'height_cm': double.parse(_heightController.text),
+        'latitude': _pickupLatitude,
+        'longitude': _pickupLongitude,
         'category': _category,
         'media_url': media['visualUrl'], // Film Hub / Video Content
         'thumbnail_url': media['thumbUrl'],
@@ -464,9 +606,7 @@ class _UploadScreenState extends State<UploadScreen>
         'music_track_id': _bakedTrack?.id,
         'audio_url': _bakedTrack?.audioUrl,
         // Strictly separate: photos should only contain product miniatures
-        'photos': productPhotoUrls.isNotEmpty 
-                  ? productPhotoUrls 
-                  : [],
+        'photos': productPhotoUrls.isNotEmpty ? productPhotoUrls : [],
         'status': 'active',
       });
     }
@@ -482,11 +622,17 @@ class _UploadScreenState extends State<UploadScreen>
     String? beatCoverUrl;
     String? artistProfileUrl;
     if (_beatCoverFile != null) {
-      final res = await widget.state.cloud.uploadMedia(_beatCoverFile!, bucket: 'artist-media');
+      final res = await widget.state.cloud.uploadMedia(
+        _beatCoverFile!,
+        bucket: 'artist-media',
+      );
       beatCoverUrl = res?['url'] as String?;
     }
     if (_artistArtFile != null) {
-      final res = await widget.state.cloud.uploadMedia(_artistArtFile!, bucket: 'artist-media');
+      final res = await widget.state.cloud.uploadMedia(
+        _artistArtFile!,
+        bucket: 'artist-media',
+      );
       artistProfileUrl = res?['url'] as String?;
     }
 
@@ -498,7 +644,11 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await widget.state.cloud.uploadMedia(_audioFile!, bucket: 'community-media', assetType: 'audio');
+      final res = await widget.state.cloud.uploadMedia(
+        _audioFile!,
+        bucket: 'community-media',
+        assetType: 'audio',
+      );
       audioUrl = res?['url'] as String?;
     }
 
@@ -507,14 +657,14 @@ class _UploadScreenState extends State<UploadScreen>
     if (visualUrl != null) {
       mediaAssetId = await widget.state.social.registerMediaAsset(userId, {
         'asset_type': mediaType == 'video' ? 'original_sound' : 'image_asset',
-        'url': audioUrl ?? visualUrl, 
+        'url': audioUrl ?? visualUrl,
         'title': _title,
         'metadata': {
           'visual_url': visualUrl,
           'thumbnail_url': thumbUrl,
           'gallery': multiUrls,
           'is_artist_release': true,
-        }
+        },
       });
     }
 
@@ -558,7 +708,11 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await widget.state.cloud.uploadMedia(_audioFile!, bucket: 'community-media', assetType: 'audio');
+      final res = await widget.state.cloud.uploadMedia(
+        _audioFile!,
+        bucket: 'community-media',
+        assetType: 'audio',
+      );
       audioUrl = res?['url'] as String?;
     }
 
@@ -566,14 +720,14 @@ class _UploadScreenState extends State<UploadScreen>
     if (visualUrl != null) {
       mediaAssetId = await widget.state.social.registerMediaAsset(userId, {
         'asset_type': mediaType == 'video' ? 'original_sound' : 'image_asset',
-        'url': audioUrl ?? visualUrl, 
+        'url': audioUrl ?? visualUrl,
         'title': _title,
         'metadata': {
           'visual_url': visualUrl,
           'thumbnail_url': thumbUrl,
           'gallery': multiUrls,
           'is_artist_release': false,
-        }
+        },
       });
     }
 
@@ -618,16 +772,25 @@ class _UploadScreenState extends State<UploadScreen>
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
+            const Icon(
+              Icons.check_circle_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(msg, style: syne(sz: 13, w: FontWeight.bold, c: Colors.white)),
                   Text(
-                    destinationTab == 'shop' ? 'Tap Shop to see your product' : 'Scroll to find your post',
+                    msg,
+                    style: syne(sz: 13, w: FontWeight.bold, c: Colors.white),
+                  ),
+                  Text(
+                    destinationTab == 'shop'
+                        ? 'Tap Shop to see your product'
+                        : 'Scroll to find your post',
                     style: dm(sz: 11, c: Colors.white70),
                   ),
                 ],
@@ -636,8 +799,8 @@ class _UploadScreenState extends State<UploadScreen>
           ],
         ),
         backgroundColor: destinationTab == 'shop'
-            ? const Color(0xFFB8860B)   // Gold for shop
-            : const Color(0xFF0D7A3E),  // Green for feed
+            ? const Color(0xFFB8860B) // Gold for shop
+            : const Color(0xFF0D7A3E), // Green for feed
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 4),
         margin: const EdgeInsets.all(16),
@@ -665,20 +828,23 @@ class _UploadScreenState extends State<UploadScreen>
                 widget.state.go('community');
               }
             }, color: accent),
-            
+
             PremiumStepper(
-              currentStep: _step, 
-              totalSteps: 4, 
-              accentColor: accent
+              currentStep: _step,
+              totalSteps: 4,
+              accentColor: accent,
             ),
 
             Expanded(
-              child: _step == 99 
-                ? _buildLoading()
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                    child: _buildCurrentStep(),
-                  ),
+              child: _step == 99
+                  ? _buildLoading()
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 20,
+                      ),
+                      child: _buildCurrentStep(),
+                    ),
             ),
           ],
         ),
@@ -690,21 +856,31 @@ class _UploadScreenState extends State<UploadScreen>
 
   String _getStepTitle() {
     switch (_step) {
-      case 0: return 'Select Objective';
-      case 1: return 'Campaign Setup';
-      case 2: return 'Film Hub';
-      case 3: return 'Review & Release';
-      default: return 'Upload Portal';
+      case 0:
+        return 'Select Objective';
+      case 1:
+        return 'Campaign Setup';
+      case 2:
+        return 'Film Hub';
+      case 3:
+        return 'Review & Release';
+      default:
+        return 'Upload Portal';
     }
   }
 
   Widget _buildCurrentStep() {
     switch (_step) {
-      case 0: return _buildObjectiveSelection();
-      case 1: return _buildSetupStep();
-      case 2: return _buildCreativeStep();
-      case 3: return _buildFinalReview();
-      default: return const SizedBox();
+      case 0:
+        return _buildObjectiveSelection();
+      case 1:
+        return _buildSetupStep();
+      case 2:
+        return _buildCreativeStep();
+      case 3:
+        return _buildFinalReview();
+      default:
+        return const SizedBox();
     }
   }
 
@@ -713,7 +889,10 @@ class _UploadScreenState extends State<UploadScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('CHOOSE YOUR GOAL', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2)),
+        Text(
+          'CHOOSE YOUR GOAL',
+          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+        ),
         const SizedBox(height: 16),
         ObjectiveCard(
           title: 'Awareness',
@@ -730,7 +909,10 @@ class _UploadScreenState extends State<UploadScreen>
           colors: const [Color(0xFFA855F7), Color(0xFF7B2FFF)],
           isSelected: _objectiveId == 'conversion',
           onTap: () {
-            if (!widget.state.isArtist) { widget.state.go('artist_auth'); return; }
+            if (!widget.state.isArtist) {
+              widget.state.go('artist_auth');
+              return;
+            }
             setState(() => _objectiveId = 'conversion');
           },
         ),
@@ -751,7 +933,10 @@ class _UploadScreenState extends State<UploadScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('CAMPAIGN DETAILS', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2)),
+        Text(
+          'CAMPAIGN DETAILS',
+          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+        ),
         const SizedBox(height: 24),
         GlassCard(
           child: Column(
@@ -765,18 +950,119 @@ class _UploadScreenState extends State<UploadScreen>
                 const Divider(color: Colors.white10),
                 const SizedBox(height: 20),
               ],
-              _inputField('Headline', 'A catchy title for your content', _titleController),
+              _inputField(
+                'Headline',
+                'A catchy title for your content',
+                _titleController,
+              ),
               const SizedBox(height: 16),
-              _inputField('Description', 'Tell the world more...', _descController, maxLines: 3),
+              _inputField(
+                'Description',
+                'Tell the world more...',
+                _descController,
+                maxLines: 3,
+              ),
               const SizedBox(height: 16),
-              _inputField('Tags', '#vision #necx...', _tagsController),
+              _inputField(
+                'Hashtags',
+                'Type words; # is added automatically',
+                _tagsController,
+              ),
               if (_objectiveId == 'sales' && _linkedListing == null) ...[
                 const SizedBox(height: 16),
-                _inputField('Price (UGX)', 'e.g. 25,000', _priceController, keyboardType: TextInputType.number),
+                _inputField(
+                  'Price (UGX)',
+                  'e.g. 25,000',
+                  _priceController,
+                  keyboardType: TextInputType.number,
+                ),
                 const SizedBox(height: 16),
-                _inputField('SKU (Optional)', 'e.g. NXC-1234', _skuController),
+                _inputField(
+                  'SKU (Required)',
+                  '1234ABC',
+                  _skuController,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Za-z]')),
+                    LengthLimitingTextInputFormatter(7),
+                    _UpperCaseTextFormatter(),
+                  ],
+                ),
                 const SizedBox(height: 16),
-                _inputField('Stock Quantity (Optional)', 'Leave empty for infinite, e.g. 10', _stockController, keyboardType: TextInputType.number),
+                _inputField(
+                  'Stock Quantity (Optional)',
+                  'Leave empty for infinite, e.g. 10',
+                  _stockController,
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 16),
+                _inputField(
+                  'Weight (kg)',
+                  'e.g. 2.5',
+                  _weightController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _inputField(
+                        'Length (cm)',
+                        '30',
+                        _lengthController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _inputField(
+                        'Width (cm)',
+                        '20',
+                        _widthController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _inputField(
+                        'Height (cm)',
+                        '10',
+                        _heightController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    _pickupLatitude == null
+                        ? Icons.add_location_alt_outlined
+                        : Icons.location_on,
+                    color: C.brand,
+                  ),
+                  title: Text(
+                    _pickupLatitude == null
+                        ? 'Pin pickup location'
+                        : 'Pickup location pinned',
+                    style: dm(sz: 14, c: Colors.white),
+                  ),
+                  subtitle: _pickupLatitude == null
+                      ? null
+                      : Text(
+                          '${_pickupLatitude!.toStringAsFixed(5)}, ${_pickupLongitude!.toStringAsFixed(5)}',
+                          style: dm(sz: 11, c: Colors.white38),
+                        ),
+                  onTap: _capturePickupLocation,
+                ),
               ],
             ],
           ),
@@ -789,13 +1075,18 @@ class _UploadScreenState extends State<UploadScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('PRODUCT MINIATURES (MAX 3)', style: syne(sz: 10, w: FontWeight.w900, c: Colors.white38, ls: 1.5)),
+        Text(
+          'PRODUCT MINIATURES (MAX 3)',
+          style: syne(sz: 10, w: FontWeight.w900, c: Colors.white38, ls: 1.5),
+        ),
         const SizedBox(height: 12),
         SizedBox(
           height: 80,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            itemCount: _productPhotos.length < 3 ? _productPhotos.length + 1 : 3,
+            itemCount: _productPhotos.length < 3
+                ? _productPhotos.length + 1
+                : 3,
             itemBuilder: (context, i) {
               if (i == _productPhotos.length && i < 3) {
                 return GestureDetector(
@@ -806,9 +1097,16 @@ class _UploadScreenState extends State<UploadScreen>
                     decoration: BoxDecoration(
                       color: Colors.white.withAlpha(13),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white10, style: BorderStyle.solid),
+                      border: Border.all(
+                        color: Colors.white10,
+                        style: BorderStyle.solid,
+                      ),
                     ),
-                    child: const Icon(Icons.add_a_photo_outlined, color: Colors.white24, size: 24),
+                    child: const Icon(
+                      Icons.add_a_photo_outlined,
+                      color: Colors.white24,
+                      size: 24,
+                    ),
                   ),
                 );
               }
@@ -817,7 +1115,10 @@ class _UploadScreenState extends State<UploadScreen>
                 margin: const EdgeInsets.only(right: 12),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  image: DecorationImage(image: FileImage(_productPhotos[i]), fit: BoxFit.cover),
+                  image: DecorationImage(
+                    image: FileImage(_productPhotos[i]),
+                    fit: BoxFit.cover,
+                  ),
                   border: Border.all(color: Colors.white10),
                 ),
                 child: Align(
@@ -826,8 +1127,15 @@ class _UploadScreenState extends State<UploadScreen>
                     onTap: () => setState(() => _productPhotos.removeAt(i)),
                     child: Container(
                       margin: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                      child: const Icon(Icons.close, size: 14, color: Colors.white),
+                      decoration: const BoxDecoration(
+                        color: Colors.black54,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.close,
+                        size: 14,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
@@ -841,7 +1149,9 @@ class _UploadScreenState extends State<UploadScreen>
 
   Future<void> _pickProductPhoto() async {
     final ImagePicker picker = ImagePicker();
-    final List<XFile> images = await picker.pickMultiImage(limit: 3 - _productPhotos.length);
+    final List<XFile> images = await picker.pickMultiImage(
+      limit: 3 - _productPhotos.length,
+    );
     if (images.isNotEmpty) {
       setState(() {
         _productPhotos.addAll(images.map((x) => File(x.path)));
@@ -856,13 +1166,19 @@ class _UploadScreenState extends State<UploadScreen>
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('ASSETS', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2)),
-            if (_multiFiles.isNotEmpty) 
-              Text('${_multiFiles.length} TRACKS LOADED', style: syne(sz: 10, w: FontWeight.bold, c: C.brand)),
+            Text(
+              'ASSETS',
+              style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+            ),
+            if (_multiFiles.isNotEmpty)
+              Text(
+                '${_multiFiles.length} TRACKS LOADED',
+                style: syne(sz: 10, w: FontWeight.bold, c: C.brand),
+              ),
           ],
         ),
         const SizedBox(height: 16),
-        
+
         // 🚀 LIVE CONTENT CAPTURE BUTTON
         if (_objectiveId == 'awareness')
           Padding(
@@ -879,27 +1195,52 @@ class _UploadScreenState extends State<UploadScreen>
                   ),
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
-                    BoxShadow(color: Colors.red.withAlpha(77), blurRadius: 15, offset: const Offset(0, 8))
+                    BoxShadow(
+                      color: Colors.red.withAlpha(77),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
                   ],
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-                      child: const Icon(Icons.videocam, color: Colors.white, size: 32),
+                      decoration: const BoxDecoration(
+                        color: Colors.white24,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.videocam,
+                        color: Colors.white,
+                        size: 32,
+                      ),
                     ),
                     const SizedBox(width: 20),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('LIVE CAPTURE', style: syne(sz: 18, w: FontWeight.w900, c: Colors.white)),
-                          Text('Speed · Filters · 4K Mastery', style: dm(sz: 12, c: Colors.white70)),
+                          Text(
+                            'LIVE CAPTURE',
+                            style: syne(
+                              sz: 18,
+                              w: FontWeight.w900,
+                              c: Colors.white,
+                            ),
+                          ),
+                          Text(
+                            'Speed · Filters · 4K Mastery',
+                            style: dm(sz: 12, c: Colors.white70),
+                          ),
                         ],
                       ),
                     ),
-                    const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      color: Colors.white,
+                      size: 16,
+                    ),
                   ],
                 ),
               ),
@@ -910,7 +1251,8 @@ class _UploadScreenState extends State<UploadScreen>
         const SizedBox(height: 24),
         if (_multiFiles.isNotEmpty)
           GestureDetector(
-            onTap: () => _processResult(XFile(_multiFiles.first.path), _isVideo),
+            onTap: () =>
+                _processResult(XFile(_multiFiles.first.path), _isVideo),
             child: Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -920,14 +1262,24 @@ class _UploadScreenState extends State<UploadScreen>
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.movie_filter_outlined, color: C.brand, size: 32),
+                  const Icon(
+                    Icons.movie_filter_outlined,
+                    color: C.brand,
+                    size: 32,
+                  ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('OPEN FILM HUB', style: syne(sz: 16, w: FontWeight.w900, c: C.brand)),
-                        Text('Edit layers, tracks, and timing', style: dm(sz: 11, c: Colors.white54)),
+                        Text(
+                          'OPEN FILM HUB',
+                          style: syne(sz: 16, w: FontWeight.w900, c: C.brand),
+                        ),
+                        Text(
+                          'Edit layers, tracks, and timing',
+                          style: dm(sz: 11, c: Colors.white54),
+                        ),
                       ],
                     ),
                   ),
@@ -942,33 +1294,42 @@ class _UploadScreenState extends State<UploadScreen>
 
   // ── STEP 3: FINAL REVIEW ────────────────────────────────────
   Widget _buildFinalReview() {
-     return Column(
-       crossAxisAlignment: CrossAxisAlignment.start,
-       children: [
-         Text('FINAL SYNTHESIS', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2)),
-         const SizedBox(height: 16),
-         GlassCard(
-           child: Column(
-             children: [
-               _reviewRow('Objective', _objectiveId?.toUpperCase() ?? 'NONE'),
-               _reviewRow('Tracks', '${_multiFiles.length} Layers'),
-               _reviewRow('Sound', _bakedTrack?.title ?? 'Original'),
-               const Divider(color: Colors.white10, height: 32),
-               Row(
-                 children: [
-                   Checkbox(
-                     value: _agreedToPolicies, 
-                     onChanged: (v) => setState(() => _agreedToPolicies = v ?? false),
-                     activeColor: C.brand,
-                   ),
-                   Expanded(child: Text('I agree to Necxa Content Policies', style: dm(sz: 11, c: Colors.white60))),
-                 ],
-               ),
-             ],
-           ),
-         ),
-       ],
-     );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'FINAL SYNTHESIS',
+          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+        ),
+        const SizedBox(height: 16),
+        GlassCard(
+          child: Column(
+            children: [
+              _reviewRow('Objective', _objectiveId?.toUpperCase() ?? 'NONE'),
+              _reviewRow('Tracks', '${_multiFiles.length} Layers'),
+              _reviewRow('Sound', _bakedTrack?.title ?? 'Original'),
+              const Divider(color: Colors.white10, height: 32),
+              Row(
+                children: [
+                  Checkbox(
+                    value: _agreedToPolicies,
+                    onChanged: (v) =>
+                        setState(() => _agreedToPolicies = v ?? false),
+                    activeColor: C.brand,
+                  ),
+                  Expanded(
+                    child: Text(
+                      'I agree to Necxa Content Policies',
+                      style: dm(sz: 11, c: Colors.white60),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _reviewRow(String label, String value) {
@@ -978,42 +1339,70 @@ class _UploadScreenState extends State<UploadScreen>
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: dm(sz: 12, c: Colors.white38)),
-          Text(value, style: syne(sz: 12, w: FontWeight.bold, c: Colors.white)),
+          Text(
+            value,
+            style: syne(sz: 12, w: FontWeight.bold, c: Colors.white),
+          ),
         ],
       ),
     );
   }
 
   // ── SHARED WIDGETS ───────────────────────────────────────────
-  Widget _topBar(String title, VoidCallback onBack, {Color color = Colors.white}) {
+  Widget _topBar(
+    String title,
+    VoidCallback onBack, {
+    Color color = Colors.white,
+  }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 16, 0),
       child: Row(
         children: [
-          IconButton(icon: const Icon(Icons.arrow_back_ios_new), onPressed: onBack, color: color),
-          Text(title, style: syne(sz: 18, w: FontWeight.w900, c: color)),
+          IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new),
+            onPressed: onBack,
+            color: color,
+          ),
+          Text(
+            title,
+            style: syne(sz: 18, w: FontWeight.w900, c: color),
+          ),
         ],
       ),
     );
   }
 
-  Widget _inputField(String label, String hint, TextEditingController controller, {int maxLines = 1, TextInputType? keyboardType}) {
+  Widget _inputField(
+    String label,
+    String hint,
+    TextEditingController controller, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: syne(sz: 11, w: FontWeight.w800, c: Colors.white38, ls: 1)),
+        Text(
+          label,
+          style: syne(sz: 11, w: FontWeight.w800, c: Colors.white38, ls: 1),
+        ),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
           maxLines: maxLines,
           keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           style: dm(sz: 14, c: Colors.white),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: dm(sz: 14, c: Colors.white12),
             filled: true,
             fillColor: Colors.black26,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
             contentPadding: const EdgeInsets.all(16),
           ),
         ),
@@ -1036,7 +1425,11 @@ class _UploadScreenState extends State<UploadScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.add_photo_alternate_outlined, color: Colors.white24, size: 40),
+              const Icon(
+                Icons.add_photo_alternate_outlined,
+                color: Colors.white24,
+                size: 40,
+              ),
               const SizedBox(height: 12),
               Text('Tap to select media', style: dm(sz: 13, c: Colors.white24)),
             ],
@@ -1049,14 +1442,21 @@ class _UploadScreenState extends State<UploadScreen>
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
       itemCount: _multiFiles.length + 1,
       itemBuilder: (context, i) {
         if (i == _multiFiles.length) {
           return GestureDetector(
             onTap: _pickUnifiedMedia,
             child: Container(
-              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white10)),
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
+              ),
               child: const Icon(Icons.add, color: Colors.white54),
             ),
           );
@@ -1066,18 +1466,32 @@ class _UploadScreenState extends State<UploadScreen>
             Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                image: DecorationImage(image: FileImage(_multiFiles[i]), fit: BoxFit.cover),
+                image: DecorationImage(
+                  image: FileImage(_multiFiles[i]),
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
             Positioned(
-              top: 4, right: 4,
+              top: 4,
+              right: 4,
               child: GestureDetector(
                 onTap: () => setState(() => _multiFiles.removeAt(i)),
-                child: const CircleAvatar(radius: 10, backgroundColor: Colors.black54, child: Icon(Icons.close, size: 12, color: Colors.white)),
+                child: const CircleAvatar(
+                  radius: 10,
+                  backgroundColor: Colors.black54,
+                  child: Icon(Icons.close, size: 12, color: Colors.white),
+                ),
               ),
             ),
             if (_multiFiles[i].path.toLowerCase().endsWith('.mp4'))
-               const Center(child: Icon(Icons.play_circle_outline, color: Colors.white70, size: 30)),
+              const Center(
+                child: Icon(
+                  Icons.play_circle_outline,
+                  color: Colors.white70,
+                  size: 30,
+                ),
+              ),
           ],
         );
       },
@@ -1100,7 +1514,11 @@ class _UploadScreenState extends State<UploadScreen>
           color: accent,
           borderRadius: BorderRadius.circular(30),
           boxShadow: [
-            BoxShadow(color: accent.withAlpha(77), blurRadius: 20, spreadRadius: 0)
+            BoxShadow(
+              color: accent.withAlpha(77),
+              blurRadius: 20,
+              spreadRadius: 0,
+            ),
           ],
         ),
         child: Center(
@@ -1125,14 +1543,18 @@ class _UploadScreenState extends State<UploadScreen>
             alignment: Alignment.center,
             children: [
               SizedBox(
-                width: 120, height: 120,
+                width: 120,
+                height: 120,
                 child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(C.brand.withAlpha(51)),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    C.brand.withAlpha(51),
+                  ),
                   strokeWidth: 2,
                 ),
               ),
               const SizedBox(
-                width: 100, height: 100,
+                width: 100,
+                height: 100,
                 child: CircularProgressIndicator(
                   valueColor: AlwaysStoppedAnimation<Color>(C.brand),
                   strokeWidth: 4,
@@ -1142,13 +1564,13 @@ class _UploadScreenState extends State<UploadScreen>
             ],
           ),
           const SizedBox(height: 48),
-          
+
           Text(
-            'NEURAL SYNTHESIS', 
-            style: syne(sz: 16, w: FontWeight.w900, c: C.brand, ls: 6)
+            'NEURAL SYNTHESIS',
+            style: syne(sz: 16, w: FontWeight.w900, c: C.brand, ls: 6),
           ),
           const SizedBox(height: 16),
-          
+
           TweenAnimationBuilder<int>(
             tween: IntTween(begin: 0, end: 4),
             duration: const Duration(seconds: 4),
@@ -1158,24 +1580,31 @@ class _UploadScreenState extends State<UploadScreen>
                 'Synthesizing multi-track layers...',
                 'Baking 48kHz spatial audio...',
                 'Polishing visual metadata...',
-                'Synchronizing with the Mesh...'
+                'Synchronizing with the Mesh...',
               ];
               return Column(
                 children: [
                   Text(
-                    _isOptimizing ? _optimizingStatus.toUpperCase() : messages[value].toUpperCase(),
-                    style: syne(sz: 10, w: FontWeight.bold, c: _isOptimizing ? C.brand : Colors.white70, ls: 1.5)
+                    _isOptimizing
+                        ? _optimizingStatus.toUpperCase()
+                        : messages[value].toUpperCase(),
+                    style: syne(
+                      sz: 10,
+                      w: FontWeight.bold,
+                      c: _isOptimizing ? C.brand : Colors.white70,
+                      ls: 1.5,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Step ${value + 1} of 5', 
-                    style: dm(sz: 10, c: Colors.white24)
+                    'Step ${value + 1} of 5',
+                    style: dm(sz: 10, c: Colors.white24),
                   ),
                 ],
               );
             },
           ),
-          
+
           const SizedBox(height: 60),
           // Progress bar at the bottom
           Padding(
@@ -1193,4 +1622,12 @@ class _UploadScreenState extends State<UploadScreen>
       ),
     );
   }
+}
+
+class _UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) => newValue.copyWith(text: newValue.text.toUpperCase());
 }

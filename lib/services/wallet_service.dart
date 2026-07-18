@@ -158,45 +158,59 @@ class ShopPurchaseResult {
   final bool isSuccess;
   final String message;
   final bool needsTopUp;
-  ShopPurchaseResult.success(this.message)
-    : isSuccess = true,
-      needsTopUp = false;
+  final String? orderId;
+  final String? orderNumber;
+  final double? deliveryFeeUgx;
+  ShopPurchaseResult.success(
+    this.message, {
+    this.orderId,
+    this.orderNumber,
+    this.deliveryFeeUgx,
+  }) : isSuccess = true,
+       needsTopUp = false;
   ShopPurchaseResult.failure(this.message)
     : isSuccess = false,
-      needsTopUp = false;
+      needsTopUp = false,
+      orderId = null,
+      orderNumber = null,
+      deliveryFeeUgx = null;
   ShopPurchaseResult.insufficientFunds(this.message)
     : isSuccess = false,
-      needsTopUp = true;
+      needsTopUp = true,
+      orderId = null,
+      orderNumber = null,
+      deliveryFeeUgx = null;
 }
 
 extension WalletServiceShop on WalletService {
   Future<ShopPurchaseResult> processShopPurchase({
-    required String orderId,
     required String listingId,
-    required String vendorId,
-    required String sku,
     required int quantity,
     required String deliverySpeed,
+    required String deliveryMethod,
     required Map<String, double> customerLocation,
+    required String deliveryAddress,
     required String customerNumber,
   }) async {
     try {
       final result = await _invoke(
         'process_shop_purchase',
         body: {
-          'orderId': orderId,
           'listingId': listingId,
-          'vendorId': vendorId,
-          'sku': sku,
           'quantity': quantity,
           'deliverySpeed': deliverySpeed,
+          'deliveryMethod': deliveryMethod,
           'customerLocation': customerLocation,
+          'deliveryAddress': deliveryAddress,
           'customerNumber': customerNumber,
           'idempotencyKey': _idempotencyKey('shop-purchase'),
         },
       );
       return ShopPurchaseResult.success(
         result['message']?.toString() ?? 'Purchase successful.',
+        orderId: result['orderId']?.toString(),
+        orderNumber: result['orderNumber']?.toString(),
+        deliveryFeeUgx: (result['deliveryFeeUgx'] as num?)?.toDouble(),
       );
     } on FinanceBackendException catch (error) {
       if (error.code == 'insufficient_funds') {

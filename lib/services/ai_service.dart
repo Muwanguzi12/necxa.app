@@ -10,8 +10,9 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 // ─── Live Safety Scan Result ──────────────────────────────────────────────────
 class LiveSafetyResult {
   final bool safe;
-  final Map<String, bool> flags; // e.g. {'pornographic': true, 'drug_abuse': false}
-  final String severity;         // 'none' | 'low' | 'medium' | 'high' | 'critical'
+  final Map<String, bool>
+  flags; // e.g. {'pornographic': true, 'drug_abuse': false}
+  final String severity; // 'none' | 'low' | 'medium' | 'high' | 'critical'
   final String? reason;
   final double confidence;
 
@@ -31,16 +32,20 @@ class LiveSafetyResult {
   bool get hasDangerous => flags['dangerous_content'] == true;
 
   factory LiveSafetyResult.safe() => const LiveSafetyResult(
-    safe: true, flags: {}, severity: 'none', confidence: 1.0,
+    safe: true,
+    flags: {},
+    severity: 'none',
+    confidence: 1.0,
   );
 
-  factory LiveSafetyResult.fromJson(Map<String, dynamic> json) => LiveSafetyResult(
-    safe: json['safe'] ?? true,
-    flags: Map<String, bool>.from(json['flags'] ?? {}),
-    severity: json['severity'] ?? 'none',
-    reason: json['reason'],
-    confidence: (json['confidence'] ?? 0.0).toDouble(),
-  );
+  factory LiveSafetyResult.fromJson(Map<String, dynamic> json) =>
+      LiveSafetyResult(
+        safe: json['safe'] ?? true,
+        flags: Map<String, bool>.from(json['flags'] ?? {}),
+        severity: json['severity'] ?? 'none',
+        reason: json['reason'],
+        confidence: (json['confidence'] ?? 0.0).toDouble(),
+      );
 }
 
 class NecxaAI {
@@ -54,10 +59,7 @@ class NecxaAI {
   }) {
     final payload = <String, dynamic>{
       'action': action,
-      'payload': {
-        'imageBase64': primaryBase64,
-        'userId': userId,
-      },
+      'payload': {'imageBase64': primaryBase64, 'userId': userId},
     };
 
     if (secondaryBase64 != null) {
@@ -92,12 +94,15 @@ class NecxaAI {
   /// engine (`/api/verify/photo`). Falls back to Supabase on network error.
   static Future<Map<String, dynamic>> verifyPhotoWorker(File photoFile) async {
     try {
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('$_workerBase/api/verify/photo'),
-      )
-        ..headers.addAll(_workerHeaders())
-        ..files.add(await http.MultipartFile.fromPath('photo', photoFile.path));
+      final req =
+          http.MultipartRequest(
+              'POST',
+              Uri.parse('$_workerBase/api/verify/photo'),
+            )
+            ..headers.addAll(_workerHeaders())
+            ..files.add(
+              await http.MultipartFile.fromPath('photo', photoFile.path),
+            );
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
       return jsonDecode(body) as Map<String, dynamic>;
@@ -109,35 +114,117 @@ class NecxaAI {
 
   // ── WORKER: VIDEO MODERATION (multi-frame) ────────────────────────────────
   /// Submits up to 5 extracted video frames to `/api/verify/video`.
-  static Future<Map<String, dynamic>> verifyVideoWorker(List<File> frames) async {
+  static Future<Map<String, dynamic>> verifyVideoWorker(
+    List<File> frames,
+  ) async {
     try {
+      if (frames.isEmpty) {
+        return {'success': false, 'error': 'No video frames were extracted'};
+      }
       final req = http.MultipartRequest(
         'POST',
         Uri.parse('$_workerBase/api/verify/video'),
       )..headers.addAll(_workerHeaders());
       for (int i = 0; i < frames.length && i < 5; i++) {
-        req.files.add(await http.MultipartFile.fromPath('frame$i', frames[i].path));
+        req.files.add(
+          await http.MultipartFile.fromPath('frame$i', frames[i].path),
+        );
       }
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
-      return jsonDecode(body) as Map<String, dynamic>;
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
+        return {
+          'success': false,
+          'error': decoded['error']?.toString() ?? 'Video verification failed',
+          'statusCode': streamed.statusCode,
+        };
+      }
+      return normalizeModerationResponse(decoded);
     } catch (e) {
       debugPrint('⚡ Worker video verify failed: $e');
       return {'success': false, 'error': e.toString()};
     }
   }
 
+  /// Produces deterministic JPEG samples across the complete video. The caller
+  /// owns [directory] and is responsible for deleting it after verification.
+  static Future<List<File>> extractVideoFrameFiles(
+    File videoFile, {
+    Directory? directory,
+    int frameCount = 5,
+  }) async {
+    final outputDirectory =
+        directory ?? await Directory.systemTemp.createTemp('necxa_frames_');
+    final controller = VideoPlayerController.file(videoFile);
+    try {
+      await controller.initialize();
+      final durationMs = controller.value.duration.inMilliseconds;
+      if (durationMs <= 0) return [];
+      final count = frameCount.clamp(1, 5);
+      final frames = <File>[];
+      for (var index = 0; index < count; index++) {
+        final fraction = count == 1 ? 0.0 : index / (count - 1);
+        final timestamp = (durationMs * fraction).round().clamp(
+          0,
+          durationMs - 1,
+        );
+        final bytes = await VideoThumbnail.thumbnailData(
+          video: videoFile.path,
+          imageFormat: ImageFormat.JPEG,
+          timeMs: timestamp,
+          quality: 70,
+          maxWidth: 720,
+        );
+        if (bytes == null || bytes.isEmpty) continue;
+        final frame = File('${outputDirectory.path}/frame_$index.jpg');
+        await frame.writeAsBytes(bytes, flush: true);
+        frames.add(frame);
+      }
+      return frames;
+    } finally {
+      await controller.dispose();
+    }
+  }
+
+  static Map<String, dynamic> normalizeModerationResponse(
+    Map<String, dynamic> response,
+  ) {
+    final rawResult = response['result'];
+    final result = rawResult is Map
+        ? Map<String, dynamic>.from(rawResult)
+        : <String, dynamic>{};
+    final verified = result['verified'] == true;
+    return {
+      ...response,
+      'success': response['success'] == true,
+      'result': {
+        ...result,
+        'verified': verified,
+        'flags': List<String>.from(result['flags'] as List? ?? const []),
+      },
+    };
+  }
+
+  static bool moderationVerified(Map<String, dynamic> response) =>
+      response['success'] == true &&
+      response['result'] is Map &&
+      (response['result'] as Map)['verified'] == true;
+
   // ── WORKER: AUDIO MODERATION (Whisper + Llama) ────────────────────────────
   /// Transcribes audio via Whisper then moderates the transcript.
   /// Endpoint: `/api/verify/audio`.
   static Future<Map<String, dynamic>> verifyAudioWorker(File audioFile) async {
     try {
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('$_workerBase/api/verify/audio'),
-      )
-        ..headers.addAll(_workerHeaders())
-        ..files.add(await http.MultipartFile.fromPath('audio', audioFile.path));
+      final req =
+          http.MultipartRequest(
+              'POST',
+              Uri.parse('$_workerBase/api/verify/audio'),
+            )
+            ..headers.addAll(_workerHeaders())
+            ..files.add(
+              await http.MultipartFile.fromPath('audio', audioFile.path),
+            );
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
       return jsonDecode(body) as Map<String, dynamic>;
@@ -155,13 +242,14 @@ class NecxaAI {
     String title = 'Property',
   }) async {
     try {
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('$_workerBase/api/verify/listing'),
-      )
-        ..headers.addAll(_workerHeaders())
-        ..fields['title'] = title
-        ..files.add(await http.MultipartFile.fromPath('photo', photo.path));
+      final req =
+          http.MultipartRequest(
+              'POST',
+              Uri.parse('$_workerBase/api/verify/listing'),
+            )
+            ..headers.addAll(_workerHeaders())
+            ..fields['title'] = title
+            ..files.add(await http.MultipartFile.fromPath('photo', photo.path));
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
       return jsonDecode(body) as Map<String, dynamic>;
@@ -176,12 +264,15 @@ class NecxaAI {
   /// Endpoint: `/api/verify/live-frame`. Falls back to safe() on error.
   static Future<LiveSafetyResult> scanLiveFrameWorker(File frameFile) async {
     try {
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('$_workerBase/api/verify/live-frame'),
-      )
-        ..headers.addAll(_workerHeaders())
-        ..files.add(await http.MultipartFile.fromPath('frame', frameFile.path));
+      final req =
+          http.MultipartRequest(
+              'POST',
+              Uri.parse('$_workerBase/api/verify/live-frame'),
+            )
+            ..headers.addAll(_workerHeaders())
+            ..files.add(
+              await http.MultipartFile.fromPath('frame', frameFile.path),
+            );
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
       final data = jsonDecode(body) as Map<String, dynamic>;
@@ -205,13 +296,18 @@ class NecxaAI {
   /// Calls `/api/assistant/chat/sync` — Llama 3.1 powered chat.
   /// The [language] parameter locks the AI response to the user's preferred language.
   /// Falls back to the Supabase necxa-chat function if the worker is down.
-  static Future<String> askNecxaWorker(String userPrompt, {String language = 'English'}) async {
+  static Future<String> askNecxaWorker(
+    String userPrompt, {
+    String language = 'English',
+  }) async {
     try {
-      final res = await http.post(
-        Uri.parse('$_workerBase/api/assistant/chat/sync'),
-        headers: {"Content-Type": "application/json", ..._workerHeaders()},
-        body: jsonEncode({'message': userPrompt, 'language': language}),
-      ).timeout(const Duration(seconds: 15));
+      final res = await http
+          .post(
+            Uri.parse('$_workerBase/api/assistant/chat/sync'),
+            headers: {"Content-Type": "application/json", ..._workerHeaders()},
+            body: jsonEncode({'message': userPrompt, 'language': language}),
+          )
+          .timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         return data['response'] as String? ?? 'No response';
@@ -246,10 +342,15 @@ class NecxaAI {
   }
 
   // ── IDENTITY VERIFICATION ──
-  static Future<Map<String, dynamic>> verifyID(File imageFile, {String? userId, String action = 'verify-id'}) async {
+  static Future<Map<String, dynamic>> verifyID(
+    File imageFile, {
+    String? userId,
+    String action = 'verify-id',
+  }) async {
     try {
       final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) throw Exception("User must be logged in to verify ID natively.");
+      if (session == null)
+        throw Exception("User must be logged in to verify ID natively.");
 
       final primaryBase64 = await fileToBase64(imageFile);
       final res = await Supabase.instance.client.functions.invoke(
@@ -264,8 +365,13 @@ class NecxaAI {
 
       final data = Map<String, dynamic>.from(res.data ?? {});
       final verified = data['verified'] == true;
-      final feedback = data['feedback']?.toString() ?? data['error']?.toString() ?? 'ID verification failed';
-      final score = data['score'] is num ? data['score'] : num.tryParse(data['score']?.toString() ?? '');
+      final feedback =
+          data['feedback']?.toString() ??
+          data['error']?.toString() ??
+          'ID verification failed';
+      final score = data['score'] is num
+          ? data['score']
+          : num.tryParse(data['score']?.toString() ?? '');
 
       return {
         ...data,
@@ -274,14 +380,24 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
-      return {'verified': false, 'feedback': 'Verification failed: $e', 'score': 0};
+      return {
+        'verified': false,
+        'feedback': 'Verification failed: $e',
+        'score': 0,
+      };
     }
   }
 
-  static Future<Map<String, dynamic>> verifyFaceOnly(File selfieFile, {String? userId}) async {
+  static Future<Map<String, dynamic>> verifyFaceOnly(
+    File selfieFile, {
+    String? userId,
+  }) async {
     try {
       final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) throw Exception("User must be logged in to verify biometrics natively.");
+      if (session == null)
+        throw Exception(
+          "User must be logged in to verify biometrics natively.",
+        );
 
       final primaryBase64 = await fileToBase64(selfieFile);
       final res = await Supabase.instance.client.functions.invoke(
@@ -296,8 +412,13 @@ class NecxaAI {
 
       final data = Map<String, dynamic>.from(res.data ?? {});
       final faceMatch = data['faceMatch'] == true || data['verified'] == true;
-      final feedback = data['feedback']?.toString() ?? data['error']?.toString() ?? 'Face-only verification failed';
-      final score = data['score'] is num ? data['score'] : num.tryParse(data['score']?.toString() ?? '');
+      final feedback =
+          data['feedback']?.toString() ??
+          data['error']?.toString() ??
+          'Face-only verification failed';
+      final score = data['score'] is num
+          ? data['score']
+          : num.tryParse(data['score']?.toString() ?? '');
 
       return {
         ...data,
@@ -306,7 +427,11 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
-      return {'faceMatch': false, 'feedback': 'Verification failed: $e', 'score': 0};
+      return {
+        'faceMatch': false,
+        'feedback': 'Verification failed: $e',
+        'score': 0,
+      };
     }
   }
 
@@ -346,10 +471,17 @@ class NecxaAI {
     }
   }
 
-  static Future<Map<String, dynamic>> verifySelfie(File selfieFile, File idReferenceFile, {String? userId}) async {
+  static Future<Map<String, dynamic>> verifySelfie(
+    File selfieFile,
+    File idReferenceFile, {
+    String? userId,
+  }) async {
     try {
       final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) throw Exception("User must be logged in to verify biometrics natively.");
+      if (session == null)
+        throw Exception(
+          "User must be logged in to verify biometrics natively.",
+        );
 
       final primaryBase64 = await fileToBase64(selfieFile);
       final secondaryBase64 = await fileToBase64(idReferenceFile);
@@ -366,8 +498,13 @@ class NecxaAI {
 
       final data = Map<String, dynamic>.from(res.data ?? {});
       final faceMatch = data['faceMatch'] == true || data['verified'] == true;
-      final feedback = data['feedback']?.toString() ?? data['error']?.toString() ?? 'Biometric verification failed';
-      final score = data['score'] is num ? data['score'] : num.tryParse(data['score']?.toString() ?? '');
+      final feedback =
+          data['feedback']?.toString() ??
+          data['error']?.toString() ??
+          'Biometric verification failed';
+      final score = data['score'] is num
+          ? data['score']
+          : num.tryParse(data['score']?.toString() ?? '');
 
       return {
         ...data,
@@ -376,12 +513,20 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
-      return {'faceMatch': false, 'feedback': 'Verification failed: $e', 'score': 0};
+      return {
+        'faceMatch': false,
+        'feedback': 'Verification failed: $e',
+        'score': 0,
+      };
     }
   }
 
   // Legacy compatibility check
-  static Future<Map<String, dynamic>> verifyIdentity(String idBase64, String selfieBase64, {String? userId}) async {
+  static Future<Map<String, dynamic>> verifyIdentity(
+    String idBase64,
+    String selfieBase64, {
+    String? userId,
+  }) async {
     try {
       final session = Supabase.instance.client.auth.currentSession;
       final res = await Supabase.instance.client.functions.invoke(
@@ -393,8 +538,8 @@ class NecxaAI {
             'imageBase64': selfieBase64,
             'idImageBase64': idBase64,
             'userId': userId ?? session?.user.id ?? 'flutter_user',
-          }
-        }
+          },
+        },
       );
 
       final result = Map<String, dynamic>.from(res.data);
@@ -407,19 +552,26 @@ class NecxaAI {
   }
 
   // ── CHAT MISSION CONTROL ──
-  static Future<String> askNexca(String userPrompt, {Map<String, dynamic>? context}) async {
+  static Future<String> askNexca(
+    String userPrompt, {
+    Map<String, dynamic>? context,
+  }) async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) return 'Login required for Necxa Chat';
 
     try {
       final res = await Supabase.instance.client.functions.invoke(
         'necxa-chat',
-        headers: _aiHeaders(extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'}),
+        headers: _aiHeaders(
+          extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'},
+        ),
         body: {
-          'messages': [{'role': 'user', 'content': userPrompt}],
+          'messages': [
+            {'role': 'user', 'content': userPrompt},
+          ],
           'context': context,
           'userId': session.user.id,
-        }
+        },
       );
       final data = Map<String, dynamic>.from(res.data);
       return data['content'] ?? 'No response';
@@ -449,7 +601,7 @@ class NecxaAI {
           'type': type,
           'imageBase64': imageBase64,
           'userId': session?.user.id ?? userId,
-        }
+        },
       );
       return Map<String, dynamic>.from(res.data);
     } catch (e) {
@@ -465,7 +617,8 @@ class NecxaAI {
     String? userId,
   }) async {
     final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) throw Exception("User must be logged in to verify as a driver.");
+    if (session == null)
+      throw Exception("User must be logged in to verify as a driver.");
 
     try {
       final driverBase64 = await fileToBase64(driverSelfie);
@@ -474,7 +627,9 @@ class NecxaAI {
 
       final res = await Supabase.instance.client.functions.invoke(
         'verify-transport',
-        headers: _aiHeaders(extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'}),
+        headers: _aiHeaders(
+          extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'},
+        ),
         body: {
           'action': 'verify_transport',
           'payload': {
@@ -482,8 +637,8 @@ class NecxaAI {
             'permitImageBase64': permitBase64,
             'vehicleImageBase64': vehicleBase64,
             'userId': userId ?? session.user.id,
-          }
-        }
+          },
+        },
       );
 
       if (res.status != 200) {
@@ -521,7 +676,7 @@ class NecxaAI {
           if (textContent != null) 'textContent': textContent,
           'userId': session?.user.id ?? userId ?? 'flutter_user',
           if (videoFrames != null) 'videoFrames': videoFrames,
-        }
+        },
       );
       return Map<String, dynamic>.from(res.data);
     } catch (e) {
@@ -541,7 +696,9 @@ class NecxaAI {
       final random = math.Random();
       for (int i = 0; i < 5; i++) {
         // Pick random timestamps, leaving 100ms padding
-        final timeMs = durationMs > 1000 ? random.nextInt(durationMs - 500) + 100 : 0;
+        final timeMs = durationMs > 1000
+            ? random.nextInt(durationMs - 500) + 100
+            : 0;
         final uint8list = await VideoThumbnail.thumbnailData(
           video: videoFile.path,
           imageFormat: ImageFormat.JPEG,
@@ -598,28 +755,41 @@ class NecxaAI {
   }
 
   // ── SPECIFIC CONTENT METHODS ──
-  static Future<Map<String, dynamic>> verifyPhoto(String photoBase64) => 
-    verifyContent(type: 'photo', mediaBase64: photoBase64, mimeType: 'image/jpeg');
+  static Future<Map<String, dynamic>> verifyPhoto(String photoBase64) =>
+      verifyContent(
+        type: 'photo',
+        mediaBase64: photoBase64,
+        mimeType: 'image/jpeg',
+      );
 
-  static Future<Map<String, dynamic>> verifyMusic(String audioBase64) => 
-    verifyContent(type: 'music', mediaBase64: audioBase64, mimeType: 'audio/mpeg');
+  static Future<Map<String, dynamic>> verifyMusic(String audioBase64) =>
+      verifyContent(
+        type: 'music',
+        mediaBase64: audioBase64,
+        mimeType: 'audio/mpeg',
+      );
 
-  static Future<Map<String, dynamic>> verifyVideo(String videoBase64) => 
-    verifyContent(type: 'video', mediaBase64: videoBase64, mimeType: 'video/mp4');
+  static Future<Map<String, dynamic>> verifyVideo(String videoBase64) =>
+      verifyContent(
+        type: 'video',
+        mediaBase64: videoBase64,
+        mimeType: 'video/mp4',
+      );
 
   // ── PROPERTY UTILITY VERIFICATION ──
-  static Future<Map<String, dynamic>> verifyUtilityBill(String billBase64, String type, {String? userId}) async {
+  static Future<Map<String, dynamic>> verifyUtilityBill(
+    String billBase64,
+    String type, {
+    String? userId,
+  }) async {
     try {
       final res = await Supabase.instance.client.functions.invoke(
         'utility-verify',
         headers: _aiHeaders(),
         body: {
           'action': 'verify-utility',
-          'payload': {
-            'type': type,
-            'imageBase64': billBase64,
-          }
-        }
+          'payload': {'type': type, 'imageBase64': billBase64},
+        },
       );
       return Map<String, dynamic>.from(res.data);
     } catch (e) {
@@ -629,15 +799,15 @@ class NecxaAI {
 
   // ── NATIVE PROPERTY VERIFICATION ──
   static Future<Map<String, dynamic>> verifyProperty(String propertyId) async {
-     try {
-       final res = await Supabase.instance.client.functions.invoke(
-         'verify-property',
-         headers: _aiHeaders(),
-         body: {'property_id': propertyId}
-       );
-       return Map<String, dynamic>.from(res.data);
-     } catch (e) {
-       return {'verified': false, 'score': 0, 'feedback': e.toString()};
-     }
+    try {
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-property',
+        headers: _aiHeaders(),
+        body: {'property_id': propertyId},
+      );
+      return Map<String, dynamic>.from(res.data);
+    } catch (e) {
+      return {'verified': false, 'score': 0, 'feedback': e.toString()};
+    }
   }
 }

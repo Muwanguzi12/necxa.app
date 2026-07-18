@@ -17,7 +17,7 @@ import 'notification_service.dart';
 class SocialService {
   SupabaseClient get client => Supabase.instance.client;
   final AppState state;
-  
+
   SocialService(this.state);
 
   // ── In-memory caches (hot path for fast-scroll) ────────────────────────
@@ -26,9 +26,9 @@ class SocialService {
   // ── Sync debounce tracking (prevents hammering the backend) ───────────
   bool _feedSyncing = false;
   bool _shopSyncing = false;
-  static const Duration _feedCooldown  = Duration(minutes: 5);
-  static const Duration _shopCooldown  = Duration(minutes: 10);
-  static const int      _fetchLimit    = 20; // Keep payloads lean
+  static const Duration _feedCooldown = Duration(minutes: 5);
+  static const Duration _shopCooldown = Duration(minutes: 10);
+  static const int _fetchLimit = 20; // Keep payloads lean
   static const Duration _prefetchCooldown = Duration(seconds: 30);
 
   DateTime? _feedLastSync;
@@ -38,7 +38,7 @@ class SocialService {
   // ── High-speed Memory Cache (Ultra-low latency startup) ────────────
   List<Map<String, dynamic>> _feedCache = [];
   List<Map<String, dynamic>> _shopCache = [];
-  
+
   List<Map<String, dynamic>> get feedPosts => _feedCache;
   List<Map<String, dynamic>> get shopListings => _shopCache;
 
@@ -48,7 +48,9 @@ class SocialService {
     try {
       _feedCache = await localDb.getCachedFeed(limit: 15);
       _shopCache = await localDb.getCachedListings(limit: 15);
-      debugPrint('🛡️ Social: Memory cache pre-warmed (Feed: ${_feedCache.length}, Shop: ${_shopCache.length})');
+      debugPrint(
+        '🛡️ Social: Memory cache pre-warmed (Feed: ${_feedCache.length}, Shop: ${_shopCache.length})',
+      );
     } catch (e) {
       debugPrint('Social Pre-warm Error: $e');
     }
@@ -76,7 +78,10 @@ class SocialService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /// Returns local cache immediately, then schedules a background delta sync.
-  Future<List<Map<String, dynamic>>> fetchPosts({bool forceRefresh = false, int limit = 30}) async {
+  Future<List<Map<String, dynamic>>> fetchPosts({
+    bool forceRefresh = false,
+    int limit = 30,
+  }) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
 
@@ -90,7 +95,9 @@ class SocialService {
 
     // Schedule lazy delta sync if cooldown expired
     final now = DateTime.now();
-    if (forceRefresh || _feedLastSync == null || now.difference(_feedLastSync!) >= _feedCooldown) {
+    if (forceRefresh ||
+        _feedLastSync == null ||
+        now.difference(_feedLastSync!) >= _feedCooldown) {
       _lazyFeedSync(userId, limit);
     }
 
@@ -98,7 +105,11 @@ class SocialService {
   }
 
   /// Pulls ONLY records newer than the local cursor — minimal data transfer.
-  Future<List<Map<String, dynamic>>> syncFeed(String userId, {bool force = false, int limit = 30}) async {
+  Future<List<Map<String, dynamic>>> syncFeed(
+    String userId, {
+    bool force = false,
+    int limit = 30,
+  }) async {
     if (_feedSyncing) return _feedCache;
     if (!await _isOnline()) return _feedCache;
 
@@ -108,23 +119,35 @@ class SocialService {
     final localDb = LocalDbService();
 
     try {
-      final sinceCursor = force ? null : await localDb.getSyncCursor('feed:$userId');
+      final sinceCursor = force
+          ? null
+          : await localDb.getSyncCursor('feed:$userId');
       var syncedFromEdge = false;
 
       // Thin payload — only fetch what the feed card needs
-      final res = await client.functions.invoke('clever-processor', body: {
-        'action':  'fetch-feed',
-        'payload': {'since_time': sinceCursor},
-      });
+      final res = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'fetch-feed',
+          'payload': {'since_time': sinceCursor},
+        },
+      );
 
       if (res.data?['success'] == true) {
-        final newPosts = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        final newPosts = List<Map<String, dynamic>>.from(
+          res.data['data'] ?? [],
+        );
         if (newPosts.isNotEmpty) {
-          await localDb.saveCommunityPosts(newPosts);           // Upsert-merge
+          await localDb.saveCommunityPosts(newPosts); // Upsert-merge
           // Store the NEWEST post's timestamp as the high-watermark cursor.
           // Next delta sync will request posts created AFTER this time.
-          await localDb.setSyncCursor('feed:$userId', newPosts.first['created_at']);
-          debugPrint('[Feed] Synced ${newPosts.length} posts. Cursor → ${newPosts.first['created_at']}');
+          await localDb.setSyncCursor(
+            'feed:$userId',
+            newPosts.first['created_at'],
+          );
+          debugPrint(
+            '[Feed] Synced ${newPosts.length} posts. Cursor → ${newPosts.first['created_at']}',
+          );
         } else {
           debugPrint('[Feed] No new posts since cursor.');
         }
@@ -138,7 +161,9 @@ class SocialService {
     } catch (e) {
       debugPrint('[LazySync] Feed sync error: $e');
       try {
-        final sinceCursor = force ? null : await localDb.getSyncCursor('feed:$userId');
+        final sinceCursor = force
+            ? null
+            : await localDb.getSyncCursor('feed:$userId');
         await _syncFeedDirect(localDb, sinceCursor, limit);
       } catch (fallbackError) {
         debugPrint('[LazySync] Feed direct fallback error: $fallbackError');
@@ -190,8 +215,10 @@ class SocialService {
   void triggerPrefetch() async {
     if (state.user == null) return;
     final now = DateTime.now();
-    if (_prefetchLastSync != null && now.difference(_prefetchLastSync!) < _prefetchCooldown) return;
-    
+    if (_prefetchLastSync != null &&
+        now.difference(_prefetchLastSync!) < _prefetchCooldown)
+      return;
+
     _prefetchLastSync = now;
     debugPrint('🧠 Neural Prefetch: Fast scroll detected, syncing feed...');
     await syncFeed(state.user!.id);
@@ -205,13 +232,18 @@ class SocialService {
     _feedSyncing = true;
     state.notify();
     try {
-      final res = await client.functions.invoke('clever-processor', body: {
-        'action':  'fetch-feed',
-        'payload': {'before_time': beforeTime},
-      });
+      final res = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'fetch-feed',
+          'payload': {'before_time': beforeTime},
+        },
+      );
 
       if (res.data?['success'] == true) {
-        final olderPosts = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        final olderPosts = List<Map<String, dynamic>>.from(
+          res.data['data'] ?? [],
+        );
         if (olderPosts.isNotEmpty) {
           await LocalDbService().saveCommunityPosts(olderPosts);
         }
@@ -231,7 +263,10 @@ class SocialService {
   // USER POSTS (Profile Screen)
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> fetchUserPosts(String userId, {bool forceRefresh = false}) async {
+  Future<List<Map<String, dynamic>>> fetchUserPosts(
+    String userId, {
+    bool forceRefresh = false,
+  }) async {
     final localDb = LocalDbService();
     final cached = await localDb.getUserCachedPosts(userId);
 
@@ -254,18 +289,25 @@ class SocialService {
       var baseQuery = client
           .from('community_posts')
           // Thin select — including profile info for denormalization
-          .select('id, author_id, content, media_url, thumbnail_url, media_type, created_at, profiles(full_name, avatar_url, trust_score_tier)')
+          .select(
+            'id, author_id, content, media_url, thumbnail_url, media_type, created_at, profiles(full_name, avatar_url, trust_score_tier)',
+          )
           .eq('author_id', userId);
 
       // Apply delta cursor while still on FilterBuilder
       if (cursor != null) baseQuery = baseQuery.gt('created_at', cursor);
 
       final res = List<Map<String, dynamic>>.from(
-        await baseQuery.order('created_at', ascending: false).limit(_fetchLimit),
+        await baseQuery
+            .order('created_at', ascending: false)
+            .limit(_fetchLimit),
       );
       if (res.isNotEmpty) {
         await localDb.saveCommunityPosts(res);
-        await localDb.setSyncCursor('userposts:$userId', res.first['created_at']);
+        await localDb.setSyncCursor(
+          'userposts:$userId',
+          res.first['created_at'],
+        );
         state.notify(); // Ensure UI knows we got fresh data
       }
       return await localDb.getUserCachedPosts(userId);
@@ -281,23 +323,38 @@ class SocialService {
   // SHOP / LISTINGS
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> fetchListings({String? category, bool forceRefresh = false, int limit = 30}) async {
+  Future<List<Map<String, dynamic>>> fetchListings({
+    String? category,
+    bool forceRefresh = false,
+    int limit = 30,
+  }) async {
     final localDb = LocalDbService();
 
     if (forceRefresh || _shopCache.length < limit || category != null) {
-      final cached = await localDb.getCachedListings(limit: limit, category: category);
+      final cached = await localDb.getCachedListings(
+        limit: limit,
+        category: category,
+      );
       if (category == null && cached.isNotEmpty) _shopCache = cached;
     }
 
     final now = DateTime.now();
-    if (forceRefresh || _shopLastSync == null || now.difference(_shopLastSync!) >= _shopCooldown) {
+    if (forceRefresh ||
+        _shopLastSync == null ||
+        now.difference(_shopLastSync!) >= _shopCooldown) {
       _lazyShopSync(category: category, limit: limit, force: forceRefresh);
     }
 
-    return category == null ? _shopCache : await localDb.getCachedListings(limit: limit, category: category);
+    return category == null
+        ? _shopCache
+        : await localDb.getCachedListings(limit: limit, category: category);
   }
 
-  Future<List<Map<String, dynamic>>> _fetchListingsFromNetwork({String? category, bool force = false, int limit = 30}) async {
+  Future<List<Map<String, dynamic>>> _fetchListingsFromNetwork({
+    String? category,
+    bool force = false,
+    int limit = 30,
+  }) async {
     if (_shopSyncing) return _shopCache;
     if (!await _isOnline()) return _shopCache;
 
@@ -310,28 +367,37 @@ class SocialService {
 
       // Try Redis-backed edge function first (fastest)
       try {
-        final res = await client.functions.invoke('clever-processor', body: {
-          'action':  'fetch-shop-feed',
-          'payload': {'category': category, 'since_time': cursor},
-        });
+        final res = await client.functions.invoke(
+          'clever-processor',
+          body: {
+            'action': 'fetch-shop-feed',
+            'payload': {'category': category, 'since_time': cursor},
+          },
+        );
         if (res.data?['success'] == true) {
-          final listings = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+          final listings = List<Map<String, dynamic>>.from(
+            res.data['data'] ?? [],
+          );
           if (listings.isNotEmpty) {
             await localDb.saveListings(listings);
             await localDb.setSyncCursor('shop', listings.first['created_at']);
           }
         }
       } catch (_) {}
-
     } catch (e) {
       debugPrint('[LazySync] Shop sync error: $e');
     } finally {
-      final updated = await localDb.getCachedListings(limit: limit, category: category);
+      final updated = await localDb.getCachedListings(
+        limit: limit,
+        category: category,
+      );
       if (category == null) _shopCache = updated;
       _shopSyncing = false;
       state.notify();
     }
-    return category == null ? _shopCache : await localDb.getCachedListings(limit: limit, category: category);
+    return category == null
+        ? _shopCache
+        : await localDb.getCachedListings(limit: limit, category: category);
   }
 
   /// Pagination: fetch listings strictly older than [beforeTime]
@@ -342,13 +408,18 @@ class SocialService {
     _shopSyncing = true;
     state.notify();
     try {
-      final res = await client.functions.invoke('clever-processor', body: {
-        'action':  'fetch-shop-feed',
-        'payload': {'category': category, 'before_time': beforeTime},
-      });
+      final res = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'fetch-shop-feed',
+          'payload': {'category': category, 'before_time': beforeTime},
+        },
+      );
 
       if (res.data?['success'] == true) {
-        final olderListings = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        final olderListings = List<Map<String, dynamic>>.from(
+          res.data['data'] ?? [],
+        );
         if (olderListings.isNotEmpty) {
           await LocalDbService().saveListings(olderListings);
         }
@@ -357,28 +428,47 @@ class SocialService {
       debugPrint('[LazySync] Fetch older shop error: $e');
     } finally {
       final localDb = LocalDbService();
-      _shopCache = await localDb.getCachedListings(limit: _shopCache.length + 10);
+      _shopCache = await localDb.getCachedListings(
+        limit: _shopCache.length + 10,
+      );
       _shopSyncing = false;
       state.notify();
     }
   }
 
-  void _lazyShopSync({String? category, int limit = 30, bool force = false}) async => await _fetchListingsFromNetwork(category: category, limit: limit, force: force);
+  void _lazyShopSync({
+    String? category,
+    int limit = 30,
+    bool force = false,
+  }) async => await _fetchListingsFromNetwork(
+    category: category,
+    limit: limit,
+    force: force,
+  );
 
-  Future<List<Map<String, dynamic>>> searchShopListings(String query, {List<String>? tags, double? minPrice, double? maxPrice, String? category}) async {
+  Future<List<Map<String, dynamic>>> searchShopListings(
+    String query, {
+    List<String>? tags,
+    double? minPrice,
+    double? maxPrice,
+    String? category,
+  }) async {
     if (!await _isOnline()) return [];
 
     try {
-      final res = await client.functions.invoke('clever-processor', body: {
-        'action': 'search-listings',
-        'payload': {
-          'query': query,
-          'tags': tags,
-          'min_price': minPrice,
-          'max_price': maxPrice,
-          'category': category,
+      final res = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'search-listings',
+          'payload': {
+            'query': query,
+            'tags': tags,
+            'min_price': minPrice,
+            'max_price': maxPrice,
+            'category': category,
+          },
         },
-      });
+      );
 
       if (res.data?['success'] == true) {
         return List<Map<String, dynamic>>.from(res.data['data'] ?? []);
@@ -404,10 +494,13 @@ class SocialService {
     if (!await _isOnline()) return state.cachedUserShowcases[userId] ?? [];
 
     try {
-      final res = await client.functions.invoke('clever-processor', body: {
-        'action': 'fetch-showcase',
-        'payload': {'user_id': userId},
-      });
+      final res = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'fetch-showcase',
+          'payload': {'user_id': userId},
+        },
+      );
       if (res.data?['success'] == true) {
         final data = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
         state.cachedUserShowcases[userId] = data;
@@ -419,7 +512,9 @@ class SocialService {
     try {
       final res = await client
           .from('listings')
-          .select('id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)')
+          .select(
+            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)',
+          )
           .eq('user_id', userId)
           .order('created_at', ascending: false)
           .limit(_fetchLimit);
@@ -440,7 +535,13 @@ class SocialService {
         .from('community_posts')
         .stream(primaryKey: ['id'])
         .order('created_at', ascending: false)
-        .map((data) => data.where((m) => m['visibility'] == 'public' || m['visibility'] == null).toList());
+        .map(
+          (data) => data
+              .where(
+                (m) => m['visibility'] == 'public' || m['visibility'] == null,
+              )
+              .toList(),
+        );
   }
 
   Stream<List<Map<String, dynamic>>> streamUserPosts(String userId) {
@@ -462,13 +563,16 @@ class SocialService {
   }
 
   // ── Smart Load Helpers ──────────────────────────────────────────
-  
+
   bool isSyncing(String key) => key == 'feed' ? _feedSyncing : _shopSyncing;
 
-
-
-  Future<void> createListing(String userId, Map<String, dynamic> data, {Map<String, dynamic>? aiResult}) async {
-    final double parsedPrice = double.tryParse(data['price']?.toString() ?? '0') ?? 0;
+  Future<void> createListing(
+    String userId,
+    Map<String, dynamic> data, {
+    Map<String, dynamic>? aiResult,
+  }) async {
+    final double parsedPrice =
+        double.tryParse(data['price']?.toString() ?? '0') ?? 0;
     num? parseScore(dynamic value) {
       if (value is num) return value;
       if (value == null) return null;
@@ -477,7 +581,8 @@ class SocialService {
 
     final num? aiScore = parseScore(aiResult?['score'] ?? data['ai_score']);
     final String? aiDescription =
-        aiResult?['description']?.toString() ?? data['ai_description']?.toString();
+        aiResult?['description']?.toString() ??
+        data['ai_description']?.toString();
     // 1. Sanitize payload for 'listings' table
     final sanitizedData = {
       'user_id': userId,
@@ -486,7 +591,8 @@ class SocialService {
       'description': data['description'],
       'price': parsedPrice,
       'price_ugx': parsedPrice,
-      'image_url': data['thumbnail_url'] ?? data['media_url'] ?? data['image_url'],
+      'image_url':
+          data['thumbnail_url'] ?? data['media_url'] ?? data['image_url'],
       'media_url': data['media_url'],
       'thumbnail_url': data['thumbnail_url'] ?? data['media_url'],
       'media_type': data['media_type'] ?? 'image',
@@ -496,25 +602,35 @@ class SocialService {
       'ai_description': aiDescription,
       'status': 'active', // Force active so it shows in the feed immediately
       'photos': data['photos'] ?? [],
-      'sku': data['sku'] ?? 'SKU-${DateTime.now().millisecondsSinceEpoch}',
+      'sku': data['sku'],
       'stock_count': data['stock_count'] ?? 999,
+      'tags': data['tags'] ?? [],
+      'weight_kg': data['weight_kg'],
+      'length_cm': data['length_cm'],
+      'width_cm': data['width_cm'],
+      'height_cm': data['height_cm'],
+      'latitude': data['latitude'],
+      'longitude': data['longitude'],
       'category': data['category'] ?? 'General',
       'film_hub_content': data['media_url'],
     };
 
     try {
-      final res = await client.functions.invoke('clever-processor', body: {
-        'action': 'create-listing',
-        'payload': {
-          ...sanitizedData,
-          'media_url': data['media_url'],
-          'media_type': data['media_type'] ?? 'image',
-          'photos': data['photos'] ?? [],
-          'music_track_id': data['music_track_id'],
-          'audio_url': data['audio_url'],
+      final res = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'create-listing',
+          'payload': {
+            ...sanitizedData,
+            'media_url': data['media_url'],
+            'media_type': data['media_type'] ?? 'image',
+            'photos': data['photos'] ?? [],
+            'music_track_id': data['music_track_id'],
+            'audio_url': data['audio_url'],
+          },
         },
-      });
-      
+      );
+
       if (res.data?['success'] == true) {
         final listing = res.data['data'];
         if (listing != null) {
@@ -526,10 +642,14 @@ class SocialService {
     } catch (e) {
       debugPrint('Redis Listing Creation Error: $e');
       // Fallback: Use direct insert + select with profile JOIN
-      final res = await client.from('listings').insert(sanitizedData)
-          .select('*, profiles:user_id(full_name, avatar_url, trust_score_tier)')
+      final res = await client
+          .from('listings')
+          .insert(sanitizedData)
+          .select(
+            '*, profiles:user_id(full_name, avatar_url, trust_score_tier)',
+          )
           .single();
-      
+
       await LocalDbService().saveListings([res]);
       state.notify();
     }
@@ -539,7 +659,9 @@ class SocialService {
     try {
       final res = await client
           .from('listings')
-          .select('id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)')
+          .select(
+            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)',
+          )
           .eq('user_id', userId)
           .order('created_at', ascending: false)
           .limit(20);
@@ -555,24 +677,27 @@ class SocialService {
     try {
       // 🚀 COMMUNITY V2: NEURAL SYNC
       // Call Edge Function to handle both Supabase persistence and Redis feed caching
-      final res = await client.functions.invoke('clever-processor', body: {
-        'action': 'create-post',
-        'payload': {
-          'title': data['title'],
-          'content': data['content'],
-          'media_url': data['media_url'],
-          'thumbnail_url': data['thumbnail_url'],
-          'media_type': data['media_type'] ?? 'image',
-          'media_asset_id': data['media_asset_id'],
-          'audio_url': data['audio_url'],
-          'tags': data['tags'] ?? [],
-          'creator_mode': data['creator_mode'] ?? 'unified',
-          'is_fast_sync': data['is_fast_sync'] ?? false,
-          'gallery_urls': data['gallery_urls'] ?? [],
-          'editing_metadata': data['editing_metadata'] ?? {},
-          'artist_metadata': data['artist_metadata'] ?? {},
-        }
-      });
+      final res = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'create-post',
+          'payload': {
+            'title': data['title'],
+            'content': data['content'],
+            'media_url': data['media_url'],
+            'thumbnail_url': data['thumbnail_url'],
+            'media_type': data['media_type'] ?? 'image',
+            'media_asset_id': data['media_asset_id'],
+            'audio_url': data['audio_url'],
+            'tags': data['tags'] ?? [],
+            'creator_mode': data['creator_mode'] ?? 'unified',
+            'is_fast_sync': data['is_fast_sync'] ?? false,
+            'gallery_urls': data['gallery_urls'] ?? [],
+            'editing_metadata': data['editing_metadata'] ?? {},
+            'artist_metadata': data['artist_metadata'] ?? {},
+          },
+        },
+      );
 
       if (res.data != null && res.data['success'] == true) {
         final post = res.data['data'];
@@ -580,27 +705,31 @@ class SocialService {
           // 🛡️ IMMEDIATE LOCAL PERSISTENCE
           final localDb = LocalDbService();
           await localDb.saveCommunityPosts([post]);
-          
+
           debugPrint('🎬 SocialService: New post persisted locally.');
           state.notify(); // 🚀 Trigger UI update
         }
       }
     } catch (e) {
       debugPrint('Edge Function Post Creation Error: $e');
-      
+
       // Fallback: Direct insert + select with profile JOIN
       try {
-        final res = await client.from('community_posts').insert({
-          'author_id': userId,
-          'title': data['title'],
-          'content': data['content'],
-          'media_url': data['media_url'],
-          'media_type': data['media_type'] ?? 'image',
-          'status': 'verified',
-        })
-        .select('*, profiles:author_id(full_name, avatar_url, trust_score_tier)')
-        .single();
-        
+        final res = await client
+            .from('community_posts')
+            .insert({
+              'author_id': userId,
+              'title': data['title'],
+              'content': data['content'],
+              'media_url': data['media_url'],
+              'media_type': data['media_type'] ?? 'image',
+              'status': 'verified',
+            })
+            .select(
+              '*, profiles:author_id(full_name, avatar_url, trust_score_tier)',
+            )
+            .single();
+
         await LocalDbService().saveCommunityPosts([res]);
         state.notify();
       } catch (e2) {
@@ -613,12 +742,13 @@ class SocialService {
     try {
       // 🚀 COMMUNITY V2: NEURAL SYNC
       // Call Edge Function to handle both Supabase deletion and Redis cache removal
-      await client.functions.invoke('clever-processor', body: {
-        'action': 'delete-post',
-        'payload': {
-          'post_id': postId,
-        }
-      });
+      await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'delete-post',
+          'payload': {'post_id': postId},
+        },
+      );
 
       // 🛡️ IMMEDIATE LOCAL CLEANUP
       final localDb = LocalDbService();
@@ -630,7 +760,6 @@ class SocialService {
       rethrow;
     }
   }
-
 
   Future<void> toggleReaction(String postId) async {
     final localDb = LocalDbService();
@@ -646,17 +775,29 @@ class SocialService {
 
     // 2. Try to sync immediately
     try {
-      await client.functions.invoke('clever-processor', body: {
-        'action': 'toggle-like',
-        'payload': {'post_id': postId},
-      });
-      
+      await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'toggle-like',
+          'payload': {'post_id': postId},
+        },
+      );
+
       // 🚀 NOTIFIER SYNC (Local & Remote)
-      await dispatchSocialNotification('like', postId, 'New Like!', 'Someone loved your post on Necxa.');
+      await dispatchSocialNotification(
+        'like',
+        postId,
+        'New Like!',
+        'Someone loved your post on Necxa.',
+      );
     } catch (e) {
       debugPrint('Offline Like Queued: $e');
       // Even if offline, we show local feedback if we want "connected" feel
-      await _showLocalNotification('like', 'Like Queued', 'Your reaction will sync when you are back online.');
+      await _showLocalNotification(
+        'like',
+        'Like Queued',
+        'Your reaction will sync when you are back online.',
+      );
     }
   }
 
@@ -667,13 +808,13 @@ class SocialService {
     try {
       // 🚀 COMMUNITY V2: NEURAL SYNC (REDIS)
       // Delegating to Edge Function to handle Supabase + Redis + Notifs atomically
-      await client.functions.invoke('clever-processor', body: {
-        'action': 'create-comment',
-        'payload': {
-          'post_id': postId,
-          'content': content,
-        }
-      });
+      await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'create-comment',
+          'payload': {'post_id': postId, 'content': content},
+        },
+      );
 
       // 🚀 OPTIMISTIC UPDATE: Increment local comment count
       final localDb = LocalDbService();
@@ -681,7 +822,11 @@ class SocialService {
       state.notify();
 
       // Local Alert for immediate UX
-      await _showLocalNotification('comment', 'Comment Posted', 'Your thought has joined the neural grid.');
+      await _showLocalNotification(
+        'comment',
+        'Comment Posted',
+        'Your thought has joined the neural grid.',
+      );
     } catch (e) {
       debugPrint('Comment Creation Error: $e');
       rethrow;
@@ -691,25 +836,28 @@ class SocialService {
   /// 🚀 NEURAL PULSE: Fetch comments from Redis/Backend
   Future<List<Map<String, dynamic>>> fetchComments(String postId) async {
     final localDb = LocalDbService();
-    
+
     // 1. serve local cache immediately (Persistent)
     final cached = await localDb.getCachedComments(postId);
-    
+
     if (!await _isOnline()) return cached;
 
     try {
-      final response = await client.functions.invoke('clever-processor', body: {
-        'action': 'fetch-comments',
-        'payload': {'post_id': postId}
-      });
+      final response = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'fetch-comments',
+          'payload': {'post_id': postId},
+        },
+      );
 
       if (response.status == 200 && response.data != null) {
         final List<dynamic> raw = response.data['data'] ?? [];
         final comments = raw.cast<Map<String, dynamic>>();
-        
+
         // 2. Persist to Local DB
         await localDb.saveComments(postId, comments);
-        
+
         return comments;
       }
     } catch (e) {
@@ -718,7 +866,12 @@ class SocialService {
     return cached;
   }
 
-  Future<void> dispatchSocialNotification(String type, String targetId, String title, String body) async {
+  Future<void> dispatchSocialNotification(
+    String type,
+    String targetId,
+    String title,
+    String body,
+  ) async {
     // 1. Local Alert & DB Persistence
     await _showLocalNotification(type, title, body);
 
@@ -726,25 +879,36 @@ class SocialService {
     await notifySocialEvent(type, targetId);
   }
 
-  Future<void> _showLocalNotification(String type, String title, String body) async {
+  Future<void> _showLocalNotification(
+    String type,
+    String title,
+    String body,
+  ) async {
     final NotificationService ns = NotificationService();
     await ns.simulateNotification(type, title, body);
   }
 
-  Future<void> notifySocialEvent(String type, String targetId, {Map<String, dynamic>? metadata}) async {
+  Future<void> notifySocialEvent(
+    String type,
+    String targetId, {
+    Map<String, dynamic>? metadata,
+  }) async {
     try {
       // 🚀 COMMUNITY V2: NEURAL SYNC (REDIS)
       // Invoke the processor with a notification trigger
-      await client.functions.invoke('clever-processor', body: {
-        'action': 'trigger-notification',
-        'payload': {
-          'type': type,
-          'target_id': targetId,
-          'actor_id': client.auth.currentUser?.id,
-          'timestamp': DateTime.now().toIso8601String(),
-          'metadata': metadata ?? {},
-        }
-      });
+      await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'trigger-notification',
+          'payload': {
+            'type': type,
+            'target_id': targetId,
+            'actor_id': client.auth.currentUser?.id,
+            'timestamp': DateTime.now().toIso8601String(),
+            'metadata': metadata ?? {},
+          },
+        },
+      );
       debugPrint('🔔 SocialService: Redis Notification Triggered [$type]');
     } catch (e) {
       debugPrint('Notification Trigger Error: $e');
@@ -754,9 +918,10 @@ class SocialService {
   /// 🚀 NEURAL PULSE: Fetch real-time alerts from Redis
   Future<List<Map<String, dynamic>>> fetchRedisNotifications() async {
     try {
-      final response = await client.functions.invoke('clever-processor', body: {
-        'action': 'fetch-notifications',
-      });
+      final response = await client.functions.invoke(
+        'clever-processor',
+        body: {'action': 'fetch-notifications'},
+      );
 
       if (response.status == 200 && response.data != null) {
         final List<dynamic> raw = response.data['data'] ?? [];
@@ -776,12 +941,17 @@ class SocialService {
     for (var action in actions) {
       try {
         if (action['action_type'] == 'like') {
-          await client.functions.invoke('clever-processor', body: {
-            'action': 'toggle-like',
-            'payload': {'post_id': action['post_id']},
-          });
+          await client.functions.invoke(
+            'clever-processor',
+            body: {
+              'action': 'toggle-like',
+              'payload': {'post_id': action['post_id']},
+            },
+          );
         } else if (action['action_type'] == 'follow') {
-          await toggleFollow(action['post_id']); // post_id is used as target_user_id here
+          await toggleFollow(
+            action['post_id'],
+          ); // post_id is used as target_user_id here
         }
         // Remove on success
         await localDb.removeAction(action['id']);
@@ -793,7 +963,7 @@ class SocialService {
 
   Future<Map<String, dynamic>?> getProfile(String userId) async {
     if (_profileCache.containsKey(userId)) return _profileCache[userId];
-    
+
     // 1. Check Local DB first (Offline Resilience)
     final localDb = LocalDbService();
     final cached = await localDb.getProfile(userId);
@@ -815,12 +985,14 @@ class SocialService {
           .select('*')
           .eq('id', userId)
           .maybeSingle();
-      
+
       if (res != null) {
         final normalized = {
           'display_name': res['full_name'],
           'photo_url': res['avatar_url'],
-          'is_verified': res['trust_score_tier'] == 'titan_trust' || res['trust_score_tier'] == 'verified',
+          'is_verified':
+              res['trust_score_tier'] == 'titan_trust' ||
+              res['trust_score_tier'] == 'verified',
         };
         _profileCache[userId] = normalized;
         return normalized;
@@ -836,17 +1008,24 @@ class SocialService {
     _profileCache.remove(userId); // Invalidate cache
   }
 
-  Future<String?> registerMediaAsset(String userId, Map<String, dynamic> data) async {
+  Future<String?> registerMediaAsset(
+    String userId,
+    Map<String, dynamic> data,
+  ) async {
     try {
-      final res = await client.from('media_assets').insert({
-        'creator_id': userId,
-        'asset_type': data['asset_type'] ?? 'original_sound',
-        'url': data['url'],
-        'title': data['title'] ?? 'Original Sound',
-        'description': data['description'],
-        'metadata': data['metadata'] ?? {},
-      }).select('id').single();
-      
+      final res = await client
+          .from('media_assets')
+          .insert({
+            'creator_id': userId,
+            'asset_type': data['asset_type'] ?? 'original_sound',
+            'url': data['url'],
+            'title': data['title'] ?? 'Original Sound',
+            'description': data['description'],
+            'metadata': data['metadata'] ?? {},
+          })
+          .select('id')
+          .single();
+
       return res['id'] as String?;
     } catch (e) {
       debugPrint('Media Registration Error: $e');
@@ -864,12 +1043,16 @@ class SocialService {
     }
   }
 
-  Future<void> logVerification(String userId, String type, Map<String, dynamic> report) async {
+  Future<void> logVerification(
+    String userId,
+    String type,
+    Map<String, dynamic> report,
+  ) async {
     try {
       await client.from('verifications').insert({
         'user_id': userId,
         'status': report['verified'] == true ? 'verified' : 'rejected',
-        'details': report
+        'details': report,
       });
     } catch (e) {
       debugPrint('Verification Logging Error: $e');
@@ -888,25 +1071,39 @@ class SocialService {
 
     // 2. Try to sync immediately
     try {
-      final existing = await client
-          .from('creator_followers')
-          .select()
-          .match({'follower_id': userId, 'creator_id': targetUserId})
-          .maybeSingle();
+      final existing = await client.from('creator_followers').select().match({
+        'follower_id': userId,
+        'creator_id': targetUserId,
+      }).maybeSingle();
 
       if (existing != null) {
-        await client.from('creator_followers').delete().match({'follower_id': userId, 'creator_id': targetUserId});
+        await client.from('creator_followers').delete().match({
+          'follower_id': userId,
+          'creator_id': targetUserId,
+        });
       } else {
-        await client.from('creator_followers').insert({'follower_id': userId, 'creator_id': targetUserId});
+        await client.from('creator_followers').insert({
+          'follower_id': userId,
+          'creator_id': targetUserId,
+        });
         // 🚀 NOTIFIER SYNC
-        await dispatchSocialNotification('follow', targetUserId, 'New Follower!', 'Someone started following you on Necxa.');
+        await dispatchSocialNotification(
+          'follow',
+          targetUserId,
+          'New Follower!',
+          'Someone started following you on Necxa.',
+        );
       }
     } catch (e) {
       debugPrint('Offline Follow Queued: $e');
     }
   }
 
-  Future<void> reportContent(String targetId, String type, String reason) async {
+  Future<void> reportContent(
+    String targetId,
+    String type,
+    String reason,
+  ) async {
     final userId = client.auth.currentUser?.id;
     await client.from('reports').insert({
       'reporter_id': userId,
@@ -921,18 +1118,28 @@ class SocialService {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return;
 
-    final existing = await client
-        .from('saved_posts')
-        .select()
-        .match({'user_id': userId, 'post_id': postId})
-        .maybeSingle();
+    final existing = await client.from('saved_posts').select().match({
+      'user_id': userId,
+      'post_id': postId,
+    }).maybeSingle();
 
     if (existing != null) {
-      await client.from('saved_posts').delete().match({'user_id': userId, 'post_id': postId});
+      await client.from('saved_posts').delete().match({
+        'user_id': userId,
+        'post_id': postId,
+      });
     } else {
-      await client.from('saved_posts').insert({'user_id': userId, 'post_id': postId});
+      await client.from('saved_posts').insert({
+        'user_id': userId,
+        'post_id': postId,
+      });
       // 🚀 NOTIFIER SYNC
-      await dispatchSocialNotification('save', postId, 'Post Saved', 'You successfully saved this post to your library.');
+      await dispatchSocialNotification(
+        'save',
+        postId,
+        'Post Saved',
+        'You successfully saved this post to your library.',
+      );
     }
   }
 
@@ -957,31 +1164,40 @@ class SocialService {
       debugPrint('Bulk Delete Error: $e');
       // Fallback: Individual deletes if RPC fails
       for (final id in ids) {
-        await client.from('community_posts').update({'status': 'archived'}).eq('id', id);
+        await client
+            .from('community_posts')
+            .update({'status': 'archived'})
+            .eq('id', id);
       }
     }
   }
 
-  Future<void> bulkUpdatePostPrivacy(List<String> ids, String visibility) async {
+  Future<void> bulkUpdatePostPrivacy(
+    List<String> ids,
+    String visibility,
+  ) async {
     try {
-      await client.rpc('bulk_update_post_privacy', params: {
-        'p_post_ids': ids,
-        'p_visibility': visibility
-      });
+      await client.rpc(
+        'bulk_update_post_privacy',
+        params: {'p_post_ids': ids, 'p_visibility': visibility},
+      );
     } catch (e) {
       debugPrint('Bulk Privacy Error: $e');
       for (final id in ids) {
-        await client.from('community_posts').update({'visibility': visibility}).eq('id', id);
+        await client
+            .from('community_posts')
+            .update({'visibility': visibility})
+            .eq('id', id);
       }
     }
   }
 
   Future<void> triggerDataExport(String userId, String email) async {
     try {
-      await client.functions.invoke('data-exporter', body: {
-        'user_id': userId,
-        'email': email,
-      });
+      await client.functions.invoke(
+        'data-exporter',
+        body: {'user_id': userId, 'email': email},
+      );
     } catch (e) {
       debugPrint('Data Export Trigger Error: $e');
       rethrow;
@@ -992,10 +1208,13 @@ class SocialService {
     try {
       // Mark for deletion in 14 days
       final deletionDate = DateTime.now().add(const Duration(days: 14));
-      await client.from('profiles').update({
-        'scheduled_deletion_at': deletionDate.toIso8601String(),
-        'status': 'deleting'
-      }).eq('id', userId);
+      await client
+          .from('profiles')
+          .update({
+            'scheduled_deletion_at': deletionDate.toIso8601String(),
+            'status': 'deleting',
+          })
+          .eq('id', userId);
     } catch (e) {
       debugPrint('Account Deletion Request Error: $e');
       rethrow;

@@ -67,10 +67,22 @@ class EditorExportService {
       );
 
       onStage?.call('Preparing publishing package');
-      final thumbnailFile = File('${tempDir.path}/${projectName}_thumb.jpg');
-      await thumbnailFile.writeAsBytes(
-        base64Decode(base64Encode(await compressedFile.readAsBytes())),
+      final frameDirectory = await Directory.systemTemp.createTemp(
+        'necxa_export_frames_',
       );
+      final frameFiles = await NecxaAI.extractVideoFrameFiles(
+        compressedFile,
+        directory: frameDirectory,
+      );
+      if (frameFiles.isEmpty) {
+        await frameDirectory.delete(recursive: true);
+        return const EditorExportResult(
+          success: false,
+          issues: ['Could not extract video frames for verification'],
+        );
+      }
+      final thumbnailFile = File('${tempDir.path}/${projectName}_thumb.jpg');
+      await frameFiles.first.copy(thumbnailFile.path);
 
       final payload = {
         'project': projectName,
@@ -83,13 +95,16 @@ class EditorExportService {
       };
 
       onStage?.call('Uploading for AI verification');
-      final verification = await NecxaAI.verifyVideoWorker([compressedFile]);
+      final verification = await NecxaAI.verifyVideoWorker(frameFiles);
+      try {
+        await frameDirectory.delete(recursive: true);
+      } catch (_) {}
       final issues = <String>[];
       if (verification['success'] == false) {
         issues.add(
           verification['error']?.toString() ?? 'AI verification failed',
         );
-      } else if (verification['safe'] == false) {
+      } else if (!NecxaAI.moderationVerified(verification)) {
         issues.add('AI verification flagged the content');
       }
 

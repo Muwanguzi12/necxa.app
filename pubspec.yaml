@@ -11,10 +11,10 @@ dependencies:
     sdk: flutter
   google_fonts: ^6.2.1
   supabase_flutter: ^2.12.2
-  device_info_plus: ^9.0.3
+  device_info_plus: ^12.3.0
   geolocator: ^9.0.2
   local_auth: ^2.1.6
-  connectivity_plus: ^6.0.3
+  connectivity_plus: ^7.3.0
   lottie: ^3.1.2
   http: ^1.1.0
   intl: ^0.17.0
@@ -47,7 +47,7 @@ dependencies:
   cloud_functions: ^5.6.2
   flutter_cache_manager: ^3.4.1
   ffmpeg_kit_flutter_min_gpl: ^6.0.3-LTS
-  agora_rtc_engine: ^6.3.0
+  livekit_client: ^2.8.1
   mongo_dart: ^0.10.1
   cached_network_image: ^3.4.1
   google_maps_flutter: ^2.17.1
@@ -83,6 +83,6 @@ flutter:
     - assets/shaders/
 
 dependency_overrides:
-  record_platform_interface: 1.1.0
+  record_platform_interface: 1.4.0
   ffmpeg_kit_flutter_min_gpl:
     path: plugins/ffmpeg_kit_flutter_min_gpl

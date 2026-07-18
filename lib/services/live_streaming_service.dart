@@ -1,129 +1,110 @@
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/foundation.dart';
+import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:mongo_dart/mongo_dart.dart' as mongo;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_state.dart';
 
-/// 🚀 Necxa Live Studio: Core Streaming Engine
-/// Handles high-fidelity video/audio pipelines via Agora and real-time metadata via MongoDB.
+/// Necxa Live Studio: Core Streaming Engine
+/// Handles video/audio via LiveKit and real-time metadata via MongoDB.
 class LiveStreamingService {
   final AppState state;
-  RtcEngine? _engine;
+  Room? _room;
   String? _activeChannelName;
   bool _hostingActiveChannel = false;
-  
-  // Agora Configuration
-  static const String appId = "2d9c22945103407da35ff652bf8c9a2d";
-  
-  // MongoDB Configuration (Real-time Metadata Layer)
+
+  static const String liveKitUrl = 'wss://necxa-live-dtb2j623.livekit.cloud';
+
   mongo.Db? _db;
-  static const String mongoUri = "mongodb://atlas-sql-6630b6a8fed7652b996aeb3d-n5eg1.a.query.mongodb.net/Hakuna?ssl=true&authSource=admin";
-  
+  static const String mongoUri =
+      'mongodb+srv://knestars_db_user:2x54uLtyObmQ9TKm@necxa-cluster.7dgpjye.mongodb.net/necxalive?appName=necxa-Cluster';
+
   LiveStreamingService(this.state);
 
-  /// Exposes the Agora engine for external callers (e.g. silent face pulse snapshot).
-  RtcEngine? get engine => _engine;
-
-  // ── Initialization ──────────────────────────────────────────
+  Room? get room => _room;
 
   Future<void> init() async {
-    // 1. Request Permissions
     await [Permission.camera, Permission.microphone].request();
 
-    // 2. Initialize Agora Engine
-    _engine = createAgoraRtcEngine();
-    await _engine!.initialize(const RtcEngineContext(
-      appId: appId,
-      channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
-    ));
-
-    // 3. Setup Video Enhancement (Superior Filters)
-    await _engine!.enableVideo();
-    await _engine!.setVideoEncoderConfiguration(
-      const VideoEncoderConfiguration(
-        dimensions: VideoDimensions(width: 1080, height: 1920),
-        frameRate: 30,
-        bitrate: 2500, // High-performance 1080p bitrate
-        orientationMode: OrientationMode.orientationModeFixedPortrait,
-      ),
-    );
-
-    // 4. Superior Sound Setup
-    await _engine!.setAudioProfile(
-      profile: AudioProfileType.audioProfileMusicHighQualityStereo,
-      scenario: AudioScenarioType.audioScenarioGameStreaming,
-    );
-
-    // 5. Connect to MongoDB Real-time Layer
     try {
       _db = await mongo.Db.create(mongoUri);
       await _db!.open();
-      debugPrint('🛡️ Necxa Live: MongoDB Connected');
+      debugPrint('Necxa Live: MongoDB Connected');
     } catch (e) {
-      debugPrint('⚠️ Necxa Live: MongoDB Connection Failed: $e');
+      debugPrint('Necxa Live: MongoDB Connection Failed: $e');
     }
   }
 
-  // ── Stream Control ──────────────────────────────────────────
-
-  Future<void> startStreaming(String channelName) async {
-    if (_engine == null) return;
-    
-    // 1. Identity & Location Stamping + Token Acquisition
-    try {
-      final response = await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
-        'action': 'start',
-        'channelId': channelName,
-        'userId': state.user?.id,
+  Future<Map<String, String>> _fetchCredentials({
+    required String action,
+    required String channelName,
+    String? role,
+  }) async {
+    final response = await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
+      'action': action,
+      'channelId': channelName,
+      'userId': state.user?.id,
+      if (role != null) 'role': role,
+      if (action == 'start')
         'metadata': {
           'hostName': state.myProfile?['full_name'] ?? 'Necxa Creator',
           'avatar': state.myProfile?['avatar_url'] ?? '',
           'title': 'Live Studio Session',
         },
+      if (action == 'start')
         'location': {
           'lat': state.currentGps?.latitude ?? 0.0,
           'lng': state.currentGps?.longitude ?? 0.0,
-        }
-      });
+        },
+    });
 
-      if (response.status == 200) {
-        final data = Map<String, dynamic>.from(response.data ?? {});
-        final token = (data['token'] ?? '').toString();
-        if (token.isEmpty) {
-          throw 'Live token was not returned by the server.';
-        }
-        _activeChannelName = channelName;
-        _hostingActiveChannel = true;
-        
-        // 2. Set role as Broadcaster (Host)
-        await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-        
-        // 3. Enable Beauty Filters
-        await _engine!.setBeautyEffectOptions(
-          enabled: true,
-          options: const BeautyOptions(
-            lighteningContrastLevel: LighteningContrastLevel.lighteningContrastHigh,
-            lighteningLevel: 0.8,
-            smoothnessLevel: 0.6,
-            rednessLevel: 0.1,
-            sharpnessLevel: 0.3,
-          ),
-        );
-
-        await _engine!.joinChannel(
-          token: token,
-          channelId: channelName,
-          uid: 0,
-          options: const ChannelMediaOptions(),
-        );
-      } else {
-        throw _functionError(response.data, fallback: 'Authentication failed');
-      }
-    } catch (e) {
-      debugPrint('⚠️ Necxa Live: Start Failed: $e');
-      rethrow;
+    if (response.status != 200) {
+      throw _functionError(response.data, fallback: 'Live authentication failed');
     }
+
+    final data = Map<String, dynamic>.from(response.data ?? {});
+    final token = (data['token'] ?? '').toString();
+    final url = (data['url'] ?? liveKitUrl).toString();
+    if (token.isEmpty) {
+      throw 'Live token was not returned by the server.';
+    }
+    return {'token': token, 'url': url};
+  }
+
+  Future<void> _connect({
+    required String channelName,
+    required String url,
+    required String token,
+    required bool publish,
+  }) async {
+    await _room?.disconnect();
+    _room = Room(
+      roomOptions: const RoomOptions(
+        adaptiveStream: true,
+        dynacast: true,
+        defaultCameraCaptureOptions: CameraCaptureOptions(
+          maxFrameRate: 30,
+        ),
+      ),
+    );
+
+    await _room!.connect(url, token);
+    if (publish) {
+      await _room!.localParticipant?.setCameraEnabled(true);
+      await _room!.localParticipant?.setMicrophoneEnabled(true);
+    }
+    _activeChannelName = channelName;
+  }
+
+  Future<void> startStreaming(String channelName) async {
+    final creds = await _fetchCredentials(action: 'start', channelName: channelName);
+    await _connect(
+      channelName: channelName,
+      url: creds['url']!,
+      token: creds['token']!,
+      publish: true,
+    );
+    _hostingActiveChannel = true;
   }
 
   Future<List<Map<String, dynamic>>> getActiveStreams() async {
@@ -135,49 +116,24 @@ class LiveStreamingService {
         return List<Map<String, dynamic>>.from(response.data);
       }
     } catch (e) {
-      debugPrint('⚠️ Necxa Live: Failed to list active streams: $e');
+      debugPrint('Necxa Live: Failed to list active streams: $e');
     }
     return [];
   }
 
   Future<void> joinAsViewer(String channelName) async {
-    if (_engine == null) return;
-    
-    try {
-      // 1. Fetch token for audience
-      final response = await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
-        'action': 'join',
-        'channelId': channelName,
-        'userId': state.user?.id,
-        'role': 'audience',
-      });
-
-      if (response.status == 200) {
-        final data = Map<String, dynamic>.from(response.data ?? {});
-        final token = (data['token'] ?? '').toString();
-        if (token.isEmpty) {
-          throw 'Viewer live token was not returned by the server.';
-        }
-        _activeChannelName = channelName;
-        _hostingActiveChannel = false;
-
-        // 2. Set role as Audience
-        await _engine!.setClientRole(role: ClientRoleType.clientRoleAudience);
-        
-        // 3. Join securely with token
-        await _engine!.joinChannel(
-          token: token,
-          channelId: channelName,
-          uid: 0,
-          options: const ChannelMediaOptions(),
-        );
-      } else {
-        throw _functionError(response.data, fallback: 'Viewer authentication failed');
-      }
-    } catch (e) {
-      debugPrint('⚠️ Necxa Live: Join as Viewer Failed: $e');
-      rethrow;
-    }
+    final creds = await _fetchCredentials(
+      action: 'join',
+      channelName: channelName,
+      role: 'audience',
+    );
+    await _connect(
+      channelName: channelName,
+      url: creds['url']!,
+      token: creds['token']!,
+      publish: false,
+    );
+    _hostingActiveChannel = false;
   }
 
   Future<void> leaveChannel() async {
@@ -186,9 +142,8 @@ class LiveStreamingService {
     if (shouldStop) {
       await stopStreaming(channelName);
     }
-    if (_engine != null) {
-      await _engine!.leaveChannel();
-    }
+    await _room?.disconnect();
+    _room = null;
     _activeChannelName = null;
     _hostingActiveChannel = false;
   }
@@ -201,62 +156,36 @@ class LiveStreamingService {
         'userId': state.user?.id,
       });
     } catch (e) {
-      debugPrint('⚠️ Necxa Live: Stop sync failed: $e');
+      debugPrint('Necxa Live: Stop sync failed: $e');
     }
   }
 
   Future<void> switchRoleToBroadcaster() async {
-    if (_engine == null) return;
     final channelName = _activeChannelName;
     if (channelName == null) throw 'No active live channel.';
 
-    final response = await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
-      'action': 'join',
-      'channelId': channelName,
-      'userId': state.user?.id,
-      'role': 'publisher',
-    });
-
-    if (response.status != 200) {
-      throw _functionError(response.data, fallback: 'Broadcaster authentication failed');
-    }
-    final data = Map<String, dynamic>.from(response.data ?? {});
-    final token = (data['token'] ?? '').toString();
-    if (token.isEmpty) {
-      throw 'Broadcaster live token was not returned by the server.';
-    }
-
-    await _engine!.renewToken(token);
-    await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-    await _engine!.enableLocalAudio(true);
-    await _engine!.enableLocalVideo(true);
+    final creds = await _fetchCredentials(
+      action: 'join',
+      channelName: channelName,
+      role: 'publisher',
+    );
+    await _connect(
+      channelName: channelName,
+      url: creds['url']!,
+      token: creds['token']!,
+      publish: true,
+    );
   }
 
   Future<void> switchRoleToAudience() async {
-    if (_engine == null) return;
-    final channelName = _activeChannelName;
-    if (channelName != null) {
-      final response = await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
-        'action': 'join',
-        'channelId': channelName,
-        'userId': state.user?.id,
-        'role': 'audience',
-      });
-
-      if (response.status == 200) {
-        final data = Map<String, dynamic>.from(response.data ?? {});
-        final token = (data['token'] ?? '').toString();
-        if (token.isNotEmpty) {
-          await _engine!.renewToken(token);
-        }
-      }
-    }
-    await _engine!.enableLocalAudio(false);
-    await _engine!.enableLocalVideo(false);
-    await _engine!.setClientRole(role: ClientRoleType.clientRoleAudience);
+    await _room?.localParticipant?.setCameraEnabled(false);
+    await _room?.localParticipant?.setMicrophoneEnabled(false);
   }
 
-  // ── Real-time Metadata (MongoDB) ─────────────────────────────
+  Future<void> setAVEnabled(bool enabled) async {
+    await _room?.localParticipant?.setCameraEnabled(enabled);
+    await _room?.localParticipant?.setMicrophoneEnabled(enabled);
+  }
 
   Future<void> pinProduct(String channelId, Map<String, dynamic> product) async {
     if (_db == null) return;
@@ -266,27 +195,6 @@ class LiveStreamingService {
       mongo.modify.set('pinnedProduct', product),
       upsert: true,
     );
-  }
-
-  Future<void> sendLiveGift(String channelId, String userId, Map<String, dynamic> gift) async {
-    if (_db == null) return;
-    final coll = _db!.collection('stream_events');
-    await coll.insert({
-      'channelId': channelId,
-      'userId': userId,
-      'type': 'gift',
-      'data': gift,
-      'timestamp': DateTime.now().toIso8601String(),
-    });
-
-    // Also push a special system comment to stream_chat so everyone sees the gift alert in their feeds!
-    final chatColl = _db!.collection('stream_chat');
-    await chatColl.insert({
-      'channelName': channelId,
-      'userName': gift['userName'] ?? 'Viewer',
-      'text': 'sent a ${gift['name'] ?? 'Gift'} ${gift['emoji'] ?? '🎁'}',
-      'timestamp': DateTime.now().toIso8601String(),
-    });
   }
 
   Future<void> sendCoHostRequest(String channelId, String userId, Map<String, dynamic> metadata) async {
@@ -299,7 +207,7 @@ class LiveStreamingService {
       'data': metadata,
       'timestamp': DateTime.now().toIso8601String(),
     });
-    debugPrint('🛡️ Necxa Live: Co-Host Request Sent to MongoDB');
+    debugPrint('Necxa Live: Co-Host Request Sent to MongoDB');
   }
 
   Future<void> sendCoHostDecision(String channelId, String guestId, bool accepted) async {
@@ -307,7 +215,7 @@ class LiveStreamingService {
     final coll = _db!.collection('stream_events');
     await coll.insert({
       'channelId': channelId,
-      'userId': guestId, // The guest who requested it
+      'userId': guestId,
       'type': 'cohost_decision',
       'data': {'accepted': accepted},
       'timestamp': DateTime.now().toIso8601String(),
@@ -324,9 +232,9 @@ class LiveStreamingService {
         'text': text,
         'timestamp': DateTime.now().toIso8601String(),
       });
-      debugPrint('💬 Necxa Live: Comment Pushed to MongoDB');
+      debugPrint('Necxa Live: Comment Pushed to MongoDB');
     } catch (e) {
-      debugPrint('⚠️ Necxa Live: Failed to push comment: $e');
+      debugPrint('Necxa Live: Failed to push comment: $e');
     }
   }
 
@@ -342,7 +250,7 @@ class LiveStreamingService {
         'text': c['text'] ?? '',
       }).toList();
     } catch (e) {
-      debugPrint('⚠️ Necxa Live: Failed to fetch comments: $e');
+      debugPrint('Necxa Live: Failed to fetch comments: $e');
       return [];
     }
   }
@@ -350,7 +258,6 @@ class LiveStreamingService {
   Stream<Map<String, dynamic>> listenToEvents(String channelId) {
     if (_db == null) return const Stream.empty();
     final coll = _db!.collection('stream_events');
-    // In production, use Change Streams for real-time performance
     return Stream.periodic(const Duration(seconds: 1)).asyncMap((_) async {
       final lastEvent = await coll.findOne(
         mongo.where.eq('channelId', channelId).sortBy('timestamp', descending: true),
@@ -365,10 +272,9 @@ class LiveStreamingService {
     return fallback;
   }
 
-  // ── Disposal ────────────────────────────────────────────────
-
   Future<void> dispose() async {
-    await _engine?.release();
+    await _room?.disconnect();
+    _room = null;
     await _db?.close();
   }
 }
