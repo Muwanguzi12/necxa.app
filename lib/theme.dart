@@ -16,13 +16,13 @@ class C {
     }
   }
 
-  static Color get bg      => isDark ? const Color(0xFF030A14) : const Color(0xFFF9FAFB);
-  static Color get card    => isDark ? const Color(0xFF0A1324) : const Color(0xFFFFFFFF);
-  static Color get surface => isDark ? const Color(0xFF101B2E) : const Color(0xFFF3F4F6);
-  static Color get card2   => isDark ? const Color(0xFF101B2E) : const Color(0xFFF3F4F6);
-  static Color get border  => isDark ? const Color(0xFF1A263D) : const Color(0xFFE5E7EB);
-  static Color get dark    => isDark ? const Color(0xFF1A263D) : const Color(0xFFD1D5DB);
-  static Color get cardDk  => isDark ? const Color(0xFF060F1E) : const Color(0xFFF1F5F9);
+  static Color get bg      => isDark ? const Color(0xFF030A14) : const Color(0xFF9E9E9E);
+  static Color get card    => isDark ? const Color(0xFF0A1324) : const Color(0xFFBDBDBD);
+  static Color get surface => isDark ? const Color(0xFF101B2E) : const Color(0xFFB0B0B0);
+  static Color get card2   => isDark ? const Color(0xFF101B2E) : const Color(0xFFB0B0B0);
+  static Color get border  => isDark ? const Color(0xFF1A263D) : const Color(0xFF757575);
+  static Color get dark    => isDark ? const Color(0xFF1A263D) : const Color(0xFF8A8A8A);
+  static Color get cardDk  => isDark ? const Color(0xFF060F1E) : const Color(0xFFA6A6A6);
   
   static const Color brand   = Color(0xFF00E5FF); // Cyan
   static const Color brandDk = Color(0xFF00B2CC); // Darker Cyan
@@ -118,19 +118,19 @@ List<Color> postGrad(String grad) {
 // ── MaterialApp ThemeData ─────────────────────────────────────
 ThemeData buildLightTheme() => ThemeData(
       brightness: Brightness.light,
-      scaffoldBackgroundColor: const Color(0xFFF9FAFB),
+      scaffoldBackgroundColor: const Color(0xFF9E9E9E),
       colorScheme: const ColorScheme.light(
-        surface: Color(0xFFF9FAFB),
+        surface: Color(0xFF9E9E9E),
         primary: C.brand,
         secondary: C.brandDk,
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFFFFFFFF),
+        backgroundColor: Color(0xFFBDBDBD),
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: Color(0xFF111827)),
       ),
-      dividerColor: const Color(0xFFE5E7EB),
+      dividerColor: const Color(0xFF757575),
       textTheme: GoogleFonts.robotoTextTheme(ThemeData.light().textTheme),
     );
 

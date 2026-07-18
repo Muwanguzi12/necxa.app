@@ -89,6 +89,40 @@ class NecxaAI {
     return headers;
   }
 
+  static Map<String, dynamic> _decodeWorkerResponse({
+    required String body,
+    required int statusCode,
+    required String operation,
+  }) {
+    Map<String, dynamic>? decoded;
+    try {
+      final value = jsonDecode(body);
+      if (value is Map) decoded = Map<String, dynamic>.from(value);
+    } on FormatException {
+      // Cloudflare can return a plain-text or HTML error page instead of JSON.
+    }
+
+    if (statusCode >= 200 && statusCode < 300 && decoded != null) {
+      return decoded;
+    }
+
+    final workerError = decoded?['error']?.toString().trim();
+    final cloudflareCode = RegExp(
+      r'error\s+code:\s*(\d+)',
+      caseSensitive: false,
+    ).firstMatch(body)?.group(1);
+    final serviceMessage = cloudflareCode == '1101'
+        ? 'AI verification is temporarily unavailable. Please try again.'
+        : '$operation failed. Please try again.';
+
+    return {
+      'success': false,
+      'error': workerError?.isNotEmpty == true ? workerError : serviceMessage,
+      'statusCode': statusCode,
+      if (cloudflareCode != null) 'providerErrorCode': cloudflareCode,
+    };
+  }
+
   // ── WORKER: PHOTO MODERATION ──────────────────────────────────────────────
   /// Submits a photo to the Cloudflare Worker's universal content moderation
   /// engine (`/api/verify/photo`). Falls back to Supabase on network error.
@@ -105,7 +139,11 @@ class NecxaAI {
             );
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
-      return jsonDecode(body) as Map<String, dynamic>;
+      return _decodeWorkerResponse(
+        body: body,
+        statusCode: streamed.statusCode,
+        operation: 'Photo verification',
+      );
     } catch (e) {
       debugPrint('⚡ Worker photo verify failed: $e');
       return {'success': false, 'error': e.toString()};
@@ -132,18 +170,20 @@ class NecxaAI {
       }
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-        return {
-          'success': false,
-          'error': decoded['error']?.toString() ?? 'Video verification failed',
-          'statusCode': streamed.statusCode,
-        };
-      }
+      final decoded = _decodeWorkerResponse(
+        body: body,
+        statusCode: streamed.statusCode,
+        operation: 'Video verification',
+      );
+      if (decoded['success'] == false) return decoded;
       return normalizeModerationResponse(decoded);
     } catch (e) {
       debugPrint('⚡ Worker video verify failed: $e');
-      return {'success': false, 'error': e.toString()};
+      return {
+        'success': false,
+        'error':
+            'AI verification is temporarily unavailable. Please try again.',
+      };
     }
   }
 
@@ -252,10 +292,20 @@ class NecxaAI {
             ..files.add(await http.MultipartFile.fromPath('photo', photo.path));
       final streamed = await req.send().timeout(const Duration(seconds: 15));
       final body = await streamed.stream.bytesToString();
-      return jsonDecode(body) as Map<String, dynamic>;
+      return _decodeWorkerResponse(
+        body: body,
+        statusCode: streamed.statusCode,
+        operation: 'Listing verification',
+      );
     } catch (e) {
       debugPrint('⚡ Worker listing verify failed: $e');
-      return {'verified': false, 'score': 0, 'error': e.toString()};
+      return {
+        'success': false,
+        'verified': false,
+        'score': 0,
+        'error':
+            'Listing verification is temporarily unavailable. Please try again.',
+      };
     }
   }
 
