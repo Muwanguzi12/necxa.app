@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -12,6 +14,14 @@ class LiveStreamingService {
   Room? _room;
   String? _activeChannelName;
   bool _hostingActiveChannel = false;
+  bool _metadataConnectionStarted = false;
+  bool _disposed = false;
+
+  static const Duration _permissionTimeout = Duration(seconds: 15);
+  static const Duration _backendTimeout = Duration(seconds: 20);
+  static const Duration _roomTimeout = Duration(seconds: 25);
+  static const Duration _trackTimeout = Duration(seconds: 12);
+  static const Duration _metadataTimeout = Duration(seconds: 8);
 
   static const String liveKitUrl = 'wss://necxa-live-dtb2j623.livekit.cloud';
 
@@ -23,15 +33,44 @@ class LiveStreamingService {
 
   Room? get room => _room;
 
+  /// Starts optional metadata support without blocking the video engine.
   Future<void> init() async {
-    await [Permission.camera, Permission.microphone].request();
+    if (_metadataConnectionStarted || _db != null || _disposed) return;
+    _metadataConnectionStarted = true;
+    unawaited(_connectMetadataStore());
+  }
 
+  Future<void> _connectMetadataStore() async {
+    mongo.Db? db;
     try {
-      _db = await mongo.Db.create(mongoUri);
-      await _db!.open();
+      db = await mongo.Db.create(mongoUri);
+      await db.open().timeout(
+        _metadataTimeout,
+        onTimeout: () => throw TimeoutException('Live metadata connection timed out.'),
+      );
+      if (_disposed) {
+        await db.close();
+        return;
+      }
+      _db = db;
       debugPrint('Necxa Live: MongoDB Connected');
     } catch (e) {
+      await db?.close();
       debugPrint('Necxa Live: MongoDB Connection Failed: $e');
+    } finally {
+      _metadataConnectionStarted = false;
+    }
+  }
+
+  Future<void> _ensurePublishingPermissions() async {
+    final statuses = await [Permission.camera, Permission.microphone].request().timeout(
+      _permissionTimeout,
+      onTimeout: () => throw TimeoutException('Camera and microphone permission request timed out.'),
+    );
+    final cameraGranted = statuses[Permission.camera]?.isGranted ?? false;
+    final microphoneGranted = statuses[Permission.microphone]?.isGranted ?? false;
+    if (!cameraGranted || !microphoneGranted) {
+      throw 'Camera and microphone permissions are required to go live.';
     }
   }
 
@@ -56,7 +95,10 @@ class LiveStreamingService {
           'lat': state.currentGps?.latitude ?? 0.0,
           'lng': state.currentGps?.longitude ?? 0.0,
         },
-    });
+    }).timeout(
+      _backendTimeout,
+      onTimeout: () => throw TimeoutException('The live authentication server did not respond.'),
+    );
 
     if (response.status != 200) {
       throw _functionError(response.data, fallback: 'Live authentication failed');
@@ -77,8 +119,16 @@ class LiveStreamingService {
     required String token,
     required bool publish,
   }) async {
-    await _room?.disconnect();
-    _room = Room(
+    final previousRoom = _room;
+    if (previousRoom != null) {
+      try {
+        await previousRoom.disconnect().timeout(const Duration(seconds: 5));
+      } catch (e) {
+        debugPrint('Necxa Live: Previous room cleanup failed: $e');
+      }
+    }
+
+    final nextRoom = Room(
       roomOptions: const RoomOptions(
         adaptiveStream: true,
         dynacast: true,
@@ -87,16 +137,38 @@ class LiveStreamingService {
         ),
       ),
     );
+    _room = nextRoom;
 
-    await _room!.connect(url, token);
-    if (publish) {
-      await _room!.localParticipant?.setCameraEnabled(true);
-      await _room!.localParticipant?.setMicrophoneEnabled(true);
+    try {
+      await nextRoom.connect(url, token).timeout(
+        _roomTimeout,
+        onTimeout: () => throw TimeoutException('The live video room did not connect.'),
+      );
+      if (publish) {
+        await nextRoom.localParticipant?.setCameraEnabled(true).timeout(
+          _trackTimeout,
+          onTimeout: () => throw TimeoutException('The camera did not start.'),
+        );
+        await nextRoom.localParticipant?.setMicrophoneEnabled(true).timeout(
+          _trackTimeout,
+          onTimeout: () => throw TimeoutException('The microphone did not start.'),
+        );
+      }
+      _activeChannelName = channelName;
+    } catch (_) {
+      try {
+        await nextRoom.disconnect().timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Preserve the original startup error.
+      }
+      if (identical(_room, nextRoom)) _room = null;
+      rethrow;
     }
-    _activeChannelName = channelName;
   }
 
   Future<void> startStreaming(String channelName) async {
+    // Check permissions before the backend creates an active stream record.
+    await _ensurePublishingPermissions();
     final creds = await _fetchCredentials(action: 'start', channelName: channelName);
     await _connect(
       channelName: channelName,
@@ -164,6 +236,7 @@ class LiveStreamingService {
     final channelName = _activeChannelName;
     if (channelName == null) throw 'No active live channel.';
 
+    await _ensurePublishingPermissions();
     final creds = await _fetchCredentials(
       action: 'join',
       channelName: channelName,
@@ -256,9 +329,10 @@ class LiveStreamingService {
   }
 
   Stream<Map<String, dynamic>> listenToEvents(String channelId) {
-    if (_db == null) return const Stream.empty();
-    final coll = _db!.collection('stream_events');
     return Stream.periodic(const Duration(seconds: 1)).asyncMap((_) async {
+      final db = _db;
+      if (db == null) return <String, dynamic>{};
+      final coll = db.collection('stream_events');
       final lastEvent = await coll.findOne(
         mongo.where.eq('channelId', channelId).sortBy('timestamp', descending: true),
       );
@@ -273,6 +347,7 @@ class LiveStreamingService {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
     await _room?.disconnect();
     _room = null;
     await _db?.close();

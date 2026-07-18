@@ -39,6 +39,9 @@ class LiveStudioScreen extends StatefulWidget {
 class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBindingObserver {
   bool _localUserJoined = false;
   String? _initError;
+  bool _isInitializing = false;
+  int _automaticAuthRetries = 0;
+  static const int _maxAutomaticAuthRetries = 1;
 
   // Co-Hosting & Guest Interaction State
   bool _isRequestPending = false;
@@ -80,7 +83,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     WidgetsBinding.instance.addObserver(this);
     // Check cached verification state BEFORE calling initAgora.
     // If already verified within 30 days the user goes live with zero friction.
-    _checkLiveVerificationStatus().then((_) => _initLiveKit());
+    unawaited(_prepareLiveStudio());
 
     // Initialize with empty real comments. Sync will fetch existing comments.
     _liveComments = [];
@@ -102,9 +105,17 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     // Guest requests are driven by live stream events.
   }
 
+  Future<void> _prepareLiveStudio() async {
+    try {
+      await _checkLiveVerificationStatus();
+    } catch (e) {
+      debugPrint('Necxa Live: Verification cache check failed: $e');
+    }
+    if (mounted) await _initLiveKit();
+  }
+
   void _startLiveEventSync() {
     _eventsSubscription?.cancel();
-    _giftEventsSubscription?.cancel();
     _eventsSubscription = widget.state.live.listenToEvents(widget.channelName).listen((event) {
       if (!mounted || event.isEmpty) return;
 
@@ -190,69 +201,107 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   }
 
   Future<void> _initLiveKit() async {
+    if (!mounted || _isInitializing) return;
+    _isInitializing = true;
     final liveService = widget.state.live;
-    
-    if (liveService.room == null) {
-      await liveService.init();
-    }
-    _startLiveEventSync();
+    var retryAfterDelay = false;
 
     try {
-      setState(() {
-        _initError = null;
-        _requiresVerification = false;
-      });
+      if (mounted) {
+        setState(() {
+          _initError = null;
+          _requiresVerification = false;
+        });
+      }
+
+      // Metadata/chat startup is optional and must never block video.
+      await liveService.init();
+      _startLiveEventSync();
+
       if (widget.isHost) {
         await liveService.startStreaming(widget.channelName);
       } else {
         await liveService.joinAsViewer(widget.channelName);
       }
 
+      if (!mounted) return;
       setState(() {
         _localUserJoined = true;
       });
+      _automaticAuthRetries = 0;
 
       // Setup room event listeners to trigger UI updates
+      liveService.room?.removeListener(_onRoomDidUpdate);
       liveService.room?.addListener(_onRoomDidUpdate);
 
       // Once confirmed live as host, start silent periodic face pulse.
       if (widget.isHost) _startSilentFacePulse();
 
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('Necxa Live: Startup failed: $e\n$stackTrace');
+      if (!mounted) return;
       final errStr = e.toString();
       final is403 = errStr.contains('403') || errStr.toLowerCase().contains('identity verification required');
       if (is403) {
-        final verified = await _hasCompletedIdentityVerification();
-        if (verified) {
-          debugPrint('🛡️ Live: 403 received but the user is already signed in or has prior face verification state — retrying in 2s.');
-          await _markLiveVerified();
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) _initLiveKit();
-          return;
+        var verified = false;
+        try {
+          verified = await _hasCompletedIdentityVerification();
+        } catch (verificationError) {
+          debugPrint('Necxa Live: Verification lookup failed: $verificationError');
         }
 
         // Only show the verification card if their cached credential is expired or absent.
-        // Otherwise clear the error and let them retry transparently.
         final prefs = await SharedPreferences.getInstance();
         final rawTs = prefs.getString(_liveVerifPrefKey);
         final lastVerified = rawTs != null ? DateTime.tryParse(rawTs) : null;
         final expired = lastVerified == null || DateTime.now().difference(lastVerified) > _reverifyPeriod;
-        if (expired) {
+
+        if (verified && _automaticAuthRetries < _maxAutomaticAuthRetries) {
+          _automaticAuthRetries++;
+          await _markLiveVerified();
+          retryAfterDelay = true;
+        } else if (!verified && expired) {
           setState(() {
             _initError = 'Identity verification required. Please verify to go live.';
             _requiresVerification = true;
           });
+        } else if (_automaticAuthRetries < _maxAutomaticAuthRetries) {
+          _automaticAuthRetries++;
+          retryAfterDelay = true;
         } else {
-          // Cached credential still valid — the backend should accept on retry.
-          // This path handles a race where the token hasn't propagated yet.
-          debugPrint('🛡️ Live: 403 received but cached credential is fresh — retrying in 2s.');
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) _initLiveKit();
+          setState(() {
+            _initError = 'Live authentication was rejected. Tap retry, or sign in again if it continues.';
+            _requiresVerification = false;
+          });
         }
       } else {
-        setState(() => _initError = errStr);
+        setState(() => _initError = _liveStartupError(e));
+      }
+    } finally {
+      _isInitializing = false;
+    }
+
+    if (retryAfterDelay && mounted) {
+      debugPrint('Necxa Live: Authentication is still propagating; retrying once.');
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) await _initLiveKit();
+    }
+  }
+
+  String _liveStartupError(dynamic error) {
+    if (error is TimeoutException) {
+      final detail = error.message.toLowerCase();
+      if (detail.contains('permission') || detail.contains('camera') || detail.contains('microphone')) {
+        return 'Camera or microphone access took too long. Check app permissions, then tap retry.';
+      }
+      if (detail.contains('authentication')) {
+        return 'The live server took too long to respond. Check your connection, then tap retry.';
+      }
+      if (detail.contains('video room')) {
+        return 'Could not reach the live video service. Check your connection, then tap retry.';
       }
     }
+    return getUserFriendlyError(error);
   }
 
   void _onRoomDidUpdate() {
@@ -395,7 +444,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
 
       await _markLiveVerified();
       widget.state.notify();
-      _initLiveKit();
+      _automaticAuthRetries = 0;
+      await _initLiveKit();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -411,6 +461,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
     _eventsSubscription?.cancel();
+    _giftEventsSubscription?.cancel();
     _stopSilentFacePulse();
     _commentController.dispose();
     widget.state.live.leaveChannel();

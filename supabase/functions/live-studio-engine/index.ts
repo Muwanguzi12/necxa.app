@@ -113,53 +113,62 @@ serve(async (req) => {
           // ── 4. Prevent duplicate live sessions ───────────────────────────────
           const existing = await streams.findOne({ hostId: userId, status: "live" });
           if (existing) {
-            return json({ error: "You already have an active stream. Please end it before starting a new one." }, 409);
+            if (existing.channelId !== channelId) {
+              return json({ error: "You already have an active stream. Please end it before starting a new one." }, 409);
+            }
+
+            // Retrying the same channel is safe. A previous request may have
+            // written metadata before the device finished joining LiveKit.
+            newStreamId = existing.streamId?.toString() ?? null;
+            mongoSuccess = true;
           }
 
-          // ── 5. Generate unique stream ID ──────────────────────────────────────
-          newStreamId = crypto.randomUUID();
+          if (!existing) {
+            // ── 5. Generate unique stream ID ────────────────────────────────────
+            newStreamId = crypto.randomUUID();
 
-          // ── 7. Structured metadata  ───────────────────────────────────────────
-          const { title = "Live Session", description = "", thumbnail = "", category = "", tags = [] } = metadata as Record<string, unknown>;
+            // ── 7. Structured metadata  ─────────────────────────────────────────
+            const { title = "Live Session", description = "", thumbnail = "", category = "", tags = [] } = metadata as Record<string, unknown>;
 
-          await streams.insertOne({
-            // Identity
-            streamId:    newStreamId,
-            channelId,
-            hostId:      userId,
-            status:      "live",
+            await streams.insertOne({
+              // Identity
+              streamId:    newStreamId,
+              channelId,
+              hostId:      userId,
+              status:      "live",
 
-            // Metadata
-            title,
-            description,
-            thumbnail,
-            category,
-            tags,
-            location,
+              // Metadata
+              title,
+              description,
+              thumbnail,
+              category,
+              tags,
+              location,
 
-            // Engagement counters
-            viewerCount: 0,
-            peakViewers: 0,
-            likes:       0,
-            shares:      0,
+              // Engagement counters
+              viewerCount: 0,
+              peakViewers: 0,
+              likes:       0,
+              shares:      0,
 
-            // Recording
-            recording:    false,
-            recordingId:  null,
-            playbackUrl:  null,
-            duration:     null,
+              // Recording
+              recording:    false,
+              recordingId:  null,
+              playbackUrl:  null,
+              duration:     null,
 
-            // Moderation
-            isVerified:  true,
-            isReported:  false,
-            reportCount: 0,
+              // Moderation
+              isVerified:  true,
+              isReported:  false,
+              reportCount: 0,
 
-            // Timestamps
-            startedAt: new Date(),
-            createdAt: new Date(),
-          });
+              // Timestamps
+              startedAt: new Date(),
+              createdAt: new Date(),
+            });
 
-          mongoSuccess = true;
+            mongoSuccess = true;
+          }
 
         } else if (action === "join") {
           // Increment viewerCount; keep peakViewers as the all-time high
