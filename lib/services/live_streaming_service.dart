@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:mongo_dart/mongo_dart.dart' as mongo;
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_state.dart';
 
 /// Necxa Live Studio: Core Streaming Engine
@@ -24,6 +25,14 @@ class LiveStreamingService {
   static const Duration _metadataTimeout = Duration(seconds: 8);
 
   static const String liveKitUrl = 'wss://necxa-live-dtb2j623.livekit.cloud';
+  static const String liveBackendUrl = String.fromEnvironment(
+    'NECXA_LIVE_SUPABASE_URL',
+    defaultValue: 'https://ayvescksetiuekoyfqar.supabase.co',
+  );
+  static const String liveBackendPublishableKey = String.fromEnvironment(
+    'NECXA_LIVE_SUPABASE_PUBLISHABLE_KEY',
+    defaultValue: 'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT',
+  );
 
   mongo.Db? _db;
   static const String mongoUri =
@@ -79,7 +88,7 @@ class LiveStreamingService {
     required String channelName,
     String? role,
   }) async {
-    final response = await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
+    final response = await _invokeLiveBackend({
       'action': action,
       'channelId': channelName,
       'userId': state.user?.id,
@@ -95,22 +104,42 @@ class LiveStreamingService {
           'lat': state.currentGps?.latitude ?? 0.0,
           'lng': state.currentGps?.longitude ?? 0.0,
         },
-    }).timeout(
-      _backendTimeout,
-      onTimeout: () => throw TimeoutException('The live authentication server did not respond.'),
-    );
+    });
 
-    if (response.status != 200) {
-      throw _functionError(response.data, fallback: 'Live authentication failed');
-    }
-
-    final data = Map<String, dynamic>.from(response.data ?? {});
+    final data = Map<String, dynamic>.from(response as Map? ?? const {});
     final token = (data['token'] ?? '').toString();
     final url = (data['url'] ?? liveKitUrl).toString();
     if (token.isEmpty) {
       throw 'Live token was not returned by the server.';
     }
     return {'token': token, 'url': url};
+  }
+
+  Future<dynamic> _invokeLiveBackend(Map<String, dynamic> body) async {
+    final response = await http.post(
+      Uri.parse('$liveBackendUrl/functions/v1/live-studio-engine'),
+      headers: {
+        'apikey': liveBackendPublishableKey,
+        'Authorization': 'Bearer $liveBackendPublishableKey',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    ).timeout(
+      _backendTimeout,
+      onTimeout: () => throw TimeoutException('The live authentication server did not respond.'),
+    );
+
+    dynamic data;
+    try {
+      data = response.body.trim().isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+    } on FormatException {
+      throw 'The live server returned an unreadable response.';
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw _functionError(data, fallback: 'Live authentication failed');
+    }
+    return data;
   }
 
   Future<void> _connect({
@@ -181,12 +210,10 @@ class LiveStreamingService {
 
   Future<List<Map<String, dynamic>>> getActiveStreams() async {
     try {
-      final response = await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
+      final response = await _invokeLiveBackend({
         'action': 'list_active',
       });
-      if (response.status == 200) {
-        return List<Map<String, dynamic>>.from(response.data);
-      }
+      if (response is List) return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Necxa Live: Failed to list active streams: $e');
     }
@@ -222,7 +249,7 @@ class LiveStreamingService {
 
   Future<void> stopStreaming(String channelName) async {
     try {
-      await Supabase.instance.client.functions.invoke('live-studio-engine', body: {
+      await _invokeLiveBackend({
         'action': 'stop',
         'channelId': channelName,
         'userId': state.user?.id,
