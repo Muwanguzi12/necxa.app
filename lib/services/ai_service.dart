@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -75,6 +76,19 @@ class NecxaAI {
   //            /api/verify/listing, /api/verify/live-frame,
   //            /api/assistant/chat/sync
   static const String _workerBase = 'https://api.necxa.uk';
+  static const Duration _imageVerificationTimeout = Duration(seconds: 45);
+  static const Duration _videoVerificationTimeout = Duration(seconds: 90);
+  static const Duration _audioVerificationTimeout = Duration(seconds: 90);
+
+  static String _verificationRequestError(
+    Object error,
+    String mediaLabel,
+  ) {
+    if (error is TimeoutException) {
+      return '$mediaLabel verification took longer than expected. Check your connection and try again.';
+    }
+    return '$mediaLabel verification could not connect. Check your connection and try again.';
+  }
 
   /// Returns auth headers that forward the logged-in user's primary JWT to
   /// the Cloudflare Worker for cross-service identity resolution.
@@ -137,7 +151,7 @@ class NecxaAI {
             ..files.add(
               await http.MultipartFile.fromPath('photo', photoFile.path),
             );
-      final streamed = await req.send().timeout(const Duration(seconds: 15));
+      final streamed = await req.send().timeout(_imageVerificationTimeout);
       final body = await streamed.stream.bytesToString();
       return _decodeWorkerResponse(
         body: body,
@@ -146,7 +160,10 @@ class NecxaAI {
       );
     } catch (e) {
       debugPrint('⚡ Worker photo verify failed: $e');
-      return {'success': false, 'error': e.toString()};
+      return {
+        'success': false,
+        'error': _verificationRequestError(e, 'Photo'),
+      };
     }
   }
 
@@ -168,7 +185,7 @@ class NecxaAI {
           await http.MultipartFile.fromPath('frame$i', frames[i].path),
         );
       }
-      final streamed = await req.send().timeout(const Duration(seconds: 15));
+      final streamed = await req.send().timeout(_videoVerificationTimeout);
       final body = await streamed.stream.bytesToString();
       final decoded = _decodeWorkerResponse(
         body: body,
@@ -181,8 +198,7 @@ class NecxaAI {
       debugPrint('⚡ Worker video verify failed: $e');
       return {
         'success': false,
-        'error':
-            'AI verification is temporarily unavailable. Please try again.',
+        'error': _verificationRequestError(e, 'Video'),
       };
     }
   }
@@ -265,12 +281,19 @@ class NecxaAI {
             ..files.add(
               await http.MultipartFile.fromPath('audio', audioFile.path),
             );
-      final streamed = await req.send().timeout(const Duration(seconds: 15));
+      final streamed = await req.send().timeout(_audioVerificationTimeout);
       final body = await streamed.stream.bytesToString();
-      return jsonDecode(body) as Map<String, dynamic>;
+      return _decodeWorkerResponse(
+        body: body,
+        statusCode: streamed.statusCode,
+        operation: 'Audio verification',
+      );
     } catch (e) {
       debugPrint('⚡ Worker audio verify failed: $e');
-      return {'success': false, 'error': e.toString()};
+      return {
+        'success': false,
+        'error': _verificationRequestError(e, 'Audio'),
+      };
     }
   }
 
@@ -290,7 +313,7 @@ class NecxaAI {
             ..headers.addAll(_workerHeaders())
             ..fields['title'] = title
             ..files.add(await http.MultipartFile.fromPath('photo', photo.path));
-      final streamed = await req.send().timeout(const Duration(seconds: 15));
+      final streamed = await req.send().timeout(_imageVerificationTimeout);
       final body = await streamed.stream.bytesToString();
       return _decodeWorkerResponse(
         body: body,
@@ -303,8 +326,7 @@ class NecxaAI {
         'success': false,
         'verified': false,
         'score': 0,
-        'error':
-            'Listing verification is temporarily unavailable. Please try again.',
+        'error': _verificationRequestError(e, 'Listing'),
       };
     }
   }
