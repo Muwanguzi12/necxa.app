@@ -799,6 +799,45 @@ class TimelineTrack {
 }
 
 class TimelineModelUtils {
+  static bool applyDiscoveredSourceDuration(
+    TimelineClip clip,
+    Duration discoveredDuration,
+  ) {
+    if (discoveredDuration <= Duration.zero || clip.sourceEnd != null) {
+      return false;
+    }
+    final available = discoveredDuration - clip.sourceStart;
+    if (available <= Duration.zero) return false;
+
+    clip.sourceEnd = discoveredDuration;
+    clip.duration = Duration(
+      milliseconds: (available.inMilliseconds / clip.speed).round(),
+    );
+    if (clip.operation is TrimOperation) {
+      (clip.operation as TrimOperation).end = discoveredDuration;
+    }
+    return true;
+  }
+
+  static void reflowInitialVisualClips(List<TimelineTrack> tracks) {
+    final clips =
+        tracks
+            .where(
+              (track) =>
+                  track.type == TrackType.video ||
+                  track.type == TrackType.images,
+            )
+            .expand((track) => track.clips)
+            .where((clip) => clip.id.startsWith('initial-'))
+            .toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+    var cursor = Duration.zero;
+    for (final clip in clips) {
+      clip.start = cursor;
+      cursor += clip.duration;
+    }
+  }
+
   static TimelineTrack ensureTrackForType(
     List<TimelineTrack> tracks,
     TrackType type, {

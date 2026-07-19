@@ -111,10 +111,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   final AudioPlayer _audioPreviewPlayer = AudioPlayer();
   final Map<String, AudioPlayer> _timelineAudioPlayers =
       <String, AudioPlayer>{};
+  final Map<String, double> _timelineAudioVolumes = <String, double>{};
+  final Map<String, double> _timelineAudioRates = <String, double>{};
   String? _activeVisualClipId;
   TimelineClip? _compositionVisualClip;
   bool _isSynchronizingComposition = false;
+  bool _compositionSyncPending = false;
+  int _videoLoadGeneration = 0;
   DateTime _lastAudioSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastVideoSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
   Duration _lastCompositionTime = Duration.zero;
   String? _activeAudioPreviewUrl;
   File? _voiceOverFile;
@@ -270,6 +275,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Future<void> _loadClip(TimelineClip clip) async {
     if (clip.file == null || !clip.file!.existsSync()) return;
 
+    final loadGeneration = ++_videoLoadGeneration;
+    if (mounted) setState(() => _isVideoReady = false);
+
     if (_videoController != null) {
       final oldCtrl = _videoController!;
       oldCtrl.removeListener(_syncVideoState);
@@ -277,18 +285,50 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       await oldCtrl.dispose();
     }
 
-    _videoController = VideoPlayerController.file(clip.file!)
-      ..initialize().then((_) {
-        if (!mounted) return;
-        setState(() {
-          _isVideoReady = true;
-          clip.sourceEnd ??= _videoController!.value.duration;
-        });
-        _videoController!.setLooping(false);
-        _videoController!.setVolume(clip.volume);
-        _videoController!.setPlaybackSpeed(clip.speed);
-        _seekVideoToTimeline(clip, _playback.state.currentTime);
-      });
+    final controller = VideoPlayerController.file(clip.file!);
+    _videoController = controller;
+    try {
+      await controller.initialize();
+      if (!mounted ||
+          loadGeneration != _videoLoadGeneration ||
+          !identical(controller, _videoController)) {
+        await controller.dispose();
+        return;
+      }
+
+      _applyDiscoveredVideoDuration(clip, controller.value.duration);
+      await controller.setLooping(false);
+      await controller.setVolume(clip.volume);
+      await controller.setPlaybackSpeed(clip.speed);
+      await _seekVideoToTimeline(
+        clip,
+        _playback.state.currentTime,
+        force: true,
+      );
+      if (mounted) setState(() => _isVideoReady = true);
+    } catch (error) {
+      if (loadGeneration == _videoLoadGeneration && mounted) {
+        setState(() => _isVideoReady = false);
+        _showSnack('Unable to prepare this video for playback');
+      }
+      debugPrint('Mobile editor video initialization failed: $error');
+    }
+  }
+
+  void _applyDiscoveredVideoDuration(
+    TimelineClip clip,
+    Duration discoveredDuration,
+  ) {
+    final changed = TimelineModelUtils.applyDiscoveredSourceDuration(
+      clip,
+      discoveredDuration,
+    );
+    if (!changed) return;
+
+    // Initial media is created before its metadata is available. Keep those
+    // clips sequential after replacing their temporary durations.
+    TimelineModelUtils.reflowInitialVisualClips(_tracks);
+    _playback.updateProject(_tracks);
   }
 
   @override
@@ -2578,8 +2618,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           (candidate) => candidate.id == _selectedTrackId,
         );
       });
-      _loadClip(insertedClips.last);
       _playback.updateProject(_tracks);
+      _playback.seek(insertedClips.last.start, _tracks);
     }
 
     if (mounted) {
@@ -2786,7 +2826,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _compositionVisualClip = null;
     });
     _playback.updateProject(_tracks);
-    _synchronizeComposition();
+    _queueCompositionSync();
   }
 
   Future<void> _showProSheet() async {
@@ -3041,10 +3081,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
   }
 
-  void _togglePlayback() {
+  Future<void> _togglePlayback() async {
     if (_playback.state.isPlaying) {
       _playback.pause();
     } else {
+      // A library preview is intentionally separate from composition audio.
+      // Stop it before starting the shared timeline transport.
+      await _stopAudioPreview();
+      if (!mounted) return;
       _playback.play(_tracks);
     }
   }
@@ -3057,108 +3101,150 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _totalDuration = state.duration;
       _isPlaying = state.isPlaying;
     });
-    _synchronizeComposition();
+    _queueCompositionSync();
   }
 
-  Future<void> _synchronizeComposition() async {
+  void _queueCompositionSync() {
+    _compositionSyncPending = true;
     if (_isSynchronizingComposition) return;
+    unawaited(_drainCompositionSync());
+  }
+
+  Future<void> _drainCompositionSync() async {
     _isSynchronizingComposition = true;
     try {
-      final state = _playback.state;
-      final active = TimelinePlaybackController.resolve(
-        _tracks,
-        state.currentTime,
-      );
-      final videos = active.ofType(TrackType.video);
-      final images = active.ofType(TrackType.images);
-      final visual = videos.isNotEmpty
-          ? videos.last
-          : (images.isNotEmpty ? images.last : null);
-
-      if (visual?.id != _activeVisualClipId) {
-        _activeVisualClipId = visual?.id;
-        _compositionVisualClip = visual;
-        if (visual?.file != null && videos.contains(visual)) {
-          await _loadClip(visual!);
-        } else {
-          await _videoController?.pause();
-          if (mounted) setState(() {});
+      while (_compositionSyncPending && mounted) {
+        _compositionSyncPending = false;
+        try {
+          await _synchronizeCompositionOnce();
+        } catch (error) {
+          debugPrint('Mobile editor playback synchronization failed: $error');
         }
       }
-
-      if (visual != null &&
-          videos.contains(visual) &&
-          _videoController?.value.isInitialized == true) {
-        await _seekVideoToTimeline(visual, state.currentTime);
-        if (state.isPlaying && !visual.isReversed) {
-          await _videoController!.play();
-        } else {
-          await _videoController!.pause();
-        }
-      }
-
-      final audioClips = <TimelineClip>[
-        ...active.ofType(TrackType.audio),
-        ...active.ofType(TrackType.music),
-        ...active.ofType(TrackType.voiceOver),
-        ...active.ofType(TrackType.soundEffects),
-      ];
-      final activeAudioIds = audioClips.map((clip) => clip.id).toSet();
-      for (final entry in _timelineAudioPlayers.entries) {
-        if (!activeAudioIds.contains(entry.key) || !state.isPlaying) {
-          await entry.value.pause();
-        }
-      }
-
-      final timelineJump =
-          (state.currentTime - _lastCompositionTime).abs() >
-          const Duration(milliseconds: 120);
-      final shouldCorrectDrift =
-          !state.isPlaying ||
-          timelineJump ||
-          DateTime.now().difference(_lastAudioSyncAt) >
-              const Duration(milliseconds: 300);
-      for (final clip in audioClips) {
-        final source = _audioSourceFor(clip);
-        if (source == null || source.startsWith('builtin://')) continue;
-        final player = _timelineAudioPlayers.putIfAbsent(
-          clip.id,
-          AudioPlayer.new,
-        );
-        await player.setVolume(clip.volume);
-        await player.setPlaybackRate(clip.speed);
-        final local = _localSourceTime(clip, state.currentTime);
-        final wasActive =
-            player.state == PlayerState.playing ||
-            player.state == PlayerState.paused;
-        if (!wasActive) {
-          final mediaSource = source.startsWith('http')
-              ? UrlSource(source)
-              : DeviceFileSource(source);
-          if (state.isPlaying) {
-            await player.play(mediaSource, position: local);
-          } else {
-            await player.setSource(mediaSource);
-            await player.seek(local);
-          }
-        } else if (shouldCorrectDrift) {
-          final position = await player.getCurrentPosition();
-          if (position == null ||
-              (position - local).abs() > const Duration(milliseconds: 120)) {
-            await player.seek(local);
-          }
-        }
-        if (state.isPlaying) {
-          await player.resume();
-        } else {
-          await player.pause();
-        }
-      }
-      if (shouldCorrectDrift) _lastAudioSyncAt = DateTime.now();
-      _lastCompositionTime = state.currentTime;
     } finally {
       _isSynchronizingComposition = false;
+      // A notification can land between the loop condition and the finally
+      // block. Make sure that latest desired state is never dropped.
+      if (_compositionSyncPending && mounted) _queueCompositionSync();
     }
+  }
+
+  Future<void> _synchronizeCompositionOnce() async {
+    final state = _playback.state;
+    final active = TimelinePlaybackController.resolve(
+      _tracks,
+      state.currentTime,
+    );
+    final videos = active.ofType(TrackType.video);
+    final images = active.ofType(TrackType.images);
+    final visual = videos.isNotEmpty
+        ? videos.last
+        : (images.isNotEmpty ? images.last : null);
+
+    final visualChanged = visual?.id != _activeVisualClipId;
+    if (visualChanged) {
+      _activeVisualClipId = visual?.id;
+      _compositionVisualClip = visual;
+      if (visual?.file != null && videos.contains(visual)) {
+        await _loadClip(visual!);
+      } else {
+        await _videoController?.pause();
+        if (mounted) setState(() {});
+      }
+    }
+
+    if (visual != null &&
+        videos.contains(visual) &&
+        _videoController?.value.isInitialized == true) {
+      final controller = _videoController!;
+      final target = _localSourceTime(visual, state.currentTime);
+      final drift = (controller.value.position - target).abs();
+      final now = DateTime.now();
+      final timelineJump =
+          (state.currentTime - _lastCompositionTime).abs() >
+          const Duration(milliseconds: 350);
+      final needsVideoCorrection =
+          visualChanged ||
+          !state.isPlaying ||
+          !controller.value.isPlaying ||
+          timelineJump ||
+          (drift > const Duration(milliseconds: 350) &&
+              now.difference(_lastVideoSyncAt) >
+                  const Duration(milliseconds: 750));
+      if (needsVideoCorrection) {
+        await _seekVideoToTimeline(visual, state.currentTime, force: true);
+        _lastVideoSyncAt = now;
+      }
+      if (state.isPlaying && !visual.isReversed) {
+        if (!controller.value.isPlaying) await controller.play();
+      } else if (controller.value.isPlaying) {
+        await controller.pause();
+      }
+    }
+
+    final audioClips = <TimelineClip>[
+      ...active.ofType(TrackType.audio),
+      ...active.ofType(TrackType.music),
+      ...active.ofType(TrackType.voiceOver),
+      ...active.ofType(TrackType.soundEffects),
+    ];
+    final activeAudioIds = audioClips.map((clip) => clip.id).toSet();
+    for (final entry in _timelineAudioPlayers.entries) {
+      if ((!activeAudioIds.contains(entry.key) || !state.isPlaying) &&
+          entry.value.state == PlayerState.playing) {
+        await entry.value.pause();
+      }
+    }
+
+    final timelineJump =
+        (state.currentTime - _lastCompositionTime).abs() >
+        const Duration(milliseconds: 350);
+    final shouldCorrectDrift =
+        !state.isPlaying ||
+        timelineJump ||
+        DateTime.now().difference(_lastAudioSyncAt) >
+            const Duration(milliseconds: 750);
+    for (final clip in audioClips) {
+      final source = _audioSourceFor(clip);
+      if (source == null || source.startsWith('builtin://')) continue;
+      final player = await _timelinePlayerFor(clip.id);
+      if (_timelineAudioVolumes[clip.id] != clip.volume) {
+        await player.setVolume(clip.volume);
+        _timelineAudioVolumes[clip.id] = clip.volume;
+      }
+      if (_timelineAudioRates[clip.id] != clip.speed) {
+        await player.setPlaybackRate(clip.speed);
+        _timelineAudioRates[clip.id] = clip.speed;
+      }
+      final local = _localSourceTime(clip, state.currentTime);
+      final wasActive =
+          player.state == PlayerState.playing ||
+          player.state == PlayerState.paused;
+      if (!wasActive) {
+        final mediaSource = source.startsWith('http')
+            ? UrlSource(source)
+            : DeviceFileSource(source);
+        if (state.isPlaying) {
+          await player.play(mediaSource, position: local);
+        } else {
+          await player.setSource(mediaSource);
+          await player.seek(local);
+        }
+      } else if (shouldCorrectDrift) {
+        final position = await player.getCurrentPosition();
+        if (position == null ||
+            (position - local).abs() > const Duration(milliseconds: 300)) {
+          await player.seek(local);
+        }
+      }
+      if (state.isPlaying && player.state != PlayerState.playing) {
+        await player.resume();
+      } else if (!state.isPlaying && player.state == PlayerState.playing) {
+        await player.pause();
+      }
+    }
+    if (shouldCorrectDrift) _lastAudioSyncAt = DateTime.now();
+    _lastCompositionTime = state.currentTime;
   }
 
   String? _audioSourceFor(TimelineClip clip) {
@@ -3166,6 +3252,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return (clip.operation as AudioClipOperation).sourceUrl;
     }
     return clip.file?.path;
+  }
+
+  Future<AudioPlayer> _timelinePlayerFor(String clipId) async {
+    final existing = _timelineAudioPlayers[clipId];
+    if (existing != null) return existing;
+
+    final player = AudioPlayer();
+    // Timeline music is part of the composition and must mix with the video's
+    // original sound instead of taking exclusive platform audio focus.
+    await player.setAudioContext(
+      AudioContextConfig(focus: AudioContextConfigFocus.mixWithOthers).build(),
+    );
+    _timelineAudioPlayers[clipId] = player;
+    return player;
   }
 
   Duration _localSourceTime(TimelineClip clip, Duration timelineTime) {
@@ -3184,14 +3284,16 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Future<void> _seekVideoToTimeline(
     TimelineClip clip,
-    Duration timelineTime,
-  ) async {
+    Duration timelineTime, {
+    bool force = false,
+  }) async {
     final controller = _videoController;
     if (controller == null || !controller.value.isInitialized) return;
     final target = _localSourceTime(clip, timelineTime);
     final drift = (controller.value.position - target).abs();
-    if (!controller.value.isPlaying ||
-        drift > const Duration(milliseconds: 80) ||
+    if (force ||
+        (!controller.value.isPlaying &&
+            drift > const Duration(milliseconds: 40)) ||
         clip.isReversed) {
       await controller.seekTo(target);
     }
@@ -3927,7 +4029,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       final clip = TimelineClip(
         id: 'music-${DateTime.now().millisecondsSinceEpoch}',
         start: _currentTime,
-        duration: Duration(seconds: (result.duration / 1000).ceil()),
+        // MusicTrack.duration is stored in seconds. Treating it as
+        // milliseconds reduced nearly every selected song to one second.
+        duration: result.duration > 0
+            ? result.timelineDuration
+            : const Duration(seconds: 1),
         operation: AudioClipOperation(
           sourceType: 'music',
           sourceUrl: result.audioUrl,
@@ -3947,9 +4053,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _selectedTrackIndex = _tracks.indexWhere(
           (candidate) => candidate.id == _selectedTrackId,
         );
-        _isPreviewingMusic = true;
+        _isPreviewingMusic = false;
+        _activeAudioPreviewUrl = null;
       });
-      await _musicService.previewMusic(result.audioUrl);
+      await _musicService.stopPreview();
+      await _audioPreviewPlayer.stop();
       _showSnack('Music synced to timeline');
     }
   }

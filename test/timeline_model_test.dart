@@ -158,6 +158,75 @@ void main() {
       expect(copy.isReversed, isTrue);
     });
 
+    test('replaces placeholder duration with discovered video duration', () {
+      final trim = TrimOperation(
+        start: Duration.zero,
+        end: const Duration(seconds: 12),
+        maxDuration: const Duration(seconds: 12),
+      );
+      final clip = TimelineClip(
+        id: 'initial-video',
+        start: Duration.zero,
+        duration: const Duration(seconds: 12),
+        speed: 2,
+        operation: trim,
+      );
+
+      final changed = TimelineModelUtils.applyDiscoveredSourceDuration(
+        clip,
+        const Duration(seconds: 30),
+      );
+
+      expect(changed, isTrue);
+      expect(clip.sourceEnd, const Duration(seconds: 30));
+      expect(clip.duration, const Duration(seconds: 15));
+      expect(trim.end, const Duration(seconds: 30));
+    });
+
+    test('reflows initial visual clips after metadata is discovered', () {
+      final first = TimelineClip(
+        id: 'initial-0',
+        start: Duration.zero,
+        duration: const Duration(seconds: 30),
+        operation: TrimOperation(
+          start: Duration.zero,
+          end: const Duration(seconds: 30),
+          maxDuration: const Duration(seconds: 30),
+        ),
+      );
+      final second = TimelineClip(
+        id: 'initial-1',
+        start: const Duration(seconds: 12),
+        duration: const Duration(seconds: 4),
+        operation: TrimOperation(
+          start: Duration.zero,
+          end: const Duration(seconds: 4),
+          maxDuration: const Duration(seconds: 4),
+        ),
+      );
+      final tracks = <TimelineTrack>[
+        TimelineTrack(
+          id: 'video',
+          type: TrackType.video,
+          clips: <TimelineClip>[first],
+          label: 'Video',
+          icon: Icons.videocam,
+        ),
+        TimelineTrack(
+          id: 'images',
+          type: TrackType.images,
+          clips: <TimelineClip>[second],
+          label: 'Images',
+          icon: Icons.image,
+        ),
+      ];
+
+      TimelineModelUtils.reflowInitialVisualClips(tracks);
+
+      expect(first.start, Duration.zero);
+      expect(second.start, const Duration(seconds: 30));
+    });
+
     test('inserts a shared text overlay clip into the text track', () {
       final tracks = <TimelineTrack>[];
       final clip = TimelineModelUtils.insertTextClip(

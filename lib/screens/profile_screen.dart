@@ -6,6 +6,12 @@ import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+const String necxaSupportUrl = 'https://goobox.necxa.uk';
+const String necxaTermsUrl = 'https://goobox.necxa.uk/terms';
+const String necxaPolicyUrl = 'https://goobox.necxa.uk/policy';
+const String necxaCompanyUrl = 'https://www.necxa.uk';
 
 class ProfileScreen extends StatefulWidget {
   final AppState state;
@@ -574,6 +580,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) => _MoreOptionsSheet(state: widget.state),
     );
   }
@@ -951,18 +958,44 @@ class _MoreOptionsSheet extends StatelessWidget {
   final AppState state;
   const _MoreOptionsSheet({required this.state});
 
+  Future<void> _openExternalLink(BuildContext context, String url) async {
+    try {
+      final opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to open this link right now.')),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to open this link right now.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: C.bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
-        border: const Border(top: BorderSide(color: Colors.white10)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    return SafeArea(
+      top: false,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .9,
+        ),
+        decoration: BoxDecoration(
+          color: C.bg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
+          border: const Border(top: BorderSide(color: Colors.white10)),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
           GestureDetector(
             onTap: () {
               final user = state.user;
@@ -1032,8 +1065,58 @@ class _MoreOptionsSheet extends StatelessWidget {
             },
             child: const _SheetBtn(label: 'Privacy & Security', icon: Icons.lock_outline, color: C.purple),
           ),
-          const SizedBox(height: 16),
-          const _SheetBtn(label: 'Help & Support', icon: Icons.help_outline, color: C.green),
+          const SizedBox(height: 24),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'NECXA SUPPORT & LEGAL',
+              style: syne(sz: 11, w: FontWeight.w800, c: C.dim, ls: 1.2),
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => _openExternalLink(context, necxaSupportUrl),
+            child: const _SheetBtn(
+              label: 'Necxa Support',
+              subtitle: 'goobox.necxa.uk',
+              icon: Icons.help_outline,
+              color: C.green,
+              opensExternally: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => _openExternalLink(context, necxaTermsUrl),
+            child: const _SheetBtn(
+              label: 'Necxa Terms',
+              subtitle: 'goobox.necxa.uk/terms',
+              icon: Icons.description_outlined,
+              color: C.brand,
+              opensExternally: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => _openExternalLink(context, necxaPolicyUrl),
+            child: const _SheetBtn(
+              label: 'Privacy Policy',
+              subtitle: 'goobox.necxa.uk/policy',
+              icon: Icons.policy_outlined,
+              color: C.purple,
+              opensExternally: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => _openExternalLink(context, necxaCompanyUrl),
+            child: const _SheetBtn(
+              label: 'Necxa Technology Ltd',
+              subtitle: 'Necxa is a product of Necxa Technology Ltd • www.necxa.uk',
+              icon: Icons.business_outlined,
+              color: Colors.blueAccent,
+              opensExternally: true,
+            ),
+          ),
           const SizedBox(height: 32),
           GestureDetector(
             onTap: () async {
@@ -1043,8 +1126,10 @@ class _MoreOptionsSheet extends StatelessWidget {
             },
             child: const _SheetBtn(label: 'Log Out', icon: Icons.logout, color: Colors.redAccent),
           ),
-          const SizedBox(height: 40),
-        ],
+              const SizedBox(height: 40),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1084,9 +1169,17 @@ class _ThemeToggleBtn extends StatelessWidget {
 
 class _SheetBtn extends StatelessWidget {
   final String label;
+  final String? subtitle;
   final IconData icon;
   final Color color;
-  const _SheetBtn({required this.label, required this.icon, required this.color});
+  final bool opensExternally;
+  const _SheetBtn({
+    required this.label,
+    required this.icon,
+    required this.color,
+    this.subtitle,
+    this.opensExternally = false,
+  });
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -1099,7 +1192,20 @@ class _SheetBtn extends StatelessWidget {
       children: [
         Icon(icon, color: color, size: 24),
         const SizedBox(width: 20),
-        Text(label, style: syne(sz: 15, w: FontWeight.w600)),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: syne(sz: 15, w: FontWeight.w600)),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(subtitle!, style: dm(sz: 10, c: C.dim)),
+              ],
+            ],
+          ),
+        ),
+        if (opensExternally)
+          const Icon(Icons.open_in_new_rounded, color: Colors.white24, size: 16),
       ],
     ),
   );

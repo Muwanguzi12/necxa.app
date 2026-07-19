@@ -33,6 +33,21 @@ enum CreatorType {
   audio, // 🎙️  Podcast & Voice (Simplified audio-first)
 }
 
+class _PublishingStageException implements Exception {
+  final String stage;
+  final String userMessage;
+  final Object cause;
+
+  const _PublishingStageException({
+    required this.stage,
+    required this.userMessage,
+    required this.cause,
+  });
+
+  @override
+  String toString() => 'Publishing failed at $stage: $cause';
+}
+
 extension CreatorTypeX on CreatorType {
   String get label {
     switch (this) {
@@ -107,6 +122,8 @@ class _UploadScreenState extends State<UploadScreen>
   bool _visualAlreadyCompressed = false;
   List<File>? _preparedVisualFiles;
   Map<String, dynamic>? _uploadedMediaCache;
+  final Map<String, Map<String, dynamic>> _uploadedFileCache =
+      <String, Map<String, dynamic>>{};
 
   // -- Audio / Recording --
   final AudioRecorder _recorder = AudioRecorder();
@@ -276,6 +293,7 @@ class _UploadScreenState extends State<UploadScreen>
         _visualAlreadyCompressed = true;
         _preparedVisualFiles = [preparedVideo];
         _uploadedMediaCache = null;
+        _uploadedFileCache.clear();
         _step = 3;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -321,6 +339,7 @@ class _UploadScreenState extends State<UploadScreen>
           _visualAlreadyCompressed = false;
           _preparedVisualFiles = null;
           _uploadedMediaCache = null;
+          _uploadedFileCache.clear();
           if (track != null && (_title.isEmpty || _title == 'Original Sound')) {
             _title = track.title;
             _titleController.text = _title;
@@ -460,7 +479,11 @@ class _UploadScreenState extends State<UploadScreen>
           _isOptimizing = false;
         });
       }
-      _err(getUserFriendlyError(e));
+      _err(
+        e is _PublishingStageException
+            ? e.userMessage
+            : getUserFriendlyError(e),
+      );
     } finally {
       if (mounted) setState(() => _isOptimizing = false);
     }
@@ -547,19 +570,77 @@ class _UploadScreenState extends State<UploadScreen>
     File file, {
     String bucket = 'community-media',
     String assetType = 'generic',
-  }) async {
-    final result = await widget.state.cloud.uploadMedia(
-      file,
-      bucket: bucket,
-      assetType: assetType,
-    );
-    final url = result?['url']?.toString();
-    if (result == null || url == null || url.isEmpty) {
-      throw Exception(
+    String stage = 'media_upload',
+    String userMessage =
         'Media upload failed. Your verified export was kept for retry.',
+  }) async {
+    try {
+      if (!await file.exists()) {
+        throw Exception('The prepared file is no longer available');
+      }
+      final stat = await file.stat();
+      final cacheKey =
+          '$bucket:${file.path}:${stat.size}:${stat.modified.microsecondsSinceEpoch}';
+      final cached = _uploadedFileCache[cacheKey];
+      if (cached != null) return Map<String, dynamic>.from(cached);
+
+      final result = await widget.state.cloud.uploadMedia(
+        file,
+        bucket: bucket,
+        assetType: assetType,
+      );
+      final url = result?['url']?.toString();
+      if (result == null || url == null || url.isEmpty) {
+        throw Exception('Storage returned no media URL');
+      }
+      _uploadedFileCache[cacheKey] = Map<String, dynamic>.from(result);
+      return result;
+    } catch (error) {
+      if (error is _PublishingStageException) rethrow;
+      throw _PublishingStageException(
+        stage: stage,
+        userMessage: userMessage,
+        cause: error,
       );
     }
-    return result;
+  }
+
+  Future<T> _runPublishingStage<T>({
+    required String stage,
+    required String status,
+    required String userMessage,
+    required Future<T> Function() action,
+  }) async {
+    if (mounted) setState(() => _optimizingStatus = status);
+    try {
+      return await action();
+    } catch (error) {
+      if (error is _PublishingStageException) rethrow;
+      throw _PublishingStageException(
+        stage: stage,
+        userMessage: userMessage,
+        cause: error,
+      );
+    }
+  }
+
+  Future<String?> _registerReusableMediaAsset(
+    String userId,
+    Map<String, dynamic> data,
+  ) async {
+    if (mounted) {
+      setState(() => _optimizingStatus = 'Registering reusable media...');
+    }
+    try {
+      return await widget.state.social.registerMediaAsset(userId, data);
+    } catch (error, stackTrace) {
+      // Reusable-media registration enriches discovery but is not required to
+      // publish the already verified post. The post records a pending flag so
+      // this can be retried later without blocking the creator.
+      debugPrint('Non-fatal reusable media registration failure: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>> _optimizeMediaAssets() async {
@@ -608,12 +689,15 @@ class _UploadScreenState extends State<UploadScreen>
       // All optimized files are verified before any cloud upload begins.
       await _ensureVisualVerification(optimizedFiles);
       setState(() => _optimizingStatus = 'Uploading verified media...');
-      multiUrls = await widget.state.cloud.uploadMultiMedia(
-        optimizedFiles,
-        bucket: 'community-media',
-      );
-      if (multiUrls.length != optimizedFiles.length) {
-        throw Exception('One or more media files failed to upload');
+      for (var index = 0; index < optimizedFiles.length; index++) {
+        final uploaded = await _uploadRequired(
+          optimizedFiles[index],
+          assetType: _isVideoFile(optimizedFiles[index]) ? 'video' : 'image',
+          stage: 'gallery_upload',
+          userMessage:
+              'Asset ${index + 1} could not be uploaded. Successful uploads were kept for retry.',
+        );
+        multiUrls.add(uploaded['url'] as String);
       }
       visualUrl = multiUrls.first;
       mediaType = _isVideo ? 'video' : 'gallery';
@@ -630,7 +714,15 @@ class _UploadScreenState extends State<UploadScreen>
         if (thumbPath == null) {
           throw Exception('Could not create the video cover photo');
         }
-        thumbUrl = (await _uploadRequired(File(thumbPath)))['url'] as String;
+        thumbUrl =
+            (await _uploadRequired(
+                  File(thumbPath),
+                  assetType: 'thumbnail',
+                  stage: 'thumbnail_upload',
+                  userMessage:
+                      'The cover photo could not be uploaded. Please retry; the verified media was kept.',
+                ))['url']
+                as String;
       } else {
         thumbUrl = visualUrl;
       }
@@ -675,11 +767,28 @@ class _UploadScreenState extends State<UploadScreen>
           throw Exception('Could not create the video cover photo');
         }
         thumbnail = File(thumbPath);
+        _preparedThumbnailFile = thumbnail;
       }
 
       setState(() => _optimizingStatus = 'Uploading verified video...');
-      thumbUrl = (await _uploadRequired(thumbnail))['url'] as String;
-      visualUrl = (await _uploadRequired(visualToUpload))['url'] as String;
+      thumbUrl =
+          (await _uploadRequired(
+                thumbnail,
+                assetType: 'thumbnail',
+                stage: 'thumbnail_upload',
+                userMessage:
+                    'The cover photo could not be uploaded. Please retry; the verified video was kept.',
+              ))['url']
+              as String;
+      visualUrl =
+          (await _uploadRequired(
+                visualToUpload,
+                assetType: 'video',
+                stage: 'verified_video_upload',
+                userMessage:
+                    'The verified video could not be uploaded. Please retry without exporting again.',
+              ))['url']
+              as String;
       mediaType = 'video';
     } else if (_visualFile != null || _multiFiles.isNotEmpty) {
       final source = _visualFile ?? _multiFiles.first;
@@ -700,7 +809,13 @@ class _UploadScreenState extends State<UploadScreen>
       _preparedVisualFiles = [compressed];
       await _ensureVisualVerification([compressed]);
       setState(() => _optimizingStatus = 'Uploading verified image...');
-      final result = await _uploadRequired(compressed);
+      final result = await _uploadRequired(
+        compressed,
+        assetType: 'image',
+        stage: 'verified_image_upload',
+        userMessage:
+            'The verified image could not be uploaded. Please retry without verifying again.',
+      );
       visualUrl = result['url'] as String;
       mediaType = result['media_type'] as String? ?? 'image';
       thumbUrl = visualUrl;
@@ -765,63 +880,79 @@ class _UploadScreenState extends State<UploadScreen>
     List<String> productPhotoUrls = [];
     if (compressedProductPhotos.isNotEmpty) {
       setState(() => _optimizingStatus = "Syncing Product Miniatures...");
-      productPhotoUrls = await widget.state.cloud.uploadMultiMedia(
-        compressedProductPhotos,
-        bucket: 'listing-photos',
-      );
-      if (productPhotoUrls.length != compressedProductPhotos.length) {
-        throw Exception('One or more product photos failed to upload');
+      for (var index = 0; index < compressedProductPhotos.length; index++) {
+        final uploaded = await _uploadRequired(
+          compressedProductPhotos[index],
+          bucket: 'listing-photos',
+          assetType: 'product_image',
+          stage: 'product_photo_upload',
+          userMessage:
+              'Product photo ${index + 1} could not be uploaded. Successful uploads were kept for retry.',
+        );
+        productPhotoUrls.add(uploaded['url'] as String);
       }
     }
 
     Map<String, dynamic> listing;
     if (_linkedListing != null) {
       // UPDATE EXISTING LISTING
-      listing = Map<String, dynamic>.from(
-        await Supabase.instance.client
-            .from('listings')
-            .update({
-              'media_url': media['visualUrl'],
-              'media_type': mediaType,
-              'thumbnail_url': media['thumbUrl'],
-              'is_verified': true,
-              'ai_verification': verification,
-              'photos': productPhotoUrls.isNotEmpty
-                  ? productPhotoUrls
-                  : (_linkedListing!['photos'] ?? []),
-            })
-            .eq('id', _linkedListing!['id'])
-            .select()
-            .single(),
+      listing = await _runPublishingStage(
+        stage: 'listing_update',
+        status: 'Updating Shop listing...',
+        userMessage:
+            'Your media was uploaded, but the Shop listing could not be updated. Please retry.',
+        action: () async => Map<String, dynamic>.from(
+          await Supabase.instance.client
+              .from('listings')
+              .update({
+                'media_url': media['visualUrl'],
+                'media_type': mediaType,
+                'thumbnail_url': media['thumbUrl'],
+                'is_verified': true,
+                'ai_verification': verification,
+                'photos': productPhotoUrls.isNotEmpty
+                    ? productPhotoUrls
+                    : (_linkedListing!['photos'] ?? []),
+              })
+              .eq('id', _linkedListing!['id'])
+              .select()
+              .single(),
+        ),
       );
     } else {
       // CREATE NEW LISTING
-      listing = await widget.state.social.createListing(userId, {
-        'title': _title,
-        'description': _desc,
-        'price': _price,
-        'sku': _sku.trim().toUpperCase(),
-        'tags': _cleanTags(_tags),
-        'weight_kg': double.parse(_weightController.text),
-        'length_cm': double.parse(_lengthController.text),
-        'width_cm': double.parse(_widthController.text),
-        'height_cm': double.parse(_heightController.text),
-        'latitude': _pickupLatitude,
-        'longitude': _pickupLongitude,
-        'category': _category,
-        'media_url': media['visualUrl'], // Film Hub / Video Content
-        'thumbnail_url': media['thumbUrl'],
-        'media_type': mediaType,
-        'type': 'COMMERCIAL',
-        'stock_count': _stock.isNotEmpty ? int.tryParse(_stock) ?? 999 : 999,
-        'music_track_id': _bakedTrack?.id,
-        'audio_url': _bakedTrack?.audioUrl,
-        // Strictly separate: photos should only contain product miniatures
-        'photos': productPhotoUrls.isNotEmpty ? productPhotoUrls : [],
-        'status': 'active',
-        'is_verified': true,
-        'ai_verification': verification,
-      }, aiResult: verification);
+      listing = await _runPublishingStage(
+        stage: 'listing_creation',
+        status: 'Creating Shop listing...',
+        userMessage:
+            'Your media was uploaded, but the Shop listing could not be created. Please retry.',
+        action: () => widget.state.social.createListing(userId, {
+          'title': _title,
+          'description': _desc,
+          'price': _price,
+          'sku': _sku.trim().toUpperCase(),
+          'tags': _cleanTags(_tags),
+          'weight_kg': double.parse(_weightController.text),
+          'length_cm': double.parse(_lengthController.text),
+          'width_cm': double.parse(_widthController.text),
+          'height_cm': double.parse(_heightController.text),
+          'latitude': _pickupLatitude,
+          'longitude': _pickupLongitude,
+          'category': _category,
+          'media_url': media['visualUrl'], // Film Hub / Video Content
+          'thumbnail_url': media['thumbUrl'],
+          'media_type': mediaType,
+          'type': 'COMMERCIAL',
+          'stock_count': _stock.isNotEmpty ? int.tryParse(_stock) ?? 999 : 999,
+          'music_track_id': _bakedTrack?.id,
+          'audio_url': _bakedTrack?.audioUrl,
+          // Strictly separate: photos should only contain product miniatures
+          'photos': productPhotoUrls.isNotEmpty ? productPhotoUrls : [],
+          'status': 'active',
+          'is_verified': true,
+          'ai_verification': verification,
+        }, aiResult: verification),
+      );
     }
     await widget.state.social.logVerification(
       userId,
@@ -879,7 +1010,7 @@ class _UploadScreenState extends State<UploadScreen>
     // Register Media Asset
     String? mediaAssetId;
     if (visualUrl != null) {
-      mediaAssetId = await widget.state.social.registerMediaAsset(userId, {
+      mediaAssetId = await _registerReusableMediaAsset(userId, {
         'asset_type': mediaType == 'video' ? 'original_sound' : 'image_asset',
         'url': audioUrl ?? visualUrl,
         'title': _title,
@@ -892,36 +1023,43 @@ class _UploadScreenState extends State<UploadScreen>
       });
     }
 
-    final post = await widget.state.social.createPost(userId, {
-      'title': _title,
-      'content': _desc,
-      'tags': _cleanTags(_tags),
-      'media_url': visualUrl,
-      'thumbnail_url': thumbUrl,
-      'media_type': mediaType,
-      'media_asset_id': mediaAssetId,
-      'audio_url': audioUrl,
-      'music_track_id': _bakedTrack?.id,
-      'creator_mode': 'artist',
-      'is_fast_sync': true,
-      'gallery_urls': multiUrls,
-      'artist_metadata': {
-        'beat_cover_url': beatCoverUrl,
-        'artist_profile_url': artistProfileUrl,
-      },
-      'editing_metadata': {
-        'objective': 'conversion',
-        'layers': _multiFiles.length,
-        'has_voice_over': _voiceOverFile != null,
-        'text_layers': _overlays.length,
-        'overlays': _overlays,
-        'start_offsets': _startOffsets,
-        'end_offsets': _endOffsets,
-      },
-      'status': 'verified',
-      'is_verified': true,
-      'ai_verification': verification,
-    });
+    final post = await _runPublishingStage(
+      stage: 'community_post_creation',
+      status: 'Creating Feed post...',
+      userMessage:
+          'Your media was uploaded, but the Feed post could not be created. Please retry.',
+      action: () => widget.state.social.createPost(userId, {
+        'title': _title,
+        'content': _desc,
+        'tags': _cleanTags(_tags),
+        'media_url': visualUrl,
+        'thumbnail_url': thumbUrl,
+        'media_type': mediaType,
+        'media_asset_id': mediaAssetId,
+        'audio_url': audioUrl,
+        'music_track_id': _bakedTrack?.id,
+        'creator_mode': 'artist',
+        'is_fast_sync': true,
+        'gallery_urls': multiUrls,
+        'artist_metadata': {
+          'beat_cover_url': beatCoverUrl,
+          'artist_profile_url': artistProfileUrl,
+        },
+        'editing_metadata': {
+          'objective': 'conversion',
+          'layers': _multiFiles.length,
+          'has_voice_over': _voiceOverFile != null,
+          'text_layers': _overlays.length,
+          'overlays': _overlays,
+          'start_offsets': _startOffsets,
+          'end_offsets': _endOffsets,
+          'media_registration_pending': mediaAssetId == null,
+        },
+        'status': 'verified',
+        'is_verified': true,
+        'ai_verification': verification,
+      }),
+    );
     await widget.state.social.logVerification(
       userId,
       'post',
@@ -954,7 +1092,7 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? mediaAssetId;
     if (visualUrl != null) {
-      mediaAssetId = await widget.state.social.registerMediaAsset(userId, {
+      mediaAssetId = await _registerReusableMediaAsset(userId, {
         'asset_type': mediaType == 'video' ? 'original_sound' : 'image_asset',
         'url': audioUrl ?? visualUrl,
         'title': _title,
@@ -967,32 +1105,39 @@ class _UploadScreenState extends State<UploadScreen>
       });
     }
 
-    final post = await widget.state.social.createPost(userId, {
-      'title': _title,
-      'content': _desc,
-      'tags': _cleanTags(_tags),
-      'media_url': visualUrl,
-      'thumbnail_url': thumbUrl,
-      'media_type': mediaType,
-      'media_asset_id': mediaAssetId,
-      'audio_url': audioUrl,
-      'music_track_id': _bakedTrack?.id,
-      'creator_mode': 'unified',
-      'is_fast_sync': true,
-      'gallery_urls': multiUrls,
-      'editing_metadata': {
-        'objective': 'awareness',
-        'layers': _multiFiles.length,
-        'has_voice_over': _voiceOverFile != null,
-        'text_layers': _overlays.length,
-        'overlays': _overlays,
-        'start_offsets': _startOffsets,
-        'end_offsets': _endOffsets,
-      },
-      'status': 'verified',
-      'is_verified': true,
-      'ai_verification': verification,
-    });
+    final post = await _runPublishingStage(
+      stage: 'community_post_creation',
+      status: 'Creating Feed post...',
+      userMessage:
+          'Your media was uploaded, but the Feed post could not be created. Please retry.',
+      action: () => widget.state.social.createPost(userId, {
+        'title': _title,
+        'content': _desc,
+        'tags': _cleanTags(_tags),
+        'media_url': visualUrl,
+        'thumbnail_url': thumbUrl,
+        'media_type': mediaType,
+        'media_asset_id': mediaAssetId,
+        'audio_url': audioUrl,
+        'music_track_id': _bakedTrack?.id,
+        'creator_mode': 'unified',
+        'is_fast_sync': true,
+        'gallery_urls': multiUrls,
+        'editing_metadata': {
+          'objective': 'awareness',
+          'layers': _multiFiles.length,
+          'has_voice_over': _voiceOverFile != null,
+          'text_layers': _overlays.length,
+          'overlays': _overlays,
+          'start_offsets': _startOffsets,
+          'end_offsets': _endOffsets,
+          'media_registration_pending': mediaAssetId == null,
+        },
+        'status': 'verified',
+        'is_verified': true,
+        'ai_verification': verification,
+      }),
+    );
     await widget.state.social.logVerification(
       userId,
       'post',
