@@ -8,6 +8,7 @@ import 'services/ai_service.dart';
 import 'services/vault_service.dart';
 import 'services/social_service.dart';
 import 'services/cloud_service.dart';
+import 'services/media_compression_service.dart';
 import 'services/listing_sync_service.dart';
 import 'services/local_db_service.dart';
 import 'services/smooth_action.dart';
@@ -932,98 +933,141 @@ class AppState extends ChangeNotifier {
     isUploading = true;
     notify();
 
-    // 1. Upload Media if present
-    if (pickedMedia != null) {
-      final uploadData = await cloud.uploadMedia(
-        pickedMedia!,
-        assetType: data['type'] ?? 'generic',
-      );
-      if (uploadData != null) {
-        data['media_url'] = uploadData['url'];
+    try {
+      // Prepare once. Upload only after AI has approved this exact file.
+      final preparedMedia = pickedMedia == null
+          ? null
+          : await MediaCompressionService.optimizeMedia(pickedMedia!);
+
+      bool verificationApproved(Map<String, dynamic> report) {
+        final result = report['result'];
+        return report['verified'] == true ||
+            report['safe'] == true ||
+            NecxaAI.moderationVerified(report) ||
+            (result is Map && result['verified'] == true);
+      }
+
+      Future<void> uploadVerifiedMedia() async {
+        if (preparedMedia == null) return;
+        final uploadData = await cloud.uploadMedia(
+          preparedMedia,
+          assetType: data['type'] ?? 'generic',
+        );
+        final mediaUrl = uploadData?['url']?.toString();
+        if (uploadData == null || mediaUrl == null || mediaUrl.isEmpty) {
+          throw Exception('Media upload failed');
+        }
+        data['media_url'] = mediaUrl;
         data['asset_id'] = uploadData['id'];
       }
-    }
 
-    // 2. AI Verification Node (Cloudflare Worker v2 — direct edge inference)
-    Map<String, dynamic> aiReport;
+      // 2. AI Verification Node (Cloudflare Worker v2 — direct edge inference)
+      Map<String, dynamic> aiReport;
 
-    if (data['type'] == 'post') {
-      if (pickedMedia != null) {
-        final isVideo =
-            pickedMedia!.path.toLowerCase().endsWith('.mp4') ||
-            pickedMedia!.path.toLowerCase().endsWith('.mov');
-        final isAudio =
-            pickedMedia!.path.toLowerCase().endsWith('.mp3') ||
-            pickedMedia!.path.toLowerCase().endsWith('.m4a') ||
-            pickedMedia!.path.toLowerCase().endsWith('.wav');
+      if (data['type'] == 'post') {
+        if (preparedMedia != null) {
+          final isVideo =
+              preparedMedia.path.toLowerCase().endsWith('.mp4') ||
+              preparedMedia.path.toLowerCase().endsWith('.mov');
+          final isAudio =
+              preparedMedia.path.toLowerCase().endsWith('.mp3') ||
+              preparedMedia.path.toLowerCase().endsWith('.m4a') ||
+              preparedMedia.path.toLowerCase().endsWith('.wav');
 
-        if (isVideo) {
-          // Extract frames and send to Worker's multi-frame video moderator
-          final framePaths = await NecxaAI.extractVideoFrames(pickedMedia!);
-          // Convert base64 frames back to temp files for the Worker HTTP upload
-          final tempDir = await Directory.systemTemp.createTemp(
-            'video_frames_',
-          );
-          final frameFiles = <File>[];
-          for (int i = 0; i < framePaths.length; i++) {
-            final f = File('${tempDir.path}/frame_$i.jpg');
-            await f.writeAsBytes(base64Decode(framePaths[i]));
-            frameFiles.add(f);
+          if (isVideo) {
+            // Extract frames and send to Worker's multi-frame video moderator
+            final framePaths = await NecxaAI.extractVideoFrames(preparedMedia);
+            // Convert base64 frames back to temp files for the Worker HTTP upload
+            final tempDir = await Directory.systemTemp.createTemp(
+              'video_frames_',
+            );
+            final frameFiles = <File>[];
+            for (int i = 0; i < framePaths.length; i++) {
+              final f = File('${tempDir.path}/frame_$i.jpg');
+              await f.writeAsBytes(base64Decode(framePaths[i]));
+              frameFiles.add(f);
+            }
+            aiReport = await NecxaAI.verifyVideoWorker(frameFiles);
+            // Clean up temp files
+            try {
+              await tempDir.delete(recursive: true);
+            } catch (_) {}
+          } else if (isAudio) {
+            aiReport = await NecxaAI.verifyAudioWorker(preparedMedia);
+          } else {
+            aiReport = await NecxaAI.verifyPhotoWorker(preparedMedia);
           }
-          aiReport = await NecxaAI.verifyVideoWorker(frameFiles);
-          // Clean up temp files
-          try {
-            await tempDir.delete(recursive: true);
-          } catch (_) {}
-        } else if (isAudio) {
-          aiReport = await NecxaAI.verifyAudioWorker(pickedMedia!);
         } else {
-          aiReport = await NecxaAI.verifyPhotoWorker(pickedMedia!);
+          aiReport = await NecxaAI.verifyContent(
+            type: 'text',
+            mediaBase64: '',
+            mimeType: 'text/plain',
+            textContent: data['title'] ?? data['description'],
+            userId: user!.id,
+          );
         }
+        // ── COMMUNITY V2: NEURAL SYNDICATION ──
+        if (!verificationApproved(aiReport)) {
+          throw Exception(
+            aiReport['error']?.toString() ??
+                aiReport['feedback']?.toString() ??
+                'AI verification did not approve this content',
+          );
+        }
+        aiReport = {...aiReport, 'verified': true};
+        await uploadVerifiedMedia();
+        await social.createPost(user!.id, {
+          ...data,
+          'community_id': data['community_id'] ?? 'global_node_01',
+          'is_verified': true,
+          'ai_verification': aiReport,
+        });
       } else {
-        aiReport = await NecxaAI.verifyContent(
-          type: 'text',
-          mediaBase64: '',
-          mimeType: 'text/plain',
-          textContent: data['title'] ?? data['description'],
-          userId: user!.id,
-        );
+        // Listing: use Worker to verify listing photo, then Supabase to persist
+        if (preparedMedia != null) {
+          // ✅ Photo-based AI listing verification via Cloudflare Worker
+          aiReport = await NecxaAI.verifyListingPhotoWorker(
+            photo: preparedMedia,
+            title: data['title'] ?? 'Property',
+          );
+        } else {
+          // ✅ FIX: No media — run text-only listing verification using title/description
+          // The previous code passed File('') here, which caused a silent crash.
+          aiReport = await NecxaAI.createVerifiedListing(
+            title: data['title'] ?? 'Untitled Property',
+            description: data['description'] ?? '',
+            price: double.tryParse(data['price']?.toString() ?? '0') ?? 0,
+            type: data['category'] ?? 'apartment',
+            imageBase64: '', // No image — text-only verification
+            userId: user!.id,
+          );
+        }
+        if (!verificationApproved(aiReport)) {
+          throw Exception(
+            aiReport['error']?.toString() ??
+                aiReport['feedback']?.toString() ??
+                'AI verification did not approve this listing',
+          );
+        }
+        aiReport = {...aiReport, 'verified': true};
+        await uploadVerifiedMedia();
+        await social.createListing(user!.id, {
+          ...data,
+          'is_verified': true,
+          'ai_verification': aiReport,
+        }, aiResult: aiReport);
       }
-      // ── COMMUNITY V2: NEURAL SYNDICATION ──
-      await social.createPost(user!.id, {
-        ...data,
-        'community_id': data['community_id'] ?? 'global_node_01',
-      });
-    } else {
-      // Listing: use Worker to verify listing photo, then Supabase to persist
-      if (pickedMedia != null) {
-        // ✅ Photo-based AI listing verification via Cloudflare Worker
-        aiReport = await NecxaAI.verifyListingPhotoWorker(
-          photo: pickedMedia!,
-          title: data['title'] ?? 'Property',
-        );
-      } else {
-        // ✅ FIX: No media — run text-only listing verification using title/description
-        // The previous code passed File('') here, which caused a silent crash.
-        aiReport = await NecxaAI.createVerifiedListing(
-          title: data['title'] ?? 'Untitled Property',
-          description: data['description'] ?? '',
-          price: double.tryParse(data['price']?.toString() ?? '0') ?? 0,
-          type: data['category'] ?? 'apartment',
-          imageBase64: '', // No image — text-only verification
-          userId: user!.id,
-        );
-      }
-      await social.createListing(user!.id, data, aiResult: aiReport);
+
+      // 4. Audit Log
+      await social.logVerification(user!.id, data['type'], aiReport);
+
+      pickedMedia = null;
+      await Future.delayed(const Duration(seconds: 2));
+      go('community');
+    } finally {
+      isUploading = false;
+      notifyListeners();
     }
-
-    // 4. Audit Log
-    await social.logVerification(user!.id, data['type'], aiReport);
-
-    pickedMedia = null;
-    notifyListeners();
-    await Future.delayed(const Duration(seconds: 2));
-    go('community');
   }
 
   // ── Legacy Wizard State (To be modularized next) ──

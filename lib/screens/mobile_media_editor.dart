@@ -3032,7 +3032,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _exportStatus = result.success ? 'Export Complete ✓' : 'Export Failed';
     });
     if (result.success) {
-      _showSnack(result.verificationSummary ?? 'Export complete');
+      // Return the exact compressed and AI-verified package to UploadScreen.
+      // UploadScreen must publish this file as-is so it is not compressed or
+      // verified a second time.
+      Navigator.pop(context, result);
     } else {
       _showSnack(result.issues.join(', '));
     }

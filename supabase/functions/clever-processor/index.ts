@@ -363,6 +363,11 @@ async function handleCreateListing(userId: string, payload: any) {
     weight_kg, length_cm, width_cm, height_cm, latitude, longitude
   } = payload;
 
+  const listingAiApproved = ai_verification?.verified === true || ai_verification?.result?.verified === true;
+  if (is_verified !== true || !listingAiApproved) {
+    return err('AI verification is required before publishing a listing', 400);
+  }
+
   const normalizedSku = String(sku || '').trim().toUpperCase();
   if (!/^\d{4}[A-Z]{3}$/.test(normalizedSku)) {
     return err('SKU is required and must contain 4 digits followed by 3 letters', 400);
@@ -542,8 +547,14 @@ async function handleCreatePost(userId: string, payload: any) {
     title, content, media_url, media_type, thumbnail_url, 
     hls_url, dash_url, audio_url, music_track_id, 
     visibility, tags, creator_mode, gallery_urls, 
-    editing_metadata, artist_metadata 
+    editing_metadata, artist_metadata, media_asset_id,
+    is_fast_sync, is_verified, ai_verification
   } = payload;
+
+  const postAiApproved = ai_verification?.verified === true || ai_verification?.result?.verified === true;
+  if (is_verified !== true || !postAiApproved) {
+    return err('AI verification is required before publishing a post', 400);
+  }
   
   // 2. Insert into Supabase
   const { data: rawPost, error } = await supabase
@@ -559,14 +570,17 @@ async function handleCreatePost(userId: string, payload: any) {
       dash_url,
       audio_url,
       music_track_id,
+      media_asset_id,
       tags: tags || [],
       status: 'verified',
       visibility: visibility || 'public',
       metadata: {
         creator_mode: creator_mode || 'unified',
         gallery_urls: gallery_urls || [],
+        is_fast_sync: is_fast_sync === true,
         editing: editing_metadata || {},
-        artist: artist_metadata || {}
+        artist: artist_metadata || {},
+        ai_verification
       }
     })
     .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')

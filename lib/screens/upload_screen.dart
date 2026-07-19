@@ -20,6 +20,8 @@ import '../models/music_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/media_compression_service.dart';
+import '../services/editor_export_service.dart';
+import '../services/ai_service.dart';
 import '../utils/error_handler.dart';
 
 // ══════════════════════════════════════════════════════════════
@@ -100,6 +102,11 @@ class _UploadScreenState extends State<UploadScreen>
   List<File> _multiFiles = [];
   final List<File> _productPhotos = []; // 📸 Miniature product photos for Sales
   bool _isVideo = false;
+  File? _preparedThumbnailFile;
+  Map<String, dynamic>? _aiVerification;
+  bool _visualAlreadyCompressed = false;
+  List<File>? _preparedVisualFiles;
+  Map<String, dynamic>? _uploadedMediaCache;
 
   // -- Audio / Recording --
   final AudioRecorder _recorder = AudioRecorder();
@@ -232,18 +239,67 @@ class _UploadScreenState extends State<UploadScreen>
       ),
     );
 
+    if (result is EditorExportResult && result.success) {
+      final outputPath = result.outputPath;
+      if (outputPath == null || outputPath.isEmpty) {
+        _err('The verified export did not contain a publishable video');
+        return;
+      }
+      final preparedVideo = File(outputPath);
+      if (!await preparedVideo.exists()) {
+        _err(
+          'The verified export is no longer available. Please export again.',
+        );
+        return;
+      }
+      final thumbnailPath = result.thumbnailPath;
+      final preparedThumbnail = thumbnailPath == null
+          ? null
+          : File(thumbnailPath);
+      if (preparedThumbnail != null && !await preparedThumbnail.exists()) {
+        _err(
+          'The verified thumbnail is no longer available. Please export again.',
+        );
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _visualFile = preparedVideo;
+        _multiFiles = [];
+        _isVideo = true;
+        _preparedThumbnailFile = preparedThumbnail;
+        _aiVerification = {
+          ...result.verificationPayload,
+          'verified': true,
+          'source': 'mobile_editor',
+        };
+        _visualAlreadyCompressed = true;
+        _preparedVisualFiles = [preparedVideo];
+        _uploadedMediaCache = null;
+        _step = 3;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verified. Ready to publish.')),
+      );
+      return;
+    }
+
     if (result is Map) {
       final List? sequence = result['sequence'];
+      final File? combinedFile = result['combined_file'];
       final File? enhanced =
-          result['combined_file'] ??
+          combinedFile ??
           (sequence != null && sequence.isNotEmpty
               ? (sequence.first as VideoClip).file
               : null);
       final MusicTrack? track = result['track'];
 
-      if (sequence != null) {
+      if (sequence != null && sequence.isNotEmpty) {
         setState(() {
-          if (sequence.first is VideoClip) {
+          if (combinedFile != null) {
+            // A flattened desktop timeline is one final publishable video.
+            _multiFiles = [];
+          } else if (sequence.first is VideoClip) {
             _multiFiles = (sequence as List<VideoClip>)
                 .map((c) => c.file)
                 .toList();
@@ -260,6 +316,11 @@ class _UploadScreenState extends State<UploadScreen>
           _bakedTrack = track;
           _overlays = result['overlays'] ?? [];
           _voiceOverFile = result['voice_over'];
+          _preparedThumbnailFile = null;
+          _aiVerification = null;
+          _visualAlreadyCompressed = false;
+          _preparedVisualFiles = null;
+          _uploadedMediaCache = null;
           if (track != null && (_title.isEmpty || _title == 'Original Sound')) {
             _title = track.title;
             _titleController.text = _title;
@@ -393,167 +454,281 @@ class _UploadScreenState extends State<UploadScreen>
       _onShareSuccess(successMsg, destinationTab: destinationTab);
     } catch (e) {
       debugPrint('Upload error: $e');
-      if (mounted)
+      if (mounted) {
         setState(() {
           _step = 3;
           _isOptimizing = false;
         });
+      }
       _err(getUserFriendlyError(e));
     } finally {
       if (mounted) setState(() => _isOptimizing = false);
     }
   }
 
+  bool _isVideoFile(File file) {
+    final path = file.path.toLowerCase();
+    return path.endsWith('.mp4') ||
+        path.endsWith('.mov') ||
+        path.endsWith('.avi') ||
+        path.endsWith('.m4v');
+  }
+
+  Future<Map<String, dynamic>> _verifyFileForPublishing(File file) async {
+    Map<String, dynamic> report;
+    if (_isVideoFile(file)) {
+      final frameDirectory = await Directory.systemTemp.createTemp(
+        'necxa_publish_frames_',
+      );
+      try {
+        final frames = await NecxaAI.extractVideoFrameFiles(
+          file,
+          directory: frameDirectory,
+        );
+        if (frames.isEmpty) {
+          throw Exception('Could not extract video frames for verification');
+        }
+        report = await NecxaAI.verifyVideoWorker(frames);
+      } finally {
+        try {
+          await frameDirectory.delete(recursive: true);
+        } catch (_) {}
+      }
+    } else {
+      report = await NecxaAI.verifyPhotoWorker(file);
+    }
+
+    if (report['success'] == false) {
+      throw Exception(
+        report['error']?.toString() ??
+            'AI verification is temporarily unavailable. Please try again.',
+      );
+    }
+    final result = report['result'];
+    final verified =
+        NecxaAI.moderationVerified(report) ||
+        report['verified'] == true ||
+        report['safe'] == true ||
+        (result is Map && result['verified'] == true);
+    if (!verified) {
+      throw Exception('AI verification flagged this media for review');
+    }
+    return {...report, 'verified': true};
+  }
+
+  Future<void> _ensureVisualVerification(List<File> files) async {
+    if (_aiVerification?['verified'] == true) return;
+    if (files.isEmpty) {
+      throw Exception('No media is available for verification');
+    }
+
+    setState(() => _optimizingStatus = 'Running AI verification...');
+    final reports = <Map<String, dynamic>>[];
+    for (var index = 0; index < files.length; index++) {
+      if (files.length > 1) {
+        setState(
+          () => _optimizingStatus =
+              'Verifying asset ${index + 1} of ${files.length}...',
+        );
+      }
+      reports.add(await _verifyFileForPublishing(files[index]));
+    }
+    _aiVerification = reports.length == 1
+        ? reports.single
+        : {
+            'success': true,
+            'verified': true,
+            'assets': reports,
+            'source': 'upload_screen',
+          };
+  }
+
+  Future<Map<String, dynamic>> _uploadRequired(
+    File file, {
+    String bucket = 'community-media',
+    String assetType = 'generic',
+  }) async {
+    final result = await widget.state.cloud.uploadMedia(
+      file,
+      bucket: bucket,
+      assetType: assetType,
+    );
+    final url = result?['url']?.toString();
+    if (result == null || url == null || url.isEmpty) {
+      throw Exception(
+        'Media upload failed. Your verified export was kept for retry.',
+      );
+    }
+    return result;
+  }
+
   Future<Map<String, dynamic>> _optimizeMediaAssets() async {
+    final cached = _uploadedMediaCache;
+    if (cached != null) return Map<String, dynamic>.from(cached);
+
     String? visualUrl;
     List<String> multiUrls = [];
     String? mediaType;
     String? thumbUrl;
-    File visualToUpload = _visualFile ?? File('');
 
     if (_multiFiles.length > 1) {
-      // 🚀 OPTIMIZED MULTI-UPLOAD WITH SEQUENTIAL COMPRESSION
       setState(() => _isOptimizing = true);
-      final List<File> optimizedFiles = [];
+      final optimizedFiles = <File>[];
 
-      for (int i = 0; i < _multiFiles.length; i++) {
-        final f = _multiFiles[i];
-        if (f.path.toLowerCase().endsWith('.mp4') ||
-            f.path.toLowerCase().endsWith('.mov')) {
-          setState(
-            () => _optimizingStatus =
-                "Optimizing Clip ${i + 1} of ${_multiFiles.length}...",
-          );
-          final mediaInfo = await VideoCompress.compressVideo(
-            f.path,
-            quality: VideoQuality.MediumQuality,
-            deleteOrigin: false,
-          );
-          optimizedFiles.add(mediaInfo?.file ?? f);
-        } else {
-          setState(
-            () => _optimizingStatus =
-                "Compressing Photo ${i + 1} of ${_multiFiles.length}...",
-          );
-          final compressed = await MediaCompressionService.compressImage(f);
-          optimizedFiles.add(compressed);
+      final preparedFiles = _preparedVisualFiles;
+      if (preparedFiles != null &&
+          preparedFiles.length == _multiFiles.length &&
+          preparedFiles.every((file) => file.existsSync())) {
+        optimizedFiles.addAll(preparedFiles);
+      } else {
+        if (preparedFiles != null) _aiVerification = null;
+        for (var index = 0; index < _multiFiles.length; index++) {
+          final file = _multiFiles[index];
+          if (_isVideoFile(file)) {
+            setState(
+              () => _optimizingStatus =
+                  'Optimizing clip ${index + 1} of ${_multiFiles.length}...',
+            );
+            optimizedFiles.add(
+              await MediaCompressionService.compressVideo(file),
+            );
+          } else {
+            setState(
+              () => _optimizingStatus =
+                  'Compressing photo ${index + 1} of ${_multiFiles.length}...',
+            );
+            optimizedFiles.add(
+              await MediaCompressionService.compressImage(file),
+            );
+          }
         }
+        _preparedVisualFiles = List<File>.from(optimizedFiles);
       }
 
-      setState(() => _optimizingStatus = "Synthesizing Layers...");
+      // All optimized files are verified before any cloud upload begins.
+      await _ensureVisualVerification(optimizedFiles);
+      setState(() => _optimizingStatus = 'Uploading verified media...');
       multiUrls = await widget.state.cloud.uploadMultiMedia(
         optimizedFiles,
         bucket: 'community-media',
       );
-      visualUrl = multiUrls.isNotEmpty ? multiUrls.first : null;
+      if (multiUrls.length != optimizedFiles.length) {
+        throw Exception('One or more media files failed to upload');
+      }
+      visualUrl = multiUrls.first;
       mediaType = _isVideo ? 'video' : 'gallery';
 
-      // Auto capture cover photo for multi-files
-      if (_multiFiles.isNotEmpty) {
-        final firstFile = _multiFiles.first;
-        if (firstFile.path.toLowerCase().endsWith('.mp4') ||
-            firstFile.path.toLowerCase().endsWith('.mov')) {
-          setState(() => _optimizingStatus = "Capturing Cover Photo...");
-          final thumbPath = await VideoThumbnail.thumbnailFile(
-            video: firstFile.path,
-            thumbnailPath: (await getTemporaryDirectory()).path,
-            imageFormat: ImageFormat.JPEG,
-            quality: 40,
-          );
-          if (thumbPath != null) {
-            final tRes = await widget.state.cloud.uploadMedia(
-              File(thumbPath),
-              bucket: 'community-media',
-            );
-            thumbUrl = tRes?['url'] as String?;
-          }
-        } else {
-          thumbUrl = visualUrl; // The first uploaded file is the image itself.
+      final firstFile = optimizedFiles.first;
+      if (_isVideoFile(firstFile)) {
+        setState(() => _optimizingStatus = 'Uploading cover photo...');
+        final thumbPath = await VideoThumbnail.thumbnailFile(
+          video: firstFile.path,
+          thumbnailPath: (await getTemporaryDirectory()).path,
+          imageFormat: ImageFormat.JPEG,
+          quality: 40,
+        );
+        if (thumbPath == null) {
+          throw Exception('Could not create the video cover photo');
         }
+        thumbUrl = (await _uploadRequired(File(thumbPath)))['url'] as String;
+      } else {
+        thumbUrl = visualUrl;
       }
     } else if (_isVideo && _visualFile != null) {
-      // ⏳ VIDEO OPTIMIZATION
       setState(() {
         _isOptimizing = true;
-        _optimizingStatus = "Compressing Main Video...";
+        _optimizingStatus = _visualAlreadyCompressed
+            ? 'Preparing verified video...'
+            : 'Compressing main video...';
       });
 
-      // 1. Generate Thumbnail
-      final thumbPath = await VideoThumbnail.thumbnailFile(
-        video: _visualFile!.path,
-        thumbnailPath: (await getTemporaryDirectory()).path,
-        imageFormat: ImageFormat.JPEG,
-        quality: 40,
-      );
-      if (thumbPath != null) {
-        final tRes = await widget.state.cloud.uploadMedia(
-          File(thumbPath),
-          bucket: 'community-media',
+      final preparedFiles = _preparedVisualFiles;
+      final hasPreparedVideo =
+          preparedFiles != null &&
+          preparedFiles.length == 1 &&
+          preparedFiles.single.existsSync();
+      if (preparedFiles != null && !hasPreparedVideo) {
+        _aiVerification = null;
+      }
+      var visualToUpload = hasPreparedVideo
+          ? preparedFiles.single
+          : _visualFile!;
+      if (!_visualAlreadyCompressed && visualToUpload == _visualFile) {
+        visualToUpload = await MediaCompressionService.compressVideo(
+          visualToUpload,
         );
-        thumbUrl = tRes?['url'] as String?;
+        _preparedVisualFiles = [visualToUpload];
       }
 
-      // 2. Transcode Video
-      final mediaInfo = await VideoCompress.compressVideo(
-        _visualFile!.path,
-        quality: VideoQuality.MediumQuality,
-        deleteOrigin: false,
-      );
-      if (mediaInfo != null && mediaInfo.file != null) {
-        visualToUpload = mediaInfo.file!;
+      await _ensureVisualVerification([visualToUpload]);
+
+      var thumbnail = _preparedThumbnailFile;
+      if (thumbnail != null && !thumbnail.existsSync()) thumbnail = null;
+      if (thumbnail == null) {
+        final thumbPath = await VideoThumbnail.thumbnailFile(
+          video: visualToUpload.path,
+          thumbnailPath: (await getTemporaryDirectory()).path,
+          imageFormat: ImageFormat.JPEG,
+          quality: 40,
+        );
+        if (thumbPath == null) {
+          throw Exception('Could not create the video cover photo');
+        }
+        thumbnail = File(thumbPath);
       }
 
-      final res = await widget.state.cloud.uploadMedia(
-        visualToUpload,
-        bucket: 'community-media',
-      );
-      visualUrl = res?['url'] as String?;
+      setState(() => _optimizingStatus = 'Uploading verified video...');
+      thumbUrl = (await _uploadRequired(thumbnail))['url'] as String;
+      visualUrl = (await _uploadRequired(visualToUpload))['url'] as String;
       mediaType = 'video';
-    } else if (_visualFile != null) {
-      setState(() => _optimizingStatus = "Compressing Visual Asset...");
-      final compressed = await MediaCompressionService.compressImage(
-        _visualFile!,
-      );
-      final res = await widget.state.cloud.uploadMedia(
-        compressed,
-        bucket: 'community-media',
-      );
-      visualUrl = res?['url'] as String?;
-      mediaType = res?['media_type'] as String?;
-      thumbUrl = visualUrl; // Auto capture cover photo for single image
-    } else if (_multiFiles.isNotEmpty) {
-      // Fallback if _multiFiles has exactly 1 image
-      setState(() => _optimizingStatus = "Compressing Visual Asset...");
-      final compressed = await MediaCompressionService.compressImage(
-        _multiFiles.first,
-      );
-      final res = await widget.state.cloud.uploadMedia(
-        compressed,
-        bucket: 'community-media',
-      );
-      visualUrl = res?['url'] as String?;
-      mediaType = 'gallery';
+    } else if (_visualFile != null || _multiFiles.isNotEmpty) {
+      final source = _visualFile ?? _multiFiles.first;
+      setState(() => _optimizingStatus = 'Compressing visual asset...');
+      final preparedFiles = _preparedVisualFiles;
+      final hasPreparedImage =
+          preparedFiles != null &&
+          preparedFiles.length == 1 &&
+          preparedFiles.single.existsSync();
+      if (preparedFiles != null && !hasPreparedImage) {
+        _aiVerification = null;
+      }
+      final compressed = hasPreparedImage
+          ? preparedFiles.single
+          : _visualAlreadyCompressed
+          ? source
+          : await MediaCompressionService.compressImage(source);
+      _preparedVisualFiles = [compressed];
+      await _ensureVisualVerification([compressed]);
+      setState(() => _optimizingStatus = 'Uploading verified image...');
+      final result = await _uploadRequired(compressed);
+      visualUrl = result['url'] as String;
+      mediaType = result['media_type'] as String? ?? 'image';
       thumbUrl = visualUrl;
-      multiUrls = visualUrl != null ? [visualUrl] : [];
+      if (_multiFiles.isNotEmpty) multiUrls = [visualUrl];
+    } else {
+      throw Exception('No media is available for publishing');
     }
 
-    return {
+    final completed = <String, dynamic>{
       'visualUrl': visualUrl,
       'multiUrls': multiUrls,
       'mediaType': mediaType,
       'thumbUrl': thumbUrl,
     };
+    _uploadedMediaCache = completed;
+    return Map<String, dynamic>.from(completed);
   }
 
   Future<void> _dispatchSalesCampaign() async {
-    final media = await _optimizeMediaAssets();
-    final mediaType = media['mediaType'] as String?;
-
-    // 🛡️ Pre-calculate product photo URLs (Miniatures)
-    List<String> productPhotoUrls = [];
+    final userId = widget.state.user?.id;
+    if (userId == null || userId.isEmpty) {
+      throw Exception('Please sign in before publishing');
+    }
+    // Prepare and verify every product photo before the first upload begins.
+    final compressedProductPhotos = <File>[];
+    final productPhotoVerifications = <Map<String, dynamic>>[];
     if (_productPhotos.isNotEmpty) {
       setState(() => _optimizingStatus = "Compressing Product Miniatures...");
-      final List<File> compressedProductPhotos = [];
       for (int i = 0; i < _productPhotos.length; i++) {
         setState(
           () => _optimizingStatus =
@@ -563,29 +738,65 @@ class _UploadScreenState extends State<UploadScreen>
           _productPhotos[i],
         );
         compressedProductPhotos.add(compressed);
+        setState(
+          () => _optimizingStatus =
+              'Verifying product photo ${i + 1} of ${_productPhotos.length}...',
+        );
+        productPhotoVerifications.add(
+          await _verifyFileForPublishing(compressed),
+        );
       }
+    }
+
+    final media = await _optimizeMediaAssets();
+    final mediaType = media['mediaType'] as String?;
+    var verification = _requiredVerificationReport();
+    if (productPhotoVerifications.isNotEmpty) {
+      verification = {
+        'success': true,
+        'verified': true,
+        'visual': verification,
+        'product_photos': productPhotoVerifications,
+      };
+      _aiVerification = verification;
+    }
+
+    // 🛡️ Upload product photos only after all AI checks have passed.
+    List<String> productPhotoUrls = [];
+    if (compressedProductPhotos.isNotEmpty) {
       setState(() => _optimizingStatus = "Syncing Product Miniatures...");
       productPhotoUrls = await widget.state.cloud.uploadMultiMedia(
         compressedProductPhotos,
         bucket: 'listing-photos',
       );
+      if (productPhotoUrls.length != compressedProductPhotos.length) {
+        throw Exception('One or more product photos failed to upload');
+      }
     }
 
+    Map<String, dynamic> listing;
     if (_linkedListing != null) {
       // UPDATE EXISTING LISTING
-      await Supabase.instance.client
-          .from('listings')
-          .update({
-            'media_url': media['visualUrl'],
-            'media_type': mediaType,
-            'photos': productPhotoUrls.isNotEmpty
-                ? productPhotoUrls
-                : (_linkedListing!['photos'] ?? []),
-          })
-          .eq('id', _linkedListing!['id']);
+      listing = Map<String, dynamic>.from(
+        await Supabase.instance.client
+            .from('listings')
+            .update({
+              'media_url': media['visualUrl'],
+              'media_type': mediaType,
+              'thumbnail_url': media['thumbUrl'],
+              'is_verified': true,
+              'ai_verification': verification,
+              'photos': productPhotoUrls.isNotEmpty
+                  ? productPhotoUrls
+                  : (_linkedListing!['photos'] ?? []),
+            })
+            .eq('id', _linkedListing!['id'])
+            .select()
+            .single(),
+      );
     } else {
       // CREATE NEW LISTING
-      await widget.state.social.createListing(widget.state.user?.id ?? '', {
+      listing = await widget.state.social.createListing(userId, {
         'title': _title,
         'description': _desc,
         'price': _price,
@@ -608,13 +819,32 @@ class _UploadScreenState extends State<UploadScreen>
         // Strictly separate: photos should only contain product miniatures
         'photos': productPhotoUrls.isNotEmpty ? productPhotoUrls : [],
         'status': 'active',
-      });
+        'is_verified': true,
+        'ai_verification': verification,
+      }, aiResult: verification);
     }
+    await widget.state.social.logVerification(
+      userId,
+      'listing',
+      verification,
+      contentId: listing['id']?.toString(),
+    );
   }
 
   Future<void> _dispatchArtistCampaign() async {
-    final userId = widget.state.user?.id ?? '';
-    // Pay distribute fee
+    final userId = widget.state.user?.id;
+    if (userId == null || userId.isEmpty) {
+      throw Exception('Please sign in before publishing');
+    }
+
+    // Optimize and verify before charging the distribution fee.
+    final media = await _optimizeMediaAssets();
+    final verification = _requiredVerificationReport();
+    final visualUrl = media['visualUrl'] as String?;
+    final multiUrls = media['multiUrls'] as List<String>;
+    final mediaType = media['mediaType'] as String?;
+    final thumbUrl = media['thumbUrl'] as String?;
+
     await widget.state.payment.chargeArtistDistributionFee(userId, 150);
     widget.state.updateCoins(-150);
 
@@ -622,34 +852,28 @@ class _UploadScreenState extends State<UploadScreen>
     String? beatCoverUrl;
     String? artistProfileUrl;
     if (_beatCoverFile != null) {
-      final res = await widget.state.cloud.uploadMedia(
+      final res = await _uploadRequired(
         _beatCoverFile!,
         bucket: 'artist-media',
       );
-      beatCoverUrl = res?['url'] as String?;
+      beatCoverUrl = res['url'] as String;
     }
     if (_artistArtFile != null) {
-      final res = await widget.state.cloud.uploadMedia(
+      final res = await _uploadRequired(
         _artistArtFile!,
         bucket: 'artist-media',
       );
-      artistProfileUrl = res?['url'] as String?;
+      artistProfileUrl = res['url'] as String;
     }
-
-    final media = await _optimizeMediaAssets();
-    final visualUrl = media['visualUrl'] as String?;
-    final multiUrls = media['multiUrls'] as List<String>;
-    final mediaType = media['mediaType'] as String?;
-    final thumbUrl = media['thumbUrl'] as String?;
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await widget.state.cloud.uploadMedia(
+      final res = await _uploadRequired(
         _audioFile!,
         bucket: 'community-media',
         assetType: 'audio',
       );
-      audioUrl = res?['url'] as String?;
+      audioUrl = res['url'] as String;
     }
 
     // Register Media Asset
@@ -668,7 +892,7 @@ class _UploadScreenState extends State<UploadScreen>
       });
     }
 
-    await widget.state.social.createPost(userId, {
+    final post = await widget.state.social.createPost(userId, {
       'title': _title,
       'content': _desc,
       'tags': _cleanTags(_tags),
@@ -695,12 +919,24 @@ class _UploadScreenState extends State<UploadScreen>
         'end_offsets': _endOffsets,
       },
       'status': 'verified',
+      'is_verified': true,
+      'ai_verification': verification,
     });
+    await widget.state.social.logVerification(
+      userId,
+      'post',
+      verification,
+      contentId: post['id']?.toString(),
+    );
   }
 
   Future<void> _dispatchSocialCampaign() async {
-    final userId = widget.state.user?.id ?? '';
+    final userId = widget.state.user?.id;
+    if (userId == null || userId.isEmpty) {
+      throw Exception('Please sign in before publishing');
+    }
     final media = await _optimizeMediaAssets();
+    final verification = _requiredVerificationReport();
     final visualUrl = media['visualUrl'] as String?;
     final multiUrls = media['multiUrls'] as List<String>;
     final mediaType = media['mediaType'] as String?;
@@ -708,12 +944,12 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await widget.state.cloud.uploadMedia(
+      final res = await _uploadRequired(
         _audioFile!,
         bucket: 'community-media',
         assetType: 'audio',
       );
-      audioUrl = res?['url'] as String?;
+      audioUrl = res['url'] as String;
     }
 
     String? mediaAssetId;
@@ -731,7 +967,7 @@ class _UploadScreenState extends State<UploadScreen>
       });
     }
 
-    await widget.state.social.createPost(userId, {
+    final post = await widget.state.social.createPost(userId, {
       'title': _title,
       'content': _desc,
       'tags': _cleanTags(_tags),
@@ -754,7 +990,23 @@ class _UploadScreenState extends State<UploadScreen>
         'end_offsets': _endOffsets,
       },
       'status': 'verified',
+      'is_verified': true,
+      'ai_verification': verification,
     });
+    await widget.state.social.logVerification(
+      userId,
+      'post',
+      verification,
+      contentId: post['id']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> _requiredVerificationReport() {
+    final report = _aiVerification;
+    if (report == null || report['verified'] != true) {
+      throw Exception('AI verification must finish before publishing');
+    }
+    return Map<String, dynamic>.from(report);
   }
 
   void _onShareSuccess(String msg, {String destinationTab = 'feed'}) {

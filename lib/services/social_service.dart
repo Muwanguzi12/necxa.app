@@ -566,11 +566,24 @@ class SocialService {
 
   bool isSyncing(String key) => key == 'feed' ? _feedSyncing : _shopSyncing;
 
-  Future<void> createListing(
+  Future<Map<String, dynamic>> createListing(
     String userId,
     Map<String, dynamic> data, {
     Map<String, dynamic>? aiResult,
   }) async {
+    if (userId.isEmpty) throw Exception('Please sign in before publishing');
+    final verification = aiResult ?? data['ai_verification'];
+    final verificationResult = verification is Map
+        ? verification['result']
+        : null;
+    final isVerified =
+        (verification is Map && verification['verified'] == true) ||
+        (verificationResult is Map && verificationResult['verified'] == true);
+    if (!isVerified || verification == null) {
+      throw Exception(
+        'AI verification is required before publishing a listing',
+      );
+    }
     final double parsedPrice =
         double.tryParse(data['price']?.toString() ?? '0') ?? 0;
     num? parseScore(dynamic value) {
@@ -633,12 +646,18 @@ class SocialService {
 
       if (res.data?['success'] == true) {
         final listing = res.data['data'];
-        if (listing != null) {
-          // 🚀 IMMEDIATE PERSISTENCE: Save with identity
-          await LocalDbService().saveListings([listing]);
+        if (listing is! Map) {
+          throw Exception('Listing creation returned no destination record');
         }
+        final savedListing = Map<String, dynamic>.from(listing);
+        // 🚀 IMMEDIATE PERSISTENCE: Save with identity
+        await LocalDbService().saveListings([savedListing]);
+        state.notify();
+        return savedListing;
       }
-      state.notify();
+      throw Exception(
+        res.data?['error']?.toString() ?? 'Listing creation failed',
+      );
     } catch (e) {
       debugPrint('Redis Listing Creation Error: $e');
       // Fallback: Use direct insert + select with profile JOIN
@@ -652,6 +671,7 @@ class SocialService {
 
       await LocalDbService().saveListings([res]);
       state.notify();
+      return Map<String, dynamic>.from(res);
     }
   }
 
@@ -673,7 +693,21 @@ class SocialService {
     } catch (_) {}
   }
 
-  Future<void> createPost(String userId, Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> createPost(
+    String userId,
+    Map<String, dynamic> data,
+  ) async {
+    if (userId.isEmpty) throw Exception('Please sign in before publishing');
+    final verification = data['ai_verification'];
+    final verificationResult = verification is Map
+        ? verification['result']
+        : null;
+    final verificationApproved =
+        (verification is Map && verification['verified'] == true) ||
+        (verificationResult is Map && verificationResult['verified'] == true);
+    if (data['is_verified'] != true || !verificationApproved) {
+      throw Exception('AI verification is required before publishing a post');
+    }
     try {
       // 🚀 COMMUNITY V2: NEURAL SYNC
       // Call Edge Function to handle both Supabase persistence and Redis feed caching
@@ -689,27 +723,34 @@ class SocialService {
             'media_type': data['media_type'] ?? 'image',
             'media_asset_id': data['media_asset_id'],
             'audio_url': data['audio_url'],
+            'music_track_id': data['music_track_id'],
             'tags': data['tags'] ?? [],
             'creator_mode': data['creator_mode'] ?? 'unified',
             'is_fast_sync': data['is_fast_sync'] ?? false,
             'gallery_urls': data['gallery_urls'] ?? [],
             'editing_metadata': data['editing_metadata'] ?? {},
             'artist_metadata': data['artist_metadata'] ?? {},
+            'is_verified': data['is_verified'] == true,
+            'ai_verification': data['ai_verification'],
           },
         },
       );
 
       if (res.data != null && res.data['success'] == true) {
         final post = res.data['data'];
-        if (post != null) {
-          // 🛡️ IMMEDIATE LOCAL PERSISTENCE
-          final localDb = LocalDbService();
-          await localDb.saveCommunityPosts([post]);
-
-          debugPrint('🎬 SocialService: New post persisted locally.');
-          state.notify(); // 🚀 Trigger UI update
+        if (post is! Map) {
+          throw Exception('Post creation returned no destination record');
         }
+        final savedPost = Map<String, dynamic>.from(post);
+        // 🛡️ IMMEDIATE LOCAL PERSISTENCE
+        final localDb = LocalDbService();
+        await localDb.saveCommunityPosts([savedPost]);
+
+        debugPrint('🎬 SocialService: New post persisted locally.');
+        state.notify(); // 🚀 Trigger UI update
+        return savedPost;
       }
+      throw Exception(res.data?['error']?.toString() ?? 'Post creation failed');
     } catch (e) {
       debugPrint('Edge Function Post Creation Error: $e');
 
@@ -722,8 +763,20 @@ class SocialService {
               'title': data['title'],
               'content': data['content'],
               'media_url': data['media_url'],
+              'thumbnail_url': data['thumbnail_url'],
               'media_type': data['media_type'] ?? 'image',
-              'status': 'verified',
+              'media_asset_id': data['media_asset_id'],
+              'audio_url': data['audio_url'],
+              'music_track_id': data['music_track_id'],
+              'tags': data['tags'] ?? [],
+              'status': data['is_verified'] == true ? 'verified' : 'pending',
+              'metadata': {
+                'creator_mode': data['creator_mode'] ?? 'unified',
+                'gallery_urls': data['gallery_urls'] ?? [],
+                'editing': data['editing_metadata'] ?? {},
+                'artist': data['artist_metadata'] ?? {},
+                'ai_verification': data['ai_verification'],
+              },
             })
             .select(
               '*, profiles:author_id(full_name, avatar_url, trust_score_tier)',
@@ -732,8 +785,10 @@ class SocialService {
 
         await LocalDbService().saveCommunityPosts([res]);
         state.notify();
+        return Map<String, dynamic>.from(res);
       } catch (e2) {
         debugPrint('Emergency Post Fallback Error: $e2');
+        throw Exception('Post creation failed: $e2');
       }
     }
   }
@@ -1008,7 +1063,7 @@ class SocialService {
     _profileCache.remove(userId); // Invalidate cache
   }
 
-  Future<String?> registerMediaAsset(
+  Future<String> registerMediaAsset(
     String userId,
     Map<String, dynamic> data,
   ) async {
@@ -1026,10 +1081,14 @@ class SocialService {
           .select('id')
           .single();
 
-      return res['id'] as String?;
+      final id = res['id']?.toString();
+      if (id == null || id.isEmpty) {
+        throw Exception('Media registration returned no asset ID');
+      }
+      return id;
     } catch (e) {
       debugPrint('Media Registration Error: $e');
-      return null;
+      throw Exception('Media registration failed: $e');
     }
   }
 
@@ -1046,13 +1105,19 @@ class SocialService {
   Future<void> logVerification(
     String userId,
     String type,
-    Map<String, dynamic> report,
-  ) async {
+    Map<String, dynamic> report, {
+    String? contentId,
+  }) async {
     try {
       await client.from('verifications').insert({
         'user_id': userId,
         'status': report['verified'] == true ? 'verified' : 'rejected',
-        'details': report,
+        'details': {
+          ...report,
+          'content_type': type,
+          if (contentId != null && contentId.isNotEmpty)
+            'content_id': contentId,
+        },
       });
     } catch (e) {
       debugPrint('Verification Logging Error: $e');
