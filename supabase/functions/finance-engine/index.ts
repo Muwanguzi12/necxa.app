@@ -168,21 +168,18 @@ serve(async (req) => {
         return json({ success: false, message: "Minimum deposit is UGX 500." }, 400);
       }
 
-      // Fetch user profile for name & email
-      const { data: profile, error: profileErr } = await supabase
+      // Fetch user profile for name & email, but don't fail if missing
+      const { data: profile } = await supabase
         .from("profiles")
         .select("full_name, email, phone")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
-      if (profileErr || !profile) {
-        return json({ success: false, message: "User profile not found." }, 400);
-      }
-
-      const [firstName, ...rest] = (profile.full_name ?? "").split(" ");
+      const fullName = profile?.full_name || user.user_metadata?.full_name || "";
+      const [firstName, ...rest] = fullName.split(" ");
       const lastName = rest.join(" ") || "—";
-      const email = profile.email ?? user.email ?? "";
-      const userPhone = phone ?? profile.phone ?? "";
+      const email = profile?.email || user.email || "no-reply@necxa.app";
+      const userPhone = phone || profile?.phone || user.phone || "";
 
       // Prevent duplicate initiation via idempotency key
       const { data: existingPayment } = await supabase
@@ -396,12 +393,13 @@ serve(async (req) => {
         .from("profiles")
         .select("full_name, email, phone")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
-      const [firstName, ...rest] = (profile?.full_name ?? "").split(" ");
+      const fullName = profile?.full_name || user.user_metadata?.full_name || "";
+      const [firstName, ...rest] = fullName.split(" ");
       const lastName = rest.join(" ") || "—";
-      const email = profile?.email ?? user.email ?? "";
-      const phone = deliveryPhone || profile?.phone || "";
+      const email = profile?.email || user.email || "no-reply@necxa.app";
+      const phone = deliveryPhone || profile?.phone || user.phone || "";
 
       // Reserve inventory (prevents overselling during Pesapal redirect window)
       const { error: reserveErr } = await supabase.rpc("reserve_commerce_inventory", {
@@ -607,12 +605,13 @@ serve(async (req) => {
           .from("profiles")
           .select("full_name, email, phone")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
 
-        const [firstName, ...rest] = (profile?.full_name ?? "").split(" ");
+        const fullName = profile?.full_name || user.user_metadata?.full_name || "";
+        const [firstName, ...rest] = fullName.split(" ");
         const lastName = rest.join(" ") || "—";
-        const email = profile?.email ?? user.email ?? "";
-        const phone = profile?.phone || "";
+        const email = profile?.email || user.email || "no-reply@necxa.app";
+        const userPhone = profile?.phone || user.phone || "";
 
         const pesapalToken = await getPesapalToken();
         const orderResult = await submitPesapalOrder(pesapalToken, {
@@ -623,7 +622,7 @@ serve(async (req) => {
           firstName,
           lastName,
           email,
-          phone,
+          phone: userPhone,
           branch: "Necxa - Coin Purchase",
         });
 
