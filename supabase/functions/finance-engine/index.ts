@@ -147,9 +147,15 @@ serve(async (req) => {
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
-  } catch (_) { /* no body */ }
+  } catch {
+    // some requests might be empty
+  }
 
-  const action = (body.action as string) ?? "";
+  const action = body.action as string;
+
+  if (action === "health") {
+    return json({ success: true, status: "online", timestamp: new Date().toISOString() });
+  }
 
   try {
     // ── Action: initiate_deposit ──────────────────────────────────────────
