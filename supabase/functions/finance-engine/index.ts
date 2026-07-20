@@ -116,9 +116,14 @@ serve(async (req) => {
     return new Response("ok", { headers: cors });
   }
 
-  // Authenticate the calling user via their Supabase JWT
+  // ── Authentication (Cross-Project Support) ────────────────────────────────
+  // Authenticate the user against Supabase 1 (Auth Project) if configured, 
+  // otherwise default to local Supabase 2
   const authHeader = req.headers.get("Authorization") ?? "";
-  const userSupabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  const SUPABASE_AUTH_URL = Deno.env.get("SUPABASE_AUTH_URL") || SUPABASE_URL;
+  const SUPABASE_AUTH_ANON_KEY = Deno.env.get("SUPABASE_AUTH_ANON_KEY") || SUPABASE_SERVICE_KEY;
+
+  const userSupabase = createClient(SUPABASE_AUTH_URL, SUPABASE_AUTH_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
   });
 
@@ -130,7 +135,15 @@ serve(async (req) => {
     );
   }
 
+  // Local Supabase 2 client for all financial operations
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+  // Sync stub profile to satisfy foreign key constraints on Supabase 2 (wallets -> profiles)
+  await supabase.from("profiles").upsert(
+    { id: user.id, email: user.email, updated_at: new Date().toISOString() },
+    { onConflict: "id", ignoreDuplicates: true }
+  );
+
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
