@@ -120,10 +120,10 @@ serve(async (req) => {
   // Authenticate the user against Supabase 1 (Auth Project) if configured, 
   // otherwise default to local Supabase 2
   const authHeader = req.headers.get("Authorization") ?? "";
-  const SUPABASE_AUTH_URL = Deno.env.get("SUPABASE_AUTH_URL") || SUPABASE_URL;
-  const SUPABASE_AUTH_ANON_KEY = Deno.env.get("SUPABASE_AUTH_ANON_KEY") || SUPABASE_SERVICE_KEY;
+  const AUTH_PROJECT_URL = Deno.env.get("AUTH_PROJECT_URL") || SUPABASE_URL;
+  const AUTH_PROJECT_ANON_KEY = Deno.env.get("AUTH_PROJECT_ANON_KEY") || SUPABASE_SERVICE_KEY;
 
-  const userSupabase = createClient(SUPABASE_AUTH_URL, SUPABASE_AUTH_ANON_KEY, {
+  const userSupabase = createClient(AUTH_PROJECT_URL, AUTH_PROJECT_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
   });
 
