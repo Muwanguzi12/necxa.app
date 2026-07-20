@@ -114,6 +114,8 @@ class ProMediaEditorScreen extends StatefulWidget {
 }
 
 class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
+  late final EditorProjectController _project;
+  late final bool _ownsProjectController;
   final EditorMediaService _mediaService = EditorMediaService();
   final ImageEnhancementService _enhancementService = ImageEnhancementService();
   final VideoEnhancementService _videoService = VideoEnhancementService();
@@ -193,8 +195,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   @override
   void initState() {
     super.initState();
+    _project = widget.projectController ?? EditorProjectController();
+    _ownsProjectController = widget.projectController == null;
     final sharedFiles =
-        widget.projectController?.tracks
+        _project.tracks
             .where(
               (track) =>
                   track.type == TrackType.video ||
@@ -215,7 +219,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         : []));
     _sequence = files.map((f) => VideoClip(file: f)).toList();
     if (sharedFiles.isNotEmpty) {
-      final sharedClips = widget.projectController!.tracks
+      final sharedClips = _project.tracks
           .where(
             (track) =>
                 track.type == TrackType.video || track.type == TrackType.images,
@@ -244,9 +248,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           )
           .toList();
     }
-    final sharedProject = widget.projectController;
-    if (sharedProject != null) {
-      for (final timelineClip in sharedProject.tracks.expand(
+    final sharedProject = _project;
+    for (final timelineClip in sharedProject.tracks.expand(
         (track) => track.clips,
       )) {
         final operation = timelineClip.operation;
@@ -259,7 +262,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           );
           if (index != null) _transitions[index] = operation;
         }
-      }
     }
 
     if (widget.initialTrack != null) {
@@ -269,7 +271,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     }
 
     _loadClip(_activeClipIndex);
-    widget.projectController?.playback.addListener(_followSharedPlaybackClock);
+    _project.playback.addListener(_followSharedPlaybackClock);
     _probeDurations();
     _loadShaders();
 
@@ -397,7 +399,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           if (clip.end <= 0.1) return;
 
           final pos = _videoController!.value.position.inMilliseconds / 1000.0;
-          if (widget.projectController == null && pos >= clip.end) {
+          if (_ownsProjectController && pos >= clip.end) {
             if (_activeClipIndex < _sequence.length - 1) {
               setState(() => _activeClipIndex++);
               _loadClip(_activeClipIndex);
@@ -418,7 +420,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   @override
   void dispose() {
-    widget.projectController?.playback.removeListener(
+    _project.playback.removeListener(
       _followSharedPlaybackClock,
     );
     _videoController?.dispose();
@@ -426,11 +428,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _voicePlayer.dispose();
     _voiceoverService.dispose();
     _enhancementService.dispose();
+    if (_ownsProjectController) _project.dispose();
     super.dispose();
   }
 
   Future<void> _followSharedPlaybackClock() async {
-    final project = widget.projectController;
+    final project = _project;
     if (!mounted || project == null || _sequence.isEmpty || _syncingPlayback) {
       return;
     }
@@ -474,12 +477,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _saveHistory() {
-    final project = widget.projectController;
+    final project = _project;
     if (project != null) project.history.capture(project.tracks);
   }
 
   void _undo() {
-    final project = widget.projectController;
+    final project = _project;
     if (project == null) return;
     final restored = project.history.undo(project.tracks);
     if (restored == null) return;
@@ -489,7 +492,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _redo() {
-    final project = widget.projectController;
+    final project = _project;
     if (project == null) return;
     final restored = project.history.redo(project.tracks);
     if (restored == null) return;
@@ -499,7 +502,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _restoreDesktopViewFromProject() {
-    final project = widget.projectController;
+    final project = _project;
     if (project == null) return;
     final visual =
         project.tracks
@@ -541,7 +544,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _syncSharedProjectFromSequence() {
-    final project = widget.projectController;
+    final project = _project;
     if (project == null) return;
     project.tracks.removeWhere(
       (track) =>
@@ -850,7 +853,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       try {
         _feedback("Synthesizing Mult-Media Studio...");
         _syncDesktopAudioToProject();
-        final project = widget.projectController;
+        final project = _project;
         combinedFile = project == null
             ? null
             : await EditorExportService.renderTimeline(
@@ -914,7 +917,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _syncDesktopAudioToProject() {
-    final project = widget.projectController;
+    final project = _project;
     if (project == null) return;
     for (final track in project.tracks) {
       track.clips.removeWhere((clip) => clip.id.startsWith('desktop-audio-'));
@@ -963,7 +966,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   void _togglePlayback() {
     setState(() => _isPlaying = !_isPlaying);
-    final project = widget.projectController;
+    final project = _project;
     if (_isPlaying) {
       if (project != null) project.playback.play(project.tracks);
       _syncPlay();

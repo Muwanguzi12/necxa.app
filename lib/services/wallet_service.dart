@@ -161,28 +161,41 @@ class ShopPurchaseResult {
   final String? orderId;
   final String? orderNumber;
   final double? deliveryFeeUgx;
+  final String? redirectUrl;  // Pesapal checkout URL (momo/card path)
+  final String? paymentId;    // idempotency_key for status polling
+
   ShopPurchaseResult.success(
     this.message, {
     this.orderId,
     this.orderNumber,
     this.deliveryFeeUgx,
+    this.redirectUrl,
+    this.paymentId,
   }) : isSuccess = true,
        needsTopUp = false;
+
   ShopPurchaseResult.failure(this.message)
     : isSuccess = false,
       needsTopUp = false,
       orderId = null,
       orderNumber = null,
-      deliveryFeeUgx = null;
+      deliveryFeeUgx = null,
+      redirectUrl = null,
+      paymentId = null;
+
   ShopPurchaseResult.insufficientFunds(this.message)
     : isSuccess = false,
       needsTopUp = true,
       orderId = null,
       orderNumber = null,
-      deliveryFeeUgx = null;
+      deliveryFeeUgx = null,
+      redirectUrl = null,
+      paymentId = null;
 }
 
 extension WalletServiceShop on WalletService {
+  /// Pay with Necxa wallet balance — calls finance-engine which atomically
+  /// validates stock, deducts wallet, creates order + immutable ledger entries.
   Future<ShopPurchaseResult> processShopPurchase({
     required String listingId,
     required int quantity,
@@ -191,6 +204,7 @@ extension WalletServiceShop on WalletService {
     required Map<String, double> customerLocation,
     required String deliveryAddress,
     required String customerNumber,
+    int deliveryFeeUgx = 0,
   }) async {
     try {
       final result = await _invoke(
@@ -203,6 +217,7 @@ extension WalletServiceShop on WalletService {
           'customerLocation': customerLocation,
           'deliveryAddress': deliveryAddress,
           'customerNumber': customerNumber,
+          'deliveryFeeUgx': deliveryFeeUgx,
           'idempotencyKey': _idempotencyKey('shop-purchase'),
         },
       );
@@ -220,5 +235,69 @@ extension WalletServiceShop on WalletService {
     } catch (error) {
       return ShopPurchaseResult.failure(error.toString());
     }
+  }
+
+  /// Pay via Pesapal (Momo / Card) — reserves stock and returns Pesapal redirect URL.
+  Future<ShopPurchaseResult> initiateShopPayment({
+    required String listingId,
+    required int quantity,
+    required String deliverySpeed,
+    required String deliveryMethod,
+    required Map<String, double> customerLocation,
+    required String deliveryAddress,
+    required String customerNumber,
+    int deliveryFeeUgx = 0,
+  }) async {
+    try {
+      final result = await _invoke(
+        'initiate_shop_payment',
+        body: {
+          'listingId': listingId,
+          'quantity': quantity,
+          'deliverySpeed': deliverySpeed,
+          'deliveryMethod': deliveryMethod,
+          'customerLocation': customerLocation,
+          'deliveryAddress': deliveryAddress,
+          'customerNumber': customerNumber,
+          'deliveryFeeUgx': deliveryFeeUgx,
+          'idempotencyKey': _idempotencyKey('shop-pesapal'),
+        },
+      );
+      return ShopPurchaseResult.success(
+        'Payment initiated.',
+        orderId: result['orderId']?.toString(),
+        orderNumber: result['orderNumber']?.toString(),
+        redirectUrl: result['redirectUrl']?.toString(),
+        paymentId: result['paymentId']?.toString(),
+      );
+    } on FinanceBackendException catch (error) {
+      if (error.code == 'insufficient_funds') {
+        return ShopPurchaseResult.insufficientFunds(error.message);
+      }
+      return ShopPurchaseResult.failure(error.message);
+    } catch (error) {
+      return ShopPurchaseResult.failure(error.toString());
+    }
+  }
+
+  /// Polls shop_payment_status until COMPLETED or FAILED (5 min timeout).
+  Future<bool> pollShopPaymentStatus(
+    String paymentId, {
+    Duration timeout = const Duration(minutes: 5),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final result = await _invoke(
+          'shop_payment_status',
+          body: {'paymentId': paymentId},
+        );
+        final status = result['status']?.toString() ?? 'pending';
+        if (status == 'completed') return true;
+        if (status == 'failed' || status == 'cancelled') return false;
+      } catch (_) { /* keep polling on transient errors */ }
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+    return false;
   }
 }

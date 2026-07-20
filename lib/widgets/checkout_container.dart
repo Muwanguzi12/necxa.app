@@ -725,6 +725,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     },
                     deliveryAddress: _addressController.text,
                     customerNumber: _contactController.text,
+                    deliveryFeeUgx: _deliveryFare.toInt(),
                   );
 
                   if (res.isSuccess && res.orderId != null) {
@@ -735,42 +736,61 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     });
                     await widget.state.syncVault();
                     _next();
+                  } else if (res.needsTopUp) {
+                    throw Exception('Insufficient balance. Please deposit funds first.');
                   } else {
                     throw Exception(res.message);
                   }
                 } else if (_selectedPaymentMethod == 'momo' ||
                     _selectedPaymentMethod == 'card') {
-                  // Call initiatePesapalPayment via Vault
-                  final res = await widget.state.firebaseVault
-                      .initiatePesapalPayment(
-                        amount: totalUgx,
-                        currency: 'UGX',
-                        description: 'Shop purchase',
-                        type: 'shop_purchase',
-                        email: widget.state.user?.email ?? 'guest@necxa.com',
-                        phone: _contactController.text,
-                        packId: widget.listing['id'],
-                        listingId: widget.listing['id'],
-                      );
+                  final coordinates = _dropoffCoordinates;
+                  if (coordinates == null) {
+                    throw Exception('Pin your delivery location before paying.');
+                  }
 
-                  if (res['success'] == true) {
-                    final redirectUrl = res['redirect_url'];
-                    if (await canLaunchUrlString(redirectUrl)) {
+                  // Initiate Pesapal order via finance-engine
+                  final res = await WalletService().initiateShopPayment(
+                    listingId: widget.listing['id'],
+                    quantity: _quantity,
+                    deliverySpeed: _selectedTier.name,
+                    deliveryMethod: _selectedVehicle.name,
+                    customerLocation: {
+                      'lat': coordinates[0],
+                      'lng': coordinates[1],
+                    },
+                    deliveryAddress: _addressController.text,
+                    customerNumber: _contactController.text,
+                    deliveryFeeUgx: _deliveryFare.toInt(),
+                  );
+
+                  if (res.isSuccess && res.redirectUrl != null) {
+                    if (await canLaunchUrlString(res.redirectUrl!)) {
                       await launchUrlString(
-                        redirectUrl,
+                        res.redirectUrl!,
                         mode: LaunchMode.externalApplication,
                       );
                     }
                     setState(() {
-                      _currentOrderId = res['order_id']?.toString();
+                      _currentOrderId = res.orderId;
                       _loading = false;
                     });
-                    // Move to tracking; Webhook will mark as paid
-                    _next();
+                    _next(); // Move to success/tracking screen immediately
+
+                    // Poll for confirmation in background
+                    if (res.paymentId != null) {
+                      WalletService().pollShopPaymentStatus(res.paymentId!).then((paid) {
+                        if (paid && mounted) {
+                          widget.state.syncVault();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('✅ Payment confirmed! Your order is being processed.')),
+                          );
+                        }
+                      });
+                    }
+                  } else if (res.needsTopUp) {
+                    throw Exception('Insufficient balance. Please top up your wallet first.');
                   } else {
-                    throw Exception(
-                      res['message'] ?? 'Failed to launch Pesapal',
-                    );
+                    throw Exception(res.message);
                   }
                 } else {
                   throw Exception("Payment method not supported yet.");

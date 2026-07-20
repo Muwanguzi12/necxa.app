@@ -34,7 +34,7 @@ class FinanceDepositService {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
       final current = await status(paymentId);
-      if (current == 'completed') return true;
+      if (current == 'completed') return true; // finance-engine returns lowercase
       if (current == 'failed' ||
           current == 'cancelled' ||
           current == 'refunded') {
