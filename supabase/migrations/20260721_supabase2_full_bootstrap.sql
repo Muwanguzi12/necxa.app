@@ -278,6 +278,47 @@ begin
 end;
 $$;
 
+-- 11. Credit wallet fiat (atomic function for Pesapal deposit confirmation)
+create or replace function public.credit_wallet_fiat(
+  p_user_id    uuid,
+  p_amount_ugx bigint,
+  p_reference  text
+)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_new_fiat bigint;
+begin
+  if p_amount_ugx <= 0 then
+    raise exception 'Deposit amount must be positive.';
+  end if;
+
+  -- Ensure & update wallet balance
+  insert into public.wallets (user_id, fiat_balance)
+  values (p_user_id, p_amount_ugx)
+  on conflict (user_id) do update
+  set fiat_balance = wallets.fiat_balance + EXCLUDED.fiat_balance,
+      updated_at   = now()
+  returning fiat_balance into v_new_fiat;
+
+  -- Create immutable financial ledger entry
+  insert into public.immutable_financial_ledger(
+    user_id, entry_type, amount, currency, direction, balance_after,
+    reference_id, metadata
+  ) values (
+    p_user_id, 'WALLET_DEPOSIT', p_amount_ugx, 'UGX', 'in', v_new_fiat,
+    null,
+    jsonb_build_object('idempotency_key', p_reference, 'provider', 'pesapal')
+  );
+
+  return jsonb_build_object(
+    'success', true,
+    'newBalance', v_new_fiat,
+    'message', 'Wallet credited successfully.'
+  );
+end;
+$$;
+
 -- 11. Credit NCX function (may already exist)
 create or replace function public.credit_ncx(
   p_user_auth_id uuid,

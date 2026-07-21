@@ -149,6 +149,45 @@ serve(async (req) => {
     { onConflict: "id", ignoreDuplicates: true }
   );
 
+  // Handle Pesapal IPN & Redirect Callback (GET requests or IPN pings)
+  const urlObj = new URL(req.url);
+  const orderTrackingId = urlObj.searchParams.get("OrderTrackingId") || urlObj.searchParams.get("orderTrackingId");
+  const orderMerchantRef = urlObj.searchParams.get("OrderMerchantReference") || urlObj.searchParams.get("orderMerchantReference") || urlObj.searchParams.get("paymentId");
+
+  if (req.method === "GET" && orderTrackingId && orderMerchantRef) {
+    try {
+      const { data: payment } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("idempotency_key", orderMerchantRef)
+        .maybeSingle();
+
+      if (payment) {
+        const token = await getPesapalToken();
+        const statusData = await getPesapalTransactionStatus(token, orderTrackingId);
+        const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
+
+        if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) {
+          await supabase.from("payments").update({ status: "COMPLETED", updated_at: new Date().toISOString() }).eq("idempotency_key", orderMerchantRef);
+          
+          // Credit wallet if deposit
+          const amountUgx = (payment.request as Record<string, number>)?.amount ?? 0;
+          if (amountUgx > 0 && payment.user_id) {
+            await supabase.rpc("credit_wallet_fiat", {
+              p_user_id: payment.user_id,
+              p_amount_ugx: amountUgx,
+              p_reference: orderMerchantRef,
+            });
+          }
+        }
+      }
+      return json({ success: true, orderNotificationType: "IPNCHANGE", orderTrackingId, status: "200" });
+    } catch (ipnErr) {
+      console.error("IPN handler error:", ipnErr);
+      return json({ success: false, error: String(ipnErr) }, 500);
+    }
+  }
+
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
@@ -260,11 +299,11 @@ serve(async (req) => {
       // Otherwise query Pesapal for real-time status
       const token = await getPesapalToken();
       const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
-      const pesapalStatus = statusData.payment_status_description as string;
+      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
 
       let mappedStatus = "PENDING";
-      if (pesapalStatus === "COMPLETED") mappedStatus = "COMPLETED";
-      else if (pesapalStatus === "FAILED" || pesapalStatus === "INVALID") mappedStatus = "FAILED";
+      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) mappedStatus = "COMPLETED";
+      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) mappedStatus = "FAILED";
 
       // Update the DB if status has changed
       if (mappedStatus !== "PENDING") {
@@ -569,11 +608,11 @@ serve(async (req) => {
       // Ask Pesapal directly
       const token = await getPesapalToken();
       const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
-      const pesapalStatus = statusData.payment_status_description as string;
+      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
 
       let mappedStatus = "PENDING";
-      if (pesapalStatus === "COMPLETED") mappedStatus = "COMPLETED";
-      else if (pesapalStatus === "FAILED" || pesapalStatus === "INVALID") mappedStatus = "FAILED";
+      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) mappedStatus = "COMPLETED";
+      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) mappedStatus = "FAILED";
 
       if (mappedStatus !== "PENDING") {
         await supabase.from("payments")
@@ -735,11 +774,11 @@ serve(async (req) => {
 
       const token = await getPesapalToken();
       const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
-      const pesapalStatus = statusData.payment_status_description as string;
+      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
 
       let mappedStatus = "PENDING";
-      if (pesapalStatus === "COMPLETED") mappedStatus = "COMPLETED";
-      else if (pesapalStatus === "FAILED" || pesapalStatus === "INVALID") mappedStatus = "FAILED";
+      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) mappedStatus = "COMPLETED";
+      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) mappedStatus = "FAILED";
 
       if (mappedStatus !== "PENDING") {
         await supabase.from("payments")
