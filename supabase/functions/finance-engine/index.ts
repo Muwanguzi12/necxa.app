@@ -88,10 +88,15 @@ async function submitPesapalOrder(token: string, order: {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`Pesapal order submission failed: ${JSON.stringify(err)}`);
+    const errMsg = err?.error?.code || err?.message || JSON.stringify(err);
+    throw new Error(`Pesapal order submission failed: ${errMsg}`);
   }
   const data = await res.json();
-  if (!data.redirect_url) throw new Error("Pesapal returned no redirect URL.");
+  if (data?.error) {
+    const errMsg = data?.error?.code || data?.error?.message || JSON.stringify(data.error);
+    throw new Error(`Pesapal API error: ${errMsg}`);
+  }
+  if (!data.redirect_url) throw new Error(data.message || "Pesapal returned no redirect URL.");
   return {
     redirect_url: data.redirect_url,
     order_tracking_id: data.order_tracking_id,
@@ -332,6 +337,12 @@ serve(async (req) => {
           if (upsertErr) console.error("Error upserting listing to Supabase 2:", upsertErr);
         }
       }
+
+      // 💳 WALLET AUTO-PROVISION: Ensure wallet row exists on Supabase 2
+      await supabase.from("wallets").upsert(
+        { user_id: user.id, balance_ugx: 0 },
+        { onConflict: "user_id", ignoreDuplicates: true }
+      );
 
       // Call the atomic SQL function — validates balance, deducts, creates order & ledger entries
       const { data, error } = await supabase.rpc("process_shop_purchase_with_balance", {

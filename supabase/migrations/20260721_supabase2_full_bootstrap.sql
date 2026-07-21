@@ -210,12 +210,13 @@ begin
     raise exception 'Insufficient stock. Only % unit(s) available.', coalesce(v_listing.stock_count, 0);
   end if;
 
-  -- 3. Lock & validate buyer wallet
+  -- 3. Ensure & lock buyer wallet
+  insert into public.wallets (user_id, fiat_balance)
+  values (p_buyer_id, 0)
+  on conflict (user_id) do nothing;
+
   select * into v_wallet from public.wallets
   where user_id = p_buyer_id for update;
-  if not found then
-    raise exception 'Wallet not found.';
-  end if;
 
   v_unit_price := v_listing.price::bigint;
   v_items_ugx  := v_unit_price * p_quantity;
