@@ -29,6 +29,11 @@ jobs:
           cd services/engagement-service
           npm run build
 
+      - name: Run Mongo migration / index check (short timeout)
+        run: |
+          cd services/engagement-service
+          npm run ci:mongo-check
+
       - name: Run tests
         run: |
           cd services/engagement-service
