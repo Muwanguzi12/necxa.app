@@ -22,7 +22,22 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(supabaseUrl, serviceRole, { auth: { persistSession: false } });
-    const { data: payment, error: paymentError } = await admin.from("payments").select("*").eq("id", merchantReference).in("purpose", ["wallet_deposit", "coin_purchase"]).single();
+    // Try to look up the payment by UUID first. If that fails, fall back to
+    // searching by idempotency_key. Some integrations (or client SDKs) may
+    // have passed a human-friendly 'deposit-...' id as an idempotency key which
+    // Pesapal may echo back as OrderMerchantReference.
+    let payment: any = null;
+    let paymentError: any = null;
+    // prefer maybeSingle() to avoid throwing when nothing is found
+    const byId = await admin.from("payments").select("*").eq("id", merchantReference).in("purpose", ["wallet_deposit", "coin_purchase"]).maybeSingle();
+    payment = byId.data ?? null;
+    paymentError = byId.error ?? null;
+    if (!payment) {
+      const byIdemp = await admin.from("payments").select("*").eq("idempotency_key", merchantReference).in("purpose", ["wallet_deposit", "coin_purchase"]).maybeSingle();
+      payment = byIdemp.data ?? null;
+      paymentError = byIdemp.error ?? null;
+      if (payment) console.log("Recovered payment by idempotency_key", merchantReference);
+    }
     if (paymentError || !payment) return json({ error: "unknown_payment" }, 404);
     if (payment.provider_reference && payment.provider_reference !== trackingId) {
       return json({ error: "provider_reference_mismatch" }, 409);
