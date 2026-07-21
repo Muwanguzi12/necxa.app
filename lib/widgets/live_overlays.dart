@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import '../theme.dart';
 
-/// 🌹 Live Gifting Overlay
+/// Live gifting overlay driven only by verified Supabase 2 gift records.
 /// Handles real-time particle animations for gifts sent during the stream.
 class LiveGiftingOverlay extends StatefulWidget {
   final Stream<Map<String, dynamic>> eventStream;
@@ -22,7 +22,7 @@ class _LiveGiftingOverlayState extends State<LiveGiftingOverlay> with TickerProv
     super.initState();
     _sub = widget.eventStream.listen((event) {
       if (event['type'] == 'gift') {
-        _triggerGift(event['data']);
+        _triggerGift(Map<String, dynamic>.from(event['data'] as Map? ?? event));
       }
     });
   }
@@ -108,4 +108,3 @@ class _GiftAnimation {
 
 /// 🛍️ Live Shop Overlay
 /// Displays pinned products and allows one-tap checkout.
-

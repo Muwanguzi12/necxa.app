@@ -1,104 +1,51 @@
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+
+import 'finance_backend.dart';
 import 'finance_initializer.dart';
 
-/// WalletService
-///
-/// Handles all financial operations related to the user's wallet, including
-/// fetching balances and initiating coin purchases. This service communicates
-/// directly with your backend (Firebase Functions and Supabase).
 class WalletService {
-  // Services are no longer stored as final members, but retrieved on-demand
-  // after ensuring initialization.
   WalletService();
 
-  // Helper to get initialized clients lazily.
-  Future<SupabaseClient> _getSupabaseClient() async {
+  Future<Map<String, dynamic>> _invoke(
+    String action, {
+    Map<String, dynamic> body = const {},
+  }) async {
     await FinanceInitializer.instance.ensureInitialized();
-    return Supabase.instance.client;
+    return FinanceBackend.instance.invoke(action, body: body);
   }
 
-  Future<FirebaseFunctions> _getFirebaseFunctions() async {
-    await FinanceInitializer.instance.ensureInitialized();
-    return FirebaseFunctions.instance;
-  }
-
-  /// Fetches the user's complete wallet details from the Supabase `wallets` table.
-  ///
-  /// Returns a map containing fiat_balance, coin_balance, and escrow_balance.
   Future<Map<String, dynamic>> getWalletDetails() async {
-    final supabase = await _getSupabaseClient();
-    final userId = supabase.auth.currentUser?.id;
-    if (userId == null) {
-      throw Exception('User not authenticated.');
-    }
-
     try {
-      final data = await supabase
-          .from('wallets')
-          .select('fiat_balance, coin_balance, escrow_balance')
-          .eq('user_id', userId)
-          .single();
-
-      return data;
-    } catch (e) {
-      debugPrint('Error fetching wallet details: $e');
-      // Return a default empty state on error
-      return {
-        'fiat_balance': 0,
-        'coin_balance': 0,
-        'escrow_balance': 0,
-      };
+      final result = await _invoke('get_wallet');
+      return Map<String, dynamic>.from(result['wallet'] as Map? ?? const {});
+    } catch (error) {
+      debugPrint('Finance wallet read failed: $error');
+      return {'fiat_balance': 0, 'coin_balance': 0, 'escrow_balance': 0};
     }
   }
 
-  /// Initiates the purchase of a coin pack.
-  ///
-  /// This function calls the unified `purchaseCoins` Firebase Cloud Function,
-  /// which then orchestrates the transaction with the Supabase backend.
-  ///
-  /// [method] can be 'FIAT_BALANCE' or 'PESAPAL'.
-  /// [packId] is the document ID of the coin pack from the `coin_packs` collection.
   Future<PurchaseResult> purchaseCoins({
     required String method,
     required String packId,
   }) async {
     try {
-      final firebaseFunctions = await _getFirebaseFunctions();
-      final HttpsCallable callable = firebaseFunctions.httpsCallable('purchaseCoins');
-
-      final response = await callable.call<Map<String, dynamic>>({
-        'method': method,
-        'packId': packId,
-      });
-
-      final data = response.data;
-
-      if (data['success'] == true) {
-        // For Pesapal, the redirect_url will be in the data
-        return PurchaseResult.success(
-          message: data['message'],
-          redirectUrl: data['redirect_url'],
-        );
-      } else {
-        return PurchaseResult.failure(
-            data['message'] ?? 'An unknown error occurred.');
-      }
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint('Firebase Functions Error calling purchaseCoins: ${e.message}');
-      return PurchaseResult.failure(e.message ?? 'A server error occurred.');
-    } catch (e) {
-      debugPrint('Generic Error in purchaseCoins: $e');
-      return PurchaseResult.failure('An unexpected error occurred.');
+      final result = await _invoke(
+        'purchase_coins',
+        body: {
+          'method': method,
+          'packId': packId,
+          'idempotencyKey': _idempotencyKey('coin-purchase'),
+        },
+      );
+      return PurchaseResult.success(
+        message: result['message']?.toString() ?? 'Purchase initiated.',
+        redirectUrl: result['redirectUrl']?.toString(),
+      );
+    } catch (error) {
+      return PurchaseResult.failure(error.toString());
     }
   }
 
-  /// Sends a virtual gift from the current user to a receiver.
-  ///
-  /// This function calls the `processGift` Firebase Cloud Function. If the user
-  /// has insufficient funds, the returned [GiftResult] will indicate failure
-  /// with a specific reason, allowing the UI to prompt a coin purchase.
   Future<GiftResult> sendGift({
     required String receiverId,
     required String postId,
@@ -107,202 +54,250 @@ class WalletService {
     String? contextNote,
     bool isAnonymous = false,
   }) async {
-    final supabase = await _getSupabaseClient();
-    final userId = supabase.auth.currentUser?.id;
-    if (userId == null) {
-      return GiftResult.failure('You must be logged in to send a gift.');
-    }
-    if (userId == receiverId) {
-      return GiftResult.failure('You cannot send a gift to yourself.');
-    }
-
     try {
-      final firebaseFunctions = await _getFirebaseFunctions();
-      final HttpsCallable callable = firebaseFunctions.httpsCallable('processGift');
-
-      final response = await callable.call<Map<String, dynamic>>({
-        'receiverId': receiverId,
-        'postId': postId,
-        'giftItemId': giftItemId,
-        'ncxAmount': ncxAmount,
-        'contextType': 'creator_post', // Or other contexts
-        'contextNote': contextNote,
-        'isAnonymous': isAnonymous,
-      });
-
-      final data = response.data;
-      if (data['success'] == true) {
-        return GiftResult.success(data['message'] ?? 'Gift sent successfully!');
-      } else {
-        return GiftResult.failure(data['message'] ?? 'An unknown error occurred.');
+      final result = await _invoke(
+        'send_gift',
+        body: {
+          'receiverId': receiverId,
+          'contextId': postId,
+          'contextType': 'creator_post',
+          'giftItemId': giftItemId,
+          'ncxAmount': ncxAmount,
+          'contextNote': contextNote,
+          'isAnonymous': isAnonymous,
+          'idempotencyKey': _idempotencyKey('gift'),
+        },
+      );
+      return GiftResult.success(
+        result['message']?.toString() ?? 'Gift sent successfully.',
+      );
+    } on FinanceBackendException catch (error) {
+      if (error.code == 'insufficient_funds') {
+        return GiftResult.insufficientFunds(error.message);
       }
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint('Firebase Functions Error calling processGift: ${e.code} - ${e.message}');
-      // This is the key part for the UI flow
-      if (e.code == 'resource-exhausted') {
-        return GiftResult.insufficientFunds(e.message ?? 'Insufficient NCX balance.');
-      }
-      return GiftResult.failure(e.message ?? 'A server error occurred.');
-    } catch (e) {
-      debugPrint('Generic Error in sendGift: $e');
-      return GiftResult.failure('An unexpected error occurred.');
+      return GiftResult.failure(error.message);
+    } catch (error) {
+      return GiftResult.failure(error.toString());
     }
   }
 
-  /// Liquidates a specified amount of NCX coins into the user's fiat balance.
-  ///
-  /// Calls the `liquidateCoins` Firebase Cloud Function and handles the response.
-  /// Requires 2FA if enabled by the user.
   Future<LiquidationResult> liquidateCoins({
     required int ncxAmount,
-    required Map<String, dynamic> securityMetadata, // For location, device ID etc.
+    required Map<String, dynamic> securityMetadata,
   }) async {
     if (ncxAmount <= 0) {
-      return LiquidationResult.failure("Amount must be greater than zero.");
+      return LiquidationResult.failure('Amount must be greater than zero.');
     }
-
     try {
-      final firebaseFunctions = await _getFirebaseFunctions();
-      final HttpsCallable callable = firebaseFunctions.httpsCallable('liquidateCoins');
-
-      final response = await callable.call<Map<String, dynamic>>({
-        'ncxAmount': ncxAmount,
-        'securityMetadata': securityMetadata,
-      });
-
-      final data = response.data;
-      if (data['success'] == true) {
-        return LiquidationResult.success(
-          message: data['message'] ?? 'Liquidation successful.',
-          ugxReceived: data['ugxReceived']?.toDouble() ?? 0.0,
-          ncxBurned: data['ncxBurned']?.toDouble() ?? 0.0,
-        );
-      } else {
-        return LiquidationResult.failure(
-            data['message'] ?? 'An unknown error occurred.');
-      }
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint(
-          'Firebase Functions Error calling liquidateCoins: ${e.code} - ${e.message}');
-      // The backend throws 'failed-precondition' for insufficient balance
-      if (e.code == 'failed-precondition') {
-        return LiquidationResult.failure(
-            e.message ?? 'Insufficient NCX balance.');
-      }
-      return LiquidationResult.failure(e.message ?? 'A server error occurred.');
-    } catch (e) {
-      debugPrint('Generic Error in liquidateCoins: $e');
-      return LiquidationResult.failure('An unexpected error occurred.');
+      final result = await _invoke(
+        'liquidate',
+        body: {
+          'ncxAmount': ncxAmount,
+          'securityMetadata': securityMetadata,
+          'idempotencyKey': _idempotencyKey('liquidation'),
+        },
+      );
+      final wallet = Map<String, dynamic>.from(
+        result['wallet'] as Map? ?? const {},
+      );
+      return LiquidationResult.success(
+        message: result['message']?.toString() ?? 'Liquidation successful.',
+        ugxReceived: (result['ugxReceived'] as num?)?.toDouble() ?? 0,
+        ncxBurned: (result['ncxBurned'] as num?)?.toDouble() ?? 0,
+        wallet: wallet,
+      );
+    } catch (error) {
+      return LiquidationResult.failure(error.toString());
     }
   }
+
+  String _idempotencyKey(String prefix) =>
+      '$prefix-${DateTime.now().microsecondsSinceEpoch}';
 }
 
-/// A result class to handle the outcomes of a purchase attempt.
 class PurchaseResult {
   final bool isSuccess;
   final String message;
-  final String? redirectUrl; // For external payment gateways like Pesapal
-
+  final String? redirectUrl;
   PurchaseResult.success({required this.message, this.redirectUrl})
-      : isSuccess = true;
-
-  PurchaseResult.failure(this.message)
-      : isSuccess = false,
-        redirectUrl = null;
+    : isSuccess = true;
+  PurchaseResult.failure(this.message) : isSuccess = false, redirectUrl = null;
 }
 
-/// A result class to handle the outcomes of a gifting attempt.
 class GiftResult {
   final bool isSuccess;
   final String message;
   final bool needsTopUp;
-
-  GiftResult.success(this.message)
-      : isSuccess = true,
-        needsTopUp = false;
-
-  GiftResult.failure(this.message)
-      : isSuccess = false,
-        needsTopUp = false;
-
+  GiftResult.success(this.message) : isSuccess = true, needsTopUp = false;
+  GiftResult.failure(this.message) : isSuccess = false, needsTopUp = false;
   GiftResult.insufficientFunds(this.message)
-      : isSuccess = false,
-        needsTopUp = true;
+    : isSuccess = false,
+      needsTopUp = true;
 }
 
-/// A result class to handle the outcomes of a coin liquidation attempt.
 class LiquidationResult {
   final bool isSuccess;
   final String message;
   final double ugxReceived;
   final double ncxBurned;
-
-  LiquidationResult.success(
-      {required this.message, this.ugxReceived = 0.0, this.ncxBurned = 0.0})
-      : isSuccess = true;
-
+  final Map<String, dynamic> wallet;
+  LiquidationResult.success({
+    required this.message,
+    this.ugxReceived = 0,
+    this.ncxBurned = 0,
+    this.wallet = const {},
+  }) : isSuccess = true;
   LiquidationResult.failure(this.message)
-      : isSuccess = false,
-        ugxReceived = 0.0,
-        ncxBurned = 0.0;
+    : isSuccess = false,
+      ugxReceived = 0,
+      ncxBurned = 0,
+      wallet = const {};
 }
 
-/// A result class to handle the outcomes of a shop purchase attempt.
 class ShopPurchaseResult {
   final bool isSuccess;
   final String message;
   final bool needsTopUp;
+  final String? orderId;
+  final String? orderNumber;
+  final double? deliveryFeeUgx;
+  final String? redirectUrl;  // Pesapal checkout URL (momo/card path)
+  final String? paymentId;    // idempotency_key for status polling
 
-  ShopPurchaseResult.success(this.message)
-      : isSuccess = true,
-        needsTopUp = false;
+  ShopPurchaseResult.success(
+    this.message, {
+    this.orderId,
+    this.orderNumber,
+    this.deliveryFeeUgx,
+    this.redirectUrl,
+    this.paymentId,
+  }) : isSuccess = true,
+       needsTopUp = false;
 
   ShopPurchaseResult.failure(this.message)
-      : isSuccess = false,
-        needsTopUp = false;
+    : isSuccess = false,
+      needsTopUp = false,
+      orderId = null,
+      orderNumber = null,
+      deliveryFeeUgx = null,
+      redirectUrl = null,
+      paymentId = null;
 
   ShopPurchaseResult.insufficientFunds(this.message)
-      : isSuccess = false,
-        needsTopUp = true;
+    : isSuccess = false,
+      needsTopUp = true,
+      orderId = null,
+      orderNumber = null,
+      deliveryFeeUgx = null,
+      redirectUrl = null,
+      paymentId = null;
 }
 
 extension WalletServiceShop on WalletService {
-  /// Processes a shop purchase using the user's NCX balance.
-  ///
-  /// Calls the `processShopPurchase` Firebase Cloud Function. If the user
-  /// has insufficient funds, the returned [ShopPurchaseResult] will indicate failure
-  /// with a specific reason, allowing the UI to prompt a coin purchase.
+  /// Pay with Necxa wallet balance — calls finance-engine which atomically
+  /// validates stock, deducts wallet, creates order + immutable ledger entries.
   Future<ShopPurchaseResult> processShopPurchase({
-    required String orderId,
     required String listingId,
-    required String vendorId,
-    required String sku,
     required int quantity,
-    required String deliverySpeed, // 'express', 'standard', 'batch'
-    required Map<String, double> customerLocation, // {'lat': ..., 'lon': ...}
+    required String deliverySpeed,
+    required String deliveryMethod,
+    required Map<String, double> customerLocation,
+    required String deliveryAddress,
     required String customerNumber,
+    int deliveryFeeUgx = 0,
   }) async {
     try {
-      final firebaseFunctions = await _getFirebaseFunctions();
-      final HttpsCallable callable = firebaseFunctions.httpsCallable('processShopPurchase');
-
-      final response = await callable.call<Map<String, dynamic>>({
-        'orderId': orderId, 'listingId': listingId, 'vendorId': vendorId,
-        'sku': sku, 'quantity': quantity,
-        'deliverySpeed': deliverySpeed,
-        'customerLocation': customerLocation,
-        'customerNumber': customerNumber,
-      });
-
-      final data = response.data;
-      return ShopPurchaseResult.success(data['message'] ?? 'Purchase successful!');
-    } on FirebaseFunctionsException catch (e) {
-      if (e.code == 'resource-exhausted') {
-        return ShopPurchaseResult.insufficientFunds(e.message ?? 'Insufficient NCX balance.');
+      final result = await _invoke(
+        'process_shop_purchase',
+        body: {
+          'listingId': listingId,
+          'quantity': quantity,
+          'deliverySpeed': deliverySpeed,
+          'deliveryMethod': deliveryMethod,
+          'customerLocation': customerLocation,
+          'deliveryAddress': deliveryAddress,
+          'customerNumber': customerNumber,
+          'deliveryFeeUgx': deliveryFeeUgx,
+          'idempotencyKey': _idempotencyKey('shop-purchase'),
+        },
+      );
+      return ShopPurchaseResult.success(
+        result['message']?.toString() ?? 'Purchase successful.',
+        orderId: result['orderId']?.toString(),
+        orderNumber: result['orderNumber']?.toString(),
+        deliveryFeeUgx: (result['deliveryFeeUgx'] as num?)?.toDouble(),
+      );
+    } on FinanceBackendException catch (error) {
+      if (error.code == 'insufficient_funds') {
+        return ShopPurchaseResult.insufficientFunds(error.message);
       }
-      return ShopPurchaseResult.failure(e.message ?? 'A server error occurred.');
-    } catch (e) {
-      return ShopPurchaseResult.failure('An unexpected error occurred.');
+      return ShopPurchaseResult.failure(error.message);
+    } catch (error) {
+      return ShopPurchaseResult.failure(error.toString());
     }
+  }
+
+  /// Pay via Pesapal (Momo / Card) — reserves stock and returns Pesapal redirect URL.
+  Future<ShopPurchaseResult> initiateShopPayment({
+    required String listingId,
+    required int quantity,
+    required String deliverySpeed,
+    required String deliveryMethod,
+    required Map<String, double> customerLocation,
+    required String deliveryAddress,
+    required String customerNumber,
+    int deliveryFeeUgx = 0,
+  }) async {
+    try {
+      final result = await _invoke(
+        'initiate_shop_payment',
+        body: {
+          'listingId': listingId,
+          'quantity': quantity,
+          'deliverySpeed': deliverySpeed,
+          'deliveryMethod': deliveryMethod,
+          'customerLocation': customerLocation,
+          'deliveryAddress': deliveryAddress,
+          'customerNumber': customerNumber,
+          'deliveryFeeUgx': deliveryFeeUgx,
+          'idempotencyKey': _idempotencyKey('shop-pesapal'),
+        },
+      );
+      return ShopPurchaseResult.success(
+        'Payment initiated.',
+        orderId: result['orderId']?.toString(),
+        orderNumber: result['orderNumber']?.toString(),
+        redirectUrl: result['redirectUrl']?.toString(),
+        paymentId: result['paymentId']?.toString(),
+      );
+    } on FinanceBackendException catch (error) {
+      if (error.code == 'insufficient_funds') {
+        return ShopPurchaseResult.insufficientFunds(error.message);
+      }
+      return ShopPurchaseResult.failure(error.message);
+    } catch (error) {
+      return ShopPurchaseResult.failure(error.toString());
+    }
+  }
+
+  /// Polls shop_payment_status until COMPLETED or FAILED (5 min timeout).
+  Future<bool> pollShopPaymentStatus(
+    String paymentId, {
+    Duration timeout = const Duration(minutes: 5),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final result = await _invoke(
+          'shop_payment_status',
+          body: {'paymentId': paymentId},
+        );
+        final status = result['status']?.toString() ?? 'pending';
+        if (status == 'completed') return true;
+        if (status == 'failed' || status == 'cancelled') return false;
+      } catch (_) { /* keep polling on transient errors */ }
+      await Future<void>.delayed(const Duration(seconds: 3));
+    }
+    return false;
   }
 }

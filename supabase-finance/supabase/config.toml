@@ -1,0 +1,7 @@
+project_id = "ayvescksetiuekoyfqar"
+
+[functions.finance-engine]
+verify_jwt = false
+
+[functions.finance-payment-webhook]
+verify_jwt = false

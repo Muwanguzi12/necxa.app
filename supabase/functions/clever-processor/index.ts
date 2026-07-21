@@ -359,8 +359,28 @@ async function handleCreateListing(userId: string, payload: any) {
     title, description, price, media_url, media_type, 
     category, is_verified, ai_verification, photos, 
     thumbnail_url, music_track_id, audio_url, tags,
-    ai_score, ai_description
+    ai_score, ai_description, sku, stock_count,
+    weight_kg, length_cm, width_cm, height_cm, latitude, longitude
   } = payload;
+
+  const listingAiApproved = ai_verification?.verified === true || ai_verification?.result?.verified === true;
+  if (is_verified !== true || !listingAiApproved) {
+    return err('AI verification is required before publishing a listing', 400);
+  }
+
+  const normalizedSku = String(sku || '').trim().toUpperCase();
+  if (!/^\d{4}[A-Z]{3}$/.test(normalizedSku)) {
+    return err('SKU is required and must contain 4 digits followed by 3 letters', 400);
+  }
+  const measurements = [weight_kg, length_cm, width_cm, height_cm].map(Number);
+  if (measurements.some((value) => !Number.isFinite(value) || value <= 0)) {
+    return err('Positive weight and package dimensions are required', 400);
+  }
+  const pickupLatitude = Number(latitude);
+  const pickupLongitude = Number(longitude);
+  if (!Number.isFinite(pickupLatitude) || !Number.isFinite(pickupLongitude) || Math.abs(pickupLatitude) > 90 || Math.abs(pickupLongitude) > 180) {
+    return err('A valid pickup location is required', 400);
+  }
 
   const { data: listing, error } = await supabase
     .from('listings')
@@ -383,11 +403,17 @@ async function handleCreateListing(userId: string, payload: any) {
       ai_description: ai_description ?? ai_verification?.description ?? null,
       is_verified: is_verified || false,
       film_hub_content: media_url,
-      sku: payload.sku || `SKU-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-      stock_count: payload.stock_count || 999,
+      sku: normalizedSku,
+      stock_count: stock_count ?? 999,
+      weight_kg: measurements[0],
+      length_cm: measurements[1],
+      width_cm: measurements[2],
+      height_cm: measurements[3],
+      latitude: pickupLatitude,
+      longitude: pickupLongitude,
       status: 'active' 
     })
-    .select('*, profiles:lister_id(display_name:full_name, photo_url:avatar_url)')
+    .select()
     .single();
 
   if (error) return err(`Listing creation failed: ${error.message}`);
@@ -521,8 +547,14 @@ async function handleCreatePost(userId: string, payload: any) {
     title, content, media_url, media_type, thumbnail_url, 
     hls_url, dash_url, audio_url, music_track_id, 
     visibility, tags, creator_mode, gallery_urls, 
-    editing_metadata, artist_metadata 
+    editing_metadata, artist_metadata, media_asset_id,
+    is_fast_sync, is_verified, ai_verification
   } = payload;
+
+  const postAiApproved = ai_verification?.verified === true || ai_verification?.result?.verified === true;
+  if (is_verified !== true || !postAiApproved) {
+    return err('AI verification is required before publishing a post', 400);
+  }
   
   // 2. Insert into Supabase
   const { data: rawPost, error } = await supabase
@@ -538,17 +570,20 @@ async function handleCreatePost(userId: string, payload: any) {
       dash_url,
       audio_url,
       music_track_id,
+      media_asset_id,
       tags: tags || [],
       status: 'verified',
       visibility: visibility || 'public',
       metadata: {
         creator_mode: creator_mode || 'unified',
         gallery_urls: gallery_urls || [],
+        is_fast_sync: is_fast_sync === true,
         editing: editing_metadata || {},
-        artist: artist_metadata || {}
+        artist: artist_metadata || {},
+        ai_verification
       }
     })
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')
+    .select()
     .single();
 
   if (error) return err(`Post creation failed: ${error.message}`);
