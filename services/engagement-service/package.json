@@ -19,8 +19,11 @@
     "mongodb": "^4.13.0",
     "ioredis": "^5.3.2",
     "kafkajs": "^2.2.4",
-    "jsonwebtoken": "^9.0.0"
-  },
+      "jsonwebtoken": "^9.0.0",
+      "jose": "^4.16.0",
+      "express-rate-limit": "^6.7.0",
+      "rate-limit-redis": "^1.7.0"
+    },
   "devDependencies": {
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.0.0",

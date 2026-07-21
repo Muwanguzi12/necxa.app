@@ -10,7 +10,9 @@ import liveRouter from './routes/live';
 import { connectMongo } from './mongo';
 import { getRedis } from './redis';
 import { getKafkaProducer } from './kafka';
-import { authMiddleware } from './auth';
+import { jwksAuth } from './jwksAuth';
+import rateLimit from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 const app = express();
@@ -24,6 +26,17 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// attach redis-backed rate limiter if available
+const redisClient = getRedis();
+const limiter = rateLimit({
+  windowMs: Number(process.env.RATE_WINDOW_MS || 60_000), // 1 minute
+  max: Number(process.env.RATE_MAX || 60), // 60 requests per window per IP by default
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: redisClient ? new RedisStore({ sendCommand: (...args: any[]) => (redisClient as any).call(...args) }) : undefined,
+});
+app.use(limiter);
+
 // initialize backing services and attach to app.locals so routes can access them
 (async () => {
   try {
@@ -34,7 +47,7 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   }
 
   try {
-    app.locals.redis = getRedis();
+    app.locals.redis = redisClient;
   } catch (err) {
     logger.error({ err }, 'redis init failed');
   }
@@ -46,10 +59,11 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   }
 })();
 
-// protect engagement write endpoints with auth
-app.use('/engagement/posts', authMiddleware, postsRouter);
-app.use('/engagement/products', authMiddleware, productsRouter);
-app.use('/engagement/live', authMiddleware, liveRouter);
+// protect engagement write endpoints with JWKS-based auth
+const auth = jwksAuth();
+app.use('/engagement/posts', auth, postsRouter);
+app.use('/engagement/products', auth, productsRouter);
+app.use('/engagement/live', auth, liveRouter);
 
 const port = process.env.PORT || 4001;
 app.listen(port, () => logger.info({ port }, 'engagement-service running'));
