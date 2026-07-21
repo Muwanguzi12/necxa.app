@@ -304,6 +304,21 @@ serve(async (req) => {
 
       if (!listingId) return json({ success: false, message: "listingId required." }, 400);
 
+      // 🔄 CROSS-PROJECT SYNC: Ensure listing exists on Supabase 2 before atomic SQL
+      const { data: localListing } = await supabase.from('listings').select('id').eq('id', listingId).maybeSingle();
+      if (!localListing) {
+        const { data: sourceListing } = await userSupabase
+          .from('listings')
+          .select('id, title, price, stock_count, status, user_id, lister_id, category, media_url')
+          .eq('id', listingId)
+          .maybeSingle();
+        if (sourceListing) {
+          if (sourceListing.user_id) await supabase.from("profiles").upsert({ id: sourceListing.user_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
+          if (sourceListing.lister_id) await supabase.from("profiles").upsert({ id: sourceListing.lister_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
+          await supabase.from("listings").upsert(sourceListing);
+        }
+      }
+
       // Call the atomic SQL function — validates balance, deducts, creates order & ledger entries
       const { data, error } = await supabase.rpc("process_shop_purchase_with_balance", {
         p_buyer_id: user.id,
@@ -366,6 +381,21 @@ serve(async (req) => {
 
       if (existingOrder && existingOrder.payment_status === "COMPLETED") {
         return json({ success: false, message: "This order was already paid." }, 409);
+      }
+
+      // 🔄 CROSS-PROJECT SYNC: Ensure listing exists on Supabase 2
+      const { data: localListing } = await supabase.from('listings').select('id').eq('id', listingId).maybeSingle();
+      if (!localListing) {
+        const { data: sourceListing } = await userSupabase
+          .from('listings')
+          .select('id, title, price, stock_count, status, user_id, lister_id, category, media_url')
+          .eq('id', listingId)
+          .maybeSingle();
+        if (sourceListing) {
+          if (sourceListing.user_id) await supabase.from("profiles").upsert({ id: sourceListing.user_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
+          if (sourceListing.lister_id) await supabase.from("profiles").upsert({ id: sourceListing.lister_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
+          await supabase.from("listings").upsert(sourceListing);
+        }
       }
 
       // Fetch listing details

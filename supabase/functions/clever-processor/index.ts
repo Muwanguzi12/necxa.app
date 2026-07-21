@@ -413,7 +413,7 @@ async function handleCreateListing(userId: string, payload: any) {
       longitude: pickupLongitude,
       status: 'active' 
     })
-    .select('*, profiles:lister_id(display_name:full_name, photo_url:avatar_url)')
+    .select()
     .single();
 
   if (error) return err(`Listing creation failed: ${error.message}`);
@@ -583,7 +583,7 @@ async function handleCreatePost(userId: string, payload: any) {
         ai_verification
       }
     })
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')
+    .select()
     .single();
 
   if (error) return err(`Post creation failed: ${error.message}`);

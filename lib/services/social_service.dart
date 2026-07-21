@@ -664,9 +664,7 @@ class SocialService {
       final res = await client
           .from('listings')
           .insert(sanitizedData)
-          .select(
-            '*, profiles:user_id(full_name, avatar_url, trust_score_tier)',
-          )
+          .select()
           .single();
 
       await LocalDbService().saveListings([res]);
@@ -778,9 +776,7 @@ class SocialService {
                 'ai_verification': data['ai_verification'],
               },
             })
-            .select(
-              '*, profiles:author_id(full_name, avatar_url, trust_score_tier)',
-            )
+            .select()
             .single();
 
         await LocalDbService().saveCommunityPosts([res]);
