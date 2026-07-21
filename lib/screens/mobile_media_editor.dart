@@ -79,6 +79,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   final ScrollController _sidebarScrollController = ScrollController();
 
   static final Map<String, Uint8List> _thumbnailCache = {};
+  static const int _maxThumbnailFrames = 24;
+  static const int _maxThumbnailCacheEntries = 256;
 
   // Clip interaction state
   String? _activeDragClipId;
@@ -357,8 +359,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _mediaService.registerFile(file);
       final lower = file.path.toLowerCase();
       final isVideo = lower.endsWith('.mp4') || lower.endsWith('.mov');
+      final sizeBytes = file.existsSync() ? file.lengthSync() : 0;
       final duration = isVideo
-          ? const Duration(seconds: 12)
+          ? (sizeBytes > 2 * 1024 * 1024 * 1024
+                ? const Duration(minutes: 60)
+                : const Duration(seconds: 12))
           : const Duration(seconds: 4);
       TimelineModelUtils.insertClip(
         _tracks,
@@ -432,6 +437,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     });
   }
 
+  void _applyFallbackLongFormDuration(TimelineClip clip) {
+    final fallbackDuration = const Duration(minutes: 60);
+    clip.duration = fallbackDuration;
+    clip.sourceStart = Duration.zero;
+    clip.sourceEnd = fallbackDuration;
+    if (clip.operation is TrimOperation) {
+      final trim = clip.operation as TrimOperation;
+      trim.start = Duration.zero;
+      trim.end = fallbackDuration;
+    }
+    clip.isHidden = false;
+    TimelineModelUtils.reflowInitialVisualClips(_tracks);
+    _playback.updateProject(_tracks);
+  }
+
   Future<void> _loadClip(TimelineClip clip) async {
     if (clip.file == null || !clip.file!.existsSync()) return;
 
@@ -448,7 +468,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final controller = VideoPlayerController.file(clip.file!);
     _videoController = controller;
     try {
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 20));
       if (!mounted ||
           loadGeneration != _videoLoadGeneration ||
           !identical(controller, _videoController)) {
@@ -466,6 +486,24 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         force: true,
       );
       if (mounted) setState(() => _isVideoReady = true);
+    } on TimeoutException catch (_) {
+      if (loadGeneration == _videoLoadGeneration && mounted) {
+        setState(() => _isVideoReady = false);
+        _showSnack('Large video detected; preview is using lightweight fallback.');
+      }
+      debugPrint('Mobile editor video initialization timed out for a large video asset.');
+      if (clip.file != null && clip.file!.existsSync()) {
+        final sizeBytes = clip.file!.lengthSync();
+        if (sizeBytes > 2 * 1024 * 1024 * 1024) {
+          _applyFallbackLongFormDuration(clip);
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _isVideoReady = false;
+          _playback.updateProject(_tracks);
+        });
+      }
     } catch (error) {
       if (loadGeneration == _videoLoadGeneration && mounted) {
         setState(() => _isVideoReady = false);
@@ -5422,19 +5460,54 @@ class _VideoClipThumbnailsState extends State<_VideoClipThumbnails> {
   Widget build(BuildContext context) {
     if (widget.clip.file == null) return const SizedBox();
 
-    final int numThumbnails = (widget.clip.duration.inSeconds).clamp(1, 100);
+    final clipDurationMs = widget.clip.duration.inMilliseconds;
+    final longFormClip = clipDurationMs >= const Duration(minutes: 30).inMilliseconds;
+    final fileSizeBytes = widget.clip.file!.existsSync()
+        ? widget.clip.file!.lengthSync()
+        : 0;
+    final largeMedia = fileSizeBytes > 2 * 1024 * 1024 * 1024 || longFormClip;
+
+    final maxThumbCount = (widget.width / 120).round().clamp(4, _MobileMediaEditorState._maxThumbnailFrames);
+    final int numThumbnails = largeMedia
+        ? maxThumbCount
+        : (clipDurationMs / 1000).clamp(1, maxThumbCount).round();
     final double thumbWidth = widget.pixelsPerSecond;
+
+    if (largeMedia) {
+      return ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: numThumbnails,
+        itemBuilder: (context, index) {
+          final timeMs = clipDurationMs > 0
+              ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs).round()
+              : 0;
+          return SizedBox(
+            width: thumbWidth,
+            child: _SingleThumbnail(
+              file: widget.clip.file!,
+              timeMs: timeMs,
+              isLargeMedia: true,
+            ),
+          );
+        },
+      );
+    }
 
     return ListView.builder(
       scrollDirection: Axis.horizontal,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: numThumbnails,
       itemBuilder: (context, index) {
+        final timeMs = clipDurationMs > 0
+            ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs).round()
+            : 0;
         return SizedBox(
           width: thumbWidth,
           child: _SingleThumbnail(
             file: widget.clip.file!,
-            timeMs: index * 1000,
+            timeMs: timeMs,
+            isLargeMedia: false,
           ),
         );
       },
@@ -5445,9 +5518,14 @@ class _VideoClipThumbnailsState extends State<_VideoClipThumbnails> {
 class _SingleThumbnail extends StatefulWidget {
   final File file;
   final int timeMs;
+  final bool isLargeMedia;
 
-  const _SingleThumbnail({Key? key, required this.file, required this.timeMs})
-    : super(key: key);
+  const _SingleThumbnail({
+    Key? key,
+    required this.file,
+    required this.timeMs,
+    this.isLargeMedia = false,
+  }) : super(key: key);
 
   @override
   State<_SingleThumbnail> createState() => _SingleThumbnailState();
@@ -5463,6 +5541,11 @@ class _SingleThumbnailState extends State<_SingleThumbnail> {
   }
 
   Future<void> _loadThumbnail() async {
+    if (widget.isLargeMedia) {
+      if (mounted) setState(() => _bytes = null);
+      return;
+    }
+
     final cacheKey = '${widget.file.path}_${widget.timeMs}';
     if (_MobileMediaEditorState._thumbnailCache.containsKey(cacheKey)) {
       if (mounted)
@@ -5472,12 +5555,19 @@ class _SingleThumbnailState extends State<_SingleThumbnail> {
       return;
     }
 
+    if (_MobileMediaEditorState._thumbnailCache.length >=
+        _MobileMediaEditorState._maxThumbnailCacheEntries) {
+      _MobileMediaEditorState._thumbnailCache.clear();
+    }
+
     try {
       final bytes = await VideoThumbnail.thumbnailData(
         video: widget.file.path,
         imageFormat: ImageFormat.JPEG,
         timeMs: widget.timeMs,
-        quality: 25,
+        quality: 24,
+        maxWidth: 240,
+        maxHeight: 160,
       );
       if (bytes != null) {
         _MobileMediaEditorState._thumbnailCache[cacheKey] = bytes;
@@ -5491,7 +5581,15 @@ class _SingleThumbnailState extends State<_SingleThumbnail> {
   @override
   Widget build(BuildContext context) {
     if (_bytes == null) {
-      return Container(color: C.surface);
+      return Container(
+        color: C.surface,
+        child: Center(
+          child: Text(
+            widget.isLargeMedia ? 'Large media' : '…',
+            style: dm(sz: 8, c: C.dim),
+          ),
+        ),
+      );
     }
     return Image.memory(_bytes!, fit: BoxFit.cover);
   }
