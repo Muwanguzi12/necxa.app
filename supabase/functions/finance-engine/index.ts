@@ -120,8 +120,8 @@ serve(async (req) => {
   // Authenticate the user against Supabase 1 (Auth Project) if configured, 
   // otherwise default to local Supabase 2
   const authHeader = req.headers.get("Authorization") ?? "";
-  const AUTH_PROJECT_URL = Deno.env.get("AUTH_PROJECT_URL") || SUPABASE_URL;
-  const AUTH_PROJECT_ANON_KEY = Deno.env.get("AUTH_PROJECT_ANON_KEY") || SUPABASE_SERVICE_KEY;
+  const AUTH_PROJECT_URL = Deno.env.get("SUPABASE_AUTH_URL") || Deno.env.get("AUTH_PROJECT_URL") || SUPABASE_URL;
+  const AUTH_PROJECT_ANON_KEY = Deno.env.get("SUPABASE_AUTH_ANON_KEY") || Deno.env.get("AUTH_PROJECT_ANON_KEY") || SUPABASE_SERVICE_KEY;
 
   const userSupabase = createClient(AUTH_PROJECT_URL, AUTH_PROJECT_ANON_KEY, {
     global: { headers: { Authorization: authHeader } },
@@ -307,15 +307,29 @@ serve(async (req) => {
       // 🔄 CROSS-PROJECT SYNC: Ensure listing exists on Supabase 2 before atomic SQL
       const { data: localListing } = await supabase.from('listings').select('id').eq('id', listingId).maybeSingle();
       if (!localListing) {
-        const { data: sourceListing } = await userSupabase
+        let { data: sourceListing } = await userSupabase
           .from('listings')
           .select('id, title, price, stock_count, status, user_id, lister_id, category, media_url')
           .eq('id', listingId)
           .maybeSingle();
+
+        if (!sourceListing) {
+          const authAnonClient = createClient(AUTH_PROJECT_URL, AUTH_PROJECT_ANON_KEY);
+          const { data: publicListing } = await authAnonClient
+            .from('listings')
+            .select('id, title, price, stock_count, status, user_id, lister_id, category, media_url')
+            .eq('id', listingId)
+            .maybeSingle();
+          sourceListing = publicListing;
+        }
+
+        console.log("Cross-Project Listing Sync result for process_shop_purchase:", sourceListing);
+
         if (sourceListing) {
           if (sourceListing.user_id) await supabase.from("profiles").upsert({ id: sourceListing.user_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
           if (sourceListing.lister_id) await supabase.from("profiles").upsert({ id: sourceListing.lister_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
-          await supabase.from("listings").upsert(sourceListing);
+          const { error: upsertErr } = await supabase.from("listings").upsert(sourceListing);
+          if (upsertErr) console.error("Error upserting listing to Supabase 2:", upsertErr);
         }
       }
 
@@ -386,15 +400,29 @@ serve(async (req) => {
       // 🔄 CROSS-PROJECT SYNC: Ensure listing exists on Supabase 2
       const { data: localListing } = await supabase.from('listings').select('id').eq('id', listingId).maybeSingle();
       if (!localListing) {
-        const { data: sourceListing } = await userSupabase
+        let { data: sourceListing } = await userSupabase
           .from('listings')
           .select('id, title, price, stock_count, status, user_id, lister_id, category, media_url')
           .eq('id', listingId)
           .maybeSingle();
+
+        if (!sourceListing) {
+          const authAnonClient = createClient(AUTH_PROJECT_URL, AUTH_PROJECT_ANON_KEY);
+          const { data: publicListing } = await authAnonClient
+            .from('listings')
+            .select('id, title, price, stock_count, status, user_id, lister_id, category, media_url')
+            .eq('id', listingId)
+            .maybeSingle();
+          sourceListing = publicListing;
+        }
+
+        console.log("Cross-Project Listing Sync result for initiate_shop_payment:", sourceListing);
+
         if (sourceListing) {
           if (sourceListing.user_id) await supabase.from("profiles").upsert({ id: sourceListing.user_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
           if (sourceListing.lister_id) await supabase.from("profiles").upsert({ id: sourceListing.lister_id, updated_at: new Date().toISOString() }, { onConflict: "id", ignoreDuplicates: true });
-          await supabase.from("listings").upsert(sourceListing);
+          const { error: upsertErr } = await supabase.from("listings").upsert(sourceListing);
+          if (upsertErr) console.error("Error upserting listing to Supabase 2:", upsertErr);
         }
       }
 
