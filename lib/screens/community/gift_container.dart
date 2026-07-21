@@ -4,8 +4,11 @@ import '../../theme.dart';
 import '../../app_state.dart';
 import '../../data.dart';
 import '../../services/sound_service.dart';
-import '../../services/firebase_gifting_service.dart';
+import '../../services/finance_gifting_service.dart';
 import '../../utils/error_handler.dart';
+import '../../services/finance_coin_purchase_service.dart';
+import '../../services/finance_backend.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 class GiftContainer extends StatefulWidget {
   final AppState state;
@@ -35,6 +38,7 @@ class _GiftContainerState extends State<GiftContainer> {
   GiftItem? _selectedPreset;
   double _rechargeUGX = 10000;
   String? _paymentRef;
+  String? _rechargeIdempotencyKey;
 
   @override
   void initState() {
@@ -45,7 +49,7 @@ class _GiftContainerState extends State<GiftContainer> {
   Future<void> _initData() async {
     setState(() => _loading = true);
     try {
-      _presets = await widget.state.fbGifting.fetchGiftItems();
+      _presets = await widget.state.financeGifting.fetchGiftItems();
       _presets.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
       await widget.state.syncVault();
     } catch (e) {
@@ -72,7 +76,7 @@ class _GiftContainerState extends State<GiftContainer> {
     await SoundService().playGiftSound();
 
     try {
-      final res = await widget.state.fbGifting.sendGift(
+      final res = await widget.state.financeGifting.sendGift(
         senderId: widget.state.user!.id,
         receiverId: widget.receiverId,
         giftItemId: preset.id,
@@ -103,22 +107,34 @@ class _GiftContainerState extends State<GiftContainer> {
     if (widget.state.user == null) { _showError('Sync error: User not authenticated.'); return; }
     setState(() => _sending = true);
     try {
-      // Route recharge through Firebase buyCoins flow
-      final packId = _resolveMiniPackId(_rechargeUGX);
-      await widget.state.buyShards(packId, method: method);
+      // Route recharge through the Supabase 2 coin purchase flow.
+      final packId = FinanceCoinPurchaseService.packIdForUgx(_rechargeUGX);
+      _rechargeIdempotencyKey ??= 'gift-recharge-${DateTime.now().microsecondsSinceEpoch}';
+      final result = await widget.state.buyShards(
+        packId,
+        method: method,
+        idempotencyKey: _rechargeIdempotencyKey!,
+      );
+      final redirectUrl = result['redirectUrl']?.toString() ?? result['redirect_url']?.toString();
+      final paymentId = result['paymentId']?.toString();
+      if (redirectUrl != null) {
+        if (!await canLaunchUrlString(redirectUrl)) throw Exception('Unable to open Pesapal checkout');
+        await launchUrlString(redirectUrl, mode: LaunchMode.externalApplication);
+        if (paymentId == null) throw Exception('Payment reference is missing');
+        final completed = await widget.state.financeCoinPurchases.waitForCompletion(paymentId);
+        if (!completed) throw Exception('Payment is not confirmed. Coins will only be added after Pesapal confirms payment.');
+        await widget.state.syncVault();
+      }
+      _rechargeIdempotencyKey = null;
       _next(0);
     } catch (e) {
+      if (e is FinanceBackendException &&
+          (e.code == 'payment_final' || e.code == 'payment_initialization_failed')) {
+        _rechargeIdempotencyKey = null;
+      }
       _showError(getUserFriendlyError(e));
     }
     setState(() => _sending = false);
-  }
-
-  /// Maps a UGX recharge amount to the nearest coin pack ID.
-  String _resolveMiniPackId(double ugx) {
-    if (ugx >= 500000) return 'pack_3'; // Whale Pack
-    if (ugx >= 100000) return 'pack_2'; // Elite Pack
-    if (ugx >=  50000) return 'pack_1'; // Pro Pack
-    return 'pack_0';                     // Starter Pack
   }
 
   void _showError(String msg) {
@@ -362,9 +378,10 @@ class _GiftContainerState extends State<GiftContainer> {
         Text('SELECT PAYMENT METHOD', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 1)),
         const SizedBox(height: 16),
         
-        _paymentOption('Mobile Money (MTN / Airtel)', Icons.phone_android, Colors.yellow[700]!, () => _initiateRecharge('mobile_money')),
-        _paymentOption('Visa / Mastercard', Icons.credit_card, Colors.blue[600]!, () => _initiateRecharge('visa')),
-        _paymentOption('USDT (Crypto)', Icons.currency_bitcoin, Colors.green[600]!, () => _initiateRecharge('usdt')),
+        _paymentOption('Vault Balance', Icons.account_balance_wallet, Colors.cyan[600]!, () => _initiateRecharge('fiat_balance')),
+        _paymentOption('MTN MoMo via Pesapal', Icons.phone_android, Colors.yellow[700]!, () => _initiateRecharge('mtn')),
+        _paymentOption('Airtel Money via Pesapal', Icons.phone_android, Colors.red[600]!, () => _initiateRecharge('airtel')),
+        _paymentOption('Visa / Mastercard via Pesapal', Icons.credit_card, Colors.blue[600]!, () => _initiateRecharge('card')),
       ],
     );
   }

@@ -55,6 +55,8 @@ class MusicTrack {
     final seconds = duration % 60;
     return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
+
+  Duration get timelineDuration => Duration(seconds: duration);
 }
 
 class MusicGenre {

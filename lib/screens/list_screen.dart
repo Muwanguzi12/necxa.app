@@ -7,7 +7,12 @@ class ListScreen extends StatelessWidget {
   const ListScreen({super.key, required this.state});
 
   static const _steps = [
-    'National ID', 'Face ID', 'Details', 'Photos', 'GPS', 'Review'
+    'National ID',
+    'Face ID',
+    'Details',
+    'Photos',
+    'GPS',
+    'Review',
   ];
 
   @override
@@ -38,11 +43,15 @@ class ListScreen extends StatelessWidget {
           GestureDetector(
             onTap: () => state.go('home'),
             child: Container(
-              width: 36, height: 36,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
-                  color: C.border, borderRadius: BorderRadius.circular(10)),
+                color: C.border,
+                borderRadius: BorderRadius.circular(10),
+              ),
               child: Center(
-                  child: Text('←', style: TextStyle(color: C.text, fontSize: 18))),
+                child: Text('←', style: TextStyle(color: C.text, fontSize: 18)),
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -52,8 +61,9 @@ class ListScreen extends StatelessWidget {
               children: [
                 Text('List Your Property', style: syne(sz: 15)),
                 Text(
-                    'Step ${state.listStep + 1}/${_steps.length}: ${_steps[state.listStep]}',
-                    style: dm(sz: 10, c: C.dim)),
+                  'Step ${state.listStep + 1}/${_steps.length}: ${_steps[state.listStep]}',
+                  style: dm(sz: 10, c: C.dim),
+                ),
               ],
             ),
           ),
@@ -86,13 +96,20 @@ class ListScreen extends StatelessWidget {
 
   Widget _buildStep() {
     switch (state.listStep) {
-      case 0: return _buildIdStep();
-      case 1: return _buildFaceStep();
-      case 2: return _buildDetailsStep();
-      case 3: return _buildPhotosStep();
-      case 4: return _buildGpsStep();
-      case 5: return _buildReviewStep();
-      default: return const SizedBox();
+      case 0:
+        return _buildIdStep();
+      case 1:
+        return _buildFaceStep();
+      case 2:
+        return _buildDetailsStep();
+      case 3:
+        return _buildPhotosStep();
+      case 4:
+        return _buildGpsStep();
+      case 5:
+        return _buildReviewStep();
+      default:
+        return const SizedBox();
     }
   }
 
@@ -121,9 +138,7 @@ class ListScreen extends StatelessWidget {
           child: Stack(
             children: [
               if (state.idScanning) const _ScanLine(color: C.green),
-              Center(
-                child: _buildIdContent(),
-              ),
+              Center(child: _buildIdContent()),
             ],
           ),
         ),
@@ -133,15 +148,17 @@ class ListScreen extends StatelessWidget {
             label: state.idScanning
                 ? null
                 : state.idDone
-                    ? null
-                    : '📸 Scan National ID',
+                ? null
+                : '📸 Scan National ID',
             loading: state.idScanning || state.idDone,
             loadingLabel: state.aiChecking
                 ? 'AI verifying identity...'
                 : state.idScanning
-                    ? 'Scanning ID document...'
-                    : 'Cross-checking NIRA database...',
-            onTap: state.idScanning || state.idDone ? null : () => state.doIdScan('Uganda', 'National ID'),
+                ? 'Scanning ID document...'
+                : 'Cross-checking NIRA database...',
+            onTap: state.idScanning || state.idDone
+                ? null
+                : () => state.doIdScan('Uganda', 'National ID'),
           )
         else
           _SuccessBtn(label: 'Next: Face ID →', onTap: state.nextStep),
@@ -158,8 +175,7 @@ class ListScreen extends StatelessWidget {
           const SizedBox(height: 8),
           Text('ID Verified!', style: syne(sz: 16, c: C.green)),
           const SizedBox(height: 4),
-          Text('Nakato Sarah · NIN: CM123456ABCD',
-              style: dm(sz: 11, c: C.dim)),
+          Text('Nakato Sarah · NIN: CM123456ABCD', style: dm(sz: 11, c: C.dim)),
         ],
       );
     } else if (state.aiChecking) {
@@ -195,8 +211,10 @@ class ListScreen extends StatelessWidget {
         children: [
           const Text('🪪', style: TextStyle(fontSize: 44)),
           const SizedBox(height: 8),
-          Text('Position your Uganda National ID here',
-              style: dm(sz: 13, c: C.dim)),
+          Text(
+            'Position your Uganda National ID here',
+            style: dm(sz: 13, c: C.dim),
+          ),
         ],
       );
     }
@@ -217,11 +235,10 @@ class ListScreen extends StatelessWidget {
         Center(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 300),
-            width: 200, height: 200,
+            width: 200,
+            height: 200,
             decoration: BoxDecoration(
-              color: state.faceDone
-                  ? const Color(0xFF0d1f14)
-                  : C.card,
+              color: state.faceDone ? const Color(0xFF0d1f14) : C.card,
               shape: BoxShape.circle,
               border: Border.all(
                 color: state.faceDone ? C.green.withOpacity(.25) : C.border,
@@ -232,39 +249,41 @@ class ListScreen extends StatelessWidget {
               children: [
                 if (state.faceScanning)
                   const ClipOval(
-                    child: _ScanLine(
-                        color: C.gold, width: double.infinity),
+                    child: _ScanLine(color: C.gold, width: double.infinity),
                   ),
                 Center(
                   child: state.faceDone
                       ? Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('😊',
-                                style: TextStyle(fontSize: 64)),
-                            Text('✓ Face Matched!',
-                                style: dm(sz: 12, c: C.green,
-                                    w: FontWeight.w700)),
+                            const Text('😊', style: TextStyle(fontSize: 64)),
+                            Text(
+                              '✓ Face Matched!',
+                              style: dm(sz: 12, c: C.green, w: FontWeight.w700),
+                            ),
                           ],
                         )
                       : state.faceScanning
-                          ? Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const _PulsingText('📷', size: 64),
-                                Text('Scanning face...',
-                                    style: dm(sz: 10, c: C.gold)),
-                              ],
-                            )
-                          : Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text('🤳',
-                                    style: TextStyle(fontSize: 64)),
-                                Text('Position your face',
-                                    style: dm(sz: 10, c: C.dim)),
-                              ],
+                      ? Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const _PulsingText('📷', size: 64),
+                            Text(
+                              'Scanning face...',
+                              style: dm(sz: 10, c: C.gold),
                             ),
+                          ],
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('🤳', style: TextStyle(fontSize: 64)),
+                            Text(
+                              'Position your face',
+                              style: dm(sz: 10, c: C.dim),
+                            ),
+                          ],
+                        ),
                 ),
               ],
             ),
@@ -279,9 +298,7 @@ class ListScreen extends StatelessWidget {
             onTap: state.faceScanning ? null : () => state.doFaceScan(),
           )
         else
-          _SuccessBtn(
-              label: 'Next: Property Details →',
-              onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Property Details →', onTap: state.nextStep),
       ],
     );
   }
@@ -289,56 +306,76 @@ class ListScreen extends StatelessWidget {
   // ── Step 2: Details ──────────────────────────────────────────
   Widget _buildDetailsStep() {
     const fields = [
-      ('Property Title', 'text'),
-      ('Monthly Price (UGX)', 'number'),
-      ('City / District', 'text'),
-      ('Bedrooms', 'number'),
-      ('Bathrooms', 'number'),
+      ('Property Title', 'text', 'title'),
+      ('Monthly Price (UGX)', 'number', 'price'),
+      ('City / District', 'text', 'city'),
+      ('Bedrooms', 'number', 'bedrooms'),
+      ('Bathrooms', 'number', 'bathrooms'),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Property Details', style: syne(sz: 22)),
         const SizedBox(height: 20),
-        ...fields.map((f) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(f.$1, style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
-            const SizedBox(height: 6),
-            TextField(
-              keyboardType: f.$2 == 'number'
-                  ? TextInputType.number
-                  : TextInputType.text,
-              style: dm(sz: 13),
-              decoration: InputDecoration(
-                hintText: 'Enter ${f.$1}...',
-                hintStyle: dm(sz: 13, c: C.dim),
-                filled: true,
-                fillColor: C.border,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: C.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: C.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: C.gold),
+        ...fields.map(
+          (f) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                f.$1,
+                style: dm(sz: 11, c: C.dim, w: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                keyboardType: f.$2 == 'number'
+                    ? TextInputType.number
+                    : TextInputType.text,
+                onChanged: (value) {
+                  final parsed = f.$2 == 'number'
+                      ? num.tryParse(value) ?? 0
+                      : value.trim();
+                  state.updateListingDraft(f.$3, parsed);
+                  if (f.$3 == 'city') {
+                    state.updateListingDraft('district', value.trim());
+                  }
+                },
+                style: dm(sz: 13),
+                decoration: InputDecoration(
+                  hintText: 'Enter ${f.$1}...',
+                  hintStyle: dm(sz: 13, c: C.dim),
+                  filled: true,
+                  fillColor: C.border,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: C.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: C.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: C.gold),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
-          ],
-        )),
-        Text('Description',
-            style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
+              const SizedBox(height: 14),
+            ],
+          ),
+        ),
+        Text(
+          'Description',
+          style: dm(sz: 11, c: C.dim, w: FontWeight.w600),
+        ),
         const SizedBox(height: 6),
         TextField(
           maxLines: 3,
+          onChanged: (value) =>
+              state.updateListingDraft('description', value.trim()),
           style: dm(sz: 13),
           decoration: InputDecoration(
             hintText: 'Describe the property...',
@@ -361,8 +398,7 @@ class ListScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        _PrimaryBtn(
-            label: 'Next: Photos & Docs →', onTap: state.nextStep),
+        _PrimaryBtn(label: 'Next: Photos & Docs →', onTap: state.nextStep),
       ],
     );
   }
@@ -385,41 +421,59 @@ class ListScreen extends StatelessWidget {
           style: dm(sz: 12, c: C.dim, h: 1.6),
         ),
         const SizedBox(height: 20),
-        ...docs.map((d) => Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: C.border.withOpacity(.5),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: C.border, style: BorderStyle.solid),
-          ),
-          child: Row(
-            children: [
-              Text(d.$1, style: const TextStyle(fontSize: 28)),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(d.$2,
-                        style: dm(sz: 13, w: FontWeight.w600)),
-                    Text(
-                      '${d.$3} · Tap to capture',
-                      style: dm(
+        ...docs.map(
+          (d) => Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: C.border.withOpacity(.5),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: C.border, style: BorderStyle.solid),
+            ),
+            child: Row(
+              children: [
+                Text(d.$1, style: const TextStyle(fontSize: 28)),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(d.$2, style: dm(sz: 13, w: FontWeight.w600)),
+                      Text(
+                        '${d.$3} · Tap to capture',
+                        style: dm(
                           sz: 10,
-                          c: d.$3 == 'Required' ? C.gold : C.dim),
-                    ),
-                  ],
+                          c: d.$3 == 'Required' ? C.gold : C.dim,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Text('📷',
-                  style: TextStyle(fontSize: 22, color: C.dim)),
-            ],
+                Text('📷', style: TextStyle(fontSize: 22, color: C.dim)),
+              ],
+            ),
           ),
-        )),
-        const SizedBox(height: 6),
+        ),
+        if (state.pickedMedia != null) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.file(
+              state.pickedMedia!,
+              height: 180,
+              width: double.infinity,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         _PrimaryBtn(
-            label: 'Next: GPS Location →', onTap: state.nextStep),
+          label: state.pickedMedia == null
+              ? 'Add Exterior Verification Photo'
+              : 'Replace Exterior Verification Photo',
+          onTap: state.pickMedia,
+        ),
+        const SizedBox(height: 6),
+        _PrimaryBtn(label: 'Next: GPS Location →', onTap: state.nextStep),
       ],
     );
   }
@@ -451,14 +505,14 @@ class ListScreen extends StatelessWidget {
                 ? Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('📍',
-                          style: TextStyle(fontSize: 50)),
+                      const Text('📍', style: TextStyle(fontSize: 50)),
                       const SizedBox(height: 8),
-                      Text('GPS Captured!',
-                          style: syne(sz: 14, c: C.green)),
+                      Text('GPS Captured!', style: syne(sz: 14, c: C.green)),
                       const SizedBox(height: 4),
-                      Text('0.3476° N, 32.5825° E · Kololo, Kampala',
-                          style: dm(sz: 11, c: C.dim)),
+                      Text(
+                        '0.3476° N, 32.5825° E · Kololo, Kampala',
+                        style: dm(sz: 11, c: C.dim),
+                      ),
                     ],
                   )
                 : Column(
@@ -467,21 +521,18 @@ class ListScreen extends StatelessWidget {
                       const _PulsingText('🌐', size: 50),
                       const SizedBox(height: 8),
                       Text(
-                          'Stand at the property, then tap capture',
-                          style: dm(sz: 13, c: C.dim)),
+                        'Stand at the property, then tap capture',
+                        style: dm(sz: 13, c: C.dim),
+                      ),
                     ],
                   ),
           ),
         ),
         const SizedBox(height: 18),
         if (!state.gpsDone)
-          _PrimaryBtn(
-              label: '📍 Capture GPS Now',
-              onTap: state.captureGps)
+          _PrimaryBtn(label: '📍 Capture GPS Now', onTap: state.captureGps)
         else
-          _SuccessBtn(
-              label: 'Next: Review & Submit →',
-              onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Review & Submit →', onTap: state.nextStep),
       ],
     );
   }
@@ -520,20 +571,22 @@ class ListScreen extends StatelessWidget {
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
-                        color: isLast ? Colors.transparent : C.border.withOpacity(.4)),
+                      color: isLast
+                          ? Colors.transparent
+                          : C.border.withOpacity(.4),
+                    ),
                   ),
                 ),
                 child: Row(
                   children: [
-                    Text(item.$1,
-                        style: const TextStyle(fontSize: 16)),
+                    Text(item.$1, style: const TextStyle(fontSize: 16)),
                     const SizedBox(width: 10),
-                    Text(item.$2,
-                        style: dm(sz: 12, w: FontWeight.w600)),
+                    Text(item.$2, style: dm(sz: 12, w: FontWeight.w600)),
                     const Spacer(),
-                    Text(item.$3,
-                        style: dm(sz: 10, c: C.green,
-                            w: FontWeight.w700)),
+                    Text(
+                      item.$3,
+                      style: dm(sz: 10, c: C.green, w: FontWeight.w700),
+                    ),
                   ],
                 ),
               );
@@ -543,13 +596,32 @@ class ListScreen extends StatelessWidget {
         const SizedBox(height: 16),
         if (state.submitted)
           _buildSubmittedSuccess()
-        else
+        else ...[
           _PrimaryBtn(
             label: state.aiSubmitting ? null : '🚀 Submit for AI Review',
             loading: state.aiSubmitting,
             loadingLabel: 'AI Verifying Listing...',
-            onTap: state.aiSubmitting ? null : () => state.doSubmit({}),
+            onTap: state.aiSubmitting
+                ? null
+                : () => state.doSubmit(state.listingDraft),
           ),
+          if (state.listingVerificationError != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: C.red.withOpacity(.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: C.red.withOpacity(.3)),
+              ),
+              child: Text(
+                state.listingVerificationError!,
+                style: dm(sz: 11, c: C.red, h: 1.5),
+              ),
+            ),
+          ],
+        ],
       ],
     );
   }
@@ -580,13 +652,14 @@ class ListScreen extends StatelessWidget {
                 onTap: () => state.go('home'),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 28, vertical: 12),
+                    horizontal: 28,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: C.gold,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text('← Back to Home',
-                      style: syne(sz: 14, c: C.bg)),
+                  child: Text('← Back to Home', style: syne(sz: 14, c: C.bg)),
                 ),
               ),
             ],
@@ -603,8 +676,12 @@ class _PrimaryBtn extends StatelessWidget {
   final bool loading;
   final String? loadingLabel;
   final VoidCallback? onTap;
-  const _PrimaryBtn({this.label, this.loading = false,
-      this.loadingLabel, this.onTap});
+  const _PrimaryBtn({
+    this.label,
+    this.loading = false,
+    this.loadingLabel,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -625,17 +702,21 @@ class _PrimaryBtn extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     SizedBox(
-                      width: 16, height: 16,
+                      width: 16,
+                      height: 16,
                       child: CircularProgressIndicator(
-                          color: C.bg, strokeWidth: 2),
+                        color: C.bg,
+                        strokeWidth: 2,
+                      ),
                     ),
                     const SizedBox(width: 8),
-                    Text(loadingLabel ?? 'Loading...',
-                        style: syne(sz: 15, c: C.bg)),
+                    Text(
+                      loadingLabel ?? 'Loading...',
+                      style: syne(sz: 15, c: C.bg),
+                    ),
                   ],
                 )
-              : Text(label ?? '',
-                  style: syne(sz: 15, c: C.bg)),
+              : Text(label ?? '', style: syne(sz: 15, c: C.bg)),
         ),
       ),
     );
@@ -657,7 +738,9 @@ class _SuccessBtn extends StatelessWidget {
           gradient: greenGrad,
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Center(child: Text(label, style: syne(sz: 15, c: Colors.white))),
+        child: Center(
+          child: Text(label, style: syne(sz: 15, c: Colors.white)),
+        ),
       ),
     );
   }
@@ -671,13 +754,19 @@ class _ScanLine extends StatefulWidget {
   @override
   State<_ScanLine> createState() => _ScanLineState();
 }
+
 class _ScanLineState extends State<_ScanLine>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))
-        ..repeat();
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..repeat();
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -692,11 +781,7 @@ class _ScanLineState extends State<_ScanLine>
             width: widget.width,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  Colors.transparent,
-                  widget.color,
-                  Colors.transparent,
-                ],
+                colors: [Colors.transparent, widget.color, Colors.transparent],
               ),
             ),
           ),
@@ -714,19 +799,24 @@ class _PulsingText extends StatefulWidget {
   @override
   State<_PulsingText> createState() => _PulsingTextState();
 }
+
 class _PulsingTextState extends State<_PulsingText>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 800))
-        ..repeat(reverse: true);
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  )..repeat(reverse: true);
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: Tween(begin: 0.4, end: 1.0).animate(_ctrl),
-      child: Text(widget.text,
-          style: TextStyle(fontSize: widget.size)),
+      child: Text(widget.text, style: TextStyle(fontSize: widget.size)),
     );
   }
 }
@@ -739,21 +829,25 @@ class _SpinningEmoji extends StatefulWidget {
   @override
   State<_SpinningEmoji> createState() => _SpinningEmojiState();
 }
+
 class _SpinningEmojiState extends State<_SpinningEmoji>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl =
-      AnimationController(vsync: this, duration: const Duration(seconds: 1))
-        ..repeat();
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 1),
+  )..repeat();
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, child) => Transform.rotate(
-        angle: _ctrl.value * 6.28,
-        child: child,
-      ),
+      builder: (_, child) =>
+          Transform.rotate(angle: _ctrl.value * 6.28, child: child),
       child: Text(widget.emoji, style: TextStyle(fontSize: widget.size)),
     );
   }
