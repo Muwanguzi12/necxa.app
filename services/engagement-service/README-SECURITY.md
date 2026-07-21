@@ -21,6 +21,8 @@ Mapping to your environment
 - For CI and GitHub Actions, add the above secrets to repository secrets and the engagement CI workflow will export them into the job environment.
 - For deployed containers, provide the same variables as environment variables (e.g., Kubernetes secrets or container service secrets).
 
+If your public key is already stored under the GitHub secret name "mongosecrete", the engagement CI workflow will be updated to export it as JWT_PUBLIC_KEY for the job. If you prefer a different secret name (e.g., JWT_PUBLIC_KEY), tell me and I will update the workflow accordingly.
+
 Notes
 - Do NOT store private signing keys (the JWT private key) in this service's runtime environment; only the public key is necessary for verification.
 - If using Supabase as the identity provider, the JWKS endpoint is typically:

@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MONGO_URI: ${{ secrets.MONGO_URI }}
+      JWT_PUBLIC_KEY: ${{ secrets.mongosecrete }}
     steps:
       - uses: actions/checkout@v4
 
