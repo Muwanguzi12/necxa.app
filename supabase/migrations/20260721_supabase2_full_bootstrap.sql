@@ -84,6 +84,30 @@ create table if not exists public.payments (
   updated_at         timestamptz not null default now()
 );
 
+-- 5b. Payment Reconciliations – Settlement audit trail
+-- PesaPal → Webhook → Settlement Service → Compare Ledger → Mark Reconciled
+create table if not exists public.payment_reconciliations (
+  id                  uuid primary key default gen_random_uuid(),
+  payment_id          uuid,
+  idempotency_key     text unique,
+  user_id             uuid not null,
+  provider            text not null default 'pesapal',
+  amount_ugx          bigint not null default 0,
+  pesapal_status      text,
+  reconciled_status   text not null default 'PENDING',
+  -- PENDING | RECONCILED | FAILED | DISPUTED
+  reconciled_at       timestamptz,
+  pesapal_response    jsonb default '{}'::jsonb,
+  notes               text,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now()
+);
+
+create index if not exists idx_recon_user on public.payment_reconciliations(user_id);
+create index if not exists idx_recon_status on public.payment_reconciliations(reconciled_status);
+create index if not exists idx_recon_payment on public.payment_reconciliations(payment_id);
+
+
 -- 6. Community gifts (may already exist)
 create table if not exists public.community_gifts (
   id               uuid primary key default gen_random_uuid(),

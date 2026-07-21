@@ -918,6 +918,179 @@ serve(async (req) => {
       return json({ success: true, gifts: formatted });
     }
 
+    // ── Action: get_wallet ───────────────────────────────────────────────────
+    // Returns the current wallet for the authenticated user.
+    // Called by Flutter _syncVault() every time the UI needs to refresh balances.
+    if (action === "get_wallet") {
+      // Ensure wallet row exists (0 balance if first request)
+      await supabase.from("wallets").upsert(
+        { user_id: user.id, fiat_balance: 0, coin_balance: 0, escrow_balance: 0 },
+        { onConflict: "user_id", ignoreDuplicates: true }
+      );
+
+      const { data: wallet, error: walletErr } = await supabase
+        .from("wallets")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+
+      if (walletErr || !wallet) {
+        return json({ success: false, message: "Wallet not found." }, 404);
+      }
+
+      // Also fetch recent ledger entries for the transaction history
+      const { data: ledger } = await supabase
+        .from("immutable_financial_ledger")
+        .select("id, entry_type, amount, currency, direction, balance_after, metadata, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      return json({
+        success: true,
+        wallet: {
+          id: wallet.id,
+          user_id: wallet.user_id,
+          fiat_balance: wallet.fiat_balance,
+          coin_balance: wallet.coin_balance,
+          escrow_balance: wallet.escrow_balance,
+          total_earned: wallet.total_earned ?? 0,
+          total_spent: wallet.total_spent ?? 0,
+          total_commission_earned: 0,
+          daily_withdrawal_limit: 5000000,
+          monthly_withdrawal_limit: 50000000,
+          is_frozen: wallet.is_frozen ?? false,
+          freeze_reason: wallet.freeze_reason ?? null,
+          created_at: wallet.created_at,
+          updated_at: wallet.updated_at,
+        },
+        recentTransactions: (ledger || []).map(e => ({
+          id: e.id,
+          type: e.entry_type,
+          amount: e.amount,
+          currency: e.currency,
+          direction: e.direction,
+          balanceAfter: e.balance_after,
+          metadata: e.metadata,
+          createdAt: e.created_at,
+        })),
+      });
+    }
+
+    // ── Action: get_transaction_history ──────────────────────────────────────
+    if (action === "get_transaction_history") {
+      const limit = Number(body.limit) || 50;
+      const offset = Number(body.offset) || 0;
+
+      const { data: ledger, error: ledgerErr } = await supabase
+        .from("immutable_financial_ledger")
+        .select("id, entry_type, amount, currency, direction, balance_after, metadata, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (ledgerErr) throw new Error(ledgerErr.message);
+
+      return json({
+        success: true,
+        transactions: (ledger || []).map(e => ({
+          id: e.id,
+          type: e.entry_type,
+          amount: e.amount,
+          currency: e.currency,
+          direction: e.direction,
+          balanceAfter: e.balance_after,
+          metadata: e.metadata,
+          createdAt: e.created_at,
+        })),
+      });
+    }
+
+    // ── Action: reconcile_deposit ─────────────────────────────────────────────
+    // Manually triggers a Pesapal status check and wallet credit for a given paymentId.
+    // Called from the app after the user returns from the Pesapal browser redirect.
+    if (action === "reconcile_deposit") {
+      const paymentId = body.paymentId as string;
+      if (!paymentId) return json({ success: false, message: "paymentId required." }, 400);
+
+      const { data: payment } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("idempotency_key", paymentId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!payment) return json({ success: false, message: "Payment record not found." }, 404);
+
+      // Already credited — avoid double-credit
+      if (payment.status === "COMPLETED") {
+        return json({ success: true, status: "already_credited", message: "This deposit was already credited to your wallet." });
+      }
+
+      // Check current Pesapal status
+      const token = await getPesapalToken();
+      const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
+      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
+
+      console.log(`Reconcile deposit ${paymentId}: Pesapal says "${pesapalStatus}", status_code=${statusData.status_code}`);
+
+      let reconciledStatus = "PENDING";
+      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) reconciledStatus = "COMPLETED";
+      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) reconciledStatus = "FAILED";
+
+      // Update payment record
+      await supabase.from("payments")
+        .update({ status: reconciledStatus, updated_at: new Date().toISOString() })
+        .eq("idempotency_key", paymentId);
+
+      if (reconciledStatus === "COMPLETED") {
+        const amountUgx = (payment.request as Record<string, number>)?.amount ?? 0;
+        if (amountUgx > 0) {
+          const { error: creditErr } = await supabase.rpc("credit_wallet_fiat", {
+            p_user_id: user.id,
+            p_amount_ugx: amountUgx,
+            p_reference: paymentId,
+          });
+          if (creditErr) {
+            console.error("credit_wallet_fiat error:", creditErr);
+            // Don't fail — update was successful, just log
+          }
+        }
+
+        // Insert reconciliation record
+        await supabase.from("payment_reconciliations").upsert({
+          payment_id: payment.id,
+          idempotency_key: paymentId,
+          user_id: user.id,
+          provider: "pesapal",
+          amount_ugx: (payment.request as Record<string, number>)?.amount ?? 0,
+          pesapal_status: pesapalStatus,
+          reconciled_status: "RECONCILED",
+          reconciled_at: new Date().toISOString(),
+          pesapal_response: statusData,
+        }, { onConflict: "idempotency_key" });
+
+        return json({ success: true, status: "completed", message: "Deposit confirmed and wallet credited!" });
+      }
+
+      if (reconciledStatus === "FAILED") {
+        await supabase.from("payment_reconciliations").upsert({
+          payment_id: payment.id,
+          idempotency_key: paymentId,
+          user_id: user.id,
+          provider: "pesapal",
+          amount_ugx: (payment.request as Record<string, number>)?.amount ?? 0,
+          pesapal_status: pesapalStatus,
+          reconciled_status: "FAILED",
+          reconciled_at: new Date().toISOString(),
+          pesapal_response: statusData,
+        }, { onConflict: "idempotency_key" });
+        return json({ success: false, status: "failed", message: "Payment was unsuccessful. Please try again." });
+      }
+
+      return json({ success: true, status: "pending", message: "Payment is still processing. Please wait." });
+    }
+
     return json({ success: false, message: `Unknown action: ${action}` }, 400);
   } catch (err) {
     console.error("finance-engine error:", err);

@@ -3,6 +3,7 @@ import 'dart:ui';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/finance_deposit_service.dart';
+import '../services/finance_backend.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 class VaultDepositOverlay extends StatefulWidget {
@@ -293,32 +294,22 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
         }
 
         if (!mounted) return;
+        setState(() => _loading = false);
+
+        // Show snackbar with manual reconcile action for reliability
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Complete payment in the browser. Your wallet will be credited once confirmed.'),
-            duration: Duration(seconds: 5),
+          SnackBar(
+            content: const Text("Complete payment in browser, then tap \"I've Paid\" below."),
+            duration: const Duration(seconds: 15),
+            action: SnackBarAction(
+              label: "I've Paid",
+              onPressed: () => _reconcileDeposit(paymentId),
+            ),
           ),
         );
 
-        // Poll for completion (5 min timeout, checks every 3s)
-        final completed = await svc.waitForCompletion(paymentId);
-        if (!mounted) return;
-
-        if (completed) {
-          await widget.state.syncVault();
-          if (!mounted) return;
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✅ Deposit confirmed and wallet credited!')),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Payment pending — your wallet will be credited once Pesapal confirms.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
+        // Also auto-reconcile in background via polling
+        _backgroundReconcile(svc, paymentId);
       } else {
         throw Exception(res['message'] ?? 'Failed to initiate deposit.');
       }
@@ -331,5 +322,64 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  /// Calls the finance-engine reconcile_deposit action to verify payment
+  /// with Pesapal in real-time and credit the wallet atomically.
+  Future<void> _reconcileDeposit(String paymentId) async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('\u23f3 Verifying payment with Pesapal...')),
+    );
+    try {
+      final result = await FinanceBackend.instance.invoke(
+        'reconcile_deposit',
+        body: {'paymentId': paymentId},
+      );
+      if (!mounted) return;
+      final status = result['status']?.toString() ?? 'pending';
+      if (status == 'completed' || status == 'already_credited') {
+        await widget.state.syncVault();
+        if (!mounted) return;
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('\u2705 Deposit confirmed! Wallet has been credited.')),
+        );
+      } else if (status == 'failed') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message']?.toString() ?? 'Payment failed.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Payment still processing. Check your wallet balance shortly.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Verification error: $e')),
+        );
+      }
+    }
+  }
+
+  /// Background poller — auto-credits via deposit_status polling (5 min timeout).
+  void _backgroundReconcile(FinanceDepositService svc, String paymentId) {
+    svc.waitForCompletion(paymentId, timeout: const Duration(minutes: 5)).then((completed) async {
+      if (!mounted) return;
+      if (completed) {
+        await widget.state.syncVault();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('\u2705 Wallet auto-credited! Deposit confirmed.')),
+        );
+      }
+    });
   }
 }
