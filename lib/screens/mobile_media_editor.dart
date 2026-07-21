@@ -105,6 +105,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
   }
 
+  // Duration clamp helper since Duration doesn't expose clamp()
+  Duration _clampDuration(Duration value, Duration min, Duration max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
   void _onClipPanStart(TimelineTrack track, TimelineClip clip, DragStartDetails details, double width) {
     _activeDragClipId = clip.id;
     _dragStartLocalX = details.localPosition.dx;
@@ -151,7 +158,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             // Advanced trim: update TrimOperation if available to restore/hide source
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              final newSourceStart = (trim.start + (delta)).clamp(Duration.zero, (trim.end));
+              final newSourceStart = _clampDuration(trim.start + delta, Duration.zero, trim.end);
               trim.start = newSourceStart;
               clip.sourceStart = trim.start;
               final available = (trim.end - trim.start);
@@ -176,7 +183,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           if (newDur >= const Duration(milliseconds: 100)) {
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              final newEnd = (trim.end + (delta)).clamp(trim.start + const Duration(milliseconds: 1), Duration(days: 36500));
+              final newEnd = _clampDuration(trim.end + delta, trim.start + const Duration(milliseconds: 1), Duration(days: 36500));
               trim.end = newEnd;
               clip.sourceEnd = trim.end;
               final available = (trim.end - trim.start);
