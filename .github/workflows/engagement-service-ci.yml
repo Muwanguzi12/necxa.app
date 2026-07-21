@@ -1,0 +1,35 @@
+name: Engagement Service CI
+
+on:
+  push:
+    branches: [ 'feature/engagement-service-skeleton', 'feature/*', 'main' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          cd services/engagement-service
+          npm ci
+
+      - name: Build (TypeScript)
+        run: |
+          cd services/engagement-service
+          npm run build
+
+      - name: Run tests
+        run: |
+          cd services/engagement-service
+          npm test
