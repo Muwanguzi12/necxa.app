@@ -9,6 +9,23 @@ export async function connectMongo(): Promise<Db> {
   client = new MongoClient(uri, {});
   await client.connect();
   db = client.db();
+
+  // Ensure indexes for deduplication and fast lookups
+  try {
+    const postLikes = db.collection('post_likes');
+    await postLikes.createIndex({ postId: 1, userId: 1 }, { unique: true });
+
+    const comments = db.collection('comments');
+    // idempotencyKey index (sparse) to allow idempotent comment creation
+    await comments.createIndex({ idempotencyKey: 1 }, { unique: true, sparse: true });
+
+    const engagements = db.collection('post_engagements');
+    await engagements.createIndex({ postId: 1 }, { unique: true });
+  } catch (err) {
+    // index creation failure should not block startup but should be logged by caller
+    console.warn('index creation warning', err);
+  }
+
   return db;
 }
 
