@@ -724,6 +724,7 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
+  bool isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
 
   TimelineClip({
     required this.id,
@@ -739,6 +740,7 @@ class TimelineClip {
     this.isReversed = false,
     TransformOperation? transform,
     this.filter,
+    this.isHidden = false,
   }) : transform = transform ?? TransformOperation();
 
   TimelineClip copyWith({
@@ -755,6 +757,7 @@ class TimelineClip {
     bool? isReversed,
     TransformOperation? transform,
     FilterOperation? filter,
+    bool? isHidden,
   }) {
     return TimelineClip(
       id: id ?? this.id,
@@ -770,6 +773,7 @@ class TimelineClip {
       isReversed: isReversed ?? this.isReversed,
       transform: transform ?? this.transform,
       filter: filter ?? this.filter,
+      isHidden: isHidden ?? this.isHidden,
     );
   }
 
@@ -836,6 +840,16 @@ class TimelineModelUtils {
       clip.start = cursor;
       cursor += clip.duration;
     }
+  }
+
+  static Duration relativeTimeForClip(
+    TimelineClip clip,
+    Duration timelineTime,
+  ) {
+    final elapsed = timelineTime - clip.start;
+    if (elapsed <= Duration.zero) return Duration.zero;
+    if (elapsed >= clip.duration) return clip.duration;
+    return elapsed;
   }
 
   static TimelineTrack ensureTrackForType(

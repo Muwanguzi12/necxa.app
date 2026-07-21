@@ -236,6 +236,7 @@ class TimelineHistoryController {
     filter: clip.filter == null
         ? null
         : FilterOperation(filterName: clip.filter!.filterName),
+    isHidden: clip.isHidden,
   );
 
   static EditOperation _cloneOperation(EditOperation operation) {

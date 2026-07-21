@@ -20,6 +20,9 @@ import '../services/editor_voiceover_service.dart';
 import '../services/editor_audio_service.dart';
 import '../services/timeline_playback_controller.dart';
 
+// Private enum for clip drag modes (top-level so it compiles in class scope)
+enum _ClipDragMode { none, move, resizeLeft, resizeRight, stretch }
+
 // ══════════════════════════════════════════════════════════════
 // MOBILE MEDIA EDITOR - Responsive adaptation of desktop editor
 // ══════════════════════════════════════════════════════════════
@@ -76,6 +79,156 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   final ScrollController _sidebarScrollController = ScrollController();
 
   static final Map<String, Uint8List> _thumbnailCache = {};
+
+  // Clip interaction state
+  String? _activeDragClipId;
+  _ClipDragMode _clipDragMode = _ClipDragMode.none;
+  double? _dragStartLocalX;
+  Duration? _dragOriginalStart;
+  Duration? _dragOriginalDuration;
+  double _clipHandleWidth = 12.0; // hit area for handles in pixels
+  bool _isRippleMode = false; // when true, edits ripple following clips
+  bool _isStretchMode = false; // when true, resize changes speed (stretch)
+
+  // Timeline pinch/zoom helpers
+  double? _timelineScaleStartZoom;
+  double _leftPaneWidth = 56.0; // width of left pane used to compute local focal point
+
+  // Helpers for clip dragging
+  void _shiftFollowingClips(TimelineTrack track, TimelineClip clip, Duration delta) {
+    // shift any clips that start after this clip's end by delta
+    final end = clip.start + clip.duration;
+    for (final c in track.clips) {
+      if (c.start >= end && c.id != clip.id) {
+        c.start = c.start + delta;
+      }
+    }
+  }
+
+  void _onClipPanStart(TimelineTrack track, TimelineClip clip, DragStartDetails details, double width) {
+    _activeDragClipId = clip.id;
+    _dragStartLocalX = details.localPosition.dx;
+    _dragOriginalStart = clip.start;
+    _dragOriginalDuration = clip.duration;
+
+    if (_dragStartLocalX != null) {
+      if (_dragStartLocalX! < _clipHandleWidth) {
+        _clipDragMode = _ClipDragMode.resizeLeft;
+      } else if (_dragStartLocalX! > width - _clipHandleWidth) {
+        _clipDragMode = _isStretchMode ? _ClipDragMode.stretch : _ClipDragMode.resizeRight;
+      } else {
+        _clipDragMode = _ClipDragMode.move;
+      }
+    }
+
+    // Capture timeline for undo
+    _captureTimeline();
+  }
+
+  void _onClipPanUpdate(TimelineTrack track, TimelineClip clip, DragUpdateDetails details) {
+    if (_activeDragClipId != clip.id) return;
+    final scale = _pixelsPerSecond * _timelineZoom;
+    final dx = details.delta.dx;
+    final deltaMs = (dx / scale * 1000.0).round();
+    final delta = Duration(milliseconds: deltaMs);
+
+    setState(() {
+      switch (_clipDragMode) {
+        case _ClipDragMode.move:
+          final newStart = (_dragOriginalStart ?? clip.start) + delta;
+          clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
+          if (_isRippleMode) {
+            // ripple: shift following clips by same delta
+            _shiftFollowingClips(track, clip, delta);
+          }
+          break;
+        case _ClipDragMode.resizeLeft:
+          final origStart = _dragOriginalStart ?? clip.start;
+          final origDur = _dragOriginalDuration ?? clip.duration;
+          final newStart = origStart + delta;
+          final newDur = origDur - delta;
+          if (newDur >= const Duration(milliseconds: 100)) {
+            // Advanced trim: update TrimOperation if available to restore/hide source
+            if (clip.operation is TrimOperation) {
+              final trim = clip.operation as TrimOperation;
+              final newSourceStart = (trim.start + (delta)).clamp(Duration.zero, (trim.end));
+              trim.start = newSourceStart;
+              clip.sourceStart = trim.start;
+              final available = (trim.end - trim.start);
+              clip.duration = Duration(milliseconds: (available.inMilliseconds / clip.speed).round());
+            } else {
+              clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
+              clip.duration = newDur;
+            }
+
+            // hide semantics: if duration becomes very small, mark hidden
+            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+
+            if (_isRippleMode) {
+              // maintain following clips' positions by shifting them
+              _shiftFollowingClips(track, clip, delta);
+            }
+          }
+          break;
+        case _ClipDragMode.resizeRight:
+          final origDur = _dragOriginalDuration ?? clip.duration;
+          final newDur = origDur + delta;
+          if (newDur >= const Duration(milliseconds: 100)) {
+            if (clip.operation is TrimOperation) {
+              final trim = clip.operation as TrimOperation;
+              final newEnd = (trim.end + (delta)).clamp(trim.start + const Duration(milliseconds: 1), Duration(days: 36500));
+              trim.end = newEnd;
+              clip.sourceEnd = trim.end;
+              final available = (trim.end - trim.start);
+              clip.duration = Duration(milliseconds: (available.inMilliseconds / clip.speed).round());
+            } else {
+              clip.duration = newDur;
+            }
+
+            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+
+            if (_isRippleMode) {
+              _shiftFollowingClips(track, clip, delta);
+            }
+          }
+          break;
+        case _ClipDragMode.stretch:
+          final origDur = _dragOriginalDuration ?? clip.duration;
+          final newDur = origDur + delta;
+          if (newDur >= const Duration(milliseconds: 100)) {
+            // Stretch changes playback speed to keep source mapping
+            final sourceDurMs = clip.sourceDuration.inMilliseconds;
+            final newSpeed = newDur.inMilliseconds > 0
+                ? (sourceDurMs / newDur.inMilliseconds).clamp(0.1, 10.0)
+                : clip.speed;
+            clip.duration = newDur;
+            clip.speed = newSpeed;
+            if (clip.operation is TrimOperation) {
+              // keep trim end aligned to source end, adjust operation end accordingly
+              final trim = clip.operation as TrimOperation;
+              trim.end = trim.start + Duration(milliseconds: (clip.sourceDuration.inMilliseconds));
+            }
+            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+            if (_isRippleMode) {
+              _shiftFollowingClips(track, clip, delta);
+            }
+          }
+          break;
+        case _ClipDragMode.none:
+          break;
+      }
+      _playback.updateProject(_tracks);
+    });
+  }
+
+  void _onClipPanEnd(DragEndDetails details) {
+    _activeDragClipId = null;
+    _clipDragMode = _ClipDragMode.none;
+    _dragStartLocalX = null;
+    _dragOriginalStart = null;
+    _dragOriginalDuration = null;
+    // finalize history capture already taken at start
+  }
 
   bool _isPlaying = false;
   Duration _currentTime = Duration.zero;
@@ -1678,8 +1831,79 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             width: width,
             child: GestureDetector(
               onTap: () => _selectClip(track, clip),
+              onDoubleTap: () => _trimClip(),
               onLongPress: () => _enterMultiSelect(track, clip),
-              child: _buildClipContent(track, clip, width, isSelected),
+              onPanStart: (details) => _onClipPanStart(track, clip, details, width),
+              onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
+              onPanEnd: (details) => _onClipPanEnd(details),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildClipContent(track, clip, width, isSelected),
+                  if (isSelected) ...[
+                    // left handle
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: _clipHandleWidth,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.resizeLeftRight,
+                        child: Container(
+                          color: Colors.transparent,
+                          child: Center(
+                            child: Container(
+                              width: 6,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // right handle
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: _clipHandleWidth,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.resizeLeftRight,
+                        child: Container(
+                          color: Colors.transparent,
+                          child: Center(
+                            child: Container(
+                              width: 6,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // center drag hint
+                    Positioned(
+                      left: width / 2 - 10,
+                      top: 0,
+                      bottom: 0,
+                      width: 20,
+                      child: Center(
+                        child: Container(
+                          width: 2,
+                          height: 28,
+                          color: Colors.white12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           );
         }).toList(),
@@ -3101,6 +3325,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _totalDuration = state.duration;
       _isPlaying = state.isPlaying;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureTimelinePosition());
     _queueCompositionSync();
   }
 
@@ -3299,6 +3524,26 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
   }
 
+  void _ensureTimelinePosition() {
+    if (!mounted || !_timelineScrollController.hasClients) return;
+    final scale = _pixelsPerSecond * _timelineZoom;
+    final playheadPosition = (_currentTime.inMilliseconds / 1000.0) * scale;
+    final viewport = _timelineScrollController.position.viewportDimension;
+    if (viewport <= 0) return;
+    final offset = _timelineScrollController.offset;
+    const margin = 80.0;
+    final visibleStart = offset + margin;
+    final visibleEnd = offset + viewport - margin;
+
+    if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
+      final target = math.min(
+        math.max(playheadPosition - viewport / 2, 0.0),
+        _timelineScrollController.position.maxScrollExtent,
+      );
+      _timelineScrollController.jumpTo(target);
+    }
+  }
+
   void _previousFrame() {
     _playback.stepBackward(_tracks);
   }
@@ -3325,15 +3570,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _splitClip() {
     final clip = _selectedClip;
     if (clip == null) return;
-    final splitMs = _currentTime.inMilliseconds.clamp(
-      100,
-      math.max(100, clip.duration.inMilliseconds - 100),
+
+    final clipPosition = TimelineModelUtils.relativeTimeForClip(
+      clip,
+      _currentTime,
     );
-    final splitAt = Duration(milliseconds: splitMs.toInt());
-    if (splitAt <= Duration.zero || splitAt >= clip.duration) {
-      _showSnack('Move the playhead inside the clip to split');
+    final minSplit = const Duration(milliseconds: 100);
+    final maxSplit = clip.duration - const Duration(milliseconds: 100);
+    if (clipPosition <= minSplit || clipPosition >= maxSplit) {
+      _showSnack('Move the playhead inside the selected clip to split');
       return;
     }
+
+    final splitAt = clipPosition;
     _captureTimeline();
     final track = _tracks.firstWhere(
       (candidate) => candidate.clips.contains(clip),

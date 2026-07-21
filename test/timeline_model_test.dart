@@ -120,16 +120,51 @@ void main() {
         speed: 1.5,
         reverse: true,
       );
-
+ 
       final json = operation.toJson();
-
+ 
       expect(json['sourceType'], 'music');
       expect(json['label'], 'Intro Beat');
       expect(json['volume'], 0.75);
       expect(json['speed'], 1.5);
       expect(json['reverse'], isTrue);
     });
-
+ 
+    test('computes clip-relative time for timeline position', () {
+      final clip = TimelineClip(
+        id: 'clip',
+        start: const Duration(seconds: 3),
+        duration: const Duration(seconds: 5),
+        operation: TrimOperation(
+          start: Duration.zero,
+          end: const Duration(seconds: 5),
+          maxDuration: const Duration(seconds: 5),
+        ),
+      );
+ 
+      expect(
+        TimelineModelUtils.relativeTimeForClip(
+          clip,
+          const Duration(seconds: 5),
+        ),
+        const Duration(seconds: 2),
+      );
+      expect(
+        TimelineModelUtils.relativeTimeForClip(
+          clip,
+          const Duration(seconds: 8),
+        ),
+        const Duration(seconds: 5),
+      );
+      expect(
+        TimelineModelUtils.relativeTimeForClip(
+          clip,
+          const Duration(seconds: 2),
+        ),
+        Duration.zero,
+      );
+    });
+ 
     test('copies non-destructive clip playback properties', () {
       final clip = TimelineClip(
         id: 'source',
