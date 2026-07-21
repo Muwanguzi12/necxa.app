@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd services/engagement-service
-          npm ci
+          npm install --no-audit --no-fund
 
       - name: Build (TypeScript)
         run: |
