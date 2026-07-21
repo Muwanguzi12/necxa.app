@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -213,7 +214,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state: widget.state, 
         idVerified: widget.state.lastIDResult?.verified ?? false, 
         faceVerified: widget.state.lastSelfieResult?.faceMatch ?? false,
-        onVerify: (ctrl) => _runIdentityVerification(ctrl), 
+        onVerify: _runIdentityVerification,
         loading: _loading, 
         subStep: widget.state.verificationSubStep,
         scannerKey: _scannerKey,
@@ -325,18 +326,21 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       data['reason']?.toString() ??
       fallback;
 
-  Future<void> _runIdentityVerification(CameraController? cameraCtrl) async {
+  Future<void> _runIdentityVerification() async {
     setState(() => _loading = true);
     try {
       final state = widget.state;
       state.setShieldFeedback(null);
-      if (cameraCtrl == null || !cameraCtrl.value.isInitialized) {
+      final scanner = _scannerKey.currentState;
+      if (scanner == null) {
         throw Exception('Camera is not ready yet. Please wait a moment and try again.');
       }
+      final requiredLens = state.verificationSubStep == 3
+          ? CameraLensDirection.front
+          : CameraLensDirection.back;
+      final cameraCtrl = await scanner.ensureCamera(requiredLens);
 
       if (state.verificationSubStep == 0) {
-        await _scannerKey.currentState?.switchCamera(CameraLensDirection.back);
-        await Future.delayed(const Duration(milliseconds: 300));
         state.captureGps().timeout(const Duration(seconds: 5), onTimeout: () {}).catchError((e) {});
         final xfile = await cameraCtrl.takePicture();
         state.idImage = File(xfile.path);
@@ -352,8 +356,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
-        await _scannerKey.currentState?.switchCamera(CameraLensDirection.back);
-        await Future.delayed(const Duration(milliseconds: 300));
         final xfile = await cameraCtrl.takePicture();
         state.idBackImage = File(xfile.path);
         final result = await NecxaAI.verifyID(
@@ -368,8 +370,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDBackResult = idResult;
         state.verificationSubStep = 2;
       } else if (state.verificationSubStep == 2) {
-        await _scannerKey.currentState?.switchCamera(CameraLensDirection.back);
-        await Future.delayed(const Duration(milliseconds: 300));
         final xfile = await cameraCtrl.takePicture();
         state.idHoldingImage = File(xfile.path);
         final result = await NecxaAI.verifyID(
@@ -654,7 +654,7 @@ class _Step2 extends StatelessWidget {
 
 class _Step3Identity extends StatelessWidget {
   final AppState state; final bool idVerified, faceVerified, loading; final int subStep;
-  final Function(dynamic) onVerify;
+  final Future<void> Function() onVerify;
   final GlobalKey<_NeuralScannerOverlayState> scannerKey;
   const _Step3Identity({required this.state, required this.idVerified, required this.faceVerified, required this.loading, required this.subStep, required this.onVerify, required this.scannerKey});
 
@@ -731,10 +731,7 @@ class _Step3Identity extends StatelessWidget {
         
         const SizedBox(height: 40),
         SizedBox(width: double.infinity, child: ElevatedButton.icon(
-          onPressed: loading ? null : () {
-            final ctrl = scannerKey.currentState?.cameraCtrl;
-            onVerify(ctrl);
-          },
+          onPressed: loading ? null : onVerify,
           style: ElevatedButton.styleFrom(
             backgroundColor: C.brand,
             foregroundColor: Colors.white,
@@ -774,15 +771,22 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with Singl
   late final AnimationController _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
   CameraController? cameraCtrl;
   CameraLensDirection _currentDirection = CameraLensDirection.back;
+  Future<void>? _cameraInitialization;
 
   @override
   void initState() {
     super.initState();
-    _initCamera(CameraLensDirection.back);
+    unawaited(
+      switchCamera(CameraLensDirection.back).catchError((Object error) {
+        debugPrint('Camera initialization error: $error');
+      }),
+    );
   }
 
   Future<void> _initCamera(CameraLensDirection direction) async {
-    if (cameras.isEmpty) return;
+    if (cameras.isEmpty) {
+      throw Exception('No camera is available on this device.');
+    }
     
     // Find the camera with the desired direction
     final camera = cameras.firstWhere(
@@ -790,35 +794,67 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with Singl
       orElse: () => cameras.first,
     );
 
-    if (cameraCtrl != null) {
-      await cameraCtrl!.dispose();
-    }
+    await cameraCtrl?.dispose();
 
-    cameraCtrl = CameraController(
+    final nextController = CameraController(
       camera, 
       ResolutionPreset.high, // CORRECT RESOLUTION FOR AI CLARITY
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
+    cameraCtrl = nextController;
 
     try {
-      await cameraCtrl!.initialize();
+      await nextController.initialize();
       _currentDirection = direction;
       if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('Camera initialization error: $e');
+      if (identical(cameraCtrl, nextController)) cameraCtrl = null;
+      await nextController.dispose();
+      rethrow;
     }
   }
 
   Future<void> switchCamera(CameraLensDirection direction) async {
-    await _initCamera(direction);
+    final pendingInitialization = _cameraInitialization;
+    if (pendingInitialization != null) await pendingInitialization;
+
+    final currentController = cameraCtrl;
+    if (_currentDirection == direction &&
+        currentController != null &&
+        currentController.value.isInitialized) {
+      return;
+    }
+
+    final initialization = _initCamera(direction);
+    _cameraInitialization = initialization;
+    try {
+      await initialization;
+    } finally {
+      if (identical(_cameraInitialization, initialization)) {
+        _cameraInitialization = null;
+      }
+    }
+  }
+
+  Future<CameraController> ensureCamera(CameraLensDirection direction) async {
+    await switchCamera(direction);
+    final activeController = cameraCtrl;
+    if (activeController == null || !activeController.value.isInitialized) {
+      throw Exception('Camera is not ready yet. Please wait a moment and try again.');
+    }
+    return activeController;
   }
   
   Future<void> toggleCamera() async {
     final newDirection = _currentDirection == CameraLensDirection.back 
         ? CameraLensDirection.front 
         : CameraLensDirection.back;
-    await switchCamera(newDirection);
+    try {
+      await switchCamera(newDirection);
+    } catch (error) {
+      debugPrint('Camera switch failed: $error');
+    }
   }
 
   @override
@@ -838,14 +874,32 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay> with Singl
         child: Stack(
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
-              SizedBox.expand(
-                child: AspectRatio(
-                  aspectRatio: cameraCtrl!.value.aspectRatio,
-                  child: CameraPreview(cameraCtrl!),
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: Center(child: CameraPreview(cameraCtrl!)),
                 ),
               )
             else
               const Center(child: Opacity(opacity: 0.1, child: Icon(Icons.document_scanner, size: 100, color: C.brand))),
+
+            if (_currentDirection == CameraLensDirection.back)
+              const IgnorePointer(
+                child: Center(
+                  child: FractionallySizedBox(
+                    widthFactor: .82,
+                    child: AspectRatio(
+                      aspectRatio: 1.586,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.fromBorderSide(BorderSide(color: Colors.white70, width: 1.5)),
+                          borderRadius: BorderRadius.all(Radius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             
             // The Scanner Eye
             AnimatedBuilder(

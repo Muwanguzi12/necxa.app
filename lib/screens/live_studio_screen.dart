@@ -1,7 +1,6 @@
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter/material.dart';
 import 'dart:ui';
-import 'dart:math' as math;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -9,10 +8,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../data.dart';
 import '../theme.dart';
 import '../app_state.dart';
-import '../services/live_streaming_service.dart';
-import '../services/firebase_gifting_service.dart';
+import '../services/finance_gifting_service.dart';
 import '../widgets/live_overlays.dart';
 import '../widgets/checkout_container.dart';
+import '../widgets/vault_buy_shards_overlay.dart';
 import '../services/ai_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
@@ -38,9 +37,11 @@ class LiveStudioScreen extends StatefulWidget {
 }
 
 class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBindingObserver {
-  final List<int> _remoteUids = [];
   bool _localUserJoined = false;
   String? _initError;
+  bool _isInitializing = false;
+  int _automaticAuthRetries = 0;
+  static const int _maxAutomaticAuthRetries = 1;
 
   // Co-Hosting & Guest Interaction State
   bool _isRequestPending = false;
@@ -51,6 +52,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   List<Map<String, dynamic>> _liveComments = [];
   Timer? _commentsTimer;
   StreamSubscription<Map<String, dynamic>>? _eventsSubscription;
+  StreamSubscription<Map<String, dynamic>>? _giftEventsSubscription;
+  late final Stream<Map<String, dynamic>> _liveGiftEvents;
   String? _lastHandledEventKey;
   bool _requiresVerification = false;
 
@@ -68,7 +71,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   bool _isEnforcementActive = false;
   String? _enforcementReason;
   String? get _hostUserId => widget.hostId ?? (widget.isHost ? widget.state.user?.id : null);
-  int get _viewerCount => _remoteUids.toSet().length + (_localUserJoined ? 1 : 0);
+  int get _viewerCount {
+    final room = widget.state.live.room;
+    if (room == null) return 0;
+    return room.remoteParticipants.length + (room.localParticipant != null ? 1 : 0);
+  }
 
   @override
   void initState() {
@@ -76,14 +83,35 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     WidgetsBinding.instance.addObserver(this);
     // Check cached verification state BEFORE calling initAgora.
     // If already verified within 30 days the user goes live with zero friction.
-    _checkLiveVerificationStatus().then((_) => _initAgora());
+    unawaited(_prepareLiveStudio());
 
     // Initialize with empty real comments. Sync will fetch existing comments.
     _liveComments = [];
 
+    _liveGiftEvents = widget.state.financeGifting
+        .watchLiveGifts(widget.channelName)
+        .map((gift) => <String, dynamic>{'type': 'gift', 'data': gift})
+        .asBroadcastStream();
+    _giftEventsSubscription = _liveGiftEvents.listen((event) {
+      final gift = Map<String, dynamic>.from(event['data'] as Map? ?? const {});
+      final userId = widget.state.user?.id;
+      if (userId != null && (gift['senderId'] == userId || gift['receiverId'] == userId)) {
+        widget.state.syncVault();
+      }
+    });
+
     _startCommentsSync();
 
     // Guest requests are driven by live stream events.
+  }
+
+  Future<void> _prepareLiveStudio() async {
+    try {
+      await _checkLiveVerificationStatus();
+    } catch (e) {
+      debugPrint('Necxa Live: Verification cache check failed: $e');
+    }
+    if (mounted) await _initLiveKit();
   }
 
   void _startLiveEventSync() {
@@ -172,85 +200,113 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     }
   }
 
-  Future<void> _initAgora() async {
+  Future<void> _initLiveKit() async {
+    if (!mounted || _isInitializing) return;
+    _isInitializing = true;
     final liveService = widget.state.live;
-    
-    if (liveService.engine == null) {
-      await liveService.init();
-    }
-    _startLiveEventSync();
-
-    // Register Event Handler
-    liveService.engine?.registerEventHandler(
-      RtcEngineEventHandler(
-        onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-          debugPrint('🛡️ Necxa Live: Local user joined: ${connection.localUid}');
-          setState(() => _localUserJoined = true);
-          // Once confirmed live as host, start silent periodic face pulse.
-          if (widget.isHost) _startSilentFacePulse();
-        },
-        onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-          debugPrint('🛡️ Necxa Live: Remote user joined: $remoteUid');
-          setState(() => _remoteUids.add(remoteUid));
-        },
-        onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
-          debugPrint('🛡️ Necxa Live: Remote user offline: $remoteUid');
-          setState(() => _remoteUids.remove(remoteUid));
-        },
-        onLeaveChannel: (RtcConnection connection, RtcStats stats) {
-          debugPrint('🛡️ Necxa Live: Left channel');
-          setState(() {
-            _localUserJoined = false;
-            _remoteUids.clear();
-          });
-        },
-      ),
-    );
+    var retryAfterDelay = false;
 
     try {
-      setState(() {
-        _initError = null;
-        _requiresVerification = false;
-      });
+      if (mounted) {
+        setState(() {
+          _initError = null;
+          _requiresVerification = false;
+        });
+      }
+
+      // Metadata/chat startup is optional and must never block video.
+      await liveService.init();
+      _startLiveEventSync();
+
       if (widget.isHost) {
         await liveService.startStreaming(widget.channelName);
       } else {
         await liveService.joinAsViewer(widget.channelName);
       }
-    } catch (e) {
+
+      if (!mounted) return;
+      setState(() {
+        _localUserJoined = true;
+      });
+      _automaticAuthRetries = 0;
+
+      // Setup room event listeners to trigger UI updates
+      liveService.room?.removeListener(_onRoomDidUpdate);
+      liveService.room?.addListener(_onRoomDidUpdate);
+
+      // Once confirmed live as host, start silent periodic face pulse.
+      if (widget.isHost) _startSilentFacePulse();
+
+    } catch (e, stackTrace) {
+      debugPrint('Necxa Live: Startup failed: $e\n$stackTrace');
+      if (!mounted) return;
       final errStr = e.toString();
       final is403 = errStr.contains('403') || errStr.toLowerCase().contains('identity verification required');
       if (is403) {
-        final verified = await _hasCompletedIdentityVerification();
-        if (verified) {
-          debugPrint('🛡️ Live: 403 received but the user is already signed in or has prior face verification state — retrying in 2s.');
-          await _markLiveVerified();
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) _initAgora();
-          return;
+        var verified = false;
+        try {
+          verified = await _hasCompletedIdentityVerification();
+        } catch (verificationError) {
+          debugPrint('Necxa Live: Verification lookup failed: $verificationError');
         }
 
         // Only show the verification card if their cached credential is expired or absent.
-        // Otherwise clear the error and let them retry transparently.
         final prefs = await SharedPreferences.getInstance();
         final rawTs = prefs.getString(_liveVerifPrefKey);
         final lastVerified = rawTs != null ? DateTime.tryParse(rawTs) : null;
         final expired = lastVerified == null || DateTime.now().difference(lastVerified) > _reverifyPeriod;
-        if (expired) {
+
+        if (verified && _automaticAuthRetries < _maxAutomaticAuthRetries) {
+          _automaticAuthRetries++;
+          await _markLiveVerified();
+          retryAfterDelay = true;
+        } else if (!verified && expired) {
           setState(() {
             _initError = 'Identity verification required. Please verify to go live.';
             _requiresVerification = true;
           });
+        } else if (_automaticAuthRetries < _maxAutomaticAuthRetries) {
+          _automaticAuthRetries++;
+          retryAfterDelay = true;
         } else {
-          // Cached credential still valid — the backend should accept on retry.
-          // This path handles a race where the token hasn't propagated yet.
-          debugPrint('🛡️ Live: 403 received but cached credential is fresh — retrying in 2s.');
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) _initAgora();
+          setState(() {
+            _initError = 'Live authentication was rejected. Tap retry, or sign in again if it continues.';
+            _requiresVerification = false;
+          });
         }
       } else {
-        setState(() => _initError = errStr);
+        setState(() => _initError = _liveStartupError(e));
       }
+    } finally {
+      _isInitializing = false;
+    }
+
+    if (retryAfterDelay && mounted) {
+      debugPrint('Necxa Live: Authentication is still propagating; retrying once.');
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) await _initLiveKit();
+    }
+  }
+
+  String _liveStartupError(dynamic error) {
+    if (error is TimeoutException) {
+      final detail = error.message.toLowerCase();
+      if (detail.contains('permission') || detail.contains('camera') || detail.contains('microphone')) {
+        return 'Camera or microphone access took too long. Check app permissions, then tap retry.';
+      }
+      if (detail.contains('authentication')) {
+        return 'The live server took too long to respond. Check your connection, then tap retry.';
+      }
+      if (detail.contains('video room')) {
+        return 'Could not reach the live video service. Check your connection, then tap retry.';
+      }
+    }
+    return getUserFriendlyError(error);
+  }
+
+  void _onRoomDidUpdate() {
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -259,11 +315,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   /// Reads the persisted verification timestamp. If absent or expired (> 30 days),
   /// sets [_requiresVerification] = true so _initAgora will surface the Shield card.
   Future<void> _checkLiveVerificationStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    final rawTs = prefs.getString(_liveVerifPrefKey);
-    final lastVerified = rawTs != null ? DateTime.tryParse(rawTs) : null;
-    final expired = lastVerified == null || DateTime.now().difference(lastVerified) > _reverifyPeriod;
-    final hasCompletedVerification = await _hasCompletedIdentityVerification();
     // Authenticated users should not be blocked by a second identity prompt.
     _requiresVerification = false;
   }
@@ -314,19 +365,18 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   /// Any critical failure (e.g. CSAM) immediately terminates the stream.
   Future<void> _runSilentFaceCheck() async {
     if (!mounted || !_localUserJoined || _isEnforcementActive) return;
-    final engine = widget.state.live.engine;
-    if (engine == null) return;
+    final localParticipant = widget.state.live.room?.localParticipant;
+    if (localParticipant == null) return;
+    final videoTrack = localParticipant.videoTrackPublications.firstOrNull?.track;
+    if (videoTrack == null) return;
 
     try {
       final dir = await getTemporaryDirectory();
       final path = '${dir.path}/live_pulse_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      await engine.takeSnapshot(
-        filePath: path,
-        uid: 0, // 0 = local user
-      );
-
+      final buffer = await videoTrack.mediaStreamTrack.captureFrame();
       final file = File(path);
+      await file.writeAsBytes(buffer.asUint8List());
       if (!file.existsSync()) return;
 
       // 1. Liveness Check (Supabase — biometric composite model)
@@ -371,7 +421,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
       _isEnforcementActive = true;
       _enforcementReason = reason;
       _localUserJoined = false;
-      _remoteUids.clear();
     });
   }
 
@@ -395,7 +444,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
 
       await _markLiveVerified();
       widget.state.notify();
-      _initAgora();
+      _automaticAuthRetries = 0;
+      await _initLiveKit();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -411,6 +461,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
     _eventsSubscription?.cancel();
+    _giftEventsSubscription?.cancel();
     _stopSilentFacePulse();
     _commentController.dispose();
     widget.state.live.leaveChannel();
@@ -423,14 +474,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
       // Pause resource-intensive operations
       _commentsTimer?.cancel();
       _stopSilentFacePulse();
-      widget.state.live.engine?.disableVideo();
-      widget.state.live.engine?.disableAudio();
+      widget.state.live.setAVEnabled(false);
       debugPrint('🛡️ Live Studio: App minimized, pausing AV & Timers');
     } else if (state == AppLifecycleState.resumed) {
       // Resume operations
       if (_localUserJoined && !_isEnforcementActive) {
-        widget.state.live.engine?.enableVideo();
-        widget.state.live.engine?.enableAudio();
+        widget.state.live.setAVEnabled(true);
         _startCommentsSync();
         if (widget.isHost) _startSilentFacePulse();
         debugPrint('🛡️ Live Studio: App resumed, restarting AV & Timers');
@@ -465,7 +514,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
 
           // ── Gifting Layer ──
           LiveGiftingOverlay(
-            eventStream: widget.state.live.listenToEvents(widget.channelName),
+            eventStream: _liveGiftEvents,
           ),
 
           // ── Glass Overlay Layer ──
@@ -493,7 +542,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   }
 
   Widget _buildVideoView() {
-    if (!_localUserJoined) {
+    if (!_localUserJoined || widget.state.live.room == null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -532,7 +581,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
               ),
               const SizedBox(height: 20),
               GestureDetector(
-                onTap: _initAgora,
+                onTap: _initLiveKit,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   decoration: BoxDecoration(
@@ -554,42 +603,41 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
       );
     }
 
-    // Grid layout for guests (Host + up to 5 guests)
-    final allUids = [0, ..._remoteUids]; // 0 is local user
+    final room = widget.state.live.room!;
+    final participants = <Participant>[];
+    if (room.localParticipant != null) {
+      participants.add(room.localParticipant!);
+    }
+    participants.addAll(room.remoteParticipants.values);
     
     return GridView.builder(
       padding: EdgeInsets.zero,
-      itemCount: allUids.length,
+      itemCount: participants.length,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: allUids.length > 1 ? 2 : 1,
+        crossAxisCount: participants.length > 1 ? 2 : 1,
         childAspectRatio: 9 / 16,
       ),
       itemBuilder: (context, index) {
-        final uid = allUids[index];
-        return Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.white10, width: 0.5),
-          ),
-          child: uid == 0
-              ? AgoraVideoView(
-                  controller: VideoViewController(
-                    rtcEngine: widget.state.live.engine!,
-                    canvas: const VideoCanvas(
-                      uid: 0, 
-                      mirrorMode: VideoMirrorModeType.videoMirrorModeEnabled,
-                      renderMode: RenderModeType.renderModeHidden,
-                    ),
-                  ),
-                )
-              : AgoraVideoView(
-                  controller: VideoViewController.remote(
-                    rtcEngine: widget.state.live.engine!,
-                    canvas: VideoCanvas(uid: uid),
-                    connection: RtcConnection(channelId: widget.channelName),
-                  ),
-                ),
-        );
+        final participant = participants[index];
+        final videoPub = participant.videoTrackPublications.firstOrNull;
+        if (videoPub != null && videoPub.track != null) {
+          return Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.white10, width: 0.5),
+            ),
+            child: VideoTrackRenderer(
+              videoPub.track as VideoTrack,
+            ),
+          );
+        } else {
+          return Container(
+            color: Colors.black,
+            child: const Center(
+              child: Icon(Icons.person, color: Colors.white24, size: 50),
+            ),
+          );
+        }
       },
     );
   }
@@ -1172,7 +1220,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   }
 
   Future<void> _showGiftPicker() async {
-    final gifts = await widget.state.fbGifting.fetchGiftItems();
+    final gifts = await widget.state.financeGifting.fetchGiftItems();
     if (!mounted) return;
     var sending = false;
 
@@ -1199,8 +1247,43 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
               return;
             }
 
+            if (widget.state.coinBalance < gift.ncxValue) {
+              if (widget.state.coinPacks.isEmpty) {
+                widget.state.coinPacks = await widget.state.financeCoinPurchases.packs();
+              }
+              if (!context.mounted) return;
+              if (widget.state.coinPacks.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Coin packs are temporarily unavailable.', style: dm())),
+                );
+                return;
+              }
+              final purchased = await showModalBottomSheet<bool>(
+                context: context,
+                backgroundColor: Colors.transparent,
+                isScrollControlled: true,
+                builder: (_) => VaultBuyShardsOverlay(
+                  state: widget.state,
+                  minimumNcx: gift.ncxValue - widget.state.coinBalance.toInt(),
+                  purchaseContextType: 'live_stream_gift',
+                  purchaseContextId: widget.channelName,
+                  targetGiftItemId: gift.id,
+                ),
+              );
+              if (!context.mounted) return;
+              if (purchased != true) return;
+              await widget.state.syncVault();
+              if (!context.mounted) return;
+              if (widget.state.coinBalance < gift.ncxValue) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('The wallet still needs more NCX for this gift.', style: dm())),
+                );
+                return;
+              }
+            }
+
             setModalState(() => sending = true);
-            final result = await widget.state.fbGifting.sendGift(
+            final result = await widget.state.financeGifting.sendGift(
               senderId: senderId,
               receiverId: receiverId,
               giftItemId: gift.id,
@@ -1208,6 +1291,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
               contextType: 'live_stream',
               contextId: widget.channelName,
               contextNote: 'Live gift: ${gift.name}',
+              senderName: widget.state.myProfile?['full_name']?.toString() ?? 'Viewer',
             );
 
             if (!mounted) return;
@@ -1219,19 +1303,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
               return;
             }
 
-            await widget.state.live.sendLiveGift(
-              widget.channelName,
-              senderId,
-              {
-                'id': gift.id,
-                'name': gift.name,
-                'emoji': gift.emoji,
-                'price': gift.ncxValue,
-                'giftId': result.giftId,
-                'receiverNcx': result.receiverNcx,
-                'userName': widget.state.myProfile?['full_name'] ?? 'Viewer',
-              },
-            );
             Navigator.pop(context);
           }
 

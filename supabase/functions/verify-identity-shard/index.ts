@@ -55,8 +55,6 @@ serve(async (req) => {
     const sessionLink = `https://dashboard.necxa.com/audit/sessions/${sessionId}`
 
     const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk'
-    const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || ''
-
     if (action === 'verify-id' || action === 'verify-id-front' || action === 'verify-id-back' || action === 'verify-id-holding') {
       const { imageBase64 } = payload || {}
       if (!imageBase64) throw new Error("Missing imageBase64 payload")
@@ -70,11 +68,14 @@ serve(async (req) => {
 
       const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
         method: 'POST',
-        headers: { 'X-API-Key': NECXA_AI_API_KEY },
+        headers: { 'x-primary-jwt': primaryJwt },
         body: formData
       });
 
-      if (!aiRes.ok) throw new Error(`AI Engine Error: ${aiRes.statusText}`);
+      if (!aiRes.ok) {
+        const aiError = await aiRes.json().catch(() => ({}));
+        throw new Error(`AI Engine Error: ${aiError.error || aiRes.statusText || aiRes.status}`);
+      }
       const aiData = await aiRes.json();
       if (!aiData.success) throw new Error(`Verification Failed: ${aiData.error}`);
 
@@ -107,11 +108,14 @@ serve(async (req) => {
       const endpoint = action === 'verify-face-only' ? '/api/verify/face-only' : '/api/verify/biometric';
       const aiRes = await fetch(`${NECXA_AI_URL}${endpoint}`, {
         method: 'POST',
-        headers: { 'X-API-Key': NECXA_AI_API_KEY },
+        headers: { 'x-primary-jwt': primaryJwt },
         body: formData
       });
 
-      if (!aiRes.ok) throw new Error(`AI Engine Error: ${aiRes.statusText}`);
+      if (!aiRes.ok) {
+        const aiError = await aiRes.json().catch(() => ({}));
+        throw new Error(`AI Engine Error: ${aiError.error || aiRes.statusText || aiRes.status}`);
+      }
       const aiData = await aiRes.json();
       if (!aiData.success) throw new Error(`Biometric Failed: ${aiData.error}`);
 

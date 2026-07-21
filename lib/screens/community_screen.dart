@@ -62,6 +62,9 @@ String? _primaryListingImageUrl(Map<String, dynamic> listing) {
       _extractListingImageUrl(listing['film_hub_content']);
 }
 
+int communityDestinationTabIndex(String? destination) =>
+    destination == 'shop' ? 1 : 0;
+
 class CommunityScreen extends StatefulWidget {
   final AppState state;
   const CommunityScreen({super.key, required this.state});
@@ -82,6 +85,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   void initState() {
     super.initState();
+    final pendingDestination = widget.state.pendingDestinationTab;
+    _selectedTab = communityDestinationTabIndex(
+      pendingDestination ?? widget.state.creatorTab,
+    );
+    if (pendingDestination != null) {
+      widget.state.pendingDestinationTab = null;
+    }
     _currentPageIndex = _selectedTab == 0
         ? widget.state.communityFeedIndex
         : widget.state.communityShopIndex;
@@ -97,7 +107,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     final dest = widget.state.pendingDestinationTab;
     if (dest != null) {
       widget.state.pendingDestinationTab = null; // consume immediately
-      final targetTabIndex = (dest == 'shop') ? 1 : 0;
+      final targetTabIndex = communityDestinationTabIndex(dest);
       if (_selectedTab != targetTabIndex) {
         setState(() {
           _selectedTab = targetTabIndex;

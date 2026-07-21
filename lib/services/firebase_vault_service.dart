@@ -19,48 +19,6 @@ class FirebaseVaultService {
     }
   }
 
-  /// Fetches available coin packs from Firestore
-  Future<List<Map<String, dynamic>>> fetchCoinPacks() async {
-    try {
-      final snapshot = await _firestore
-          .collection('coin_packs')
-          .where('is_active', isEqualTo: true)
-          .orderBy('fiat_price', descending: false)
-          .get();
-      
-      if (snapshot.docs.isEmpty) {
-        return _seedCoinPacks();
-      }
-      
-      return snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
-    } catch (e) {
-      debugPrint('🔥 Firebase Vault: Fetch Packs Error: $e');
-      return [];
-    }
-  }
-
-  /// Atomic transaction for buying coins via Cloud Functions
-  Future<Map<String, dynamic>> buyCoins({
-    required String userId,
-    required String packId,
-    required String paymentMethod, // 'apple_pay', 'google_pay', 'usdt_polygon', 'momo', 'airtel_money'
-    required Map<String, dynamic> securityMetadata,
-  }) async {
-    try {
-      await _ensureFirebaseAuth();
-      final HttpsCallable callable = _functions.httpsCallable('buyCoins');
-      final result = await callable.call({
-        'packId': packId,
-        'paymentMethod': paymentMethod,
-        'securityMetadata': securityMetadata,
-      });
-      return Map<String, dynamic>.from(result.data);
-    } catch (e) {
-      debugPrint('🔥 Firebase Vault: Purchase Failure: $e');
-      return {'success': false, 'message': e.toString()};
-    }
-  }
-
   /// Atomic transaction for eCommerce purchases using wallet balance
   Future<Map<String, dynamic>> processShopPurchase({
     required String orderId,
@@ -267,19 +225,4 @@ class FirebaseVaultService {
   }
 
 
-  /// Initial seed for coin packs if the collection is empty
-  Future<List<Map<String, dynamic>>> _seedCoinPacks() async {
-    final packs = [
-      {'ncx_amount': 100, 'fiat_price': 10000, 'label': 'Starter Pack', 'is_active': true},
-      {'ncx_amount': 550, 'fiat_price': 50000, 'label': 'Pro Pack', 'is_active': true},
-      {'ncx_amount': 1200, 'fiat_price': 100000, 'label': 'Elite Pack', 'is_active': true},
-      {'ncx_amount': 6500, 'fiat_price': 500000, 'label': 'Whale Pack', 'is_active': true},
-    ];
-
-    for (var i = 0; i < packs.length; i++) {
-      await _firestore.collection('coin_packs').doc('pack_$i').set(packs[i]);
-    }
-    
-    return packs;
-  }
 }

@@ -26,5 +26,17 @@ void main() {
       expect(payload['payload']['idImageBase64'], 'id');
       expect(payload['payload']['userId'], 'user-2');
     });
+
+    test('builds a face-only liveness payload without an ID reference', () {
+      final payload = NecxaAI.buildIdentityShardPayload(
+        action: 'verify-face-only',
+        primaryBase64: 'selfie',
+        userId: 'user-3',
+      );
+      expect(payload['action'], 'verify-face-only');
+      expect(payload['payload']['imageBase64'], 'selfie');
+      expect(payload['payload'].containsKey('idImageBase64'), isFalse);
+      expect(payload['payload']['userId'], 'user-3');
+    });
   });
 }
