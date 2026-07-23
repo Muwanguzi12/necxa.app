@@ -119,17 +119,21 @@ void main() {
         volume: 0.75,
         speed: 1.5,
         reverse: true,
+        fadeIn: 0.8,
+        fadeOut: 1.2,
       );
- 
+
       final json = operation.toJson();
- 
+
       expect(json['sourceType'], 'music');
       expect(json['label'], 'Intro Beat');
       expect(json['volume'], 0.75);
       expect(json['speed'], 1.5);
       expect(json['reverse'], isTrue);
+      expect(json['fadeIn'], 0.8);
+      expect(json['fadeOut'], 1.2);
     });
- 
+
     test('computes clip-relative time for timeline position', () {
       final clip = TimelineClip(
         id: 'clip',
@@ -141,7 +145,7 @@ void main() {
           maxDuration: const Duration(seconds: 5),
         ),
       );
- 
+
       expect(
         TimelineModelUtils.relativeTimeForClip(
           clip,
@@ -164,7 +168,37 @@ void main() {
         Duration.zero,
       );
     });
- 
+
+    test('hidden clips are excluded from active playback items', () {
+      final hidden = TimelineClip(
+        id: 'hidden',
+        start: Duration.zero,
+        duration: const Duration(seconds: 5),
+        isHidden: true,
+        operation: TrimOperation(
+          start: Duration.zero,
+          end: const Duration(seconds: 5),
+          maxDuration: const Duration(seconds: 5),
+        ),
+      );
+      final tracks = <TimelineTrack>[
+        TimelineTrack(
+          id: 'video',
+          type: TrackType.video,
+          clips: [hidden],
+          label: 'Video',
+          icon: Icons.videocam,
+        ),
+      ];
+
+      final active = TimelinePlaybackController.resolve(
+        tracks,
+        const Duration(seconds: 1),
+      );
+
+      expect(active.all, isEmpty);
+    });
+
     test('copies non-destructive clip playback properties', () {
       final clip = TimelineClip(
         id: 'source',

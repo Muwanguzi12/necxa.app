@@ -615,6 +615,8 @@ class AudioClipOperation extends EditOperation {
   double volume;
   double speed;
   bool reverse;
+  double fadeIn;
+  double fadeOut;
   final double? startOffset;
   final double? endOffset;
 
@@ -625,6 +627,8 @@ class AudioClipOperation extends EditOperation {
     this.volume = 1.0,
     this.speed = 1.0,
     this.reverse = false,
+    this.fadeIn = 0.0,
+    this.fadeOut = 0.0,
     this.startOffset,
     this.endOffset,
   }) : super('audio');
@@ -638,6 +642,8 @@ class AudioClipOperation extends EditOperation {
     'volume': volume,
     'speed': speed,
     'reverse': reverse,
+    'fadeIn': fadeIn,
+    'fadeOut': fadeOut,
     'startOffset': startOffset,
     'endOffset': endOffset,
   };
@@ -724,7 +730,8 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
-  bool isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  bool
+  isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
 
   TimelineClip({
     required this.id,

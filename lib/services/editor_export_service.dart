@@ -247,6 +247,9 @@ class EditorExportService {
               volume: clip.volume,
               speed: clip.speed,
               reverse: clip.isReversed || operation.reverse,
+              timelineDuration: clip.duration.inMilliseconds / 1000,
+              fadeIn: operation.fadeIn,
+              fadeOut: operation.fadeOut,
             ),
           );
         }

@@ -111,6 +111,9 @@ class RenderAudioTrack {
   final double volume;
   final double speed;
   final bool reverse;
+  final double timelineDuration;
+  final double fadeIn;
+  final double fadeOut;
 
   const RenderAudioTrack({
     required this.path,
@@ -120,6 +123,9 @@ class RenderAudioTrack {
     this.volume = 1,
     this.speed = 1,
     this.reverse = false,
+    this.timelineDuration = 0,
+    this.fadeIn = 0,
+    this.fadeOut = 0,
   });
 }
 
@@ -442,8 +448,18 @@ class VideoEnhancementService {
       final reverse = track.reverse ? ',areverse' : '';
       final tempo = _atempoFilter(track.speed);
       final delay = (track.timelineStart * 1000).round().clamp(0, 1 << 31);
+      final fadeIn = track.fadeIn.clamp(0.0, track.timelineDuration / 2);
+      final fadeOut = track.fadeOut.clamp(0.0, track.timelineDuration / 2);
+      final fadeInFilter = fadeIn > 0 ? ',afade=t=in:st=0:d=$fadeIn' : '';
+      final fadeOutStart = (track.timelineDuration - fadeOut).clamp(
+        0.0,
+        track.timelineDuration,
+      );
+      final fadeOutFilter = fadeOut > 0
+          ? ',afade=t=out:st=$fadeOutStart:d=$fadeOut'
+          : '';
       filterComplex +=
-          "[$index:a]atrim=start=${track.sourceStart}$trimEnd,asetpts=PTS-STARTPTS,$tempo$reverse,volume=${track.volume},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
+          "[$index:a]atrim=start=${track.sourceStart}$trimEnd,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,volume=${track.volume},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
       audioSources += '[$label]';
       inputsCount++;
     }

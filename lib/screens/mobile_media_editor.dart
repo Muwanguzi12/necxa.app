@@ -88,21 +88,24 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   double? _dragStartLocalX;
   Duration? _dragOriginalStart;
   Duration? _dragOriginalDuration;
+  double _dragCumulativeDx = 0;
+  final Map<String, Duration> _dragRippleOriginalStarts = <String, Duration>{};
   double _clipHandleWidth = 12.0; // hit area for handles in pixels
   bool _isRippleMode = false; // when true, edits ripple following clips
   bool _isStretchMode = false; // when true, resize changes speed (stretch)
+  bool _isSnappingEnabled = true;
 
   // Timeline pinch/zoom helpers
   double? _timelineScaleStartZoom;
-  double _leftPaneWidth = 56.0; // width of left pane used to compute local focal point
+  double _leftPaneWidth =
+      56.0; // width of left pane used to compute local focal point
 
   // Helpers for clip dragging
-  void _shiftFollowingClips(TimelineTrack track, TimelineClip clip, Duration delta) {
-    // shift any clips that start after this clip's end by delta
-    final end = clip.start + clip.duration;
+  void _positionRippleFollowers(TimelineTrack track, Duration totalDelta) {
     for (final c in track.clips) {
-      if (c.start >= end && c.id != clip.id) {
-        c.start = c.start + delta;
+      final originalStart = _dragRippleOriginalStarts[c.id];
+      if (originalStart != null) {
+        c.start = originalStart + totalDelta;
       }
     }
   }
@@ -114,17 +117,55 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return value;
   }
 
-  void _onClipPanStart(TimelineTrack track, TimelineClip clip, DragStartDetails details, double width) {
+  Duration get _frameDuration {
+    final fps = int.tryParse(_selectedFps.replaceAll('fps', '')) ?? 30;
+    return Duration(
+      microseconds: (Duration.microsecondsPerSecond / fps).round(),
+    );
+  }
+
+  Duration _snapToFrame(Duration value) {
+    final frameUs = _frameDuration.inMicroseconds;
+    if (frameUs <= 0) return value;
+    return Duration(
+      microseconds: (value.inMicroseconds / frameUs).round() * frameUs,
+    );
+  }
+
+  void _onClipPanStart(
+    TimelineTrack track,
+    TimelineClip clip,
+    DragStartDetails details,
+    double width,
+  ) {
+    if (track.isLocked) {
+      _showSnack('Unlock ${track.label} before editing');
+      return;
+    }
     _activeDragClipId = clip.id;
     _dragStartLocalX = details.localPosition.dx;
     _dragOriginalStart = clip.start;
     _dragOriginalDuration = clip.duration;
+    _dragCumulativeDx = 0;
+    final originalEnd = clip.start + clip.duration;
+    _dragRippleOriginalStarts
+      ..clear()
+      ..addEntries(
+        track.clips
+            .where(
+              (candidate) =>
+                  candidate.id != clip.id && candidate.start >= originalEnd,
+            )
+            .map((candidate) => MapEntry(candidate.id, candidate.start)),
+      );
 
     if (_dragStartLocalX != null) {
       if (_dragStartLocalX! < _clipHandleWidth) {
         _clipDragMode = _ClipDragMode.resizeLeft;
       } else if (_dragStartLocalX! > width - _clipHandleWidth) {
-        _clipDragMode = _isStretchMode ? _ClipDragMode.stretch : _ClipDragMode.resizeRight;
+        _clipDragMode = _isStretchMode
+            ? _ClipDragMode.stretch
+            : _ClipDragMode.resizeRight;
       } else {
         _clipDragMode = _ClipDragMode.move;
       }
@@ -134,21 +175,27 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _captureTimeline();
   }
 
-  void _onClipPanUpdate(TimelineTrack track, TimelineClip clip, DragUpdateDetails details) {
+  void _onClipPanUpdate(
+    TimelineTrack track,
+    TimelineClip clip,
+    DragUpdateDetails details,
+  ) {
     if (_activeDragClipId != clip.id) return;
     final scale = _pixelsPerSecond * _timelineZoom;
-    final dx = details.delta.dx;
-    final deltaMs = (dx / scale * 1000.0).round();
-    final delta = Duration(milliseconds: deltaMs);
-
+    _dragCumulativeDx += details.delta.dx;
+    final rawDelta = Duration(
+      milliseconds: (_dragCumulativeDx / scale * 1000.0).round(),
+    );
+    final delta = _isSnappingEnabled ? _snapToFrame(rawDelta) : rawDelta;
     setState(() {
       switch (_clipDragMode) {
         case _ClipDragMode.move:
           final newStart = (_dragOriginalStart ?? clip.start) + delta;
           clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
+          final appliedDelta =
+              clip.start - (_dragOriginalStart ?? Duration.zero);
           if (_isRippleMode) {
-            // ripple: shift following clips by same delta
-            _shiftFollowingClips(track, clip, delta);
+            _positionRippleFollowers(track, appliedDelta);
           }
           break;
         case _ClipDragMode.resizeLeft:
@@ -160,11 +207,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             // Advanced trim: update TrimOperation if available to restore/hide source
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              final newSourceStart = _clampDuration(trim.start + delta, Duration.zero, trim.end);
+              final newSourceStart = _clampDuration(
+                trim.start + delta,
+                Duration.zero,
+                trim.end,
+              );
               trim.start = newSourceStart;
               clip.sourceStart = trim.start;
               final available = (trim.end - trim.start);
-              clip.duration = Duration(milliseconds: (available.inMilliseconds / clip.speed).round());
+              clip.duration = Duration(
+                milliseconds: (available.inMilliseconds / clip.speed).round(),
+              );
             } else {
               clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
               clip.duration = newDur;
@@ -174,8 +227,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
 
             if (_isRippleMode) {
-              // maintain following clips' positions by shifting them
-              _shiftFollowingClips(track, clip, delta);
+              _positionRippleFollowers(track, delta);
             }
           }
           break;
@@ -185,11 +237,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           if (newDur >= const Duration(milliseconds: 100)) {
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              final newEnd = _clampDuration(trim.end + delta, trim.start + const Duration(milliseconds: 1), Duration(days: 36500));
+              final newEnd = _clampDuration(
+                trim.end + delta,
+                trim.start + const Duration(milliseconds: 1),
+                Duration(days: 36500),
+              );
               trim.end = newEnd;
               clip.sourceEnd = trim.end;
               final available = (trim.end - trim.start);
-              clip.duration = Duration(milliseconds: (available.inMilliseconds / clip.speed).round());
+              clip.duration = Duration(
+                milliseconds: (available.inMilliseconds / clip.speed).round(),
+              );
             } else {
               clip.duration = newDur;
             }
@@ -197,7 +255,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
 
             if (_isRippleMode) {
-              _shiftFollowingClips(track, clip, delta);
+              _positionRippleFollowers(track, delta);
             }
           }
           break;
@@ -215,11 +273,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             if (clip.operation is TrimOperation) {
               // keep trim end aligned to source end, adjust operation end accordingly
               final trim = clip.operation as TrimOperation;
-              trim.end = trim.start + Duration(milliseconds: (clip.sourceDuration.inMilliseconds));
+              trim.end =
+                  trim.start +
+                  Duration(milliseconds: (clip.sourceDuration.inMilliseconds));
             }
             clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
             if (_isRippleMode) {
-              _shiftFollowingClips(track, clip, delta);
+              _positionRippleFollowers(track, delta);
             }
           }
           break;
@@ -236,6 +296,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _dragStartLocalX = null;
     _dragOriginalStart = null;
     _dragOriginalDuration = null;
+    _dragCumulativeDx = 0;
+    _dragRippleOriginalStarts.clear();
     // finalize history capture already taken at start
   }
 
@@ -321,7 +383,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _tracks = _project.tracks;
     _playback = _project.playback;
     _history = _project.history;
-    _bottomNavController = TabController(length: 5, vsync: this);
+    _bottomNavController = TabController(length: 7, vsync: this);
 
     _verticalScrollController.addListener(() {
       if (_sidebarScrollController.hasClients &&
@@ -489,9 +551,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     } on TimeoutException catch (_) {
       if (loadGeneration == _videoLoadGeneration && mounted) {
         setState(() => _isVideoReady = false);
-        _showSnack('Large video detected; preview is using lightweight fallback.');
+        _showSnack(
+          'Large video detected; preview is using lightweight fallback.',
+        );
       }
-      debugPrint('Mobile editor video initialization timed out for a large video asset.');
+      debugPrint(
+        'Mobile editor video initialization timed out for a large video asset.',
+      );
       if (clip.file != null && clip.file!.existsSync()) {
         final sizeBytes = clip.file!.lengthSync();
         if (sizeBytes > 2 * 1024 * 1024 * 1024) {
@@ -1027,7 +1093,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return Stack(
         fit: StackFit.expand,
         children: [
-          Image.file(compositionClip.file!, fit: BoxFit.cover),
+          _applyClipPresentation(
+            compositionClip,
+            Image.file(compositionClip.file!, fit: BoxFit.cover),
+          ),
           ..._buildEffectOverlayWidgets(),
           ..._buildTimelineOverlayWidgets(),
         ],
@@ -1044,9 +1113,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       );
     }
     if (_isVideoReady && _videoController != null) {
-      final cropRatio = _cropRatioFor(
-        compositionClip?.cropAspectRatio ?? 'Original',
-      );
+      final cropRatio = _cropRatioFor(compositionClip.cropAspectRatio);
       final video = cropRatio == null
           ? AspectRatio(
               aspectRatio: _videoController!.value.aspectRatio,
@@ -1067,7 +1134,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             );
       return Stack(
         children: [
-          Center(child: video),
+          _applyClipPresentation(compositionClip, Center(child: video)),
           ..._buildEffectOverlayWidgets(),
           ..._buildTimelineOverlayWidgets(),
           Positioned(
@@ -1099,6 +1166,127 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ],
       ),
     );
+  }
+
+  Widget _applyClipPresentation(TimelineClip clip, Widget child) {
+    Widget result = Opacity(
+      opacity: clip.transform.opacity.clamp(0.0, 1.0),
+      child: Transform.translate(
+        offset: clip.transform.position,
+        child: Transform.rotate(
+          angle: clip.transform.rotation,
+          child: Transform.scale(scale: clip.transform.scale, child: child),
+        ),
+      ),
+    );
+    final matrix = _filterMatrix(clip.filter?.filterName);
+    if (matrix != null) {
+      result = ColorFiltered(
+        colorFilter: ColorFilter.matrix(matrix),
+        child: result,
+      );
+    }
+    return result;
+  }
+
+  List<double>? _filterMatrix(String? filterName) {
+    switch (filterName?.toLowerCase()) {
+      case 'warm':
+        return const <double>[
+          1.08,
+          0,
+          0,
+          0,
+          8,
+          0,
+          1.02,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0.9,
+          0,
+          -4,
+          0,
+          0,
+          0,
+          1,
+          0,
+        ];
+      case 'cool':
+        return const <double>[
+          0.92,
+          0,
+          0,
+          0,
+          -3,
+          0,
+          1.0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1.1,
+          0,
+          8,
+          0,
+          0,
+          0,
+          1,
+          0,
+        ];
+      case 'vivid':
+        return const <double>[
+          1.18,
+          -0.06,
+          -0.06,
+          0,
+          0,
+          -0.06,
+          1.18,
+          -0.06,
+          0,
+          0,
+          -0.06,
+          -0.06,
+          1.18,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+        ];
+      case 'blackandwhite':
+      case 'noir':
+        return const <double>[
+          0.2126,
+          0.7152,
+          0.0722,
+          0,
+          0,
+          0.2126,
+          0.7152,
+          0.0722,
+          0,
+          0,
+          0.2126,
+          0.7152,
+          0.0722,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+        ];
+      default:
+        return null;
+    }
   }
 
   List<Widget> _buildEffectOverlayWidgets() {
@@ -1878,7 +2066,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               onTap: () => _selectClip(track, clip),
               onDoubleTap: () => _trimClip(),
               onLongPress: () => _enterMultiSelect(track, clip),
-              onPanStart: (details) => _onClipPanStart(track, clip, details, width),
+              onPanStart: (details) =>
+                  _onClipPanStart(track, clip, details, width),
               onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
               onPanEnd: (details) => _onClipPanEnd(details),
               child: Stack(
@@ -2562,9 +2751,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         tools.addAll([
           _buildToolButton('Split', () => _splitClip()),
           _buildToolButton('Trim', () => _trimClip()),
-          _buildToolButton('Crop', () => _showSnack('Crop frame')),
+          _buildToolButton('Crop', _cropClip),
+          _buildToolButton('Transform', _showTransformEditorSheet),
           _buildToolButton('Speed', () => _adjustSpeed()),
           _buildToolButton('Opacity', () => _adjustOpacity()),
+          _buildToolButton('Filter', _showFilterSheet),
+          _buildToolButton('Volume', _adjustVolume),
+          _buildToolButton('Reverse', _toggleReverse),
           _buildToolButton('Delete', () => _deleteClip()),
         ]);
       } else if (selectedTrack.type == TrackType.text ||
@@ -2672,6 +2865,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 WidgetsBinding.instance.addPostFrameCallback(
                   (_) => _showTransitionLibrarySheet(),
                 );
+              } else if (index == 6) {
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => _showEditorSettingsSheet(),
+                );
               }
             },
             child: Column(
@@ -2694,6 +2891,121 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // ═══════════════════════════════════════════════════════════
   // ACTION HANDLERS
   // ═══════════════════════════════════════════════════════════
+
+  void _refreshComposition() {
+    _playback.updateProject(_tracks);
+    _queueCompositionSync();
+  }
+
+  Future<void> _showEditorSettingsSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          void update(VoidCallback change) {
+            setState(change);
+            setModalState(() {});
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Editor settings',
+                    style: syne(sz: 15, w: FontWeight.w800, c: C.text),
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      'Snap edits to frames',
+                      style: dm(sz: 12, c: C.text),
+                    ),
+                    subtitle: Text(
+                      'Uses $_selectedFps project timing',
+                      style: dm(sz: 10, c: C.dim),
+                    ),
+                    value: _isSnappingEnabled,
+                    onChanged: (value) =>
+                        update(() => _isSnappingEnabled = value),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('Ripple editing', style: dm(sz: 12, c: C.text)),
+                    subtitle: Text(
+                      'Move following clips with the edit',
+                      style: dm(sz: 10, c: C.dim),
+                    ),
+                    value: _isRippleMode,
+                    onChanged: (value) => update(() => _isRippleMode = value),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('Stretch mode', style: dm(sz: 12, c: C.text)),
+                    subtitle: Text(
+                      'Resize the right edge to retime a clip',
+                      style: dm(sz: 10, c: C.dim),
+                    ),
+                    value: _isStretchMode,
+                    onChanged: (value) => update(() => _isStretchMode = value),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Preview speed',
+                    style: dm(sz: 11, w: FontWeight.w700, c: C.dim),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: <double>[0.5, 1, 1.5, 2]
+                        .map(
+                          (rate) => ChoiceChip(
+                            label: Text('${rate}x'),
+                            selected: _playback.state.playbackRate == rate,
+                            onSelected: (_) {
+                              _playback.setPlaybackRate(rate, _tracks);
+                              setModalState(() {});
+                            },
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Text('Timeline zoom', style: dm(sz: 11, c: C.dim)),
+                      Expanded(
+                        child: Slider(
+                          value: _timelineZoom,
+                          min: 0.5,
+                          max: 4,
+                          onChanged: (value) =>
+                              update(() => _timelineZoom = value),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 40,
+                        child: Text(
+                          '${_timelineZoom.toStringAsFixed(1)}x',
+                          style: dm(sz: 10, c: C.brand),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   void _showAspectRatioMenu() {
     _showSelectionSheet('Aspect ratio', [
@@ -3370,7 +3682,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _totalDuration = state.duration;
       _isPlaying = state.isPlaying;
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureTimelinePosition());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _ensureTimelinePosition(),
+    );
     _queueCompositionSync();
   }
 
@@ -3478,9 +3792,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       final source = _audioSourceFor(clip);
       if (source == null || source.startsWith('builtin://')) continue;
       final player = await _timelinePlayerFor(clip.id);
-      if (_timelineAudioVolumes[clip.id] != clip.volume) {
-        await player.setVolume(clip.volume);
-        _timelineAudioVolumes[clip.id] = clip.volume;
+      final effectiveVolume = _effectiveClipVolume(clip, state.currentTime);
+      final previousVolume = _timelineAudioVolumes[clip.id];
+      if (previousVolume == null ||
+          (previousVolume - effectiveVolume).abs() > 0.015) {
+        await player.setVolume(effectiveVolume);
+        _timelineAudioVolumes[clip.id] = effectiveVolume;
       }
       if (_timelineAudioRates[clip.id] != clip.speed) {
         await player.setPlaybackRate(clip.speed);
@@ -3522,6 +3839,29 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return (clip.operation as AudioClipOperation).sourceUrl;
     }
     return clip.file?.path;
+  }
+
+  double _effectiveClipVolume(TimelineClip clip, Duration timelineTime) {
+    var envelope = 1.0;
+    final operation = clip.operation;
+    if (operation is AudioClipOperation) {
+      final elapsed = (timelineTime - clip.start).inMilliseconds / 1000;
+      final remaining =
+          (clip.start + clip.duration - timelineTime).inMilliseconds / 1000;
+      if (operation.fadeIn > 0) {
+        envelope = math.min(
+          envelope,
+          (elapsed / operation.fadeIn).clamp(0.0, 1.0),
+        );
+      }
+      if (operation.fadeOut > 0) {
+        envelope = math.min(
+          envelope,
+          (remaining / operation.fadeOut).clamp(0.0, 1.0),
+        );
+      }
+    }
+    return (clip.volume * envelope).clamp(0.0, 1.0);
   }
 
   Future<AudioPlayer> _timelinePlayerFor(String clipId) async {
@@ -3590,11 +3930,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _previousFrame() {
-    _playback.stepBackward(_tracks);
+    _playback.seek(_playback.state.currentTime - _frameDuration, _tracks);
   }
 
   void _nextFrame() {
-    _playback.stepForward(_tracks);
+    _playback.seek(_playback.state.currentTime + _frameDuration, _tracks);
   }
 
   void _toggleTrackVisibility(TimelineTrack track) {
@@ -3747,9 +4087,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             (clip.operation as AudioClipOperation).speed = value;
           }
         });
-        _playback.updateProject(_tracks);
-        _videoController?.setPlaybackSpeed(value);
-        _audioPreviewPlayer.setPlaybackRate(value);
+        _refreshComposition();
+        if (clip.id == _activeVisualClipId) {
+          _videoController?.setPlaybackSpeed(value);
+        }
       },
     );
   }
@@ -3762,6 +4103,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       value,
     ) {
       setState(() => clip.cropAspectRatio = value);
+      _refreshComposition();
     });
   }
 
@@ -3775,24 +4117,176 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         (clip.operation as AudioClipOperation).reverse = clip.isReversed;
       }
     });
-    if (clip.file != null) {
-      if (clip.isReversed) {
-        _videoController?.seekTo(
-          clip.sourceEnd ?? clip.sourceStart + clip.sourceDuration,
-        );
-        _startReversePlayback();
-      } else {
-        _reversePlaybackTimer?.cancel();
-        _videoController?.seekTo(clip.sourceStart);
-        _videoController?.play();
-      }
-    }
+    _reversePlaybackTimer?.cancel();
+    _refreshComposition();
     _showSnack(
       clip.isReversed ? 'Reverse playback on' : 'Reverse playback off',
     );
   }
 
-  void _adjustOpacity() => _showSnack('Adjust opacity');
+  void _adjustOpacity() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    _captureTimeline();
+    _showClipSlider(
+      title: 'Clip opacity',
+      value: clip.transform.opacity,
+      min: 0,
+      max: 1,
+      divisions: 20,
+      label: (value) => '${(value * 100).round()}%',
+      onChanged: (value) {
+        setState(() => clip.transform.opacity = value);
+        _refreshComposition();
+      },
+    );
+  }
+
+  void _showTransformEditorSheet() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    _captureTimeline();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          void update(VoidCallback change) {
+            change();
+            setState(() {});
+            setModalState(() {});
+            _refreshComposition();
+          }
+
+          final transform = clip.transform;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Transform',
+                        style: syne(sz: 15, w: FontWeight.w800, c: C.text),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => update(() {
+                          transform.scale = 1;
+                          transform.rotation = 0;
+                          transform.position = Offset.zero;
+                        }),
+                        child: const Text('Reset'),
+                      ),
+                    ],
+                  ),
+                  _buildTransformSlider(
+                    'Scale',
+                    transform.scale,
+                    0.25,
+                    3,
+                    (value) => update(() => transform.scale = value),
+                    valueLabel: '${transform.scale.toStringAsFixed(2)}x',
+                  ),
+                  _buildTransformSlider(
+                    'Rotate',
+                    transform.rotation,
+                    -math.pi,
+                    math.pi,
+                    (value) => update(() => transform.rotation = value),
+                    valueLabel:
+                        '${(transform.rotation * 180 / math.pi).round()}°',
+                  ),
+                  _buildTransformSlider(
+                    'Position X',
+                    transform.position.dx,
+                    -160,
+                    160,
+                    (value) => update(
+                      () => transform.position = Offset(
+                        value,
+                        transform.position.dy,
+                      ),
+                    ),
+                    valueLabel: transform.position.dx.round().toString(),
+                  ),
+                  _buildTransformSlider(
+                    'Position Y',
+                    transform.position.dy,
+                    -160,
+                    160,
+                    (value) => update(
+                      () => transform.position = Offset(
+                        transform.position.dx,
+                        value,
+                      ),
+                    ),
+                    valueLabel: transform.position.dy.round().toString(),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTransformSlider(
+    String label,
+    double value,
+    double min,
+    double max,
+    ValueChanged<double> onChanged, {
+    required String valueLabel,
+  }) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 72,
+          child: Text(label, style: dm(sz: 11, c: C.dim)),
+        ),
+        Expanded(
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            onChanged: onChanged,
+          ),
+        ),
+        SizedBox(
+          width: 48,
+          child: Text(
+            valueLabel,
+            textAlign: TextAlign.end,
+            style: dm(sz: 11, c: C.brand),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showFilterSheet() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    _captureTimeline();
+    _showSelectionSheet(
+      'Filter',
+      const ['None', 'Warm', 'Cool', 'Vivid', 'Noir'],
+      (value) {
+        setState(() {
+          clip.filter = value == 'None'
+              ? null
+              : FilterOperation(filterName: value);
+        });
+        _refreshComposition();
+      },
+    );
+  }
+
   void _applyFilter() => _showEffectLibrarySheet();
   void _deleteClip() {
     if (_selectedClipIds.isEmpty) return;
@@ -3873,8 +4367,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             (clip.operation as AudioClipOperation).volume = value;
           }
         });
-        _videoController?.setVolume(value);
-        _audioPreviewPlayer.setVolume(value);
+        if (clip.id == _activeVisualClipId) {
+          _videoController?.setVolume(value);
+        }
+        _refreshComposition();
       },
     );
   }
@@ -3925,7 +4421,96 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  void _addFade() => _showSnack('Add fade');
+  void _addFade() {
+    final clip = _selectedClip;
+    if (clip == null || clip.operation is! AudioClipOperation) return;
+    _captureTimeline();
+    final operation = clip.operation as AudioClipOperation;
+    var fadeIn = operation.fadeIn
+        .clamp(0.0, clip.duration.inSeconds / 2)
+        .toDouble();
+    var fadeOut = operation.fadeOut
+        .clamp(0.0, clip.duration.inSeconds / 2)
+        .toDouble();
+    final maxFade = math
+        .max(0.1, clip.duration.inMilliseconds / 2000)
+        .toDouble();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: C.card,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Audio fades',
+                  style: syne(sz: 14, w: FontWeight.w800, c: C.text),
+                ),
+                const SizedBox(height: 12),
+                _buildFadeSlider(
+                  label: 'Fade in',
+                  value: fadeIn,
+                  max: maxFade,
+                  onChanged: (value) {
+                    fadeIn = value;
+                    operation.fadeIn = value;
+                    setModalState(() {});
+                    _refreshComposition();
+                  },
+                ),
+                _buildFadeSlider(
+                  label: 'Fade out',
+                  value: fadeOut,
+                  max: maxFade,
+                  onChanged: (value) {
+                    fadeOut = value;
+                    operation.fadeOut = value;
+                    setModalState(() {});
+                    _refreshComposition();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFadeSlider({
+    required String label,
+    required double value,
+    required double max,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 68,
+          child: Text(label, style: dm(sz: 11, c: C.dim)),
+        ),
+        Expanded(
+          child: Slider(
+            value: value.clamp(0.0, max),
+            min: 0,
+            max: max,
+            onChanged: onChanged,
+          ),
+        ),
+        SizedBox(
+          width: 42,
+          child: Text(
+            '${value.toStringAsFixed(1)}s',
+            style: dm(sz: 11, c: C.brand),
+          ),
+        ),
+      ],
+    );
+  }
+
   TimelineClip _insertTextLayer(
     String text, {
     TextStyle? style,
@@ -5461,13 +6046,17 @@ class _VideoClipThumbnailsState extends State<_VideoClipThumbnails> {
     if (widget.clip.file == null) return const SizedBox();
 
     final clipDurationMs = widget.clip.duration.inMilliseconds;
-    final longFormClip = clipDurationMs >= const Duration(minutes: 30).inMilliseconds;
+    final longFormClip =
+        clipDurationMs >= const Duration(minutes: 30).inMilliseconds;
     final fileSizeBytes = widget.clip.file!.existsSync()
         ? widget.clip.file!.lengthSync()
         : 0;
     final largeMedia = fileSizeBytes > 2 * 1024 * 1024 * 1024 || longFormClip;
 
-    final maxThumbCount = (widget.width / 120).round().clamp(4, _MobileMediaEditorState._maxThumbnailFrames);
+    final maxThumbCount = (widget.width / 120).round().clamp(
+      4,
+      _MobileMediaEditorState._maxThumbnailFrames,
+    );
     final int numThumbnails = largeMedia
         ? maxThumbCount
         : (clipDurationMs / 1000).clamp(1, maxThumbCount).round();
@@ -5480,7 +6069,8 @@ class _VideoClipThumbnailsState extends State<_VideoClipThumbnails> {
         itemCount: numThumbnails,
         itemBuilder: (context, index) {
           final timeMs = clipDurationMs > 0
-              ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs).round()
+              ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs)
+                    .round()
               : 0;
           return SizedBox(
             width: thumbWidth,
@@ -5500,7 +6090,8 @@ class _VideoClipThumbnailsState extends State<_VideoClipThumbnails> {
       itemCount: numThumbnails,
       itemBuilder: (context, index) {
         final timeMs = clipDurationMs > 0
-            ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs).round()
+            ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs)
+                  .round()
             : 0;
         return SizedBox(
           width: thumbWidth,
