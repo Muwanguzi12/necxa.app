@@ -1,71 +1,91 @@
 import express from 'express';
 import cors from 'cors';
 import pino from 'pino';
-import bodyParser from 'body-parser';
+import rateLimit from 'express-rate-limit';
 
 import postsRouter from './routes/posts';
 import productsRouter from './routes/products';
 import liveRouter from './routes/live';
-
-import { connectMongo } from './mongo';
+import { closeMongo, connectMongo } from './mongo';
 import { getRedis } from './redis';
 import { getKafkaProducer } from './kafka';
 import { jwksAuth } from './jwksAuth';
-import rateLimit from 'express-rate-limit';
-import RedisStore from 'rate-limit-redis';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
-const app = express();
 
-app.use(cors());
-app.use(bodyParser.json());
-app.use((req, res, next) => {
-  logger.info({ method: req.method, url: req.url }, 'incoming');
-  next();
-});
+export function createApp() {
+  const app = express();
+  const redis = getRedis();
+  app.locals.logger = logger;
+  app.locals.redis = redis;
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+  app.use(cors());
+  app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '64kb' }));
+  app.use((req, _res, next) => {
+    logger.info({ method: req.method, path: req.path }, 'incoming request');
+    next();
+  });
 
-// attach redis-backed rate limiter if available
-const redisClient = getRedis();
-const limiter = rateLimit({
-  windowMs: Number(process.env.RATE_WINDOW_MS || 60_000), // 1 minute
-  max: Number(process.env.RATE_MAX || 60), // 60 requests per window per IP by default
-  standardHeaders: true,
-  legacyHeaders: false,
-  store: redisClient ? new RedisStore({ sendCommand: (...args: any[]) => (redisClient as any).call(...args) }) : undefined,
-});
-app.use(limiter);
+  app.get('/health', (_req, res) => {
+    const ready = Boolean(app.locals.db);
+    return res.status(200).json({
+      status: 'ok',
+      mongo: ready ? 'connected' : 'disconnected',
+      redis: redis ? 'configured' : 'disabled',
+    });
+  });
 
-// initialize backing services and attach to app.locals so routes can access them
-(async () => {
-  try {
-    const db = await connectMongo();
-    app.locals.db = db;
-  } catch (err) {
-    logger.error({ err }, 'mongo connection failed');
-  }
+  app.get('/ready', (_req, res) => {
+    const ready = Boolean(app.locals.db);
+    return res.status(ready ? 200 : 503).json({
+      status: ready ? 'ready' : 'starting',
+      mongo: ready ? 'connected' : 'disconnected',
+    });
+  });
 
-  try {
-    app.locals.redis = redisClient;
-  } catch (err) {
-    logger.error({ err }, 'redis init failed');
-  }
+  const limiter = rateLimit({
+    windowMs: Number(process.env.RATE_WINDOW_MS || 60_000),
+    max: Number(process.env.RATE_MAX || 120),
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use(limiter);
 
-  try {
-    app.locals.kafkaProducer = await getKafkaProducer();
-  } catch (err) {
-    logger.warn({ err }, 'kafka init failed or not configured');
-  }
-})();
+  const auth = jwksAuth();
+  app.use('/engagement/posts', auth, postsRouter);
+  app.use('/engagement/products', auth, productsRouter);
+  app.use('/engagement/live', auth, liveRouter);
 
-// protect engagement write endpoints with JWKS-based auth
-const auth = jwksAuth();
-app.use('/engagement/posts', auth, postsRouter);
-app.use('/engagement/products', auth, productsRouter);
-app.use('/engagement/live', auth, liveRouter);
+  return app;
+}
 
-const port = process.env.PORT || 4001;
-app.listen(port, () => logger.info({ port }, 'engagement-service running'));
+const app = createApp();
+
+export async function startServer() {
+  app.locals.db = await connectMongo();
+  app.locals.kafkaProducer = await getKafkaProducer();
+  const port = Number(process.env.PORT || 4001);
+  return app.listen(port, () => {
+    logger.info(
+      { port, database: app.locals.db.databaseName },
+      'engagement service running',
+    );
+  });
+}
+
+async function shutdown(signal: string) {
+  logger.info({ signal }, 'engagement service shutting down');
+  await Promise.allSettled([closeMongo(), getRedis()?.quit()]);
+  process.exit(0);
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    logger.fatal({ error }, 'engagement service failed to start');
+    process.exit(1);
+  });
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+}
 
 export default app;

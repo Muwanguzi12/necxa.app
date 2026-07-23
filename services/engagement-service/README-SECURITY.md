@@ -1,34 +1,22 @@
-JWT & JWKS configuration (engagement-service)
+# Engagement Authentication
 
-This service supports two modes for verifying incoming JWTs used to authenticate engagement API requests:
+The service accepts Supabase user access tokens from Supabase 1 and Supabase 2.
+Configure both project URLs through the comma-separated `SUPABASE_AUTH_URLS`
+environment variable.
 
-1) JWKS (recommended for production)
-   - Set JWKS_URI to the JWKS endpoint provided by the identity provider (e.g., Supabase, Auth0, Keycloak).
-   - Set JWT_ISSUER and JWT_AUDIENCE as appropriate.
-   - Example secrets to add to GitHub repo secrets:
-     - JWKS_URI
-     - JWT_ISSUER
-     - JWT_AUDIENCE
+For projects using asymmetric JWT signing keys, tokens are verified against:
 
-2) Local public key fallback (PEM)
-   - If JWKS_URI is not available, provide a PEM-formatted public key via JWT_PUBLIC_KEY.
-   - The service will import the SPKI key and verify RS256 tokens using that key.
-   - Example secrets to add:
-     - JWT_PUBLIC_KEY (PEM data, including -----BEGIN PUBLIC KEY----- / -----END PUBLIC KEY-----)
-     - JWT_ALG (optional, defaults to RS256)
+```text
+https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+```
 
-Mapping to your environment
-- For CI and GitHub Actions, add the above secrets to repository secrets and the engagement CI workflow will export them into the job environment.
-- For deployed containers, provide the same variables as environment variables (e.g., Kubernetes secrets or container service secrets).
+For a project still using legacy HS256 signing, configure the corresponding
+publishable key in `SUPABASE_AUTH_PUBLISHABLE_KEYS`. The service verifies the
+token with that project's `/auth/v1/user` endpoint.
 
-If your public key is already stored under the GitHub secret name "mongosecrete", the engagement CI workflow will be updated to export it as JWT_PUBLIC_KEY for the job. If you prefer a different secret name (e.g., JWT_PUBLIC_KEY), tell me and I will update the workflow accordingly.
+Optional compatibility variables are `JWKS_URIS`, `JWT_ISSUERS`,
+`JWT_PUBLIC_KEY`, `JWT_ALG`, and `JWT_AUDIENCE`.
 
-Notes
-- Do NOT store private signing keys (the JWT private key) in this service's runtime environment; only the public key is necessary for verification.
-- If using Supabase as the identity provider, the JWKS endpoint is typically:
-  https://<PROJECT>.supabase.co/auth/v1/.well-known/jwks.json
-  and the issuer is https://<PROJECT>.supabase.co/auth/v1
-
-If you want, I can:
-- Copy your existing Supabase secrets into appropriately named GitHub secrets (you previously said you added public key and secret key in Supabase). To do that I need the exact GitHub secret names or permission to copy them.
-- Or, I can update the CI workflow to print a short verification step showing which auth environment vars are present (not their values) to confirm configuration.
+Never copy a Supabase secret/private API key or JWT private signing key into
+the engagement container. Private material remains in Supabase Edge Function
+secrets. The engagement service needs only public verification material.

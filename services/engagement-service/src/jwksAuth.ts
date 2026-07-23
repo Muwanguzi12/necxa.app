@@ -1,72 +1,196 @@
 import type { Request, Response, NextFunction } from 'express';
-import { createRemoteJWKSet, jwtVerify, importSPKI, type JWTPayload } from 'jose';
+import {
+  createRemoteJWKSet,
+  decodeJwt,
+  importSPKI,
+  jwtVerify,
+  type JWTPayload,
+} from 'jose';
 
-const JWKS_URI = process.env.JWKS_URI || '';
-const ISSUER = process.env.JWT_ISSUER || '';
-const AUDIENCE = process.env.JWT_AUDIENCE || '';
-const JWT_PUBLIC_KEY = process.env.JWT_PUBLIC_KEY || ''; // PEM-format public key (RS256)
-const JWT_ALG = process.env.JWT_ALG || 'RS256';
-
-let remoteJwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-let localKey: any = null;
-
-if (JWKS_URI) remoteJwks = createRemoteJWKSet(new URL(JWKS_URI));
-
-export interface AuthRequest extends Request {
-  user?: JWTPayload & { sub?: string };
+interface AuthProvider {
+  issuer?: string;
+  projectUrl?: string;
+  publishableKey?: string;
+  jwks: ReturnType<typeof createRemoteJWKSet>;
 }
 
-async function getLocalKey() {
-  if (localKey) return localKey;
-  if (!JWT_PUBLIC_KEY) return null;
-  // importSPKI returns a KeyLike for verification
-  localKey = await importSPKI(JWT_PUBLIC_KEY, JWT_ALG);
-  return localKey;
+export interface AuthRequest extends Request {
+  user?: JWTPayload & { sub?: string; id?: string };
+}
+
+function values(...inputs: Array<string | undefined>): string[] {
+  return inputs
+    .flatMap((input) => (input || '').split(','))
+    .map((input) => input.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+}
+
+function projectIssuer(projectUrl: string) {
+  return `${projectUrl}/auth/v1`;
+}
+
+function buildProviders(): AuthProvider[] {
+  const providers: AuthProvider[] = [];
+  const addProject = (projectUrl?: string, publishableKey?: string) => {
+    const normalizedUrl = projectUrl?.trim().replace(/\/$/, '');
+    if (!normalizedUrl) return;
+    const existing = providers.find(
+      (provider) => provider.projectUrl === normalizedUrl,
+    );
+    if (existing) {
+      existing.publishableKey ||= publishableKey?.trim() || undefined;
+      return;
+    }
+    providers.push({
+      projectUrl: normalizedUrl,
+      issuer: projectIssuer(normalizedUrl),
+      publishableKey: publishableKey?.trim() || undefined,
+      jwks: createRemoteJWKSet(
+        new URL(`${projectIssuer(normalizedUrl)}/.well-known/jwks.json`),
+      ),
+    });
+  };
+
+  const configuredUrls = values(process.env.SUPABASE_AUTH_URLS);
+  const configuredKeys = values(process.env.SUPABASE_AUTH_PUBLISHABLE_KEYS);
+  configuredUrls.forEach((url, index) => {
+    addProject(url, configuredKeys[index] || configuredKeys[0]);
+  });
+  addProject(
+    process.env.PRIMARY_SUPABASE_URL,
+    process.env.PRIMARY_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.PRIMARY_SUPABASE_ANON_KEY,
+  );
+  addProject(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY,
+  );
+  addProject(
+    process.env.SUPABASE_2_URL,
+    process.env.SUPABASE_2_PUBLISHABLE_KEY || process.env.SUPABASE_2_ANON_KEY,
+  );
+  addProject(
+    process.env.SUPABASE_FINANCE_URL,
+    process.env.SUPABASE_FINANCE_PUBLISHABLE_KEY ||
+      process.env.SUPABASE_FINANCE_ANON_KEY,
+  );
+
+  const explicitIssuers = values(process.env.JWT_ISSUERS, process.env.JWT_ISSUER);
+  const explicitJwks = values(process.env.JWKS_URIS, process.env.JWKS_URI);
+  for (let index = 0; index < explicitJwks.length; index += 1) {
+    const uri = explicitJwks[index];
+    providers.push({
+      issuer: explicitIssuers[index] || explicitIssuers[0],
+      jwks: createRemoteJWKSet(new URL(uri)),
+    });
+  }
+  return providers;
+}
+
+async function verifyWithSupabaseUserEndpoint(
+  token: string,
+  providers: AuthProvider[],
+): Promise<(JWTPayload & { sub?: string; id?: string }) | null> {
+  for (const provider of providers) {
+    if (!provider.projectUrl || !provider.publishableKey) continue;
+    try {
+      const response = await fetch(`${provider.projectUrl}/auth/v1/user`, {
+        headers: {
+          apikey: provider.publishableKey,
+          authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) continue;
+      const user = (await response.json()) as { id?: string; role?: string };
+      if (!user.id) continue;
+      return {
+        sub: user.id,
+        id: user.id,
+        role: user.role || 'authenticated',
+        iss: provider.issuer,
+      };
+    } catch (_) {
+      // Try the next configured Supabase project.
+    }
+  }
+  return null;
 }
 
 export function jwksAuth() {
-  if (!remoteJwks && !JWT_PUBLIC_KEY) {
-    console.warn('Neither JWKS_URI nor JWT_PUBLIC_KEY configured — jwksAuth will reject requests in production');
-  }
+  const providers = buildProviders();
+  const publicKey = process.env.JWT_PUBLIC_KEY?.trim() || '';
+  const algorithm = process.env.JWT_ALG?.trim() || 'RS256';
+  const audience = process.env.JWT_AUDIENCE?.trim() || undefined;
+  let localKey: Awaited<ReturnType<typeof importSPKI>> | null = null;
 
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      const header = req.headers.authorization;
-      if (!header) return res.status(401).json({ message: 'missing Authorization header' });
-      const parts = header.split(' ');
-      if (parts.length !== 2 || parts[0] !== 'Bearer') return res.status(401).json({ message: 'malformed Authorization header' });
-      const token = parts[1];
-
-      const opts: any = {};
-      if (ISSUER) opts.issuer = ISSUER;
-      if (AUDIENCE) opts.audience = AUDIENCE;
-
-      // Prefer JWKS remote validation when configured
-      if (remoteJwks) {
-        const { payload } = await jwtVerify(token, remoteJwks, opts);
-        req.user = payload as JWTPayload & { sub?: string };
-        return next();
-      }
-
-      // Fallback to local PEM public key verification
-      const key = await getLocalKey();
-      if (!key) return res.status(500).json({ message: 'no JWKS or public key configured' });
-      const { payload } = await jwtVerify(token, key, opts);
-      req.user = payload as JWTPayload & { sub?: string };
-      return next();
-    } catch (err: any) {
-      return res.status(401).json({ message: 'invalid token', detail: String(err?.message || err) });
+    const header = req.headers.authorization;
+    if (!header) {
+      return res.status(401).json({ message: 'missing Authorization header' });
     }
+    const [scheme, token, ...extra] = header.trim().split(/\s+/);
+    if (scheme.toLowerCase() !== 'bearer' || !token || extra.length > 0) {
+      return res.status(401).json({ message: 'malformed Authorization header' });
+    }
+    if (providers.length === 0 && !publicKey) {
+      return res.status(503).json({ message: 'authentication is not configured' });
+    }
+
+    let unverifiedIssuer: string | undefined;
+    try {
+      unverifiedIssuer = decodeJwt(token).iss;
+    } catch (_) {
+      return res.status(401).json({ message: 'invalid token' });
+    }
+
+    const candidates = unverifiedIssuer
+      ? providers.filter(
+          (provider) => !provider.issuer || provider.issuer === unverifiedIssuer,
+        )
+      : providers;
+    for (const provider of candidates) {
+      try {
+        const { payload } = await jwtVerify(token, provider.jwks, {
+          ...(provider.issuer ? { issuer: provider.issuer } : {}),
+          ...(audience ? { audience } : {}),
+        });
+        req.user = payload as AuthRequest['user'];
+        return next();
+      } catch (_) {
+        // JWKS can be empty for a Supabase project still using legacy HS256.
+      }
+    }
+
+    const supabaseUser = await verifyWithSupabaseUserEndpoint(token, candidates);
+    if (supabaseUser) {
+      req.user = supabaseUser;
+      return next();
+    }
+
+    if (publicKey) {
+      try {
+        localKey ||= await importSPKI(publicKey, algorithm);
+        const { payload } = await jwtVerify(token, localKey, {
+          ...(audience ? { audience } : {}),
+        });
+        req.user = payload as AuthRequest['user'];
+        return next();
+      } catch (_) {
+        // Fall through to the generic rejection below.
+      }
+    }
+
+    return res.status(401).json({ message: 'invalid token' });
   };
 }
 
 export function requireRole(role: string) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    const user = req.user as any;
+    const user = req.user as Record<string, unknown> | undefined;
     if (!user) return res.status(401).json({ message: 'unauthenticated' });
-    const roles = (user.roles || user.role || user['https://necxa.uk/roles']) || [];
-    const roleList = Array.isArray(roles) ? roles : [roles];
-    if (roleList.includes(role)) return next();
+    const rawRoles = user.roles || user.role || user['https://necxa.uk/roles'] || [];
+    const roles = Array.isArray(rawRoles) ? rawRoles : [rawRoles];
+    if (roles.includes(role)) return next();
     return res.status(403).json({ message: 'forbidden' });
   };
 }

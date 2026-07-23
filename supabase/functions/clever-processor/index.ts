@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { mirrorEntityComment, mirrorEntityLike } from "../_shared/engagement_mongo.ts"
 
 // ============================================
 // CLEVER-PROCESSOR — Neural Feed & Viral Loop
@@ -645,6 +646,17 @@ async function handleToggleLike(userId: string, payload: any) {
     }
   }
 
+  try {
+    await mirrorEntityLike({
+      entityType: "post",
+      entityId: postId,
+      userId,
+      liked: action === "liked",
+    })
+  } catch (e) {
+    console.error("Mongo engagement like mirror failed:", e)
+  }
+
   return json({ success: true, action });
 }
 
@@ -710,6 +722,19 @@ async function handleCreateComment(userId: string, payload: any) {
     } catch (e) {
       console.error("REDIS Comment Sync Error:", e);
     }
+  }
+
+  try {
+    await mirrorEntityComment({
+      entityType: target_type === "listing" ? "product" : "post",
+      entityId: post_id,
+      userId,
+      text: content,
+      sourceId: String(comment.id),
+      createdAt: comment.created_at,
+    })
+  } catch (e) {
+    console.error("Mongo engagement comment mirror failed:", e)
   }
 
   return json({ success: true, data: { ...comment, identity } });
