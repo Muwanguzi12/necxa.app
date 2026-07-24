@@ -22,7 +22,13 @@ String? _extractListingImageUrl(dynamic value) {
   if (value == null) return null;
   if (value is String) return value.trim().isEmpty ? null : value.trim();
   if (value is Map) {
-    for (final key in ['url', 'image_url', 'thumbnail_url', 'media_url', 'path']) {
+    for (final key in [
+      'url',
+      'image_url',
+      'thumbnail_url',
+      'media_url',
+      'path',
+    ]) {
       final url = _extractListingImageUrl(value[key]);
       if (url != null) return url;
     }
@@ -53,7 +59,9 @@ List<String> _listingPhotoUrls(dynamic rawPhotos) {
 
 String? _primaryListingImageUrl(Map<String, dynamic> listing) {
   final photos = _listingPhotoUrls(
-    listing['miniature_photos'] ?? listing['photos'] ?? listing['listing_photos'],
+    listing['miniature_photos'] ??
+        listing['photos'] ??
+        listing['listing_photos'],
   );
   if (photos.isNotEmpty) return photos.first;
   return _extractListingImageUrl(listing['thumbnail_url']) ??
@@ -555,7 +563,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               final metadata = s['metadata'] as Map? ?? {};
               return GestureDetector(
                 onTap: () {
-                   Navigator.push(
+                  Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => LiveStudioScreen(
@@ -579,20 +587,40 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           end: Alignment.bottomRight,
                         ),
                         boxShadow: [
-                          BoxShadow(color: const Color(0xFFFF0000).withOpacity(0.3), blurRadius: 8),
+                          BoxShadow(
+                            color: const Color(0xFFFF0000).withOpacity(0.3),
+                            blurRadius: 8,
+                          ),
                         ],
                       ),
                       child: CircleAvatar(
                         radius: 22,
                         backgroundColor: Colors.black,
-                        backgroundImage: metadata['avatar'] != null && metadata['avatar'] != '' ? NetworkImage(metadata['avatar']) : null,
-                        child: (metadata['avatar'] == null || metadata['avatar'] == '') ? const Icon(Icons.person, color: Colors.white, size: 20) : null,
+                        backgroundImage:
+                            metadata['avatar'] != null &&
+                                metadata['avatar'] != ''
+                            ? NetworkImage(metadata['avatar'])
+                            : null,
+                        child:
+                            (metadata['avatar'] == null ||
+                                metadata['avatar'] == '')
+                            ? const Icon(
+                                Icons.person,
+                                color: Colors.white,
+                                size: 20,
+                              )
+                            : null,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       metadata['hostName']?.split(' ').first ?? 'Live',
-                      style: syne(sz: 9, w: FontWeight.w900, c: Colors.white, ls: 0.5),
+                      style: syne(
+                        sz: 9,
+                        w: FontWeight.w900,
+                        c: Colors.white,
+                        ls: 0.5,
+                      ),
                     ),
                   ],
                 ),
@@ -600,7 +628,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             },
           ),
         );
-      }
+      },
     );
   }
 
@@ -679,16 +707,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
           const SizedBox(height: 24),
           Text(
             hasError ? 'Network Disconnected' : 'Feed is Empty',
-            style: syne(
-              sz: 20,
-              w: FontWeight.w900,
-              c: Colors.white,
-            ),
+            style: syne(sz: 20, w: FontWeight.w900, c: Colors.white),
           ),
           const SizedBox(height: 8),
           Text(
-            hasError 
-                ? 'Please check your internet connection' 
+            hasError
+                ? 'Please check your internet connection'
                 : 'No content available right now',
             style: dm(sz: 14, c: Colors.white.withOpacity(0.5)),
             textAlign: TextAlign.center,
@@ -737,10 +761,16 @@ class _CommunityScreenState extends State<CommunityScreen> {
             Container(
               width: 40,
               height: 4,
-              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
             const SizedBox(height: 24),
-            Text('CREATE CONTENT', style: syne(sz: 18, w: FontWeight.w900, c: Colors.white, ls: 1)),
+            Text(
+              'CREATE CONTENT',
+              style: syne(sz: 18, w: FontWeight.w900, c: Colors.white, ls: 1),
+            ),
             const SizedBox(height: 32),
             _uploadOption(
               icon: Icons.post_add_rounded,
@@ -764,7 +794,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   MaterialPageRoute(
                     builder: (_) => LiveStudioScreen(
                       state: widget.state,
-                      channelName: '${widget.state.myProfile?['full_name'] ?? 'User'}_Live',
+                      channelName:
+                          '${widget.state.myProfile?['full_name'] ?? 'User'}_Live',
                       isHost: true,
                       hostId: widget.state.user?.id,
                     ),
@@ -779,7 +810,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
-  Widget _uploadOption({required IconData icon, required String title, required String sub, required VoidCallback onTap, Color? color}) {
+  Widget _uploadOption({
+    required IconData icon,
+    required String title,
+    required String sub,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -804,12 +841,19 @@ class _CommunityScreenState extends State<CommunityScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: syne(sz: 15, w: FontWeight.bold, c: Colors.white)),
+                  Text(
+                    title,
+                    style: syne(sz: 15, w: FontWeight.bold, c: Colors.white),
+                  ),
                   Text(sub, style: dm(sz: 11, c: Colors.white38)),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white24, size: 14),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: Colors.white24,
+              size: 14,
+            ),
           ],
         ),
       ),
@@ -2953,8 +2997,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) =>
-          _CommentSheet(post: widget.listing, state: widget.state),
+      builder: (context) => _CommentSheet(
+        post: widget.listing,
+        state: widget.state,
+        targetType: 'listing',
+      ),
     );
   }
 
@@ -2973,7 +3020,12 @@ class _ShopReelItemState extends State<_ShopReelItem>
 class _CommentSheet extends StatefulWidget {
   final Map<String, dynamic> post;
   final AppState state;
-  const _CommentSheet({required this.post, required this.state});
+  final String targetType;
+  const _CommentSheet({
+    required this.post,
+    required this.state,
+    this.targetType = 'post',
+  });
 
   @override
   State<_CommentSheet> createState() => _CommentSheetState();
@@ -2981,7 +3033,6 @@ class _CommentSheet extends StatefulWidget {
 
 class _CommentSheetState extends State<_CommentSheet> {
   final TextEditingController _ctrl = TextEditingController();
-  final SupabaseClient _supabase = Supabase.instance.client;
   bool _sending = false;
   Future<List<Map<String, dynamic>>>? _commentsFuture;
 
@@ -2993,7 +3044,10 @@ class _CommentSheetState extends State<_CommentSheet> {
 
   void _refreshComments() {
     setState(() {
-      _commentsFuture = widget.state.social.fetchComments(widget.post['id']);
+      _commentsFuture = widget.state.social.fetchComments(
+        widget.post['id'],
+        targetType: widget.targetType,
+      );
     });
   }
 
@@ -3013,14 +3067,22 @@ class _CommentSheetState extends State<_CommentSheet> {
       await widget.state.social.postComment(
         widget.post['id'],
         _ctrl.text.trim(),
+        targetType: widget.targetType,
       );
       _ctrl.clear();
       _refreshComments(); // 🚀 TRIGGER RE-FETCH
       if (mounted) FocusScope.of(context).unfocus();
     } catch (e) {
       debugPrint('Comment Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Comment could not be posted. Try again.'),
+          ),
+        );
+      }
     }
-    setState(() => _sending = false);
+    if (mounted) setState(() => _sending = false);
   }
 
   Future<Map<String, dynamic>?> _getIdentity(String userId) async {
@@ -3071,6 +3133,28 @@ class _CommentSheetState extends State<_CommentSheet> {
                       ),
                     );
                   }
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Comments could not be loaded.',
+                            style: dm(sz: 13, c: Colors.white54),
+                          ),
+                          const SizedBox(height: 8),
+                          IconButton(
+                            onPressed: _refreshComments,
+                            tooltip: 'Retry',
+                            icon: const Icon(
+                              Icons.refresh_rounded,
+                              color: C.brand,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                   final comments = snapshot.data ?? [];
                   if (comments.isEmpty) {
                     return Center(
@@ -3087,20 +3171,33 @@ class _CommentSheetState extends State<_CommentSheet> {
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     itemBuilder: (context, i) {
                       final c = comments[i];
-                      final iden = c['metadata']?['identity'];
+                      final iden = c['metadata']?['identity'] ?? c['identity'];
 
                       if (iden != null) {
                         return _buildCommentRow(
-                          name: iden['user_name'],
+                          name: iden['user_name'] ?? 'Necxa Contributor',
                           avatar: iden['user_avatar'],
-                          content: c['content'],
+                          content: c['content'] ?? '',
                           isVerified: iden['is_verified'] == true,
                           createdAt: c['created_at'],
                         );
                       }
 
+                      final cachedName = c['user_name'];
+                      if (cachedName != null) {
+                        return _buildCommentRow(
+                          name: cachedName,
+                          avatar: c['user_avatar'],
+                          content: c['content'] ?? '',
+                          createdAt: c['created_at'],
+                        );
+                      }
+
+                      final commentUserId = c['user_id'] ?? c['author_id'];
                       return FutureBuilder<Map<String, dynamic>?>(
-                        future: _getIdentity(c['author_id']),
+                        future: commentUserId == null
+                            ? Future.value(null)
+                            : _getIdentity(commentUserId.toString()),
                         builder: (context, profSnap) {
                           final prof = profSnap.data;
                           final cUsername =
@@ -3110,7 +3207,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                           return _buildCommentRow(
                             name: cUsername,
                             avatar: cAvatar,
-                            content: c['content'],
+                            content: c['content'] ?? '',
                             isVerified: false,
                             createdAt: c['created_at'],
                           );

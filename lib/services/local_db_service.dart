@@ -18,16 +18,22 @@ class LocalDbService {
   factory LocalDbService() => _instance;
   LocalDbService._internal();
 
-  static const int _feedMaxRows    = 500;
-  static const int _shopMaxRows    = 300;
-  static const int _notifMaxRows   = 50;
-  static const int _dbVersion      = 10;
+  static const int _feedMaxRows = 500;
+  static const int _shopMaxRows = 300;
+  static const int _notifMaxRows = 50;
+  static const int _dbVersion = 10;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
     if (value is String) return value.trim().isEmpty ? null : value.trim();
     if (value is Map) {
-      for (final key in ['url', 'image_url', 'thumbnail_url', 'media_url', 'path']) {
+      for (final key in [
+        'url',
+        'image_url',
+        'thumbnail_url',
+        'media_url',
+        'path',
+      ]) {
         final url = _extractUrl(value[key]);
         if (url != null) return url;
       }
@@ -76,11 +82,25 @@ class LocalDbService {
         if (oldVersion < 10) {
           try {
             // Version 9 migrations (if skipped)
-            try { await db.execute('ALTER TABLE community_posts ADD COLUMN listing_data TEXT'); } catch (_) {}
-            try { await db.execute('ALTER TABLE chat_messages ADD COLUMN local_media_path TEXT'); } catch (_) {}
+            try {
+              await db.execute(
+                'ALTER TABLE community_posts ADD COLUMN listing_data TEXT',
+              );
+            } catch (_) {}
+            try {
+              await db.execute(
+                'ALTER TABLE chat_messages ADD COLUMN local_media_path TEXT',
+              );
+            } catch (_) {}
             // Version 10 migrations
-            try { await db.execute('ALTER TABLE community_posts ADD COLUMN local_media_path TEXT'); } catch (_) {}
-            debugPrint('🛡️ LocalDb: Migrated to v10 (added local_media_path to community_posts)');
+            try {
+              await db.execute(
+                'ALTER TABLE community_posts ADD COLUMN local_media_path TEXT',
+              );
+            } catch (_) {}
+            debugPrint(
+              '🛡️ LocalDb: Migrated to v10 (added local_media_path to community_posts)',
+            );
           } catch (e) {
             debugPrint('Migration Error: $e');
           }
@@ -93,7 +113,10 @@ class LocalDbService {
     );
   }
 
-  Future<void> _createOrMigrateV5(Database db, {required bool isUpgrade}) async {
+  Future<void> _createOrMigrateV5(
+    Database db, {
+    required bool isUpgrade,
+  }) async {
     // ── 1. Chat Rooms ───────────────────────────────────────────────────────
     await db.execute('''
       CREATE TABLE IF NOT EXISTS chat_rooms (
@@ -125,8 +148,12 @@ class LocalDbService {
         created_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_messages_room ON chat_messages(room_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_messages_time ON chat_messages(created_at)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_messages_room ON chat_messages(room_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_messages_time ON chat_messages(created_at)',
+    );
 
     // ── 3. Community Posts (DENORMALIZED — author info included) ────────────
     // Author name/avatar stored inline to avoid JOINs on every read.
@@ -148,20 +175,33 @@ class LocalDbService {
         created_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_posts_time ON community_posts(created_at DESC)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_posts_author_created ON community_posts(author_id, created_at DESC)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_posts_author ON community_posts(author_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_posts_time ON community_posts(created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_posts_author_created ON community_posts(author_id, created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_posts_author ON community_posts(author_id)',
+    );
 
     // Migration: add new columns if upgrading from older schema
     if (isUpgrade) {
-      for (final col in ['thumbnail_url TEXT', 'author_name TEXT', 'author_avatar TEXT', 'local_media_path TEXT']) {
+      for (final col in [
+        'thumbnail_url TEXT',
+        'author_name TEXT',
+        'author_avatar TEXT',
+        'local_media_path TEXT',
+      ]) {
         try {
           await db.execute('ALTER TABLE community_posts ADD COLUMN $col');
         } catch (_) {} // Ignore if column already exists
       }
       try {
         await db.execute('ALTER TABLE shop_listings ADD COLUMN photos TEXT');
-        await db.execute('ALTER TABLE shop_listings ADD COLUMN film_hub_content TEXT');
+        await db.execute(
+          'ALTER TABLE shop_listings ADD COLUMN film_hub_content TEXT',
+        );
       } catch (_) {}
     }
 
@@ -196,8 +236,12 @@ class LocalDbService {
         created_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_shop_time ON shop_listings(created_at DESC)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_shop_user_created ON shop_listings(user_id, created_at DESC)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_shop_time ON shop_listings(created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_shop_user_created ON shop_listings(user_id, created_at DESC)',
+    );
 
     // ── 6. Action Queue (offline-first writes) ──────────────────────────────
     await db.execute('''
@@ -232,7 +276,9 @@ class LocalDbService {
         created_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_notif_time ON app_notifications(created_at DESC)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_notif_time ON app_notifications(created_at DESC)',
+    );
 
     // ── 9. Transport Orders ─────────────────────────────────────────────────
     await db.execute('''
@@ -247,7 +293,9 @@ class LocalDbService {
         created_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_transport_time ON transport_orders(created_at DESC)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_transport_time ON transport_orders(created_at DESC)',
+    );
 
     // ── 10. Community Comments (Modern Persistence) ──────────────────────────
     await db.execute('''
@@ -262,7 +310,9 @@ class LocalDbService {
         created_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_comments_post ON community_comments(post_id)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_comments_post ON community_comments(post_id)',
+    );
   }
 
   // ─── Sync Cursor API ─────────────────────────────────────────────────────
@@ -270,23 +320,28 @@ class LocalDbService {
   /// Returns the ISO-8601 timestamp of the last successful sync for [key].
   Future<String?> getSyncCursor(String key) async {
     final db = await database;
-    final rows = await db.query('sync_cursors', where: 'cursor_key = ?', whereArgs: [key]);
+    final rows = await db.query(
+      'sync_cursors',
+      where: 'cursor_key = ?',
+      whereArgs: [key],
+    );
     return rows.isNotEmpty ? rows.first['last_sync_at'] as String? : null;
   }
 
   /// Persists the sync cursor for [key] after a successful delta pull.
   Future<void> setSyncCursor(String key, String isoTimestamp) async {
     final db = await database;
-    await db.insert(
-      'sync_cursors',
-      {'cursor_key': key, 'last_sync_at': isoTimestamp},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('sync_cursors', {
+      'cursor_key': key,
+      'last_sync_at': isoTimestamp,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   // Legacy helpers kept for backward-compat
-  Future<String?> getFeedSyncTime(String userId) => getSyncCursor('feed:$userId');
-  Future<void> updateFeedSyncTime(String userId, String ts) => setSyncCursor('feed:$userId', ts);
+  Future<String?> getFeedSyncTime(String userId) =>
+      getSyncCursor('feed:$userId');
+  Future<void> updateFeedSyncTime(String userId, String ts) =>
+      setSyncCursor('feed:$userId', ts);
 
   // ─── Community Posts ──────────────────────────────────────────────────────
 
@@ -299,54 +354,62 @@ class LocalDbService {
     for (final post in posts) {
       // Flatten nested profile data into the post row
       final profile = post['profiles'] as Map<String, dynamic>?;
-      final authorName   = post['author_name']   ?? profile?['display_name'] ?? profile?['full_name'];
-      final authorAvatar = post['author_avatar']  ?? profile?['photo_url']    ?? profile?['avatar_url'];
+      final authorName =
+          post['author_name'] ??
+          profile?['display_name'] ??
+          profile?['full_name'];
+      final authorAvatar =
+          post['author_avatar'] ??
+          profile?['photo_url'] ??
+          profile?['avatar_url'];
 
       // Preserve local_media_path
       String? localPath = post['local_media_path'];
       if (localPath == null) {
-        final existing = await db.query('community_posts', columns: ['local_media_path'], where: 'id = ?', whereArgs: [post['id']]);
+        final existing = await db.query(
+          'community_posts',
+          columns: ['local_media_path'],
+          where: 'id = ?',
+          whereArgs: [post['id']],
+        );
         if (existing.isNotEmpty) {
           localPath = existing.first['local_media_path'] as String?;
         }
       }
 
-      batch.insert(
-        'community_posts',
-        {
-          'id':             post['id'],
-          'author_id':      post['author_id'] ?? post['user_id'],
-          'author_name':    authorName,
-          'author_avatar':  authorAvatar,
-          'content':        post['content'] ?? post['title'],
-          'media_url':      post['media_url'],
-          'thumbnail_url':  post['thumbnail_url'],
-          'hls_url':        post['hls_url'],
-          'local_media_path': localPath,
-          'media_type':     post['media_type'] ?? 'image',
-          'likes_count':    post['likes_count']    ?? 0,
-          'comments_count': post['comments_count'] ?? 0,
-          'listing_data':   post['listings'] != null ? jsonEncode(post['listings']) : null,
-          'created_at':     post['created_at'],
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      batch.insert('community_posts', {
+        'id': post['id'],
+        'author_id': post['author_id'] ?? post['user_id'],
+        'author_name': authorName,
+        'author_avatar': authorAvatar,
+        'content': post['content'] ?? post['title'],
+        'media_url': post['media_url'],
+        'thumbnail_url': post['thumbnail_url'],
+        'hls_url': post['hls_url'],
+        'local_media_path': localPath,
+        'media_type': post['media_type'] ?? 'image',
+        'likes_count': post['likes_count'] ?? 0,
+        'comments_count': post['comments_count'] ?? 0,
+        'listing_data': post['listings'] != null
+            ? jsonEncode(post['listings'])
+            : null,
+        'created_at': post['created_at'],
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
 
       // Also keep social_profiles warm for profile-screen lookups
       if (profile != null) {
-        batch.insert(
-          'social_profiles',
-          {
-            'id':           post['author_id'] ?? post['user_id'],
-            'display_name': authorName,
-            'photo_url':    authorAvatar,
-            'trust_score':  profile['trust_score'] ?? 50,
-            'is_verified':  (profile['trust_score_tier'] == 'titan_trust' ||
-                             profile['trust_score_tier'] == 'verified') ? 1 : 0,
-            'cached_at':    DateTime.now().toIso8601String(),
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert('social_profiles', {
+          'id': post['author_id'] ?? post['user_id'],
+          'display_name': authorName,
+          'photo_url': authorAvatar,
+          'trust_score': profile['trust_score'] ?? 50,
+          'is_verified':
+              (profile['trust_score_tier'] == 'titan_trust' ||
+                  profile['trust_score_tier'] == 'verified')
+              ? 1
+              : 0,
+          'cached_at': DateTime.now().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
     }
     await batch.commit(noResult: true);
@@ -388,7 +451,11 @@ class LocalDbService {
         limit: limit,
       );
     }
-    return await db.query('community_posts', orderBy: 'created_at DESC', limit: limit);
+    return await db.query(
+      'community_posts',
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
   }
 
   Future<List<Map<String, dynamic>>> getUserCachedPosts(String userId) async {
@@ -403,7 +470,12 @@ class LocalDbService {
 
   Future<String?> getLastPostTime() async {
     final db = await database;
-    final rows = await db.query('community_posts', columns: ['created_at'], orderBy: 'created_at DESC', limit: 1);
+    final rows = await db.query(
+      'community_posts',
+      columns: ['created_at'],
+      orderBy: 'created_at DESC',
+      limit: 1,
+    );
     return rows.isNotEmpty ? rows.first['created_at'] as String? : null;
   }
 
@@ -419,7 +491,10 @@ class LocalDbService {
 
   Future<void> incrementPostMetric(String postId, String column) async {
     final db = await database;
-    await db.rawUpdate('UPDATE community_posts SET $column = $column + 1 WHERE id = ?', [postId]);
+    await db.rawUpdate(
+      'UPDATE community_posts SET $column = $column + 1 WHERE id = ?',
+      [postId],
+    );
   }
 
   // ─── Shop Listings ────────────────────────────────────────────────────────
@@ -452,32 +527,40 @@ class LocalDbService {
           _extractUrl(l['film_hub_content']) ??
           thumbnailUrl;
 
-      batch.insert(
-        'shop_listings',
-        {
-          'id':            l['id'],
-          'user_id':       l['user_id'] ?? l['lister_id'],
-          'lister_name':   l['lister_name'] ?? profile?['display_name'] ?? profile?['full_name'] ?? 'Vendor',
-          'lister_avatar': l['lister_avatar'] ?? profile?['photo_url'] ?? profile?['avatar_url'],
-          'title':         l['title'],
-          'price':         l['price'] ?? l['price_ugx'] ?? 0,
-          'media_url':     mediaUrl,
-          'thumbnail_url': thumbnailUrl,
-          'media_type':    l['media_type'] ?? 'image',
-          'category':      l['category'] ?? 'General',
-          'is_verified':   (l['is_verified'] == true || l['is_verified'] == 1) ? 1 : 0,
-          'photos':        jsonEncode(photos),
-          'film_hub_content': _extractUrl(l['film_hub_content']) ?? mediaUrl,
-          'created_at':    l['created_at'],
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      batch.insert('shop_listings', {
+        'id': l['id'],
+        'user_id': l['user_id'] ?? l['lister_id'],
+        'lister_name':
+            l['lister_name'] ??
+            profile?['display_name'] ??
+            profile?['full_name'] ??
+            'Vendor',
+        'lister_avatar':
+            l['lister_avatar'] ??
+            profile?['photo_url'] ??
+            profile?['avatar_url'],
+        'title': l['title'],
+        'price': l['price'] ?? l['price_ugx'] ?? 0,
+        'media_url': mediaUrl,
+        'thumbnail_url': thumbnailUrl,
+        'media_type': l['media_type'] ?? 'image',
+        'category': l['category'] ?? 'General',
+        'is_verified': (l['is_verified'] == true || l['is_verified'] == 1)
+            ? 1
+            : 0,
+        'photos': jsonEncode(photos),
+        'film_hub_content': _extractUrl(l['film_hub_content']) ?? mediaUrl,
+        'created_at': l['created_at'],
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
     await _pruneListings();
   }
 
-  Future<List<Map<String, dynamic>>> getCachedListings({int limit = 30, String? category}) async {
+  Future<List<Map<String, dynamic>>> getCachedListings({
+    int limit = 30,
+    String? category,
+  }) async {
     final db = await database;
     final rows = await db.query(
       'shop_listings',
@@ -508,7 +591,7 @@ class LocalDbService {
         ) WHERE rank <= 10
       )
     ''');
-    
+
     // Final global cap
     await db.rawDelete('''
       DELETE FROM shop_listings WHERE id IN (
@@ -521,24 +604,25 @@ class LocalDbService {
 
   Future<Map<String, dynamic>?> getProfile(String userId) async {
     final db = await database;
-    final rows = await db.query('social_profiles', where: 'id = ?', whereArgs: [userId]);
+    final rows = await db.query(
+      'social_profiles',
+      where: 'id = ?',
+      whereArgs: [userId],
+    );
     return rows.isNotEmpty ? rows.first : null;
   }
 
   Future<void> upsertProfile(Map<String, dynamic> profile) async {
     final db = await database;
-    await db.insert(
-      'social_profiles',
-      {
-        'id':           profile['id'],
-        'display_name': profile['full_name'] ?? profile['display_name'],
-        'photo_url':    profile['avatar_url'] ?? profile['photo_url'],
-        'trust_score':  profile['trust_score'] ?? 50,
-        'is_verified':  (profile['verified'] == true || profile['is_verified'] == 1) ? 1 : 0,
-        'cached_at':    DateTime.now().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('social_profiles', {
+      'id': profile['id'],
+      'display_name': profile['full_name'] ?? profile['display_name'],
+      'photo_url': profile['avatar_url'] ?? profile['photo_url'],
+      'trust_score': profile['trust_score'] ?? 50,
+      'is_verified':
+          (profile['verified'] == true || profile['is_verified'] == 1) ? 1 : 0,
+      'cached_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   // ─── Chat Rooms ───────────────────────────────────────────────────────────
@@ -547,20 +631,16 @@ class LocalDbService {
     final db = await database;
     final batch = db.batch();
     for (final room in rooms) {
-      batch.insert(
-        'chat_rooms',
-        {
-          'id':              room.id,
-          'other_party_id':  room.otherPartyId,
-          'other_name':      room.otherName,
-          'other_avatar':    room.otherAvatar,
-          'last_message':    room.lastMessage,
-          'last_message_at': room.lastMessageAt?.toIso8601String(),
-          'unread_count':    room.myUnread,
-          'created_at':      room.createdAt.toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      batch.insert('chat_rooms', {
+        'id': room.id,
+        'other_party_id': room.otherPartyId,
+        'other_name': room.otherName,
+        'other_avatar': room.otherAvatar,
+        'last_message': room.lastMessage,
+        'last_message_at': room.lastMessageAt?.toIso8601String(),
+        'unread_count': room.myUnread,
+        'created_at': room.createdAt.toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
   }
@@ -568,15 +648,23 @@ class LocalDbService {
   Future<List<ChatRoom>> getRooms() async {
     final db = await database;
     final rows = await db.query('chat_rooms', orderBy: 'last_message_at DESC');
-    return rows.map((m) => ChatRoom(
-      id:             m['id'] as String,
-      otherName:      m['other_name'] as String?,
-      otherAvatar:    m['other_avatar'] as String?,
-      lastMessage:    m['last_message'] as String?,
-      lastMessageAt:  DateTime.tryParse(m['last_message_at'] as String? ?? ''),
-      myUnread:       (m['unread_count'] as int?) ?? 0,
-      createdAt:      DateTime.tryParse(m['created_at'] as String? ?? '') ?? DateTime.now(),
-    )).toList();
+    return rows
+        .map(
+          (m) => ChatRoom(
+            id: m['id'] as String,
+            otherName: m['other_name'] as String?,
+            otherAvatar: m['other_avatar'] as String?,
+            lastMessage: m['last_message'] as String?,
+            lastMessageAt: DateTime.tryParse(
+              m['last_message_at'] as String? ?? '',
+            ),
+            myUnread: (m['unread_count'] as int?) ?? 0,
+            createdAt:
+                DateTime.tryParse(m['created_at'] as String? ?? '') ??
+                DateTime.now(),
+          ),
+        )
+        .toList();
   }
 
   // ─── Chat Messages ────────────────────────────────────────────────────────
@@ -589,29 +677,30 @@ class LocalDbService {
       // 🚀 NEURAL SYNC: Preserve local_media_path if it exists and incoming is null
       String? localPath = msg.localMediaPath;
       if (localPath == null) {
-        final existing = await db.query('chat_messages', columns: ['local_media_path'], where: 'id = ?', whereArgs: [msg.id]);
+        final existing = await db.query(
+          'chat_messages',
+          columns: ['local_media_path'],
+          where: 'id = ?',
+          whereArgs: [msg.id],
+        );
         if (existing.isNotEmpty) {
           localPath = existing.first['local_media_path'] as String?;
         }
       }
 
-      batch.insert(
-        'chat_messages',
-        {
-          'id':           msg.id,
-          'room_id':      msg.conversationId,
-          'sender_id':    msg.senderId,
-          'receiver_id':  msg.receiverId,
-          'content':      msg.content,
-          'media_url':    msg.mediaUrl,
-          'local_media_path': localPath,
-          'message_type': msg.messageType,
-          'is_read':      msg.isRead ? 1 : 0,
-          'reactions':    msg.reactions?.join(','),
-          'created_at':   msg.createdAt.toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      batch.insert('chat_messages', {
+        'id': msg.id,
+        'room_id': msg.conversationId,
+        'sender_id': msg.senderId,
+        'receiver_id': msg.receiverId,
+        'content': msg.content,
+        'media_url': msg.mediaUrl,
+        'local_media_path': localPath,
+        'message_type': msg.messageType,
+        'is_read': msg.isRead ? 1 : 0,
+        'reactions': msg.reactions?.join(','),
+        'created_at': msg.createdAt.toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
   }
@@ -624,17 +713,23 @@ class LocalDbService {
       whereArgs: [roomId],
       orderBy: 'created_at ASC',
     );
-    return rows.map((m) => ChatMessage(
-      id:           m['id'] as String,
-      conversationId: m['room_id'] as String,
-      senderId:     m['sender_id'] as String,
-      receiverId:   m['receiver_id'] as String? ?? '',
-      content:      m['content'] as String? ?? '',
-      mediaUrl:     m['media_url'] as String?,
-      messageType:  m['message_type'] as String? ?? 'text',
-      isRead:       m['is_read'] == 1,
-      createdAt:    DateTime.tryParse(m['created_at'] as String? ?? '') ?? DateTime.now(),
-    )).toList();
+    return rows
+        .map(
+          (m) => ChatMessage(
+            id: m['id'] as String,
+            conversationId: m['room_id'] as String,
+            senderId: m['sender_id'] as String,
+            receiverId: m['receiver_id'] as String? ?? '',
+            content: m['content'] as String? ?? '',
+            mediaUrl: m['media_url'] as String?,
+            messageType: m['message_type'] as String? ?? 'text',
+            isRead: m['is_read'] == 1,
+            createdAt:
+                DateTime.tryParse(m['created_at'] as String? ?? '') ??
+                DateTime.now(),
+          ),
+        )
+        .toList();
   }
 
   Future<String?> getLastMessageTime(String roomId) async {
@@ -650,20 +745,32 @@ class LocalDbService {
     return rows.isNotEmpty ? rows.first['created_at'] as String? : null;
   }
 
-  Future<void> updateMessageReactions(String messageId, List<String> reactions) async {
+  Future<void> updateMessageReactions(
+    String messageId,
+    List<String> reactions,
+  ) async {
     final db = await database;
-    await db.update('chat_messages', {'reactions': reactions.join(',')}, where: 'id = ?', whereArgs: [messageId]);
+    await db.update(
+      'chat_messages',
+      {'reactions': reactions.join(',')},
+      where: 'id = ?',
+      whereArgs: [messageId],
+    );
   }
 
   // ─── Social Action Queue ──────────────────────────────────────────────────
 
-  Future<void> queueSocialAction(String type, String postId, {Map<String, dynamic>? payload}) async {
+  Future<void> queueSocialAction(
+    String type,
+    String postId, {
+    Map<String, dynamic>? payload,
+  }) async {
     final db = await database;
     await db.insert('social_actions_queue', {
       'action_type': type,
-      'post_id':     postId,
-      'payload':     payload?.toString(),
-      'created_at':  DateTime.now().toIso8601String(),
+      'post_id': postId,
+      'payload': payload?.toString(),
+      'created_at': DateTime.now().toIso8601String(),
     });
   }
 
@@ -681,7 +788,11 @@ class LocalDbService {
 
   Future<void> saveNotification(Map<String, dynamic> notif) async {
     final db = await database;
-    await db.insert('app_notifications', notif, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'app_notifications',
+      notif,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     await db.rawDelete('''
       DELETE FROM app_notifications WHERE id IN (
         SELECT id FROM app_notifications ORDER BY created_at DESC LIMIT -1 OFFSET $_notifMaxRows
@@ -691,12 +802,21 @@ class LocalDbService {
 
   Future<List<Map<String, dynamic>>> getNotifications() async {
     final db = await database;
-    return await db.query('app_notifications', orderBy: 'created_at DESC', limit: _notifMaxRows);
+    return await db.query(
+      'app_notifications',
+      orderBy: 'created_at DESC',
+      limit: _notifMaxRows,
+    );
   }
 
   Future<void> markNotificationAsRead(String id) async {
     final db = await database;
-    await db.update('app_notifications', {'is_read': 1}, where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'app_notifications',
+      {'is_read': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // ─── Transport Orders persistence ───────────────────────────────────────
@@ -705,7 +825,11 @@ class LocalDbService {
     final db = await database;
     final batch = db.batch();
     for (var order in orders) {
-      batch.insert('transport_orders', order, conflictAlgorithm: ConflictAlgorithm.replace);
+      batch.insert(
+        'transport_orders',
+        order,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     }
     await batch.commit(noResult: true);
   }
@@ -741,19 +865,35 @@ class LocalDbService {
   }
 
   // ─── Comments API ────────────────────────────────────────────────────────
-  
-  Future<void> saveComments(String postId, List<Map<String, dynamic>> comments) async {
+
+  Future<void> saveComments(
+    String postId,
+    List<Map<String, dynamic>> comments,
+  ) async {
     final db = await database;
     final batch = db.batch();
     for (var c in comments) {
-      final prof = c['profiles'] ?? c['user'];
+      final identity = c['metadata']?['identity'] ?? c['identity'];
+      final prof = c['profiles'] ?? c['user'] ?? identity;
+      final userId = c['user_id'] ?? c['author_id'] ?? identity?['user_id'];
       batch.insert('community_comments', {
         'id': c['id'],
         'post_id': postId,
-        'user_id': c['user_id'],
-        'user_name': c['user_name'] ?? prof?['display_name'] ?? prof?['full_name'],
-        'user_avatar': c['user_avatar'] ?? prof?['photo_url'] ?? prof?['avatar_url'],
-        'user_profile_url': c['user_profile_url'] ?? "https://necxa.app/u/${c['user_id']}",
+        'user_id': userId,
+        'user_name':
+            c['user_name'] ??
+            prof?['user_name'] ??
+            prof?['display_name'] ??
+            prof?['full_name'],
+        'user_avatar':
+            c['user_avatar'] ??
+            prof?['user_avatar'] ??
+            prof?['photo_url'] ??
+            prof?['avatar_url'],
+        'user_profile_url':
+            c['user_profile_url'] ??
+            prof?['user_profile_url'] ??
+            "https://necxa.app/u/$userId",
         'content': c['content'],
         'created_at': c['created_at'],
       }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -763,6 +903,11 @@ class LocalDbService {
 
   Future<List<Map<String, dynamic>>> getCachedComments(String postId) async {
     final db = await database;
-    return await db.query('community_comments', where: 'post_id = ?', whereArgs: [postId], orderBy: 'created_at DESC');
+    return await db.query(
+      'community_comments',
+      where: 'post_id = ?',
+      whereArgs: [postId],
+      orderBy: 'created_at DESC',
+    );
   }
 }

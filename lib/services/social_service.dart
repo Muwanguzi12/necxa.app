@@ -852,20 +852,40 @@ class SocialService {
     }
   }
 
-  Future<void> postComment(String postId, String content) async {
+  Future<void> postComment(
+    String postId,
+    String content, {
+    String targetType = 'post',
+  }) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return;
 
     try {
       // 🚀 COMMUNITY V2: NEURAL SYNC (REDIS)
       // Delegating to Edge Function to handle Supabase + Redis + Notifs atomically
-      await client.functions.invoke(
+      final response = await client.functions.invoke(
         'clever-processor',
         body: {
           'action': 'create-comment',
-          'payload': {'post_id': postId, 'content': content},
+          'payload': {
+            'post_id': postId,
+            'content': content,
+            'target_type': targetType,
+          },
         },
       );
+      final responseData = response.data;
+      final succeeded =
+          response.status >= 200 &&
+          response.status < 300 &&
+          responseData is Map &&
+          responseData['success'] == true;
+      if (!succeeded) {
+        final message = responseData is Map
+            ? responseData['error']?.toString()
+            : null;
+        throw StateError(message ?? 'Comment was not accepted');
+      }
 
       // 🚀 OPTIMISTIC UPDATE: Increment local comment count
       final localDb = LocalDbService();
@@ -885,7 +905,10 @@ class SocialService {
   }
 
   /// 🚀 NEURAL PULSE: Fetch comments from Redis/Backend
-  Future<List<Map<String, dynamic>>> fetchComments(String postId) async {
+  Future<List<Map<String, dynamic>>> fetchComments(
+    String postId, {
+    String targetType = 'post',
+  }) async {
     final localDb = LocalDbService();
 
     // 1. serve local cache immediately (Persistent)
@@ -898,13 +921,16 @@ class SocialService {
         'clever-processor',
         body: {
           'action': 'fetch-comments',
-          'payload': {'post_id': postId},
+          'payload': {'post_id': postId, 'target_type': targetType},
         },
       );
 
       if (response.status == 200 && response.data != null) {
         final List<dynamic> raw = response.data['data'] ?? [];
-        final comments = raw.cast<Map<String, dynamic>>();
+        final comments = raw
+            .whereType<Map>()
+            .map((comment) => Map<String, dynamic>.from(comment))
+            .toList();
 
         // 2. Persist to Local DB
         await localDb.saveComments(postId, comments);
@@ -913,6 +939,9 @@ class SocialService {
       }
     } catch (e) {
       debugPrint('Fetch Comments Error: $e');
+      if (cached.isEmpty) {
+        rethrow;
+      }
     }
     return cached;
   }

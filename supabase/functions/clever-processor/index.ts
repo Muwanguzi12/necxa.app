@@ -663,9 +663,35 @@ async function handleToggleLike(userId: string, payload: any) {
 /**
  * CREATE-COMMENT: Persistent storage + Redis real-time push.
  */
+async function resolveCommentPostId(targetId: string, targetType: string) {
+  if (targetType !== 'listing') return { postId: targetId, error: null };
+
+  const { data, error } = await supabase
+    .from('community_posts')
+    .select('id')
+    .eq('listing_id', targetId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return { postId: null, error: error.message };
+  if (!data?.id) {
+    return {
+      postId: null,
+      error: 'This listing does not have a community discussion yet',
+    };
+  }
+  return { postId: data.id as string, error: null };
+}
+
 async function handleCreateComment(userId: string, payload: any) {
   const { post_id, content, target_type = 'post' } = payload;
-  if (!post_id || !content) return err("post_id and content required");
+  const cleanContent = typeof content === 'string' ? content.trim() : '';
+  if (!post_id || !cleanContent) return err("post_id and content required");
+  if (cleanContent.length > 2000) return err("Comment is too long");
+  const resolved = await resolveCommentPostId(post_id, target_type);
+  if (!resolved.postId) return err(resolved.error ?? 'Discussion unavailable');
+  const storagePostId = resolved.postId;
 
   // 1. Fetch profile to denormalize identity
   const { data: profile } = await supabase
@@ -683,28 +709,56 @@ async function handleCreateComment(userId: string, payload: any) {
   };
 
   // 2. Supabase Persistence
-  const { data: comment, error } = await supabase
+  let { data: comment, error } = await supabase
     .from('community_comments')
-    .insert({ 
-      post_id, 
-      author_id: userId, 
-      content,
-      metadata: { identity } // Persist full identity snapshot
+    .insert({
+      post_id: storagePostId,
+      user_id: userId,
+      content: cleanContent,
     })
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url)')
+    .select('*')
     .single();
 
+  // April's schema rebuild renamed author_id to user_id. Keep a narrow fallback
+  // so projects that have not applied that migration can still accept comments.
+  const missingUserIdColumn =
+    error &&
+    (error.code === '42703' || error.code === 'PGRST204') &&
+    error.message.includes('user_id');
+  if (missingUserIdColumn) {
+    const legacyInsert = await supabase
+      .from('community_comments')
+      .insert({
+        post_id: storagePostId,
+        author_id: userId,
+        content: cleanContent,
+      })
+      .select('*')
+      .single();
+    comment = legacyInsert.data;
+    error = legacyInsert.error;
+  }
+
   if (error) return err(`Comment failed: ${error.message}`);
+  if (!comment) return err('Comment was not saved');
+  const normalizedComment = {
+    ...comment,
+    user_id: comment.user_id ?? comment.author_id ?? userId,
+    metadata: { identity },
+    identity,
+  };
 
   const redis = await getRedis();
   if (redis) {
     try {
       // 3. Push to Redis Comment Stream
-      await redis.lpush(`comments:${post_id}`, JSON.stringify({ ...comment, identity }));
-      await redis.ltrim(`comments:${post_id}`, 0, 99); // Keep last 100
+      await redis.lpush(`comments:${storagePostId}`, JSON.stringify(normalizedComment));
+      await redis.ltrim(`comments:${storagePostId}`, 0, 99); // Keep last 100
 
       // 4. Increment Post Comment Count
-      const postKey = target_type === 'listing' ? `listing:${post_id}` : `post:${post_id}`;
+      const postKey = target_type === 'listing'
+        ? `listing:${post_id}`
+        : `post:${storagePostId}`;
       const postStr = await redis.get(postKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
@@ -717,7 +771,7 @@ async function handleCreateComment(userId: string, payload: any) {
         type: 'comment',
         target_id: post_id,
         actor_id: userId,
-        metadata: { snippet: content.substring(0, 50), identity }
+        metadata: { snippet: cleanContent.substring(0, 50), identity }
       });
     } catch (e) {
       console.error("REDIS Comment Sync Error:", e);
@@ -729,7 +783,7 @@ async function handleCreateComment(userId: string, payload: any) {
       entityType: target_type === "listing" ? "product" : "post",
       entityId: post_id,
       userId,
-      text: content,
+      text: cleanContent,
       sourceId: String(comment.id),
       createdAt: comment.created_at,
     })
@@ -737,7 +791,7 @@ async function handleCreateComment(userId: string, payload: any) {
     console.error("Mongo engagement comment mirror failed:", e)
   }
 
-  return json({ success: true, data: { ...comment, identity } });
+  return json({ success: true, data: normalizedComment });
 }
 
 /**
@@ -799,15 +853,21 @@ async function handleFetchReviews(payload: any) {
  * FETCH-COMMENTS: High-speed retrieval from Redis.
  */
 async function handleFetchComments(payload: any) {
-  const { post_id } = payload;
+  const { post_id, target_type = 'post' } = payload;
   if (!post_id) return err("post_id required");
+  const resolved = await resolveCommentPostId(post_id, target_type);
+  if (!resolved.postId) return err(resolved.error ?? 'Discussion unavailable');
+  const storagePostId = resolved.postId;
 
   const redis = await getRedis();
   if (redis) {
     try {
-      const raw = await redis.lrange(`comments:${post_id}`, 0, 49) as string[];
+      const raw = await redis.lrange(`comments:${storagePostId}`, 0, 49) as unknown[];
       if (raw.length > 0) {
-        return json({ success: true, data: raw.map(r => JSON.parse(r)), source: 'redis' });
+        const cached = raw.map((entry) =>
+          typeof entry === 'string' ? JSON.parse(entry) : entry
+        );
+        return json({ success: true, data: cached, source: 'redis' });
       }
     } catch (e) {}
   }
@@ -815,13 +875,47 @@ async function handleFetchComments(payload: any) {
   // Fallback to Supabase
   const { data, error } = await supabase
     .from('community_comments')
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url)')
-    .eq('post_id', post_id)
+    .select('*')
+    .eq('post_id', storagePostId)
     .order('created_at', { ascending: false })
     .limit(50);
 
   if (error) return err(error.message);
-  return json({ success: true, data, source: 'supabase' });
+
+  const comments = data ?? [];
+  const userIds = [...new Set(
+    comments
+      .map((comment: any) => comment.user_id ?? comment.author_id)
+      .filter(Boolean)
+  )];
+  const { data: profiles } = userIds.length === 0
+    ? { data: [] as any[] }
+    : await supabase
+      .from('profiles')
+      .select('id, full_name, avatar_url, trust_score_tier')
+      .in('id', userIds);
+  const profilesById = new Map(
+    (profiles ?? []).map((profile: any) => [profile.id, profile])
+  );
+  const normalized = comments.map((comment: any) => {
+    const commentUserId = comment.user_id ?? comment.author_id;
+    const profile = profilesById.get(commentUserId);
+    const identity = {
+      user_id: commentUserId,
+      user_name: profile?.full_name || 'User',
+      user_avatar: toStorageCdnUrl(profile?.avatar_url),
+      user_profile_url: `https://necxa.app/u/${commentUserId}`,
+      is_verified: profile?.trust_score_tier === 'titan_trust' ||
+        profile?.trust_score_tier === 'verified',
+    };
+    return {
+      ...comment,
+      user_id: commentUserId,
+      metadata: { ...(comment.metadata ?? {}), identity },
+      identity,
+    };
+  });
+  return json({ success: true, data: normalized, source: 'supabase' });
 }
 
 /**
