@@ -187,7 +187,7 @@ async function recordLedgerEntry(userId, { type, amount, currency, direction, me
       }, {
         headers: {
           'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`
+          'Authorization': `Bearer ${supabaseKey}`,
           'Content-Type': 'application/json',
           'Prefer': 'return=minimal'
         }
@@ -593,87 +593,6 @@ exports.unlockFeature = functions.https.onCall(async (data, context) => {
 // ═══════════════════════════════════════════════════════════════════════════
 // VAULT FUNCTIONS (existing)
 // ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * purchaseCoins
- * The single, unified entry point for buying NCX coins.
- * Supports internal fiat balance and external providers.
- */
-exports.purchaseCoins = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "User must be logged in.");
-
-  const userId = context.auth.uid;
-  const userEmail = context.auth.token.email;
-  const { method, packId, fiatAmount } = data;
-
-  if (!method || !packId) {
-    throw new functions.https.HttpsError("invalid-argument", "Missing 'method' and 'packId'.");
-  }
-
-  // 1. Fetch coin pack details from Firestore
-  const packDoc = await db.collection("coin_packs").doc(packId).get();
-  if (!packDoc.exists) throw new functions.https.HttpsError("not-found", "Pack not found.");
-  const { ncx_amount, fiat_price, currency = "UGX", name: packName } = packDoc.data();
-
-  // --- METHOD 1: Use Fiat Balance ---
-  if (method === 'FIAT_BALANCE') {
-    return await db.runTransaction(async (tx) => {
-      const walletRef = db.collection("wallets").doc(userId);
-      const walletDoc = await tx.get(walletRef);
-
-      if (!walletDoc.exists) {
-        throw new functions.https.HttpsError("not-found", "User wallet not found.");
-      }
-
-      const currentFiatBalance = walletDoc.data().fiat_balance || 0;
-      if (currentFiatBalance < fiat_price) {
-        throw new functions.https.HttpsError("resource-exhausted", `Insufficient fiat balance. Have: ${currentFiatBalance}, Need: ${fiat_price}`);
-      }
-
-      // Atomically debit fiat and credit coins
-      tx.update(walletRef, {
-        fiat_balance: admin.firestore.FieldValue.increment(-fiat_price),
-        coin_balance: admin.firestore.FieldValue.increment(ncx_amount)
-      });
-
-      // Record ledger entries for the internal transfer
-      await recordLedgerEntry(userId, {
-        type: "withdraw_fiat", // Represents fiat leaving the main balance
-        amount: fiat_price,
-        currency: currency,
-        direction: "out",
-        metadata: { reason: "Conversion to NCX", pack_id: packId }
-      }, tx);
-      
-      await recordLedgerEntry(userId, {
-        type: "buy_coins", // Represents coins entering the balance
-        amount: ncx_amount,
-        currency: "NCX",
-        direction: "in",
-        metadata: { source: "fiat_balance", pack_id: packId, fiat_cost: fiat_price }
-      }, tx);
-
-      const newCoinBalance = (walletDoc.data().coin_balance || 0) + ncx_amount;
-
-      // Send email receipt (outside transaction, fire-and-forget)
-      sendPurchaseReceiptEmail(userEmail, {
-        tx_id: `FIAT-${Date.now()}`, date: new Date().toUTCString(), description: `Purchase of ${packName || 'Coin Pack'}`,
-        amount_ncx: ncx_amount, amount_fiat: fiat_price, currency: currency, method: "Fiat Balance", new_balance_ncx: newCoinBalance
-      }).catch(e => console.error("Email sending failed:", e));
-
-      return { success: true, message: `Successfully purchased ${ncx_amount} NCX.`, newCoinBalance };
-    });
-  }
-
-  // --- METHOD 2: Use Pesapal (or other external provider) ---
-  if (method === 'PESAPAL') {
-    // This simply calls the existing Pesapal initiation function.
-    // The actual coin credit happens in the webhook.
-    return await exports.initiatePesapalPayment(data, context);
-  }
-
-  throw new functions.https.HttpsError("invalid-argument", `Payment method '${method}' is not supported.`);
-});
 
 exports.liquidateCoins = functions.https.onCall(async (data, context) => {
   if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "User must be logged in.");
@@ -1379,7 +1298,7 @@ async function getOrRegisterIPN(token) {
     ipn_notification_type: "POST"
   }, {
     headers: {
-      'Authorization': `Bearer ${token}`
+      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     }
@@ -1437,7 +1356,7 @@ exports.initiatePesapalPayment = require("firebase-functions/v1").runWith(pesapa
 
     const response = await axios.post(`${PESAPAL_BASE_URL}/api/Transactions/SubmitOrderRequest`, orderData, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       }
@@ -1495,7 +1414,7 @@ exports.pesapalWebhook = require("firebase-functions/v1").runWith(pesapalConfig)
     // Check status with Pesapal
     const statusRes = await axios.get(`${PESAPAL_BASE_URL}/api/Transactions/GetTransactionStatus?orderTrackingId=${orderTrackingId}`, {
       headers: {
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
         'Accept': 'application/json'
       }
     });
@@ -1529,45 +1448,7 @@ exports.pesapalWebhook = require("firebase-functions/v1").runWith(pesapalConfig)
       const orderData = orderDoc.data();
       const userId = orderData.user_id;
 
-      if (orderData.type === "buy_coins" && orderData.pack_id) {
-        // Find pack
-        const packDoc = await db.collection("coin_packs").doc(orderData.pack_id).get();
-        if (!packDoc.exists) {
-          console.error(`Webhook Error: Coin pack ${orderData.pack_id} not found for order ${orderMerchantReference}.`);
-        } else {
-          const { ncx_amount, fiat_price, currency = "UGX", name: packName } = packDoc.data();
-
-          // Use a Firestore transaction to credit the coins
-          await db.runTransaction(async (tx) => {
-            const walletRef = db.collection("wallets").doc(userId);
-            
-            // Credit coins
-            tx.set(walletRef, {
-              coin_balance: admin.firestore.FieldValue.increment(ncx_amount)
-            }, { merge: true });
-
-            // Record ledger entry
-            await recordLedgerEntry(userId, {
-              type: "buy_coins",
-              amount: ncx_amount,
-              currency: "NCX",
-              direction: "in",
-              reference_id: orderMerchantReference,
-              metadata: { method: "pesapal", tracking_id: orderTrackingId, pack_id: orderData.pack_id, fiat_paid: fiat_price }
-            }, tx);
-          });
-
-          // Send email receipt (fire and forget)
-          const userDoc = await admin.auth().getUser(userId);
-          const walletSnap = await db.collection("wallets").doc(userId).get();
-          const newCoinBalance = walletSnap.exists ? walletSnap.data().coin_balance : ncx_amount;
-
-          sendPurchaseReceiptEmail(userDoc.email, {
-            tx_id: orderTrackingId, date: new Date().toUTCString(), description: `Purchase of ${packName || 'Coin Pack'}`,
-            amount_ncx: ncx_amount, amount_fiat: fiat_price, currency: currency, method: "Pesapal", new_balance_ncx: newCoinBalance
-          }).catch(e => console.error("Email sending failed in webhook:", e));
-        }
-      } else if (orderData.type === "wallet_topup") {
+      if (orderData.type === "wallet_topup") {
         const ugxAmount = orderData.amount;
         // This part needs a new Supabase function: `credit_fiat`
         // For now, we will log an error as it's not implemented yet.
@@ -1704,7 +1585,7 @@ async function disburseViaPesapal(token, { amount, accountNumber, recipientName,
 
   const response = await axios.post(DISBURSEMENT_URL, payload, {
     headers: {
-      'Authorization': `Bearer ${token}`
+      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json'
     }

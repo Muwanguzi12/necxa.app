@@ -1,0 +1,63 @@
+name: Engagement Service CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/engagement-service/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd services/engagement-service
+          npm ci --no-audit --no-fund
+
+      - name: Build (TypeScript)
+        run: |
+          cd services/engagement-service
+          npm run build
+
+      - name: Run tests
+        run: |
+          cd services/engagement-service
+          npm test
+
+  mongo-smoke:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      MONGO_DB_NAME: ${{ secrets.MONGO_ENGAGEMENT_DB }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/engagement-service/package-lock.json
+
+      - name: Install and build
+        working-directory: services/engagement-service
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Probe Mongo and create indexes
+        working-directory: services/engagement-service
+        run: npm run ci:mongo-check

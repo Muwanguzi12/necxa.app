@@ -3,7 +3,6 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  agora_rtc_engine
   app_links
   audioplayers_windows
   cloud_firestore
@@ -11,8 +10,9 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   firebase_auth
   firebase_core
+  flutter_webrtc
   geolocator_windows
-  iris_method_channel
+  livekit_client
   local_auth_windows
   permission_handler_windows
   record_windows

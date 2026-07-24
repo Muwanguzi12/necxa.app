@@ -33,105 +33,8 @@ jobs:
     - name: Enable Windows Desktop
       run: flutter config --enable-windows-desktop
 
-    # Run pub get first so Flutter creates the plugin symlinks
     - name: Get dependencies
       run: flutter pub get
-
-    # The cmake DownloadSDK.cmake checks if the zip already exists before downloading.
-    # We resolve the agora symlink → real pub-cache path, then pre-download both zips there
-    # so CMake finds them and skips its own network call entirely.
-    - name: Pre-download Agora SDKs into pub-cache
-      shell: pwsh
-      run: |
-        # This script dynamically finds the Agora plugin version and parses its CMakeLists.txt
-        # to get the correct SDK download URLs. This avoids build failures when the plugin
-        # is updated and the hardcoded URLs in the workflow become stale.
-
-        # 1. Find the plugin directory (robustly)
-        $pluginDir = ""
-        $symlinkPath = "windows\flutter\ephemeral\.plugin_symlinks\agora_rtc_engine"
-        if (Test-Path $symlinkPath) {
-            try {
-                $pluginDir = (Get-Item $symlinkPath -Force).Target
-                Write-Host "Resolved agora plugin dir from symlink: $pluginDir"
-            } catch {
-                Write-Host "Symlink found but failed to resolve target. Will search cache."
-            }
-        }
-
-        if (-not $pluginDir) {
-            Write-Host "Symlink not found or failed to resolve. Searching pub cache..."
-            $pubCachePath = "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev"
-            $pluginDir = Get-ChildItem -Path $pubCachePath -Directory -Filter "agora_rtc_engine-*" | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
-        }
-
-        if (-not $pluginDir) {
-            Write-Host "FATAL: Could not find agora_rtc_engine directory in pub cache."
-            exit 1
-        }
-        Write-Host "Using Agora plugin directory: $pluginDir"
-
-        # 2. Read the Agora download manifest to get dynamic URLs
-        $cmakeFile = Join-Path $pluginDir 'windows\cmake\DownloadSDK.cmake'
-        if (-not (Test-Path $cmakeFile)) {
-            Write-Host "FATAL: DownloadSDK.cmake not found at $cmakeFile"
-            exit 1
-        }
-        $cmakeContent = Get-Content $cmakeFile -Raw
-
-        # 3. Helper function to extract SDK url variables from DownloadSDK.cmake
-        function Get-SdkInfo($varName, $content) {
-            foreach ($line in $content -split "`r?`n") {
-                if ($line -match "^\s*set\s*\(\s*$([regex]::Escape($varName))\s*\"([^\"]+)\"\s*\)") {
-                    $url = $Matches[1]
-                    $fileName = $url.Split('/')[-1]
-                    return @{ Url = $url; FileName = $fileName }
-                }
-            }
-            return $null
-        }
-
-        $irisInfo = Get-SdkInfo 'IRIS_SDK_DOWNLOAD_URL' $cmakeContent
-        $nativeInfo = Get-SdkInfo 'NATIVE_SDK_DOWNLOAD_URL' $cmakeContent
-
-        if (-not $irisInfo) {
-            Write-Host "FATAL: Could not extract Iris SDK URL from DownloadSDK.cmake"
-            exit 1
-        }
-        if (-not $nativeInfo) {
-            Write-Host "FATAL: Could not extract Native SDK URL from DownloadSDK.cmake"
-            exit 1
-        }
-
-        # 4. Helper function to download with retries
-        function Download-WithRetry($url, $dest) {
-          $dir = Split-Path $dest -Parent
-          New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          for ($i = 1; $i -le 3; $i++) {
-            try {
-              Write-Host "  Attempt $i : Downloading $url"
-              Invoke-WebRequest -Uri $url -OutFile $dest -TimeoutSec 900 # Increased timeout
-              $mb = [math]::Round((Get-Item $dest).Length / 1MB, 1)
-              Write-Host "  Success: Downloaded $mb MB to $dest"
-              return
-            } catch {
-              Write-Host "  Attempt $i failed: $_"
-              if ($i -eq 3) { throw }
-              Start-Sleep -Seconds 20
-            }
-          }
-        }
-
-        # 5. Download the SDKs using the dynamic info
-        Write-Host "Downloading Iris SDK..."
-        $irisDest = "$pluginDir\windows\third_party\iris\$($irisInfo.FileName)"
-        Download-WithRetry $irisInfo.Url $irisDest
-
-        Write-Host "Downloading Native SDK..."
-        $nativeDest = "$pluginDir\windows\third_party\native\$($nativeInfo.FileName)"
-        Download-WithRetry $nativeInfo.Url $nativeDest
-
-        Write-Host "All Agora SDKs pre-downloaded successfully."
 
     - name: Build Windows Release
       run: flutter build windows --release
@@ -142,12 +45,12 @@ jobs:
       run: |
         $pubspec = Get-Content pubspec.yaml -Raw
         if ($pubspec -match '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)') {
-            $ver = $matches[1]
-            Write-Host "Found version: $ver"
-            echo "version=$ver" >> $env:GITHUB_OUTPUT
+          $ver = $matches[1]
+          Write-Host "Found version: $ver"
+          echo "version=$ver" >> $env:GITHUB_OUTPUT
         } else {
-            Write-Host "Could not parse version. Defaulting to 1.0.0"
-            echo "version=1.0.0" >> $env:GITHUB_OUTPUT
+          Write-Host "Could not parse version. Defaulting to 1.0.0"
+          echo "version=1.0.0" >> $env:GITHUB_OUTPUT
         }
 
     - name: Install Inno Setup
@@ -170,7 +73,6 @@ jobs:
     - name: Archive Windows Installer
       uses: actions/upload-artifact@v4
       with:
-        # The artifact will now be a single, easy-to-distribute installer file.
         name: necxa-windows-installer
         path: build/windows/installer/*.exe
         retention-days: 30

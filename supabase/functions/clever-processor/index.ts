@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { mirrorEntityComment, mirrorEntityLike } from "../_shared/engagement_mongo.ts"
 
 // ============================================
 // CLEVER-PROCESSOR — Neural Feed & Viral Loop
@@ -192,7 +193,52 @@ async function handleFetchFeed(payload: any = {}) {
 /**
  * FETCH-SHOP-FEED: Discovery logic for commercial listings.
  */
-async function handleFetchShopFeed(payload: any = {}) {
+async function hydrateListingEngagement(listings: any[], userId: string) {
+  const listingIds = listings.map((listing) => listing.id).filter(Boolean);
+  if (listingIds.length === 0) return listings;
+
+  const { data: posts, error: postsError } = await supabase
+    .from('community_posts')
+    .select('id, listing_id, likes_count, comments_count')
+    .in('listing_id', listingIds);
+  if (postsError || !posts) {
+    if (postsError) console.error("Shop engagement hydration failed:", postsError);
+    return listings;
+  }
+
+  const postIds = posts.map((post) => post.id);
+  const { data: likes, error: likesError } = postIds.length === 0
+    ? { data: [] as any[], error: null }
+    : await supabase
+      .from('community_likes')
+      .select('post_id')
+      .eq('user_id', userId)
+      .in('post_id', postIds);
+  if (likesError) console.error("Shop liked-state hydration failed:", likesError);
+
+  const likedPostIds = new Set((likes ?? []).map((like) => like.post_id));
+  const engagementByListing = new Map(
+    posts.map((post) => [
+      post.listing_id,
+      {
+        likes_count: post.likes_count ?? 0,
+        comments_count: post.comments_count ?? 0,
+        is_liked: likedPostIds.has(post.id),
+      },
+    ]),
+  );
+
+  return listings.map((listing) => ({
+    ...listing,
+    ...(engagementByListing.get(listing.id) ?? {
+      likes_count: 0,
+      comments_count: 0,
+      is_liked: false,
+    }),
+  }));
+}
+
+async function handleFetchShopFeed(userId: string, payload: any = {}) {
   const redis = await getRedis();
   const category = payload.category;
   const sinceTime = payload.since_time;
@@ -210,7 +256,8 @@ async function handleFetchShopFeed(payload: any = {}) {
         
         if (validListings.length > 0) {
           console.log(`REDIS: Found ${validListings.length} shop listings in cache (${feedKey})`);
-          return json({ success: true, data: validListings, source: 'redis' });
+          const hydrated = await hydrateListingEngagement(validListings, userId);
+          return json({ success: true, data: hydrated, source: 'redis' });
         }
       }
     } catch (e) {
@@ -264,7 +311,8 @@ async function handleFetchShopFeed(payload: any = {}) {
     }
   }
 
-  return json({ success: true, data: listings, source: 'supabase' });
+  const hydrated = await hydrateListingEngagement(listings, userId);
+  return json({ success: true, data: hydrated, source: 'supabase' });
 }
 
 /**
@@ -359,8 +407,28 @@ async function handleCreateListing(userId: string, payload: any) {
     title, description, price, media_url, media_type, 
     category, is_verified, ai_verification, photos, 
     thumbnail_url, music_track_id, audio_url, tags,
-    ai_score, ai_description
+    ai_score, ai_description, sku, stock_count,
+    weight_kg, length_cm, width_cm, height_cm, latitude, longitude
   } = payload;
+
+  const listingAiApproved = ai_verification?.verified === true || ai_verification?.result?.verified === true;
+  if (is_verified !== true || !listingAiApproved) {
+    return err('AI verification is required before publishing a listing', 400);
+  }
+
+  const normalizedSku = String(sku || '').trim().toUpperCase();
+  if (!/^\d{4}[A-Z]{3}$/.test(normalizedSku)) {
+    return err('SKU is required and must contain 4 digits followed by 3 letters', 400);
+  }
+  const measurements = [weight_kg, length_cm, width_cm, height_cm].map(Number);
+  if (measurements.some((value) => !Number.isFinite(value) || value <= 0)) {
+    return err('Positive weight and package dimensions are required', 400);
+  }
+  const pickupLatitude = Number(latitude);
+  const pickupLongitude = Number(longitude);
+  if (!Number.isFinite(pickupLatitude) || !Number.isFinite(pickupLongitude) || Math.abs(pickupLatitude) > 90 || Math.abs(pickupLongitude) > 180) {
+    return err('A valid pickup location is required', 400);
+  }
 
   const { data: listing, error } = await supabase
     .from('listings')
@@ -383,11 +451,17 @@ async function handleCreateListing(userId: string, payload: any) {
       ai_description: ai_description ?? ai_verification?.description ?? null,
       is_verified: is_verified || false,
       film_hub_content: media_url,
-      sku: payload.sku || `SKU-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-      stock_count: payload.stock_count || 999,
+      sku: normalizedSku,
+      stock_count: stock_count ?? 999,
+      weight_kg: measurements[0],
+      length_cm: measurements[1],
+      width_cm: measurements[2],
+      height_cm: measurements[3],
+      latitude: pickupLatitude,
+      longitude: pickupLongitude,
       status: 'active' 
     })
-    .select('*, profiles:lister_id(display_name:full_name, photo_url:avatar_url)')
+    .select()
     .single();
 
   if (error) return err(`Listing creation failed: ${error.message}`);
@@ -521,8 +595,14 @@ async function handleCreatePost(userId: string, payload: any) {
     title, content, media_url, media_type, thumbnail_url, 
     hls_url, dash_url, audio_url, music_track_id, 
     visibility, tags, creator_mode, gallery_urls, 
-    editing_metadata, artist_metadata 
+    editing_metadata, artist_metadata, media_asset_id,
+    is_fast_sync, is_verified, ai_verification
   } = payload;
+
+  const postAiApproved = ai_verification?.verified === true || ai_verification?.result?.verified === true;
+  if (is_verified !== true || !postAiApproved) {
+    return err('AI verification is required before publishing a post', 400);
+  }
   
   // 2. Insert into Supabase
   const { data: rawPost, error } = await supabase
@@ -538,17 +618,20 @@ async function handleCreatePost(userId: string, payload: any) {
       dash_url,
       audio_url,
       music_track_id,
+      media_asset_id,
       tags: tags || [],
       status: 'verified',
       visibility: visibility || 'public',
       metadata: {
         creator_mode: creator_mode || 'unified',
         gallery_urls: gallery_urls || [],
+        is_fast_sync: is_fast_sync === true,
         editing: editing_metadata || {},
-        artist: artist_metadata || {}
+        artist: artist_metadata || {},
+        ai_verification
       }
     })
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')
+    .select()
     .single();
 
   if (error) return err(`Post creation failed: ${error.message}`);
@@ -576,38 +659,67 @@ async function handleCreatePost(userId: string, payload: any) {
  * TOGGLE-LIKE: Atomic social interaction with Redis cache invalidation.
  */
 async function handleToggleLike(userId: string, payload: any) {
-  const postId = payload.post_id;
-  if (!postId) return err("post_id required");
+  const targetId = payload.post_id;
+  const targetType = payload.target_type ?? 'post';
+  if (!targetId) return err("post_id required");
+  const resolved = await resolveCommentPostId(targetId, targetType);
+  if (!resolved.postId) return err(resolved.error ?? 'Like target unavailable');
+  const postId = resolved.postId;
 
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('community_likes')
-    .select()
+    .select('id')
     .match({ post_id: postId, user_id: userId })
     .maybeSingle();
+  if (lookupError) return err(`Like lookup failed: ${lookupError.message}`, 500);
 
   const redis = await getRedis();
   let action = '';
 
   if (existing) {
-    await supabase.from('community_likes').delete().match({ post_id: postId, user_id: userId });
+    const { error: deleteError } = await supabase
+      .from('community_likes')
+      .delete()
+      .match({ post_id: postId, user_id: userId });
+    if (deleteError) return err(`Unlike failed: ${deleteError.message}`, 500);
     action = 'unliked';
   } else {
-    await supabase.from('community_likes').insert({ post_id: postId, user_id: userId });
+    const { error: insertError } = await supabase
+      .from('community_likes')
+      .insert({ post_id: postId, user_id: userId });
+    if (insertError) return err(`Like failed: ${insertError.message}`, 500);
     action = 'liked';
   }
 
   // 🚀 SYNC REDIS: Update post metrics in cache
   if (redis) {
     try {
-      const postStr = await redis.get(`post:${postId}`);
+      const cacheKey = targetType === 'listing'
+        ? `listing:${targetId}`
+        : `post:${postId}`;
+      const postStr = await redis.get(cacheKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
-        post.likes_count = (post.likes_count || 0) + (action === 'liked' ? 1 : -1);
-        await redis.set(`post:${postId}`, post, { ex: 3600 });
+        post.likes_count = Math.max(
+          0,
+          (post.likes_count || 0) + (action === 'liked' ? 1 : -1),
+        );
+        await redis.set(cacheKey, post, { ex: 3600 });
       }
     } catch (e) {
       console.error("REDIS Like Sync Error:", e);
     }
+  }
+
+  try {
+    await mirrorEntityLike({
+      entityType: targetType === "listing" ? "product" : "post",
+      entityId: targetId,
+      userId,
+      liked: action === "liked",
+    })
+  } catch (e) {
+    console.error("Mongo engagement like mirror failed:", e)
   }
 
   return json({ success: true, action });
@@ -616,9 +728,35 @@ async function handleToggleLike(userId: string, payload: any) {
 /**
  * CREATE-COMMENT: Persistent storage + Redis real-time push.
  */
+async function resolveCommentPostId(targetId: string, targetType: string) {
+  if (targetType !== 'listing') return { postId: targetId, error: null };
+
+  const { data, error } = await supabase
+    .from('community_posts')
+    .select('id')
+    .eq('listing_id', targetId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return { postId: null, error: error.message };
+  if (!data?.id) {
+    return {
+      postId: null,
+      error: 'This listing does not have a community discussion yet',
+    };
+  }
+  return { postId: data.id as string, error: null };
+}
+
 async function handleCreateComment(userId: string, payload: any) {
   const { post_id, content, target_type = 'post' } = payload;
-  if (!post_id || !content) return err("post_id and content required");
+  const cleanContent = typeof content === 'string' ? content.trim() : '';
+  if (!post_id || !cleanContent) return err("post_id and content required");
+  if (cleanContent.length > 2000) return err("Comment is too long");
+  const resolved = await resolveCommentPostId(post_id, target_type);
+  if (!resolved.postId) return err(resolved.error ?? 'Discussion unavailable');
+  const storagePostId = resolved.postId;
 
   // 1. Fetch profile to denormalize identity
   const { data: profile } = await supabase
@@ -636,28 +774,56 @@ async function handleCreateComment(userId: string, payload: any) {
   };
 
   // 2. Supabase Persistence
-  const { data: comment, error } = await supabase
+  let { data: comment, error } = await supabase
     .from('community_comments')
-    .insert({ 
-      post_id, 
-      author_id: userId, 
-      content,
-      metadata: { identity } // Persist full identity snapshot
+    .insert({
+      post_id: storagePostId,
+      user_id: userId,
+      content: cleanContent,
     })
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url)')
+    .select('*')
     .single();
 
+  // April's schema rebuild renamed author_id to user_id. Keep a narrow fallback
+  // so projects that have not applied that migration can still accept comments.
+  const missingUserIdColumn =
+    error &&
+    (error.code === '42703' || error.code === 'PGRST204') &&
+    error.message.includes('user_id');
+  if (missingUserIdColumn) {
+    const legacyInsert = await supabase
+      .from('community_comments')
+      .insert({
+        post_id: storagePostId,
+        author_id: userId,
+        content: cleanContent,
+      })
+      .select('*')
+      .single();
+    comment = legacyInsert.data;
+    error = legacyInsert.error;
+  }
+
   if (error) return err(`Comment failed: ${error.message}`);
+  if (!comment) return err('Comment was not saved');
+  const normalizedComment = {
+    ...comment,
+    user_id: comment.user_id ?? comment.author_id ?? userId,
+    metadata: { identity },
+    identity,
+  };
 
   const redis = await getRedis();
   if (redis) {
     try {
       // 3. Push to Redis Comment Stream
-      await redis.lpush(`comments:${post_id}`, JSON.stringify({ ...comment, identity }));
-      await redis.ltrim(`comments:${post_id}`, 0, 99); // Keep last 100
+      await redis.lpush(`comments:${storagePostId}`, JSON.stringify(normalizedComment));
+      await redis.ltrim(`comments:${storagePostId}`, 0, 99); // Keep last 100
 
       // 4. Increment Post Comment Count
-      const postKey = target_type === 'listing' ? `listing:${post_id}` : `post:${post_id}`;
+      const postKey = target_type === 'listing'
+        ? `listing:${post_id}`
+        : `post:${storagePostId}`;
       const postStr = await redis.get(postKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
@@ -670,14 +836,27 @@ async function handleCreateComment(userId: string, payload: any) {
         type: 'comment',
         target_id: post_id,
         actor_id: userId,
-        metadata: { snippet: content.substring(0, 50), identity }
+        metadata: { snippet: cleanContent.substring(0, 50), identity }
       });
     } catch (e) {
       console.error("REDIS Comment Sync Error:", e);
     }
   }
 
-  return json({ success: true, data: { ...comment, identity } });
+  try {
+    await mirrorEntityComment({
+      entityType: target_type === "listing" ? "product" : "post",
+      entityId: post_id,
+      userId,
+      text: cleanContent,
+      sourceId: String(comment.id),
+      createdAt: comment.created_at,
+    })
+  } catch (e) {
+    console.error("Mongo engagement comment mirror failed:", e)
+  }
+
+  return json({ success: true, data: normalizedComment });
 }
 
 /**
@@ -739,15 +918,21 @@ async function handleFetchReviews(payload: any) {
  * FETCH-COMMENTS: High-speed retrieval from Redis.
  */
 async function handleFetchComments(payload: any) {
-  const { post_id } = payload;
+  const { post_id, target_type = 'post' } = payload;
   if (!post_id) return err("post_id required");
+  const resolved = await resolveCommentPostId(post_id, target_type);
+  if (!resolved.postId) return err(resolved.error ?? 'Discussion unavailable');
+  const storagePostId = resolved.postId;
 
   const redis = await getRedis();
   if (redis) {
     try {
-      const raw = await redis.lrange(`comments:${post_id}`, 0, 49) as string[];
+      const raw = await redis.lrange(`comments:${storagePostId}`, 0, 49) as unknown[];
       if (raw.length > 0) {
-        return json({ success: true, data: raw.map(r => JSON.parse(r)), source: 'redis' });
+        const cached = raw.map((entry) =>
+          typeof entry === 'string' ? JSON.parse(entry) : entry
+        );
+        return json({ success: true, data: cached, source: 'redis' });
       }
     } catch (e) {}
   }
@@ -755,13 +940,47 @@ async function handleFetchComments(payload: any) {
   // Fallback to Supabase
   const { data, error } = await supabase
     .from('community_comments')
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url)')
-    .eq('post_id', post_id)
+    .select('*')
+    .eq('post_id', storagePostId)
     .order('created_at', { ascending: false })
     .limit(50);
 
   if (error) return err(error.message);
-  return json({ success: true, data, source: 'supabase' });
+
+  const comments = data ?? [];
+  const userIds = [...new Set(
+    comments
+      .map((comment: any) => comment.user_id ?? comment.author_id)
+      .filter(Boolean)
+  )];
+  const { data: profiles } = userIds.length === 0
+    ? { data: [] as any[] }
+    : await supabase
+      .from('profiles')
+      .select('id, full_name, avatar_url, trust_score_tier')
+      .in('id', userIds);
+  const profilesById = new Map(
+    (profiles ?? []).map((profile: any) => [profile.id, profile])
+  );
+  const normalized = comments.map((comment: any) => {
+    const commentUserId = comment.user_id ?? comment.author_id;
+    const profile = profilesById.get(commentUserId);
+    const identity = {
+      user_id: commentUserId,
+      user_name: profile?.full_name || 'User',
+      user_avatar: toStorageCdnUrl(profile?.avatar_url),
+      user_profile_url: `https://necxa.app/u/${commentUserId}`,
+      is_verified: profile?.trust_score_tier === 'titan_trust' ||
+        profile?.trust_score_tier === 'verified',
+    };
+    return {
+      ...comment,
+      user_id: commentUserId,
+      metadata: { ...(comment.metadata ?? {}), identity },
+      identity,
+    };
+  });
+  return json({ success: true, data: normalized, source: 'supabase' });
 }
 
 /**
@@ -1119,7 +1338,7 @@ Deno.serve(async (req: Request) => {
       case "create-comment":       return handleCreateComment(userId, payload);
       case "submit-review":        return handleSubmitReview(userId, payload);
       case "fetch-reviews":        return handleFetchReviews(payload);
-      case "fetch-shop-feed":      return handleFetchShopFeed(payload);
+      case "fetch-shop-feed":      return handleFetchShopFeed(userId, payload);
       case "fetch-comments":       return handleFetchComments(payload);
       case "fetch-showcase":       return handleFetchShowcase(payload);
       case "create-listing":       return handleCreateListing(userId, payload);
