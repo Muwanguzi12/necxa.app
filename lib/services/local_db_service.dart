@@ -769,7 +769,7 @@ class LocalDbService {
     await db.insert('social_actions_queue', {
       'action_type': type,
       'post_id': postId,
-      'payload': payload?.toString(),
+      'payload': payload == null ? null : jsonEncode(payload),
       'created_at': DateTime.now().toIso8601String(),
     });
   }

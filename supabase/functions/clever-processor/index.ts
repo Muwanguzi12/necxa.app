@@ -193,7 +193,52 @@ async function handleFetchFeed(payload: any = {}) {
 /**
  * FETCH-SHOP-FEED: Discovery logic for commercial listings.
  */
-async function handleFetchShopFeed(payload: any = {}) {
+async function hydrateListingEngagement(listings: any[], userId: string) {
+  const listingIds = listings.map((listing) => listing.id).filter(Boolean);
+  if (listingIds.length === 0) return listings;
+
+  const { data: posts, error: postsError } = await supabase
+    .from('community_posts')
+    .select('id, listing_id, likes_count, comments_count')
+    .in('listing_id', listingIds);
+  if (postsError || !posts) {
+    if (postsError) console.error("Shop engagement hydration failed:", postsError);
+    return listings;
+  }
+
+  const postIds = posts.map((post) => post.id);
+  const { data: likes, error: likesError } = postIds.length === 0
+    ? { data: [] as any[], error: null }
+    : await supabase
+      .from('community_likes')
+      .select('post_id')
+      .eq('user_id', userId)
+      .in('post_id', postIds);
+  if (likesError) console.error("Shop liked-state hydration failed:", likesError);
+
+  const likedPostIds = new Set((likes ?? []).map((like) => like.post_id));
+  const engagementByListing = new Map(
+    posts.map((post) => [
+      post.listing_id,
+      {
+        likes_count: post.likes_count ?? 0,
+        comments_count: post.comments_count ?? 0,
+        is_liked: likedPostIds.has(post.id),
+      },
+    ]),
+  );
+
+  return listings.map((listing) => ({
+    ...listing,
+    ...(engagementByListing.get(listing.id) ?? {
+      likes_count: 0,
+      comments_count: 0,
+      is_liked: false,
+    }),
+  }));
+}
+
+async function handleFetchShopFeed(userId: string, payload: any = {}) {
   const redis = await getRedis();
   const category = payload.category;
   const sinceTime = payload.since_time;
@@ -211,7 +256,8 @@ async function handleFetchShopFeed(payload: any = {}) {
         
         if (validListings.length > 0) {
           console.log(`REDIS: Found ${validListings.length} shop listings in cache (${feedKey})`);
-          return json({ success: true, data: validListings, source: 'redis' });
+          const hydrated = await hydrateListingEngagement(validListings, userId);
+          return json({ success: true, data: hydrated, source: 'redis' });
         }
       }
     } catch (e) {
@@ -265,7 +311,8 @@ async function handleFetchShopFeed(payload: any = {}) {
     }
   }
 
-  return json({ success: true, data: listings, source: 'supabase' });
+  const hydrated = await hydrateListingEngagement(listings, userId);
+  return json({ success: true, data: hydrated, source: 'supabase' });
 }
 
 /**
@@ -612,34 +659,52 @@ async function handleCreatePost(userId: string, payload: any) {
  * TOGGLE-LIKE: Atomic social interaction with Redis cache invalidation.
  */
 async function handleToggleLike(userId: string, payload: any) {
-  const postId = payload.post_id;
-  if (!postId) return err("post_id required");
+  const targetId = payload.post_id;
+  const targetType = payload.target_type ?? 'post';
+  if (!targetId) return err("post_id required");
+  const resolved = await resolveCommentPostId(targetId, targetType);
+  if (!resolved.postId) return err(resolved.error ?? 'Like target unavailable');
+  const postId = resolved.postId;
 
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('community_likes')
-    .select()
+    .select('id')
     .match({ post_id: postId, user_id: userId })
     .maybeSingle();
+  if (lookupError) return err(`Like lookup failed: ${lookupError.message}`, 500);
 
   const redis = await getRedis();
   let action = '';
 
   if (existing) {
-    await supabase.from('community_likes').delete().match({ post_id: postId, user_id: userId });
+    const { error: deleteError } = await supabase
+      .from('community_likes')
+      .delete()
+      .match({ post_id: postId, user_id: userId });
+    if (deleteError) return err(`Unlike failed: ${deleteError.message}`, 500);
     action = 'unliked';
   } else {
-    await supabase.from('community_likes').insert({ post_id: postId, user_id: userId });
+    const { error: insertError } = await supabase
+      .from('community_likes')
+      .insert({ post_id: postId, user_id: userId });
+    if (insertError) return err(`Like failed: ${insertError.message}`, 500);
     action = 'liked';
   }
 
   // 🚀 SYNC REDIS: Update post metrics in cache
   if (redis) {
     try {
-      const postStr = await redis.get(`post:${postId}`);
+      const cacheKey = targetType === 'listing'
+        ? `listing:${targetId}`
+        : `post:${postId}`;
+      const postStr = await redis.get(cacheKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
-        post.likes_count = (post.likes_count || 0) + (action === 'liked' ? 1 : -1);
-        await redis.set(`post:${postId}`, post, { ex: 3600 });
+        post.likes_count = Math.max(
+          0,
+          (post.likes_count || 0) + (action === 'liked' ? 1 : -1),
+        );
+        await redis.set(cacheKey, post, { ex: 3600 });
       }
     } catch (e) {
       console.error("REDIS Like Sync Error:", e);
@@ -648,8 +713,8 @@ async function handleToggleLike(userId: string, payload: any) {
 
   try {
     await mirrorEntityLike({
-      entityType: "post",
-      entityId: postId,
+      entityType: targetType === "listing" ? "product" : "post",
+      entityId: targetId,
       userId,
       liked: action === "liked",
     })
@@ -1273,7 +1338,7 @@ Deno.serve(async (req: Request) => {
       case "create-comment":       return handleCreateComment(userId, payload);
       case "submit-review":        return handleSubmitReview(userId, payload);
       case "fetch-reviews":        return handleFetchReviews(payload);
-      case "fetch-shop-feed":      return handleFetchShopFeed(payload);
+      case "fetch-shop-feed":      return handleFetchShopFeed(userId, payload);
       case "fetch-comments":       return handleFetchComments(payload);
       case "fetch-showcase":       return handleFetchShowcase(payload);
       case "create-listing":       return handleCreateListing(userId, payload);

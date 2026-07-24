@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -812,7 +814,10 @@ class SocialService {
     }
   }
 
-  Future<void> toggleReaction(String postId) async {
+  Future<void> toggleReaction(
+    String postId, {
+    String targetType = 'post',
+  }) async {
     final localDb = LocalDbService();
     final userId = client.auth.currentUser?.id;
     if (userId == null) return;
@@ -821,18 +826,26 @@ class SocialService {
     await localDb.incrementPostMetric(postId, 'likes_count');
     state.notify(); // 🚀 UI Pulse
 
-    // 2. Queue action for persistence
-    await localDb.queueSocialAction('like', postId);
-
-    // 2. Try to sync immediately
     try {
-      await client.functions.invoke(
+      final response = await client.functions.invoke(
         'clever-processor',
         body: {
           'action': 'toggle-like',
-          'payload': {'post_id': postId},
+          'payload': {'post_id': postId, 'target_type': targetType},
         },
       );
+      final responseData = response.data;
+      final succeeded =
+          response.status >= 200 &&
+          response.status < 300 &&
+          responseData is Map &&
+          responseData['success'] == true;
+      if (!succeeded) {
+        final message = responseData is Map
+            ? responseData['error']?.toString()
+            : null;
+        throw StateError(message ?? 'Reaction was not accepted');
+      }
 
       // 🚀 NOTIFIER SYNC (Local & Remote)
       await dispatchSocialNotification(
@@ -843,6 +856,11 @@ class SocialService {
       );
     } catch (e) {
       debugPrint('Offline Like Queued: $e');
+      await localDb.queueSocialAction(
+        'like',
+        postId,
+        payload: {'target_type': targetType},
+      );
       // Even if offline, we show local feedback if we want "connected" feel
       await _showLocalNotification(
         'like',
@@ -1021,13 +1039,41 @@ class SocialService {
     for (var action in actions) {
       try {
         if (action['action_type'] == 'like') {
-          await client.functions.invoke(
+          var targetType = 'post';
+          final rawPayload = action['payload'];
+          if (rawPayload is! String || rawPayload.isEmpty) {
+            // Older builds queued even successful reactions and stored no
+            // replay metadata. Discard them instead of toggling a like twice.
+            await localDb.removeAction(action['id']);
+            continue;
+          }
+          if (rawPayload.isNotEmpty) {
+            try {
+              final decoded = jsonDecode(rawPayload);
+              if (decoded is Map && decoded['target_type'] is String) {
+                targetType = decoded['target_type'];
+              }
+            } catch (_) {
+              await localDb.removeAction(action['id']);
+              continue;
+            }
+          }
+          final response = await client.functions.invoke(
             'clever-processor',
             body: {
               'action': 'toggle-like',
-              'payload': {'post_id': action['post_id']},
+              'payload': {
+                'post_id': action['post_id'],
+                'target_type': targetType,
+              },
             },
           );
+          if (response.status < 200 ||
+              response.status >= 300 ||
+              response.data is! Map ||
+              response.data['success'] != true) {
+            throw StateError('Queued reaction was not accepted');
+          }
         } else if (action['action_type'] == 'follow') {
           await toggleFollow(
             action['post_id'],

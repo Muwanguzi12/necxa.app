@@ -2269,6 +2269,31 @@ class _ShopReelItemState extends State<_ShopReelItem>
     }
   }
 
+  Future<void> _handleLike() async {
+    if (widget.state.user == null) return;
+    final wasLiked = _isLiked;
+    final oldLikesCount = _likesCount;
+    setState(() {
+      _isLiked = !wasLiked;
+      _likesCount += _isLiked ? 1 : -1;
+      if (_likesCount < 0) _likesCount = 0;
+    });
+
+    try {
+      await widget.state.social.toggleReaction(
+        widget.listing['id'],
+        targetType: 'listing',
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isLiked = wasLiked;
+          _likesCount = oldLikesCount;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // 🚀 FILM HUB: Background always prioritizes the main media_url (Video/Reel)
@@ -2393,7 +2418,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     icon: _isLiked ? Icons.favorite : Icons.favorite_outline,
                     label: kNum(_likesCount),
                     iconColor: _isLiked ? Colors.redAccent : Colors.white,
-                    onTap: () => setState(() => _isLiked = !_isLiked),
+                    onTap: _handleLike,
                   ),
                   const SizedBox(height: 16),
                   _shopAction(
