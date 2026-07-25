@@ -43,7 +43,18 @@ async function buildLiveKitToken(
 }
 
 // ── Valid actions whitelist ────────────────────────────────────────────────────
-const VALID_ACTIONS = ["start", "join", "stop", "list_active"] as const;
+const VALID_ACTIONS = [
+  "start",
+  "join",
+  "stop",
+  "list_active",
+  "pin_product",
+  "cohost_request",
+  "cohost_decision",
+  "send_comment",
+  "fetch_comments",
+  "poll_event",
+] as const;
 type Action = typeof VALID_ACTIONS[number];
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -62,6 +73,10 @@ serve(async (req) => {
       role,
       metadata = {},
       location  = {},
+      product,
+      guestId,
+      userName,
+      text,
     } = body as {
       action: string;
       channelId?: string;
@@ -69,6 +84,10 @@ serve(async (req) => {
       role?: string;
       metadata?: Record<string, unknown>;
       location?: Record<string, unknown>;
+      product?: Record<string, unknown>;
+      guestId?: string;
+      userName?: string;
+      text?: string;
     };
 
     // ── 3. Validate action ────────────────────────────────────────────────────
@@ -83,6 +102,15 @@ serve(async (req) => {
     if (action === "start" && !userId?.trim()) {
       return json({ error: "userId is required to start a stream" }, 400);
     }
+    if (
+      ["pin_product", "cohost_request", "send_comment"].includes(action) &&
+      !userId?.trim()
+    ) {
+      return json({ error: "Authentication is required for this action" }, 401);
+    }
+    if (action === "cohost_decision" && !guestId?.trim()) {
+      return json({ error: "guestId is required for a co-host decision" }, 400);
+    }
 
     // ── Authentication gate for hosts ─────────────────────────────────────────
     if (action === "start") {
@@ -96,8 +124,9 @@ serve(async (req) => {
     let mongoErrorMsg = "";
     let activeStreams: unknown[] = [];
     let newStreamId: string | null = null;
+    let actionResult: unknown = null;
 
-    if (MONGO_URI && (action === "start" || action === "stop" || action === "list_active" || action === "join")) {
+    if (MONGO_URI) {
       const client = new MongoClient(MONGO_URI, {
         connectTimeoutMS: 5000,
         socketTimeoutMS: 5000,
@@ -200,6 +229,77 @@ serve(async (req) => {
             .sort({ startedAt: -1 })
             .toArray();
           mongoSuccess = true;
+        } else if (action === "pin_product") {
+          await db.collection("stream_metadata").updateOne(
+            { channelId },
+            {
+              $set: {
+                channelId,
+                pinnedProduct: product ?? null,
+                updatedAt: new Date(),
+              },
+            },
+            { upsert: true },
+          );
+          actionResult = { pinned: true };
+          mongoSuccess = true;
+        } else if (action === "cohost_request") {
+          await db.collection("stream_events").insertOne({
+            channelId,
+            userId,
+            type: "cohost_request",
+            data: metadata,
+            timestamp: new Date(),
+          });
+          actionResult = { accepted: true };
+          mongoSuccess = true;
+        } else if (action === "cohost_decision") {
+          await db.collection("stream_events").insertOne({
+            channelId,
+            userId: guestId,
+            type: "cohost_decision",
+            data: { accepted: metadata.accepted === true },
+            timestamp: new Date(),
+          });
+          actionResult = { accepted: true };
+          mongoSuccess = true;
+        } else if (action === "send_comment") {
+          const cleanText = text?.trim() ?? "";
+          if (!cleanText) {
+            return json({ error: "Comment text is required" }, 400);
+          }
+          const result = await db.collection("stream_chat").insertOne({
+            channelName: channelId,
+            userId,
+            userName: userName?.trim() || "User",
+            text: cleanText.slice(0, 2_000),
+            timestamp: new Date(),
+          });
+          actionResult = { id: result.insertedId.toString() };
+          mongoSuccess = true;
+        } else if (action === "fetch_comments") {
+          const comments = await db.collection("stream_chat")
+            .find({ channelName: channelId })
+            .sort({ timestamp: -1 })
+            .limit(50)
+            .toArray();
+          actionResult = comments.map(({ _id, ...comment }) => ({
+            id: _id.toString(),
+            ...comment,
+          }));
+          mongoSuccess = true;
+        } else if (action === "poll_event") {
+          const event = await db.collection("stream_events").findOne(
+            { channelId },
+            { sort: { timestamp: -1 } },
+          );
+          if (event) {
+            const { _id, ...eventData } = event;
+            actionResult = { id: _id.toString(), ...eventData };
+          } else {
+            actionResult = {};
+          }
+          mongoSuccess = true;
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -248,6 +348,25 @@ serve(async (req) => {
         mongo_synced: mongoSuccess,
         mongo_error:  mongoErrorMsg || undefined,
       });
+    }
+
+    if (
+      [
+        "pin_product",
+        "cohost_request",
+        "cohost_decision",
+        "send_comment",
+        "fetch_comments",
+        "poll_event",
+      ].includes(action)
+    ) {
+      if (!mongoSuccess) {
+        return json(
+          { error: mongoErrorMsg || "Live engagement service is unavailable" },
+          503,
+        );
+      }
+      return json({ success: true, data: actionResult });
     }
 
     // Unreachable after whitelist check but satisfies TypeScript

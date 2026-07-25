@@ -902,6 +902,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _isLiked = widget.post['is_liked'] == true;
     _likesCount = widget.post['likes_count'] ?? 0;
     _commentsCount = widget.post['comments_count'] ?? 0;
     _hydrateData();
@@ -925,6 +926,12 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   }
 
   late AnimationController _discController;
+
+  String get _engagementTargetType =>
+      widget.post['listing_id'] == null ? 'post' : 'listing';
+
+  String get _engagementTargetId =>
+      (widget.post['listing_id'] ?? widget.post['id']).toString();
 
   Future<void> _initAudio() async {
     final audioUrl = widget.post['audio_url'];
@@ -958,21 +965,6 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           _profile = p;
         });
       }
-    }
-
-    // 2. Check individual like status
-    if (widget.state.user != null) {
-      try {
-        final res = await Supabase.instance.client
-            .from('community_likes')
-            .select()
-            .match({
-              'post_id': widget.post['id'],
-              'user_id': widget.state.user!.id,
-            })
-            .maybeSingle();
-        if (mounted) setState(() => _isLiked = res != null);
-      } catch (_) {}
     }
   }
 
@@ -1014,7 +1006,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
     // Background push
     try {
-      await widget.state.social.toggleReaction(widget.post['id']);
+      await widget.state.social.toggleReaction(
+        _engagementTargetId,
+        targetType: _engagementTargetType,
+        localPostId: widget.post['id']?.toString(),
+      );
     } catch (e) {
       // Revert if failed
       if (mounted) {
@@ -1035,8 +1031,12 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) =>
-          _CommentSheet(post: widget.post, state: widget.state),
+      builder: (context) => _CommentSheet(
+        post: widget.post,
+        state: widget.state,
+        targetId: _engagementTargetId,
+        targetType: _engagementTargetType,
+      ),
     ).then((_) {
       // Refresh count if needed
     });
@@ -3045,10 +3045,12 @@ class _ShopReelItemState extends State<_ShopReelItem>
 class _CommentSheet extends StatefulWidget {
   final Map<String, dynamic> post;
   final AppState state;
+  final String? targetId;
   final String targetType;
   const _CommentSheet({
     required this.post,
     required this.state,
+    this.targetId,
     this.targetType = 'post',
   });
 
@@ -3070,7 +3072,7 @@ class _CommentSheetState extends State<_CommentSheet> {
   void _refreshComments() {
     setState(() {
       _commentsFuture = widget.state.social.fetchComments(
-        widget.post['id'],
+        widget.targetId ?? widget.post['id'],
         targetType: widget.targetType,
       );
     });
@@ -3090,9 +3092,10 @@ class _CommentSheetState extends State<_CommentSheet> {
     setState(() => _sending = true);
     try {
       await widget.state.social.postComment(
-        widget.post['id'],
+        widget.targetId ?? widget.post['id'],
         _ctrl.text.trim(),
         targetType: widget.targetType,
+        localPostId: widget.post['id']?.toString(),
       );
       _ctrl.clear();
       _refreshComments(); // 🚀 TRIGGER RE-FETCH

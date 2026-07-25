@@ -1,5 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { mirrorEntityComment, mirrorEntityLike } from "../_shared/engagement_mongo.ts"
+import {
+  createEntityComment,
+  deleteEntityEngagement,
+  getEntitySummaries,
+  importLegacyEngagement,
+  listEntityComments,
+  toggleEntityLike,
+} from "../_shared/engagement_mongo.ts"
+import type { EngagementEntityType } from "../_shared/engagement_mongo.ts"
 
 // ============================================
 // CLEVER-PROCESSOR — Neural Feed & Viral Loop
@@ -7,7 +15,7 @@ import { mirrorEntityComment, mirrorEntityLike } from "../_shared/engagement_mon
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-user-id",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-application-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
@@ -111,10 +119,91 @@ function rewriteMediaUrls(post: any) {
   return base;
 }
 
+async function hydrateEntityEngagement(
+  items: any[],
+  entityType: EngagementEntityType,
+  userId: string,
+) {
+  const ids = items.map((item) => String(item.id ?? "")).filter(Boolean)
+  if (ids.length === 0) return items
+
+  try {
+    const summaries = await getEntitySummaries({
+      entityType,
+      entityIds: ids,
+      userId,
+    })
+    return items.map((item) => {
+      const summary = summaries.get(String(item.id))
+      return {
+        ...item,
+        likes_count: summary?.likes ?? 0,
+        comments_count: summary?.comments ?? 0,
+        views_count: summary?.views ?? item.views_count ?? 0,
+        is_liked: summary?.likedByUser ?? false,
+      }
+    })
+  } catch (error) {
+    console.error("Mongo engagement hydration failed:", error)
+    return items.map((item) => ({
+      ...item,
+      likes_count: 0,
+      comments_count: 0,
+      is_liked: false,
+    }))
+  }
+}
+
+async function hydrateFeedEngagement(items: any[], userId: string) {
+  const postIds: string[] = []
+  const productIds: string[] = []
+  for (const item of items) {
+    const listingId = item.listing_id ?? item.listings?.id
+    if (listingId) productIds.push(String(listingId))
+    else if (item.id) postIds.push(String(item.id))
+  }
+
+  try {
+    const [postSummaries, productSummaries] = await Promise.all([
+      getEntitySummaries({
+        entityType: "post",
+        entityIds: postIds,
+        userId,
+      }),
+      getEntitySummaries({
+        entityType: "product",
+        entityIds: productIds,
+        userId,
+      }),
+    ])
+    return items.map((item) => {
+      const listingId = item.listing_id ?? item.listings?.id
+      const summary = listingId
+        ? productSummaries.get(String(listingId))
+        : postSummaries.get(String(item.id))
+      return {
+        ...item,
+        likes_count: summary?.likes ?? 0,
+        comments_count: summary?.comments ?? 0,
+        views_count: summary?.views ?? item.views_count ?? 0,
+        is_liked: summary?.likedByUser ?? false,
+      }
+    })
+  } catch (error) {
+    console.error("Mongo feed engagement hydration failed:", error)
+    return items.map((item) => ({
+      ...item,
+      likes_count: 0,
+      comments_count: 0,
+      is_liked: false,
+    }))
+  }
+}
+
 /**
  * FETCH-FEED: Advanced ranking for the discovery reel.
  */
-async function handleFetchFeed(payload: any = {}) {
+async function handleFetchFeed(userId: string, payload: any = {}) {
   const redis = await getRedis();
   const sinceTime = payload.since_time;
   const beforeTime = payload.before_time;
@@ -130,7 +219,8 @@ async function handleFetchFeed(payload: any = {}) {
         
         if (validPosts.length > 0) {
           console.log(`REDIS: Found ${validPosts.length} posts in cache`);
-          return json({ success: true, data: validPosts, source: 'redis' });
+          const hydrated = await hydrateFeedEngagement(validPosts, userId)
+          return json({ success: true, data: hydrated, source: 'redis' });
         }
       }
     } catch (e) {
@@ -182,11 +272,12 @@ async function handleFetchFeed(payload: any = {}) {
     }
   }
 
-  return json({ 
+  const hydrated = await hydrateFeedEngagement(cdnData, userId)
+  return json({
     success: true, 
-    data: cdnData, 
+    data: hydrated,
     source: 'supabase',
-    count: cdnData.length
+    count: hydrated.length
   });
 }
 
@@ -194,48 +285,7 @@ async function handleFetchFeed(payload: any = {}) {
  * FETCH-SHOP-FEED: Discovery logic for commercial listings.
  */
 async function hydrateListingEngagement(listings: any[], userId: string) {
-  const listingIds = listings.map((listing) => listing.id).filter(Boolean);
-  if (listingIds.length === 0) return listings;
-
-  const { data: posts, error: postsError } = await supabase
-    .from('community_posts')
-    .select('id, listing_id, likes_count, comments_count')
-    .in('listing_id', listingIds);
-  if (postsError || !posts) {
-    if (postsError) console.error("Shop engagement hydration failed:", postsError);
-    return listings;
-  }
-
-  const postIds = posts.map((post) => post.id);
-  const { data: likes, error: likesError } = postIds.length === 0
-    ? { data: [] as any[], error: null }
-    : await supabase
-      .from('community_likes')
-      .select('post_id')
-      .eq('user_id', userId)
-      .in('post_id', postIds);
-  if (likesError) console.error("Shop liked-state hydration failed:", likesError);
-
-  const likedPostIds = new Set((likes ?? []).map((like) => like.post_id));
-  const engagementByListing = new Map(
-    posts.map((post) => [
-      post.listing_id,
-      {
-        likes_count: post.likes_count ?? 0,
-        comments_count: post.comments_count ?? 0,
-        is_liked: likedPostIds.has(post.id),
-      },
-    ]),
-  );
-
-  return listings.map((listing) => ({
-    ...listing,
-    ...(engagementByListing.get(listing.id) ?? {
-      likes_count: 0,
-      comments_count: 0,
-      is_liked: false,
-    }),
-  }));
+  return hydrateEntityEngagement(listings, "product", userId)
 }
 
 async function handleFetchShopFeed(userId: string, payload: any = {}) {
@@ -662,48 +712,33 @@ async function handleToggleLike(userId: string, payload: any) {
   const targetId = payload.post_id;
   const targetType = payload.target_type ?? 'post';
   if (!targetId) return err("post_id required");
-  const resolved = await resolveCommentPostId(targetId, targetType);
-  if (!resolved.postId) return err(resolved.error ?? 'Like target unavailable');
-  const postId = resolved.postId;
-
-  const { data: existing, error: lookupError } = await supabase
-    .from('community_likes')
-    .select('id')
-    .match({ post_id: postId, user_id: userId })
-    .maybeSingle();
-  if (lookupError) return err(`Like lookup failed: ${lookupError.message}`, 500);
-
+  const entityType: EngagementEntityType =
+    targetType === "listing" ? "product" : "post"
   const redis = await getRedis();
-  let action = '';
-
-  if (existing) {
-    const { error: deleteError } = await supabase
-      .from('community_likes')
-      .delete()
-      .match({ post_id: postId, user_id: userId });
-    if (deleteError) return err(`Unlike failed: ${deleteError.message}`, 500);
-    action = 'unliked';
-  } else {
-    const { error: insertError } = await supabase
-      .from('community_likes')
-      .insert({ post_id: postId, user_id: userId });
-    if (insertError) return err(`Like failed: ${insertError.message}`, 500);
-    action = 'liked';
+  let result
+  try {
+    result = await toggleEntityLike({
+      entityType,
+      entityId: targetId,
+      userId,
+    })
+  } catch (error) {
+    console.error("Mongo like operation failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
   }
+  const action = result.liked ? "liked" : "unliked"
 
   // 🚀 SYNC REDIS: Update post metrics in cache
   if (redis) {
     try {
       const cacheKey = targetType === 'listing'
         ? `listing:${targetId}`
-        : `post:${postId}`;
+        : `post:${targetId}`;
       const postStr = await redis.get(cacheKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
-        post.likes_count = Math.max(
-          0,
-          (post.likes_count || 0) + (action === 'liked' ? 1 : -1),
-        );
+        post.likes_count = result.likes
+        post.is_liked = result.liked
         await redis.set(cacheKey, post, { ex: 3600 });
       }
     } catch (e) {
@@ -711,42 +746,53 @@ async function handleToggleLike(userId: string, payload: any) {
     }
   }
 
-  try {
-    await mirrorEntityLike({
-      entityType: targetType === "listing" ? "product" : "post",
-      entityId: targetId,
-      userId,
-      liked: action === "liked",
-    })
-  } catch (e) {
-    console.error("Mongo engagement like mirror failed:", e)
-  }
-
-  return json({ success: true, action });
+  return json({
+    success: true,
+    action,
+    liked: result.liked,
+    likes_count: result.likes,
+  });
 }
 
 /**
  * CREATE-COMMENT: Persistent storage + Redis real-time push.
  */
-async function resolveCommentPostId(targetId: string, targetType: string) {
-  if (targetType !== 'listing') return { postId: targetId, error: null };
+async function hydrateCommentIdentities(comments: any[]) {
+  const userIds = [...new Set(
+    comments.map((comment) => comment.userId).filter(Boolean),
+  )]
+  const { data: profiles } = userIds.length === 0
+    ? { data: [] as any[] }
+    : await supabase
+      .from("profiles")
+      .select("id, full_name, avatar_url, trust_score_tier")
+      .in("id", userIds)
+  const profilesById = new Map(
+    (profiles ?? []).map((profile: any) => [profile.id, profile]),
+  )
 
-  const { data, error } = await supabase
-    .from('community_posts')
-    .select('id')
-    .eq('listing_id', targetId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) return { postId: null, error: error.message };
-  if (!data?.id) {
+  return comments.map((comment) => {
+    const profile = profilesById.get(comment.userId)
+    const identity = {
+      user_id: comment.userId,
+      user_name: profile?.full_name || "User",
+      user_avatar: toStorageCdnUrl(profile?.avatar_url),
+      user_profile_url: `https://necxa.app/u/${comment.userId}`,
+      is_verified: profile?.trust_score_tier === "titan_trust" ||
+        profile?.trust_score_tier === "verified",
+    }
     return {
-      postId: null,
-      error: 'This listing does not have a community discussion yet',
-    };
-  }
-  return { postId: data.id as string, error: null };
+      id: comment.id,
+      post_id: comment.entityId,
+      user_id: comment.userId,
+      content: comment.text,
+      created_at: comment.createdAt instanceof Date
+        ? comment.createdAt.toISOString()
+        : comment.createdAt,
+      metadata: { identity },
+      identity,
+    }
+  })
 }
 
 async function handleCreateComment(userId: string, payload: any) {
@@ -754,80 +800,35 @@ async function handleCreateComment(userId: string, payload: any) {
   const cleanContent = typeof content === 'string' ? content.trim() : '';
   if (!post_id || !cleanContent) return err("post_id and content required");
   if (cleanContent.length > 2000) return err("Comment is too long");
-  const resolved = await resolveCommentPostId(post_id, target_type);
-  if (!resolved.postId) return err(resolved.error ?? 'Discussion unavailable');
-  const storagePostId = resolved.postId;
-
-  // 1. Fetch profile to denormalize identity
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, avatar_url, trust_score_tier')
-    .eq('id', userId)
-    .single();
-
-  const identity = {
-    user_id: userId,
-    user_name: profile?.full_name || 'User',
-    user_avatar: toStorageCdnUrl(profile?.avatar_url),
-    user_profile_url: `https://necxa.app/u/${userId}`,
-    is_verified: profile?.trust_score_tier === 'titan_trust' || profile?.trust_score_tier === 'verified'
-  };
-
-  // 2. Supabase Persistence
-  let { data: comment, error } = await supabase
-    .from('community_comments')
-    .insert({
-      post_id: storagePostId,
-      user_id: userId,
-      content: cleanContent,
+  const entityType: EngagementEntityType =
+    target_type === "listing" ? "product" : "post"
+  let comment
+  try {
+    comment = await createEntityComment({
+      entityType,
+      entityId: post_id,
+      userId,
+      text: cleanContent,
+      idempotencyKey: typeof payload.idempotency_key === "string"
+        ? payload.idempotency_key
+        : undefined,
     })
-    .select('*')
-    .single();
-
-  // April's schema rebuild renamed author_id to user_id. Keep a narrow fallback
-  // so projects that have not applied that migration can still accept comments.
-  const missingUserIdColumn =
-    error &&
-    (error.code === '42703' || error.code === 'PGRST204') &&
-    error.message.includes('user_id');
-  if (missingUserIdColumn) {
-    const legacyInsert = await supabase
-      .from('community_comments')
-      .insert({
-        post_id: storagePostId,
-        author_id: userId,
-        content: cleanContent,
-      })
-      .select('*')
-      .single();
-    comment = legacyInsert.data;
-    error = legacyInsert.error;
+  } catch (error) {
+    console.error("Mongo comment operation failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
   }
-
-  if (error) return err(`Comment failed: ${error.message}`);
-  if (!comment) return err('Comment was not saved');
-  const normalizedComment = {
-    ...comment,
-    user_id: comment.user_id ?? comment.author_id ?? userId,
-    metadata: { identity },
-    identity,
-  };
+  const [normalizedComment] = await hydrateCommentIdentities([comment])
 
   const redis = await getRedis();
   if (redis) {
     try {
-      // 3. Push to Redis Comment Stream
-      await redis.lpush(`comments:${storagePostId}`, JSON.stringify(normalizedComment));
-      await redis.ltrim(`comments:${storagePostId}`, 0, 99); // Keep last 100
-
-      // 4. Increment Post Comment Count
       const postKey = target_type === 'listing'
         ? `listing:${post_id}`
-        : `post:${storagePostId}`;
+        : `post:${post_id}`;
       const postStr = await redis.get(postKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
-        post.comments_count = (post.comments_count || 0) + 1;
+        post.comments_count = comment.commentsCount
         await redis.set(postKey, post, { ex: 3600 });
       }
 
@@ -836,27 +837,21 @@ async function handleCreateComment(userId: string, payload: any) {
         type: 'comment',
         target_id: post_id,
         actor_id: userId,
-        metadata: { snippet: cleanContent.substring(0, 50), identity }
+        metadata: {
+          snippet: cleanContent.substring(0, 50),
+          identity: normalizedComment.metadata.identity,
+        }
       });
     } catch (e) {
       console.error("REDIS Comment Sync Error:", e);
     }
   }
 
-  try {
-    await mirrorEntityComment({
-      entityType: target_type === "listing" ? "product" : "post",
-      entityId: post_id,
-      userId,
-      text: cleanContent,
-      sourceId: String(comment.id),
-      createdAt: comment.created_at,
-    })
-  } catch (e) {
-    console.error("Mongo engagement comment mirror failed:", e)
-  }
-
-  return json({ success: true, data: normalizedComment });
+  return json({
+    success: true,
+    data: normalizedComment,
+    comments_count: comment.commentsCount,
+  });
 }
 
 /**
@@ -920,67 +915,104 @@ async function handleFetchReviews(payload: any) {
 async function handleFetchComments(payload: any) {
   const { post_id, target_type = 'post' } = payload;
   if (!post_id) return err("post_id required");
-  const resolved = await resolveCommentPostId(post_id, target_type);
-  if (!resolved.postId) return err(resolved.error ?? 'Discussion unavailable');
-  const storagePostId = resolved.postId;
+  const entityType: EngagementEntityType =
+    target_type === "listing" ? "product" : "post"
+  try {
+    const comments = await listEntityComments({
+      entityType,
+      entityId: post_id,
+      limit: 50,
+    })
+    const normalized = await hydrateCommentIdentities(comments)
+    return json({ success: true, data: normalized, source: "mongodb" })
+  } catch (error) {
+    console.error("Mongo comment retrieval failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
+  }
+}
 
-  const redis = await getRedis();
-  if (redis) {
-    try {
-      const raw = await redis.lrange(`comments:${storagePostId}`, 0, 49) as unknown[];
-      if (raw.length > 0) {
-        const cached = raw.map((entry) =>
-          typeof entry === 'string' ? JSON.parse(entry) : entry
-        );
-        return json({ success: true, data: cached, source: 'redis' });
-      }
-    } catch (e) {}
+async function fetchLegacyRows(table: string) {
+  const rows: any[] = []
+  const pageSize = 1_000
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .range(offset, offset + pageSize - 1)
+    if (error) throw new Error(`${table}: ${error.message}`)
+    rows.push(...(data ?? []))
+    if (!data || data.length < pageSize) break
+  }
+  return rows
+}
+
+async function handleMigrateLegacyEngagement(user: any, req: Request) {
+  const migrationKey = Deno.env.get("ENGAGEMENT_MIGRATION_KEY") ||
+    Deno.env.get("APPLICATION_API_PRIVATE_KEY") ||
+    Deno.env.get("APP_API_PRIVATE_KEY")
+  const suppliedKey = req.headers.get("x-application-key")
+  const isAdmin = user?.app_metadata?.role === "admin" ||
+    user?.app_metadata?.is_admin === true
+  if ((!migrationKey || suppliedKey !== migrationKey) && !isAdmin) {
+    return err("Administrator authorization required", 403)
   }
 
-  // Fallback to Supabase
-  const { data, error } = await supabase
-    .from('community_comments')
-    .select('*')
-    .eq('post_id', storagePostId)
-    .order('created_at', { ascending: false })
-    .limit(50);
+  try {
+    const [likes, comments, linkedPosts] = await Promise.all([
+      fetchLegacyRows("community_likes"),
+      fetchLegacyRows("community_comments"),
+      supabase
+        .from("community_posts")
+        .select("id, listing_id")
+        .not("listing_id", "is", null),
+    ])
+    if (linkedPosts.error && linkedPosts.error.code !== "42703") {
+      throw new Error(`community_posts: ${linkedPosts.error.message}`)
+    }
+    const listingByPost = new Map(
+      (linkedPosts.error ? [] : linkedPosts.data ?? [])
+        .map((post: any) => [post.id, post.listing_id]),
+    )
+    const destination = (postId: string) => {
+      const listingId = listingByPost.get(postId)
+      return listingId
+        ? { entityType: "product" as const, entityId: String(listingId) }
+        : { entityType: "post" as const, entityId: String(postId) }
+    }
 
-  if (error) return err(error.message);
-
-  const comments = data ?? [];
-  const userIds = [...new Set(
-    comments
-      .map((comment: any) => comment.user_id ?? comment.author_id)
-      .filter(Boolean)
-  )];
-  const { data: profiles } = userIds.length === 0
-    ? { data: [] as any[] }
-    : await supabase
-      .from('profiles')
-      .select('id, full_name, avatar_url, trust_score_tier')
-      .in('id', userIds);
-  const profilesById = new Map(
-    (profiles ?? []).map((profile: any) => [profile.id, profile])
-  );
-  const normalized = comments.map((comment: any) => {
-    const commentUserId = comment.user_id ?? comment.author_id;
-    const profile = profilesById.get(commentUserId);
-    const identity = {
-      user_id: commentUserId,
-      user_name: profile?.full_name || 'User',
-      user_avatar: toStorageCdnUrl(profile?.avatar_url),
-      user_profile_url: `https://necxa.app/u/${commentUserId}`,
-      is_verified: profile?.trust_score_tier === 'titan_trust' ||
-        profile?.trust_score_tier === 'verified',
-    };
-    return {
-      ...comment,
-      user_id: commentUserId,
-      metadata: { ...(comment.metadata ?? {}), identity },
-      identity,
-    };
-  });
-  return json({ success: true, data: normalized, source: 'supabase' });
+    const result = await importLegacyEngagement({
+      likes: likes
+        .filter((like) => like.post_id && like.user_id)
+        .map((like) => ({
+          ...destination(like.post_id),
+          userId: String(like.user_id),
+          createdAt: like.created_at,
+        })),
+      comments: comments
+        .filter((comment) =>
+          comment.post_id &&
+          (comment.user_id || comment.author_id) &&
+          comment.content
+        )
+        .map((comment) => ({
+          ...destination(comment.post_id),
+          userId: String(comment.user_id ?? comment.author_id),
+          text: String(comment.content),
+          sourceId: `supabase:${comment.id}`,
+          createdAt: comment.created_at,
+        })),
+    })
+    return json({ success: true, data: result })
+  } catch (error) {
+    console.error("Legacy engagement migration failed:", error)
+    const message = error instanceof Error ? error.message : String(error)
+    return err(`Legacy engagement migration failed: ${message}`, 500)
+  } finally {
+    if (user?.is_anonymous === true && user?.id) {
+      const { error } = await supabase.auth.admin.deleteUser(user.id)
+      if (error) console.error("Temporary migration user cleanup failed:", error)
+    }
+  }
 }
 
 /**
@@ -1007,7 +1039,14 @@ async function handleDeletePost(userId: string, payload: any) {
 
   if (deleteError) return err(`Supabase delete failed: ${deleteError.message}`);
 
-  // 2. Remove from Redis Cache
+  // 2. Remove engagement owned by the deleted post.
+  try {
+    await deleteEntityEngagement({ entityType: "post", entityId: postId })
+  } catch (error) {
+    console.error("Mongo engagement cleanup failed:", error)
+  }
+
+  // 3. Remove from Redis Cache
   try {
     const redis = await getRedis();
     if (redis) {
@@ -1317,15 +1356,21 @@ Deno.serve(async (req: Request) => {
   try {
     const authHeader = req.headers.get("Authorization");
     const { data: { user } } = await supabase.auth.getUser(authHeader?.replace("Bearer ", "") || "");
-    const userId = user?.id || req.headers.get("x-user-id");
-
-    if (!userId) return err("Unauthorized", 401);
-
+    const userId = user?.id;
     const body = await req.json() as { action: string; payload?: Record<string, unknown> };
     const { action, payload = {} } = body;
 
+    // The one-time cutover is authenticated by a private application key.
+    // It runs before user auth because deployment callers use the project anon
+    // key at the gateway and never receive an end-user session.
+    if (action === "migrate-legacy-engagement") {
+      return handleMigrateLegacyEngagement(user, req);
+    }
+
+    if (!userId) return err("Unauthorized", 401);
+
     switch (action) {
-      case "fetch-feed":           return handleFetchFeed(payload);
+      case "fetch-feed":           return handleFetchFeed(userId, payload);
       case "record-usage":         return handleRecordUsage(userId, payload);
       case "toggle-like":          return handleToggleLike(userId, payload);
       case "get-upload-url":       return handleGetUploadUrl(userId, payload);

@@ -497,6 +497,17 @@ class LocalDbService {
     );
   }
 
+  Future<void> setPostMetric(String postId, String column, int value) async {
+    if (column != 'likes_count' && column != 'comments_count') {
+      throw ArgumentError.value(column, 'column', 'Unsupported post metric');
+    }
+    final db = await database;
+    await db.rawUpdate('UPDATE community_posts SET $column = ? WHERE id = ?', [
+      value < 0 ? 0 : value,
+      postId,
+    ]);
+  }
+
   // ─── Shop Listings ────────────────────────────────────────────────────────
 
   Future<void> saveListings(List<Map<String, dynamic>> listings) async {

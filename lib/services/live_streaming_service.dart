@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:mongo_dart/mongo_dart.dart' as mongo;
 import '../app_state.dart';
 
 /// Necxa Live Studio: Core Streaming Engine
@@ -15,14 +14,11 @@ class LiveStreamingService {
   Room? _room;
   String? _activeChannelName;
   bool _hostingActiveChannel = false;
-  bool _metadataConnectionStarted = false;
-  bool _disposed = false;
 
   static const Duration _permissionTimeout = Duration(seconds: 15);
   static const Duration _backendTimeout = Duration(seconds: 20);
   static const Duration _roomTimeout = Duration(seconds: 25);
   static const Duration _trackTimeout = Duration(seconds: 12);
-  static const Duration _metadataTimeout = Duration(seconds: 8);
 
   static const String liveKitUrl = 'wss://necxa-live-dtb2j623.livekit.cloud';
   static const String liveBackendUrl = String.fromEnvironment(
@@ -34,50 +30,24 @@ class LiveStreamingService {
     defaultValue: 'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT',
   );
 
-  mongo.Db? _db;
-  static const String mongoUri =
-      'mongodb+srv://knestars_db_user:2x54uLtyObmQ9TKm@necxa-cluster.7dgpjye.mongodb.net/necxalive?appName=necxa-Cluster';
-
   LiveStreamingService(this.state);
 
   Room? get room => _room;
 
-  /// Starts optional metadata support without blocking the video engine.
-  Future<void> init() async {
-    if (_metadataConnectionStarted || _db != null || _disposed) return;
-    _metadataConnectionStarted = true;
-    unawaited(_connectMetadataStore());
-  }
-
-  Future<void> _connectMetadataStore() async {
-    mongo.Db? db;
-    try {
-      db = await mongo.Db.create(mongoUri);
-      await db.open().timeout(
-        _metadataTimeout,
-        onTimeout: () => throw TimeoutException('Live metadata connection timed out.'),
-      );
-      if (_disposed) {
-        await db.close();
-        return;
-      }
-      _db = db;
-      debugPrint('Necxa Live: MongoDB Connected');
-    } catch (e) {
-      await db?.close();
-      debugPrint('Necxa Live: MongoDB Connection Failed: $e');
-    } finally {
-      _metadataConnectionStarted = false;
-    }
-  }
+  Future<void> init() async {}
 
   Future<void> _ensurePublishingPermissions() async {
-    final statuses = await [Permission.camera, Permission.microphone].request().timeout(
-      _permissionTimeout,
-      onTimeout: () => throw TimeoutException('Camera and microphone permission request timed out.'),
-    );
+    final statuses = await [Permission.camera, Permission.microphone]
+        .request()
+        .timeout(
+          _permissionTimeout,
+          onTimeout: () => throw TimeoutException(
+            'Camera and microphone permission request timed out.',
+          ),
+        );
     final cameraGranted = statuses[Permission.camera]?.isGranted ?? false;
-    final microphoneGranted = statuses[Permission.microphone]?.isGranted ?? false;
+    final microphoneGranted =
+        statuses[Permission.microphone]?.isGranted ?? false;
     if (!cameraGranted || !microphoneGranted) {
       throw 'Camera and microphone permissions are required to go live.';
     }
@@ -116,22 +86,28 @@ class LiveStreamingService {
   }
 
   Future<dynamic> _invokeLiveBackend(Map<String, dynamic> body) async {
-    final response = await http.post(
-      Uri.parse('$liveBackendUrl/functions/v1/live-studio-engine'),
-      headers: {
-        'apikey': liveBackendPublishableKey,
-        'Authorization': 'Bearer $liveBackendPublishableKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    ).timeout(
-      _backendTimeout,
-      onTimeout: () => throw TimeoutException('The live authentication server did not respond.'),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$liveBackendUrl/functions/v1/live-studio-engine'),
+          headers: {
+            'apikey': liveBackendPublishableKey,
+            'Authorization': 'Bearer $liveBackendPublishableKey',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(
+          _backendTimeout,
+          onTimeout: () => throw TimeoutException(
+            'The live authentication server did not respond.',
+          ),
+        );
 
     dynamic data;
     try {
-      data = response.body.trim().isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+      data = response.body.trim().isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(response.body);
     } on FormatException {
       throw 'The live server returned an unreadable response.';
     }
@@ -161,27 +137,34 @@ class LiveStreamingService {
       roomOptions: const RoomOptions(
         adaptiveStream: true,
         dynacast: true,
-        defaultCameraCaptureOptions: CameraCaptureOptions(
-          maxFrameRate: 30,
-        ),
+        defaultCameraCaptureOptions: CameraCaptureOptions(maxFrameRate: 30),
       ),
     );
     _room = nextRoom;
 
     try {
-      await nextRoom.connect(url, token).timeout(
-        _roomTimeout,
-        onTimeout: () => throw TimeoutException('The live video room did not connect.'),
-      );
+      await nextRoom
+          .connect(url, token)
+          .timeout(
+            _roomTimeout,
+            onTimeout: () =>
+                throw TimeoutException('The live video room did not connect.'),
+          );
       if (publish) {
-        await nextRoom.localParticipant?.setCameraEnabled(true).timeout(
-          _trackTimeout,
-          onTimeout: () => throw TimeoutException('The camera did not start.'),
-        );
-        await nextRoom.localParticipant?.setMicrophoneEnabled(true).timeout(
-          _trackTimeout,
-          onTimeout: () => throw TimeoutException('The microphone did not start.'),
-        );
+        await nextRoom.localParticipant
+            ?.setCameraEnabled(true)
+            .timeout(
+              _trackTimeout,
+              onTimeout: () =>
+                  throw TimeoutException('The camera did not start.'),
+            );
+        await nextRoom.localParticipant
+            ?.setMicrophoneEnabled(true)
+            .timeout(
+              _trackTimeout,
+              onTimeout: () =>
+                  throw TimeoutException('The microphone did not start.'),
+            );
       }
       _activeChannelName = channelName;
     } catch (_) {
@@ -198,7 +181,10 @@ class LiveStreamingService {
   Future<void> startStreaming(String channelName) async {
     // Check permissions before the backend creates an active stream record.
     await _ensurePublishingPermissions();
-    final creds = await _fetchCredentials(action: 'start', channelName: channelName);
+    final creds = await _fetchCredentials(
+      action: 'start',
+      channelName: channelName,
+    );
     await _connect(
       channelName: channelName,
       url: creds['url']!,
@@ -210,9 +196,7 @@ class LiveStreamingService {
 
   Future<List<Map<String, dynamic>>> getActiveStreams() async {
     try {
-      final response = await _invokeLiveBackend({
-        'action': 'list_active',
-      });
+      final response = await _invokeLiveBackend({'action': 'list_active'});
       if (response is List) return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Necxa Live: Failed to list active streams: $e');
@@ -287,68 +271,83 @@ class LiveStreamingService {
     await _room?.localParticipant?.setMicrophoneEnabled(enabled);
   }
 
-  Future<void> pinProduct(String channelId, Map<String, dynamic> product) async {
-    if (_db == null) return;
-    final coll = _db!.collection('stream_metadata');
-    await coll.update(
-      mongo.where.eq('channelId', channelId),
-      mongo.modify.set('pinnedProduct', product),
-      upsert: true,
-    );
+  Future<void> pinProduct(
+    String channelId,
+    Map<String, dynamic> product,
+  ) async {
+    await _invokeLiveBackend({
+      'action': 'pin_product',
+      'channelId': channelId,
+      'userId': state.user?.id,
+      'product': product,
+    });
   }
 
-  Future<void> sendCoHostRequest(String channelId, String userId, Map<String, dynamic> metadata) async {
-    if (_db == null) throw 'Live event service is unavailable. Please try again.';
-    final coll = _db!.collection('stream_events');
-    await coll.insert({
+  Future<void> sendCoHostRequest(
+    String channelId,
+    String userId,
+    Map<String, dynamic> metadata,
+  ) async {
+    await _invokeLiveBackend({
+      'action': 'cohost_request',
       'channelId': channelId,
       'userId': userId,
-      'type': 'cohost_request',
-      'data': metadata,
-      'timestamp': DateTime.now().toIso8601String(),
+      'metadata': metadata,
     });
-    debugPrint('Necxa Live: Co-Host Request Sent to MongoDB');
   }
 
-  Future<void> sendCoHostDecision(String channelId, String guestId, bool accepted) async {
-    if (_db == null) throw 'Live event service is unavailable. Please try again.';
-    final coll = _db!.collection('stream_events');
-    await coll.insert({
+  Future<void> sendCoHostDecision(
+    String channelId,
+    String guestId,
+    bool accepted,
+  ) async {
+    await _invokeLiveBackend({
+      'action': 'cohost_decision',
       'channelId': channelId,
-      'userId': guestId,
-      'type': 'cohost_decision',
-      'data': {'accepted': accepted},
-      'timestamp': DateTime.now().toIso8601String(),
+      'userId': state.user?.id,
+      'guestId': guestId,
+      'metadata': {'accepted': accepted},
     });
   }
 
-  Future<void> sendLiveComment(String channelName, String userName, String text) async {
-    if (_db == null) return;
+  Future<void> sendLiveComment(
+    String channelName,
+    String userName,
+    String text,
+  ) async {
     try {
-      final coll = _db!.collection('stream_chat');
-      await coll.insert({
-        'channelName': channelName,
+      await _invokeLiveBackend({
+        'action': 'send_comment',
+        'channelId': channelName,
+        'userId': state.user?.id,
         'userName': userName,
         'text': text,
-        'timestamp': DateTime.now().toIso8601String(),
       });
-      debugPrint('Necxa Live: Comment Pushed to MongoDB');
     } catch (e) {
       debugPrint('Necxa Live: Failed to push comment: $e');
+      rethrow;
     }
   }
 
-  Future<List<Map<String, dynamic>>> fetchLiveComments(String channelName) async {
-    if (_db == null) return [];
+  Future<List<Map<String, dynamic>>> fetchLiveComments(
+    String channelName,
+  ) async {
     try {
-      final coll = _db!.collection('stream_chat');
-      final results = await coll
-          .find(mongo.where.eq('channelName', channelName).sortBy('timestamp', descending: true).limit(20))
+      final response = await _invokeLiveBackend({
+        'action': 'fetch_comments',
+        'channelId': channelName,
+      });
+      final data = response is Map ? response['data'] : null;
+      if (data is! List) return [];
+      return data
+          .whereType<Map>()
+          .map(
+            (comment) => <String, dynamic>{
+              'user': comment['userName'] ?? 'User',
+              'text': comment['text'] ?? '',
+            },
+          )
           .toList();
-      return results.map((c) => {
-        'user': c['userName'] ?? 'User',
-        'text': c['text'] ?? '',
-      }).toList();
     } catch (e) {
       debugPrint('Necxa Live: Failed to fetch comments: $e');
       return [];
@@ -357,13 +356,19 @@ class LiveStreamingService {
 
   Stream<Map<String, dynamic>> listenToEvents(String channelId) {
     return Stream.periodic(const Duration(seconds: 1)).asyncMap((_) async {
-      final db = _db;
-      if (db == null) return <String, dynamic>{};
-      final coll = db.collection('stream_events');
-      final lastEvent = await coll.findOne(
-        mongo.where.eq('channelId', channelId).sortBy('timestamp', descending: true),
-      );
-      return lastEvent ?? {};
+      try {
+        final response = await _invokeLiveBackend({
+          'action': 'poll_event',
+          'channelId': channelId,
+        });
+        final data = response is Map ? response['data'] : null;
+        return data is Map
+            ? Map<String, dynamic>.from(data)
+            : <String, dynamic>{};
+      } catch (e) {
+        debugPrint('Necxa Live: Failed to poll events: $e');
+        return <String, dynamic>{};
+      }
     });
   }
 
@@ -374,9 +379,7 @@ class LiveStreamingService {
   }
 
   Future<void> dispose() async {
-    _disposed = true;
     await _room?.disconnect();
     _room = null;
-    await _db?.close();
   }
 }

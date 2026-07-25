@@ -817,14 +817,13 @@ class SocialService {
   Future<void> toggleReaction(
     String postId, {
     String targetType = 'post',
+    String? localPostId,
   }) async {
     final localDb = LocalDbService();
     final userId = client.auth.currentUser?.id;
     if (userId == null) return;
 
     // 1. Optimistic Update locally
-    await localDb.incrementPostMetric(postId, 'likes_count');
-    state.notify(); // 🚀 UI Pulse
 
     try {
       final response = await client.functions.invoke(
@@ -846,6 +845,15 @@ class SocialService {
             : null;
         throw StateError(message ?? 'Reaction was not accepted');
       }
+      final likesCount = responseData['likes_count'];
+      if (likesCount is num) {
+        await localDb.setPostMetric(
+          localPostId ?? postId,
+          'likes_count',
+          likesCount.toInt(),
+        );
+        state.notify();
+      }
 
       // 🚀 NOTIFIER SYNC (Local & Remote)
       await dispatchSocialNotification(
@@ -859,7 +867,10 @@ class SocialService {
       await localDb.queueSocialAction(
         'like',
         postId,
-        payload: {'target_type': targetType},
+        payload: {
+          'target_type': targetType,
+          if (localPostId != null) 'local_post_id': localPostId,
+        },
       );
       // Even if offline, we show local feedback if we want "connected" feel
       await _showLocalNotification(
@@ -874,6 +885,7 @@ class SocialService {
     String postId,
     String content, {
     String targetType = 'post',
+    String? localPostId,
   }) async {
     final userId = client.auth.currentUser?.id;
     if (userId == null) return;
@@ -907,7 +919,14 @@ class SocialService {
 
       // 🚀 OPTIMISTIC UPDATE: Increment local comment count
       final localDb = LocalDbService();
-      await localDb.incrementPostMetric(postId, 'comments_count');
+      final commentsCount = responseData['comments_count'];
+      if (commentsCount is num) {
+        await localDb.setPostMetric(
+          localPostId ?? postId,
+          'comments_count',
+          commentsCount.toInt(),
+        );
+      }
       state.notify();
 
       // Local Alert for immediate UX
@@ -1040,6 +1059,7 @@ class SocialService {
       try {
         if (action['action_type'] == 'like') {
           var targetType = 'post';
+          String? localPostId;
           final rawPayload = action['payload'];
           if (rawPayload is! String || rawPayload.isEmpty) {
             // Older builds queued even successful reactions and stored no
@@ -1052,6 +1072,7 @@ class SocialService {
               final decoded = jsonDecode(rawPayload);
               if (decoded is Map && decoded['target_type'] is String) {
                 targetType = decoded['target_type'];
+                localPostId = decoded['local_post_id']?.toString();
               }
             } catch (_) {
               await localDb.removeAction(action['id']);
@@ -1073,6 +1094,14 @@ class SocialService {
               response.data is! Map ||
               response.data['success'] != true) {
             throw StateError('Queued reaction was not accepted');
+          }
+          final likesCount = response.data['likes_count'];
+          if (likesCount is num) {
+            await localDb.setPostMetric(
+              localPostId ?? action['post_id'],
+              'likes_count',
+              likesCount.toInt(),
+            );
           }
         } else if (action['action_type'] == 'follow') {
           await toggleFollow(
