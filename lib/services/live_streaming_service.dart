@@ -283,6 +283,16 @@ class LiveStreamingService {
     });
   }
 
+  Future<Map<String, dynamic>?> fetchPinnedProduct(String channelId) async {
+    final response = await _invokeLiveBackend({
+      'action': 'fetch_stream_state',
+      'channelId': channelId,
+    });
+    final data = response is Map ? response['data'] : null;
+    final product = data is Map ? data['pinnedProduct'] : null;
+    return product is Map ? Map<String, dynamic>.from(product) : null;
+  }
+
   Future<void> sendCoHostRequest(
     String channelId,
     String userId,

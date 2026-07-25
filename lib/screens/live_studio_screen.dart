@@ -81,6 +81,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.state.pinnedLiveProduct = null;
     // Check cached verification state BEFORE calling initAgora.
     // If already verified within 30 days the user goes live with zero friction.
     unawaited(_prepareLiveStudio());
@@ -119,7 +120,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     _eventsSubscription = widget.state.live.listenToEvents(widget.channelName).listen((event) {
       if (!mounted || event.isEmpty) return;
 
-      final eventKey = (event['_id'] ?? '${event['type']}_${event['userId']}_${event['timestamp']}').toString();
+      if (event.containsKey('pinnedProduct')) {
+        final rawProduct = event['pinnedProduct'];
+        final product = rawProduct is Map
+            ? Map<String, dynamic>.from(rawProduct)
+            : null;
+        final currentId = widget.state.pinnedLiveProduct?['id']?.toString();
+        final nextId = product?['id']?.toString();
+        if (currentId != nextId) {
+          widget.state.updatePinnedProduct(product);
+        }
+      }
+
+      final eventKey =
+          (event['id'] ??
+                  event['_id'] ??
+                  '${event['type']}_${event['userId']}_${event['timestamp']}')
+              .toString();
       if (eventKey == _lastHandledEventKey) return;
       _lastHandledEventKey = eventKey;
 
@@ -160,8 +177,30 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
           setState(() => _isRequestPending = false);
           _showToast('Co-hosting request declined');
         }
+      } else if (type == 'product_pinned') {
+        final data = Map<String, dynamic>.from(event['data'] ?? {});
+        final product = data['product'];
+        if (product is! Map) return;
+        widget.state.updatePinnedProduct(
+          Map<String, dynamic>.from(product),
+        );
+        if (!widget.isHost) {
+          _showToast('A product was pinned to this live.');
+        }
       }
     });
+  }
+
+  Future<void> _syncPinnedProduct() async {
+    try {
+      final product = await widget.state.live.fetchPinnedProduct(
+        widget.channelName,
+      );
+      if (!mounted) return;
+      widget.state.updatePinnedProduct(product);
+    } catch (e) {
+      debugPrint('Necxa Live: Pinned product sync failed: $e');
+    }
   }
 
 
@@ -228,6 +267,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
       setState(() {
         _localUserJoined = true;
       });
+      await _syncPinnedProduct();
       _automaticAuthRetries = 0;
 
       // Setup room event listeners to trigger UI updates
@@ -464,6 +504,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
     _giftEventsSubscription?.cancel();
     _stopSilentFacePulse();
     _commentController.dispose();
+    widget.state.pinnedLiveProduct = null;
     widget.state.live.leaveChannel();
     super.dispose();
   }
@@ -1197,7 +1238,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
                       ),
                       title: Text(title, style: dm(sz: 13, c: Colors.white)),
                       subtitle: Text(ugx(price), style: dm(sz: 11, c: C.brand)),
-                      onTap: () {
+                      onTap: () async {
                         final mapped = {
                           'title': title,
                           'price': price,
@@ -1205,9 +1246,20 @@ class _LiveStudioScreenState extends State<LiveStudioScreen> with WidgetsBinding
                           'thumbnail_url': imageUrl,
                           'id': p['id'] ?? '',
                         };
+                        final previous = widget.state.pinnedLiveProduct;
                         widget.state.updatePinnedProduct(mapped);
-                        widget.state.live.pinProduct(widget.channelName, mapped);
                         Navigator.pop(context);
+                        try {
+                          await widget.state.live.pinProduct(
+                            widget.channelName,
+                            mapped,
+                          );
+                        } catch (e) {
+                          widget.state.updatePinnedProduct(previous);
+                          if (mounted) {
+                            _showToast('Product could not be pinned: $e');
+                          }
+                        }
                       },
                     );
                   },

@@ -49,6 +49,7 @@ const VALID_ACTIONS = [
   "stop",
   "list_active",
   "pin_product",
+  "fetch_stream_state",
   "cohost_request",
   "cohost_decision",
   "send_comment",
@@ -110,6 +111,9 @@ serve(async (req) => {
     }
     if (action === "cohost_decision" && !guestId?.trim()) {
       return json({ error: "guestId is required for a co-host decision" }, 400);
+    }
+    if (action === "pin_product" && (!product || !product.id)) {
+      return json({ error: "A product with an id is required" }, 400);
     }
 
     // ── Authentication gate for hosts ─────────────────────────────────────────
@@ -196,6 +200,10 @@ serve(async (req) => {
               createdAt: new Date(),
             });
 
+            await Promise.all([
+              db.collection("stream_metadata").deleteOne({ channelId }),
+              db.collection("stream_events").deleteMany({ channelId }),
+            ]);
             mongoSuccess = true;
           }
 
@@ -230,18 +238,48 @@ serve(async (req) => {
             .toArray();
           mongoSuccess = true;
         } else if (action === "pin_product") {
+          const ownedStream = await streams.findOne({
+            channelId,
+            hostId: userId,
+            status: "live",
+          });
+          if (!ownedStream) {
+            return json({ error: "Only the live host can pin products" }, 403);
+          }
+          const pinnedAt = new Date();
           await db.collection("stream_metadata").updateOne(
             { channelId },
             {
               $set: {
                 channelId,
                 pinnedProduct: product ?? null,
-                updatedAt: new Date(),
+                updatedAt: pinnedAt,
               },
             },
             { upsert: true },
           );
-          actionResult = { pinned: true };
+          const eventResult = await db.collection("stream_events").insertOne({
+            channelId,
+            userId,
+            type: "product_pinned",
+            data: { product },
+            timestamp: pinnedAt,
+          });
+          actionResult = {
+            pinned: true,
+            eventId: eventResult.insertedId.toString(),
+            product,
+          };
+          mongoSuccess = true;
+        } else if (action === "fetch_stream_state") {
+          const streamState = await db.collection("stream_metadata").findOne(
+            { channelId },
+            { projection: { _id: 0, pinnedProduct: 1, updatedAt: 1 } },
+          );
+          actionResult = {
+            pinnedProduct: streamState?.pinnedProduct ?? null,
+            updatedAt: streamState?.updatedAt ?? null,
+          };
           mongoSuccess = true;
         } else if (action === "cohost_request") {
           await db.collection("stream_events").insertOne({
@@ -289,15 +327,26 @@ serve(async (req) => {
           }));
           mongoSuccess = true;
         } else if (action === "poll_event") {
-          const event = await db.collection("stream_events").findOne(
-            { channelId },
-            { sort: { timestamp: -1 } },
-          );
+          const [event, streamState] = await Promise.all([
+            db.collection("stream_events").findOne(
+              { channelId },
+              { sort: { timestamp: -1 } },
+            ),
+            db.collection("stream_metadata").findOne(
+              { channelId },
+              { projection: { _id: 0, pinnedProduct: 1 } },
+            ),
+          ]);
+          const pinnedProduct = streamState?.pinnedProduct ?? null;
           if (event) {
             const { _id, ...eventData } = event;
-            actionResult = { id: _id.toString(), ...eventData };
+            actionResult = {
+              id: _id.toString(),
+              ...eventData,
+              pinnedProduct,
+            };
           } else {
-            actionResult = {};
+            actionResult = { pinnedProduct };
           }
           mongoSuccess = true;
         }
@@ -353,6 +402,7 @@ serve(async (req) => {
     if (
       [
         "pin_product",
+        "fetch_stream_state",
         "cohost_request",
         "cohost_decision",
         "send_comment",

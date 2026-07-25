@@ -103,6 +103,24 @@ try {
 
   // ── notifications ────────────────────────────────────────────────────────────
   console.log("\n📁  notifications");
+  // Live commerce state and the event poll are keyed by channel.
+  await ensureIndexes(db, "stream_metadata", [
+    [{ channelId: 1 }, { unique: true, name: "idx_stream_metadata_channel" }],
+  ]);
+  await ensureIndexes(db, "stream_events", [
+    [
+      { channelId: 1, timestamp: -1 },
+      { name: "idx_stream_events_channel_time" },
+    ],
+    [
+      { timestamp: 1 },
+      {
+        expireAfterSeconds: 60 * 60 * 24 * 7,
+        name: "idx_stream_events_ttl",
+      },
+    ],
+  ]);
+
   await ensureIndexes(db, "notifications", [
     [{ userId:     1  }, { name: "idx_notif_userId"                              }],
     [{ read:       1  }, { name: "idx_notif_read"                                }],
