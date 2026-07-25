@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart' hide ImageFormat;
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -31,6 +33,14 @@ enum CreatorType {
   unified, // 🎭  Automatic Content Selector (Photo/Video/Music)
   artist, // 👨‍🎤  Artist Hub (Visual mood + beat track)
   audio, // 🎙️  Podcast & Voice (Simplified audio-first)
+}
+
+enum _LiveCapturePreviewState {
+  idle,
+  permissionRequired,
+  initializing,
+  ready,
+  unavailable,
 }
 
 class _PublishingStageException implements Exception {
@@ -101,7 +111,7 @@ class UploadScreen extends StatefulWidget {
 }
 
 class _UploadScreenState extends State<UploadScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // ── Navigation ──────────────────────────────────────────────
   // NEW Campaign Hierarchy
   // Step 0: Goal Selection
@@ -169,9 +179,15 @@ class _UploadScreenState extends State<UploadScreen>
   String _optimizingStatus = "";
   bool _agreedToPolicies = false;
 
+  CameraController? _livePreviewController;
+  CameraLensDirection _livePreviewLens = CameraLensDirection.front;
+  _LiveCapturePreviewState _livePreviewState = _LiveCapturePreviewState.idle;
+  int _livePreviewGeneration = 0;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bakedTrack = widget.initialTrack;
     if (_bakedTrack != null) {
       _title = _bakedTrack!.title;
@@ -188,6 +204,11 @@ class _UploadScreenState extends State<UploadScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _livePreviewGeneration++;
+    final livePreviewController = _livePreviewController;
+    _livePreviewController = null;
+    unawaited(livePreviewController?.dispose());
     _recTimer?.cancel();
     _recorder.dispose();
     _player.dispose();
@@ -204,6 +225,137 @@ class _UploadScreenState extends State<UploadScreen>
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_shouldRunLivePreview) unawaited(_startLivePreview());
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      unawaited(_stopLivePreview());
+    }
+  }
+
+  bool get _shouldRunLivePreview =>
+      mounted && _step == 2 && _objectiveId == 'awareness';
+
+  Future<void> _startLivePreview() async {
+    if (!_shouldRunLivePreview) return;
+    if (_livePreviewState == _LiveCapturePreviewState.initializing) return;
+    final activeController = _livePreviewController;
+    if (_livePreviewState == _LiveCapturePreviewState.ready &&
+        activeController != null &&
+        activeController.value.isInitialized &&
+        activeController.description.lensDirection == _livePreviewLens) {
+      return;
+    }
+
+    PermissionStatus permission;
+    try {
+      permission = await Permission.camera.status;
+    } catch (error) {
+      debugPrint('Live preview permission check failed: $error');
+      if (mounted) {
+        setState(
+          () => _livePreviewState = _LiveCapturePreviewState.unavailable,
+        );
+      }
+      return;
+    }
+    if (!permission.isGranted) {
+      await _stopLivePreview(
+        nextState: _LiveCapturePreviewState.permissionRequired,
+      );
+      return;
+    }
+    if (cameras.isEmpty) {
+      await _stopLivePreview(nextState: _LiveCapturePreviewState.unavailable);
+      return;
+    }
+
+    final generation = ++_livePreviewGeneration;
+    final previousController = _livePreviewController;
+    _livePreviewController = null;
+    if (mounted) {
+      setState(() => _livePreviewState = _LiveCapturePreviewState.initializing);
+    }
+    await previousController?.dispose();
+    if (!_shouldRunLivePreview || generation != _livePreviewGeneration) return;
+
+    final description = cameras.firstWhere(
+      (camera) => camera.lensDirection == _livePreviewLens,
+      orElse: () => cameras.first,
+    );
+    final controller = CameraController(
+      description,
+      ResolutionPreset.medium,
+      enableAudio: false,
+    );
+    try {
+      await controller.initialize();
+      if (!_shouldRunLivePreview || generation != _livePreviewGeneration) {
+        await controller.dispose();
+        return;
+      }
+      _livePreviewController = controller;
+      _livePreviewLens = description.lensDirection;
+      if (mounted) {
+        setState(() => _livePreviewState = _LiveCapturePreviewState.ready);
+      }
+    } on CameraException catch (error) {
+      await controller.dispose();
+      if (!mounted || generation != _livePreviewGeneration) return;
+      final permissionDenied =
+          error.code == 'CameraAccessDenied' ||
+          error.code == 'CameraAccessDeniedWithoutPrompt' ||
+          error.code == 'CameraAccessRestricted';
+      setState(
+        () => _livePreviewState = permissionDenied
+            ? _LiveCapturePreviewState.permissionRequired
+            : _LiveCapturePreviewState.unavailable,
+      );
+    } catch (error) {
+      debugPrint('Live capture preview failed: $error');
+      await controller.dispose();
+      if (mounted && generation == _livePreviewGeneration) {
+        setState(
+          () => _livePreviewState = _LiveCapturePreviewState.unavailable,
+        );
+      }
+    }
+  }
+
+  Future<void> _stopLivePreview({
+    _LiveCapturePreviewState nextState = _LiveCapturePreviewState.idle,
+  }) async {
+    _livePreviewGeneration++;
+    final controller = _livePreviewController;
+    _livePreviewController = null;
+    if (mounted && _livePreviewState != nextState) {
+      setState(() => _livePreviewState = nextState);
+    }
+    await controller?.dispose();
+  }
+
+  Future<void> _enableLivePreviewCamera() async {
+    var permission = await Permission.camera.request();
+    if (permission.isPermanentlyDenied || permission.isRestricted) {
+      await openAppSettings();
+      permission = await Permission.camera.status;
+    }
+    if (!mounted) return;
+    if (permission.isGranted) {
+      await _startLivePreview();
+    } else {
+      setState(
+        () => _livePreviewState = _LiveCapturePreviewState.permissionRequired,
+      );
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────
   void _err(String m) => ScaffoldMessenger.of(
     context,
@@ -214,8 +366,9 @@ class _UploadScreenState extends State<UploadScreen>
 
   Future<void> _capturePickupLocation() async {
     var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied)
+    if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
+    }
     if (permission != LocationPermission.whileInUse &&
         permission != LocationPermission.always) {
       _err('Pickup location permission is required for delivery pricing');
@@ -242,6 +395,9 @@ class _UploadScreenState extends State<UploadScreen>
     }
     final file = File(f.path);
     if (!mounted) return;
+    final resumeLivePreview = _shouldRunLivePreview;
+    if (resumeLivePreview) await _stopLivePreview();
+    if (!mounted) return;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -255,6 +411,9 @@ class _UploadScreenState extends State<UploadScreen>
         ),
       ),
     );
+    if (resumeLivePreview && _shouldRunLivePreview) {
+      unawaited(_startLivePreview());
+    }
 
     if (result is EditorExportResult && result.success) {
       final outputPath = result.outputPath;
@@ -344,7 +503,7 @@ class _UploadScreenState extends State<UploadScreen>
             _title = track.title;
             _titleController.text = _title;
           }
-          _step = 3; // 🚀 JUMP straight to Final Review (Step 3)
+          _step = 3; // Jump straight to Final Review.
         });
       }
     }
@@ -352,43 +511,71 @@ class _UploadScreenState extends State<UploadScreen>
 
   Future<void> _pickUnifiedMedia() async {
     // 🎭 TikTok Style: Pick multiple media (Images & Videos)
-    final res = await ImagePicker().pickMultipleMedia();
-    if (res.isNotEmpty) {
-      setState(() {
-        _multiFiles = res.map((x) => File(x.path)).toList();
-        _visualFile = _multiFiles.first;
-        _isVideo =
-            _visualFile!.path.toLowerCase().endsWith('.mp4') ||
-            _visualFile!.path.toLowerCase().endsWith('.mov');
-      });
-      await _processResult(res.first, _isVideo);
+    final resumeLivePreview = _shouldRunLivePreview;
+    if (resumeLivePreview) await _stopLivePreview();
+    if (!mounted) return;
+    try {
+      final res = await ImagePicker().pickMultipleMedia();
+      if (res.isNotEmpty) {
+        setState(() {
+          _multiFiles = res.map((x) => File(x.path)).toList();
+          _visualFile = _multiFiles.first;
+          _isVideo =
+              _visualFile!.path.toLowerCase().endsWith('.mp4') ||
+              _visualFile!.path.toLowerCase().endsWith('.mov');
+        });
+        await _processResult(res.first, _isVideo);
+      }
+    } finally {
+      if (resumeLivePreview && _shouldRunLivePreview) {
+        unawaited(_startLivePreview());
+      }
     }
   }
 
   Future<void> _captureMedia() async {
     if (cameras.isEmpty) {
+      if (mounted) {
+        setState(
+          () => _livePreviewState = _LiveCapturePreviewState.unavailable,
+        );
+      }
       _err('No cameras detected on this device');
       return;
     }
 
-    final dynamic result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NecxaCameraCaptureScreen(cameras: cameras),
-      ),
-    );
+    final resumeLivePreview = _shouldRunLivePreview;
+    if (resumeLivePreview) await _stopLivePreview();
+    if (!mounted) return;
+    try {
+      final dynamic result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NecxaCameraCaptureScreen(
+            cameras: cameras,
+            initialLensDirection: _livePreviewLens,
+            onLensChanged: (direction) => _livePreviewLens = direction,
+          ),
+        ),
+      );
 
-    if (result == 'OPEN_GALLERY') {
-      _pickUnifiedMedia();
-    } else if (result is File) {
-      _processResult(XFile(result.path), true);
-    } else if (result is List<File>) {
-      setState(() {
-        _multiFiles = [..._multiFiles, ...result];
-        _visualFile = _multiFiles.first;
-        _isVideo = true;
-      });
-      _processResult(XFile(_multiFiles.first.path), true);
+      if (!mounted) return;
+      if (result == 'OPEN_GALLERY') {
+        await _pickUnifiedMedia();
+      } else if (result is File) {
+        await _processResult(XFile(result.path), true);
+      } else if (result is List<File>) {
+        setState(() {
+          _multiFiles = [..._multiFiles, ...result];
+          _visualFile = _multiFiles.first;
+          _isVideo = true;
+        });
+        await _processResult(XFile(_multiFiles.first.path), true);
+      }
+    } finally {
+      if (resumeLivePreview && _shouldRunLivePreview) {
+        unawaited(_startLivePreview());
+      }
     }
   }
 
@@ -445,7 +632,13 @@ class _UploadScreenState extends State<UploadScreen>
       return;
     }
 
+    final previousStep = _step;
     setState(() => _step++);
+    if (_step == 2) {
+      unawaited(_startLivePreview());
+    } else if (previousStep == 2) {
+      unawaited(_stopLivePreview());
+    }
   }
 
   Future<void> _publishPost() async {
@@ -1220,7 +1413,13 @@ class _UploadScreenState extends State<UploadScreen>
           children: [
             _topBar(_getStepTitle(), () {
               if (_step > 0) {
+                final previousStep = _step;
                 setState(() => _step--);
+                if (_step == 2) {
+                  unawaited(_startLivePreview());
+                } else if (previousStep == 2) {
+                  unawaited(_stopLivePreview());
+                }
               } else {
                 widget.state.go('community');
               }
@@ -1556,6 +1755,73 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
+  Widget _buildLiveCapturePreview() {
+    final controller = _livePreviewController;
+    if (_livePreviewState == _LiveCapturePreviewState.ready &&
+        controller != null &&
+        controller.value.isInitialized) {
+      final previewSize = controller.value.previewSize;
+      if (previewSize == null) return CameraPreview(controller);
+      return FittedBox(
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        child: SizedBox(
+          width: previewSize.width,
+          height: previewSize.height,
+          child: CameraPreview(controller),
+        ),
+      );
+    }
+
+    if (_livePreviewState == _LiveCapturePreviewState.initializing) {
+      return const ColoredBox(
+        color: Color(0xFF0C0D10),
+        child: Center(
+          child: SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(
+              color: Colors.white38,
+              strokeWidth: 2,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return const ColoredBox(
+      color: Color(0xFF111317),
+      child: Center(
+        child: Icon(Icons.videocam_outlined, color: Colors.white12, size: 58),
+      ),
+    );
+  }
+
+  Widget _buildEnableCameraOverlay() {
+    return ColoredBox(
+      color: Colors.black.withAlpha(156),
+      child: Center(
+        child: FilledButton.icon(
+          onPressed: _enableLivePreviewCamera,
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            minimumSize: const Size(0, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            visualDensity: VisualDensity.compact,
+          ),
+          icon: const Icon(Icons.videocam_outlined, size: 17),
+          label: Text(
+            'Enable Camera',
+            style: dm(sz: 11, w: FontWeight.w800, c: Colors.black),
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── STEP 2: FILM HUB ────────────────────────────────────────
   Widget _buildCreativeStep() {
     return Column(
@@ -1581,63 +1847,77 @@ class _UploadScreenState extends State<UploadScreen>
           Padding(
             padding: const EdgeInsets.only(bottom: 20),
             child: GestureDetector(
-              onTap: _captureMedia,
+              onTap:
+                  _livePreviewState ==
+                      _LiveCapturePreviewState.permissionRequired
+                  ? _enableLivePreviewCamera
+                  : _captureMedia,
               child: Container(
-                padding: const EdgeInsets.all(24),
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF0000), Color(0xFF990000)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Colors.black,
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.red.withAlpha(77),
+                      color: Colors.black.withAlpha(102),
                       blurRadius: 15,
                       offset: const Offset(0, 8),
                     ),
                   ],
                 ),
-                child: Row(
+                child: Stack(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: const BoxDecoration(
-                        color: Colors.white24,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.videocam,
-                        color: Colors.white,
-                        size: 32,
-                      ),
+                    Positioned.fill(child: _buildLiveCapturePreview()),
+                    Positioned.fill(
+                      child: ColoredBox(color: Colors.black.withAlpha(82)),
                     ),
-                    const SizedBox(width: 20),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Row(
                         children: [
-                          Text(
-                            'LIVE CAPTURE',
-                            style: syne(
-                              sz: 18,
-                              w: FontWeight.w900,
-                              c: Colors.white,
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: const BoxDecoration(
+                              color: Colors.white24,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.videocam,
+                              color: Colors.white,
+                              size: 32,
                             ),
                           ),
-                          Text(
-                            'Speed · Filters · 4K Mastery',
-                            style: dm(sz: 12, c: Colors.white70),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'LIVE CAPTURE',
+                                  style: syne(
+                                    sz: 18,
+                                    w: FontWeight.w900,
+                                    c: Colors.white,
+                                  ),
+                                ),
+                                Text(
+                                  'Speed · Filters · 4K Mastery',
+                                  style: dm(sz: 12, c: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            color: Colors.white,
+                            size: 16,
                           ),
                         ],
                       ),
                     ),
-                    const Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.white,
-                      size: 16,
-                    ),
+                    if (_livePreviewState ==
+                        _LiveCapturePreviewState.permissionRequired)
+                      Positioned.fill(child: _buildEnableCameraOverlay()),
                   ],
                 ),
               ),

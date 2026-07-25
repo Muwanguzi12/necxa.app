@@ -7,7 +7,15 @@ import '../theme.dart';
 
 class NecxaCameraCaptureScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
-  const NecxaCameraCaptureScreen({super.key, required this.cameras});
+  final CameraLensDirection initialLensDirection;
+  final ValueChanged<CameraLensDirection>? onLensChanged;
+
+  const NecxaCameraCaptureScreen({
+    super.key,
+    required this.cameras,
+    this.initialLensDirection = CameraLensDirection.front,
+    this.onLensChanged,
+  });
 
   @override
   State<NecxaCameraCaptureScreen> createState() =>
@@ -45,7 +53,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
   void initState() {
     super.initState();
     final initialCamera = widget.cameras.firstWhere(
-      (camera) => camera.lensDirection == CameraLensDirection.back,
+      (camera) => camera.lensDirection == widget.initialLensDirection,
       orElse: () => widget.cameras.first,
     );
     _initCamera(initialCamera);
@@ -96,6 +104,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
       _controller = nextController;
       _activeCamera = description;
       _isFrontCamera = description.lensDirection == CameraLensDirection.front;
+      widget.onLensChanged?.call(description.lensDirection);
       setState(() => _isSwitchingCamera = false);
       return true;
     } catch (error) {
