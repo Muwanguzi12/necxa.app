@@ -27,13 +27,25 @@ async function ensureIndexes(database: Db): Promise<void> {
       { entityType: 1, entityId: 1, userId: 1, idempotencyKey: 1 },
       {
         unique: true,
-        name: 'unique_comment_request',
+        name: 'unique_entity_comment_request',
         partialFilterExpression: { idempotencyKey: { $type: 'string' } },
+      },
+    ),
+    database.collection('engagement_comments').createIndex(
+      { sourceId: 1 },
+      {
+        unique: true,
+        name: 'unique_legacy_comment_source',
+        partialFilterExpression: { sourceId: { $type: 'string' } },
       },
     ),
     database.collection('engagement_totals').createIndex(
       { entityType: 1, entityId: 1 },
       { unique: true, name: 'unique_entity_totals' },
+    ),
+    database.collection('engagement_migrations').createIndex(
+      { key: 1 },
+      { unique: true, name: 'unique_engagement_migration' },
     ),
     database.collection('live_members').createIndex(
       { streamId: 1, userId: 1 },
@@ -57,6 +69,7 @@ export async function connectMongo(): Promise<Db> {
   connection = (async () => {
     const nextClient = new MongoClient(requiredMongoUri(), {
       appName: 'necxa-engagement-service',
+      family: 4,
       connectTimeoutMS: 10_000,
       serverSelectionTimeoutMS: 10_000,
       maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE || 20),

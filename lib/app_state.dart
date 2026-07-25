@@ -138,8 +138,14 @@ class AppState extends ChangeNotifier {
   void _initConnectivity() {
     Connectivity().onConnectivityChanged.listen((results) {
       if (results.isNotEmpty) {
+        final wasOffline = _connectionType == ConnectivityResult.none;
         _connectionType = results.first;
         notifyListeners();
+        if (wasOffline &&
+            _connectionType != ConnectivityResult.none &&
+            user != null) {
+          social.syncPendingActions();
+        }
       }
     });
     // Initial check
@@ -401,11 +407,33 @@ class AppState extends ChangeNotifier {
     social = SocialService(this);
     orders = OrderTrackingService(this);
     live = LiveStreamingService(this);
+    NotificationService().tappedNotification.addListener(
+      _handleNotificationTap,
+    );
 
     // 🚀 NEURAL PRE-WARM: Load mission-critical data first
     _preWarmApp();
 
     _initConnectivity();
+  }
+
+  void _handleNotificationTap() {
+    final data = NotificationService().tappedNotification.value;
+    if (data == null) return;
+    NotificationService().tappedNotification.value = null;
+    final notificationId =
+        data['notification_id']?.toString() ?? data['id']?.toString();
+    if (notificationId != null) {
+      unawaited(markNotificationAsRead(notificationId));
+    }
+    final targetId = data['target_id']?.toString();
+    final targetType = data['target_type']?.toString() ?? 'post';
+    if (targetId == null || targetId.isEmpty) return;
+    if (targetType == 'profile') {
+      go('public_profile', extra: targetId);
+    } else if (targetType == 'post') {
+      go('community', extra: targetId);
+    }
   }
 
   /// Staggers app initialization to ensure zero-latency startup and interactive first frame.
@@ -1931,7 +1959,7 @@ class AppState extends ChangeNotifier {
     }
 
     _notifChannel = Supabase.instance.client
-        .channel('public:notifications')
+        .channel('notifications:${user!.id}')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -1946,9 +1974,25 @@ class AppState extends ChangeNotifier {
               '🔔 Realtime Notification Received: ${payload.newRecord}',
             );
             final notif = AppNotification.fromMap(payload.newRecord);
-            // 1. Show System Notification
             await NotificationService().showNotification(notif);
-            // 2. Reload local list
+            await loadNotifications();
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: user!.id,
+          ),
+          callback: (payload) async {
+            final notif = AppNotification.fromMap(payload.newRecord);
+            await NotificationService().showNotification(
+              notif,
+              showSystem: false,
+            );
             await loadNotifications();
           },
         )
@@ -2790,6 +2834,8 @@ class AppState extends ChangeNotifier {
   // ── Notifications & Vendor Orders ──
   List<AppNotification> appNotifications = [];
   int pendingVendorOrders = 0;
+  int get unreadNotificationCount =>
+      appNotifications.where((notification) => !notification.isRead).length;
 
   int get activeBuyerTransportCount => myTransportOrders
       .where(
@@ -2808,6 +2854,47 @@ class AppState extends ChangeNotifier {
   Future<void> markNotificationAsRead(String id) async {
     await localDb.markNotificationAsRead(id);
     await loadNotifications();
+    try {
+      await social.markNotificationRead(id);
+    } catch (error) {
+      debugPrint('Notification read sync deferred: $error');
+    }
+  }
+
+  Future<void> markAllNotificationsAsRead() async {
+    await localDb.markAllNotificationsAsRead();
+    await loadNotifications();
+    try {
+      await social.markAllNotificationsRead();
+    } catch (error) {
+      debugPrint('Notification read-all sync deferred: $error');
+    }
+  }
+
+  Future<void> refreshNotifications() async {
+    final remote = await social.fetchNotifications(limit: 50);
+    for (final item in remote) {
+      final notification = AppNotification.fromMap(item);
+      if (notification.id.isEmpty) continue;
+      await NotificationService().showNotification(
+        notification,
+        showSystem: false,
+      );
+    }
+    await loadNotifications();
+  }
+
+  void openNotification(AppNotification notification) {
+    if (!notification.isRead) {
+      unawaited(markNotificationAsRead(notification.id));
+    }
+    if (notification.targetType == 'profile' && notification.targetId != null) {
+      go('public_profile', extra: notification.targetId);
+      return;
+    }
+    if (notification.targetType == 'post' && notification.targetId != null) {
+      go('community', extra: notification.targetId);
+    }
   }
 
   // ── Sync Engine (Neural Pulse) ────────────────────────────────
@@ -2855,21 +2942,9 @@ class AppState extends ChangeNotifier {
       syncStatus = "Delta Syncing...";
       notify();
 
-      final redisNotifs = await social.fetchRedisNotifications();
-      for (var n in redisNotifs) {
-        final notif = AppNotification(
-          id: n['id'] ?? 'redis_${DateTime.now().millisecondsSinceEpoch}',
-          type: n['type'],
-          title: _getRedisTitle(n),
-          body: _getRedisBody(n),
-          createdAt: DateTime.tryParse(n['created_at']) ?? DateTime.now(),
-          payload: n['target_id'],
-        );
-        await NotificationService().showNotification(notif);
-      }
-      if (redisNotifs.isNotEmpty) await loadNotifications();
+      await refreshNotifications();
     } catch (e) {
-      debugPrint('Sync Error (Redis): $e');
+      debugPrint('Notification Sync Error: $e');
     }
 
     // 2. Process Pending Offline Actions
@@ -2881,36 +2956,6 @@ class AppState extends ChangeNotifier {
     isSyncing = false;
     syncStatus = "Optimized";
     notify();
-  }
-
-  String _getRedisTitle(Map<String, dynamic> n) {
-    switch (n['type']) {
-      case 'like':
-        return 'New Like!';
-      case 'comment':
-        return 'New Comment!';
-      case 'follow':
-        return 'New Follower!';
-      case 'save':
-        return 'Post Saved';
-      default:
-        return 'Necxa Alert';
-    }
-  }
-
-  String _getRedisBody(Map<String, dynamic> n) {
-    switch (n['type']) {
-      case 'like':
-        return 'Someone loved your post.';
-      case 'comment':
-        return 'Check out what they said on your content.';
-      case 'follow':
-        return 'A new user joined your network.';
-      case 'save':
-        return 'Your content was added to a collection.';
-      default:
-        return 'Engagement on your profile.';
-    }
   }
 }
 

@@ -21,7 +21,7 @@ class LocalDbService {
   static const int _feedMaxRows = 500;
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
-  static const int _dbVersion = 10;
+  static const int _dbVersion = 12;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
@@ -105,6 +105,41 @@ class LocalDbService {
             debugPrint('Migration Error: $e');
           }
         }
+        if (oldVersion < 11) {
+          for (final statement in [
+            'ALTER TABLE community_posts ADD COLUMN is_liked INTEGER DEFAULT 0',
+            'ALTER TABLE community_posts ADD COLUMN engagement_synced_at TEXT',
+            'ALTER TABLE shop_listings ADD COLUMN likes_count INTEGER DEFAULT 0',
+            'ALTER TABLE shop_listings ADD COLUMN comments_count INTEGER DEFAULT 0',
+            'ALTER TABLE shop_listings ADD COLUMN is_liked INTEGER DEFAULT 0',
+            'ALTER TABLE shop_listings ADD COLUMN engagement_synced_at TEXT',
+            'ALTER TABLE social_actions_queue ADD COLUMN dedupe_key TEXT',
+            'ALTER TABLE social_actions_queue ADD COLUMN retry_count INTEGER DEFAULT 0',
+            'ALTER TABLE social_actions_queue ADD COLUMN last_attempt_at TEXT',
+            "ALTER TABLE community_comments ADD COLUMN sync_status TEXT DEFAULT 'synced'",
+            'ALTER TABLE community_comments ADD COLUMN idempotency_key TEXT',
+            "ALTER TABLE community_comments ADD COLUMN target_type TEXT DEFAULT 'post'",
+          ]) {
+            try {
+              await db.execute(statement);
+            } catch (_) {}
+          }
+          await db.execute('DROP INDEX IF EXISTS idx_comments_post');
+        }
+        if (oldVersion < 12) {
+          for (final statement in [
+            'ALTER TABLE app_notifications ADD COLUMN actor_id TEXT',
+            'ALTER TABLE app_notifications ADD COLUMN actor_name TEXT',
+            'ALTER TABLE app_notifications ADD COLUMN actor_avatar TEXT',
+            'ALTER TABLE app_notifications ADD COLUMN target_id TEXT',
+            "ALTER TABLE app_notifications ADD COLUMN target_type TEXT DEFAULT 'post'",
+            "ALTER TABLE app_notifications ADD COLUMN metadata TEXT DEFAULT '{}'",
+          ]) {
+            try {
+              await db.execute(statement);
+            } catch (_) {}
+          }
+        }
         await _createOrMigrateV5(db, isUpgrade: true);
       },
       onCreate: (db, version) async {
@@ -171,6 +206,8 @@ class LocalDbService {
         media_type TEXT DEFAULT 'image',
         likes_count INTEGER DEFAULT 0,
         comments_count INTEGER DEFAULT 0,
+        is_liked INTEGER DEFAULT 0,
+        engagement_synced_at TEXT,
         listing_data TEXT, -- Full JSON listing metadata
         created_at TEXT
       )
@@ -229,6 +266,10 @@ class LocalDbService {
         media_url TEXT,
         thumbnail_url TEXT,
         media_type TEXT DEFAULT 'image',
+        likes_count INTEGER DEFAULT 0,
+        comments_count INTEGER DEFAULT 0,
+        is_liked INTEGER DEFAULT 0,
+        engagement_synced_at TEXT,
         category TEXT,
         is_verified INTEGER DEFAULT 0,
         photos TEXT, -- JSON Array of miniature URLs
@@ -250,8 +291,16 @@ class LocalDbService {
         action_type TEXT,
         post_id TEXT,
         payload TEXT,
+        dedupe_key TEXT,
+        retry_count INTEGER DEFAULT 0,
+        last_attempt_at TEXT,
         created_at TEXT
       )
+    ''');
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_social_queue_dedupe
+      ON social_actions_queue(dedupe_key)
+      WHERE dedupe_key IS NOT NULL
     ''');
 
     // ── 7. Sync Cursors (per-key delta tracking) ────────────────────────────
@@ -272,6 +321,12 @@ class LocalDbService {
         title TEXT,
         body TEXT,
         payload TEXT,
+        actor_id TEXT,
+        actor_name TEXT,
+        actor_avatar TEXT,
+        target_id TEXT,
+        target_type TEXT DEFAULT 'post',
+        metadata TEXT DEFAULT '{}',
         is_read INTEGER DEFAULT 0,
         created_at TEXT
       )
@@ -307,11 +362,14 @@ class LocalDbService {
         user_avatar TEXT,
         user_profile_url TEXT,
         content TEXT,
+        sync_status TEXT DEFAULT 'synced',
+        idempotency_key TEXT,
+        target_type TEXT DEFAULT 'post',
         created_at TEXT
       )
     ''');
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_comments_post ON community_comments(post_id)',
+      'CREATE INDEX IF NOT EXISTS idx_comments_post ON community_comments(post_id, created_at DESC)',
     );
   }
 
@@ -390,6 +448,8 @@ class LocalDbService {
         'media_type': post['media_type'] ?? 'image',
         'likes_count': post['likes_count'] ?? 0,
         'comments_count': post['comments_count'] ?? 0,
+        'is_liked': post['is_liked'] == true || post['is_liked'] == 1 ? 1 : 0,
+        'engagement_synced_at': post['engagement_synced_at'],
         'listing_data': post['listings'] != null
             ? jsonEncode(post['listings'])
             : null,
@@ -508,6 +568,49 @@ class LocalDbService {
     ]);
   }
 
+  Future<void> setCachedEngagement({
+    required String localId,
+    required bool isShop,
+    required int likes,
+    required int comments,
+    required bool isLiked,
+  }) async {
+    final db = await database;
+    final table = isShop ? 'shop_listings' : 'community_posts';
+    await db.update(
+      table,
+      {
+        'likes_count': likes < 0 ? 0 : likes,
+        'comments_count': comments < 0 ? 0 : comments,
+        'is_liked': isLiked ? 1 : 0,
+        'engagement_synced_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> incrementCachedEngagementMetric({
+    required String localId,
+    required bool isShop,
+    required String column,
+    int amount = 1,
+  }) async {
+    if (column != 'likes_count' && column != 'comments_count') {
+      throw ArgumentError.value(column, 'column', 'Unsupported metric');
+    }
+    final db = await database;
+    final table = isShop ? 'shop_listings' : 'community_posts';
+    await db.rawUpdate(
+      '''
+      UPDATE $table
+      SET $column = MAX(0, COALESCE($column, 0) + ?)
+      WHERE id = ?
+      ''',
+      [amount, localId],
+    );
+  }
+
   // ─── Shop Listings ────────────────────────────────────────────────────────
 
   Future<void> saveListings(List<Map<String, dynamic>> listings) async {
@@ -555,6 +658,10 @@ class LocalDbService {
         'media_url': mediaUrl,
         'thumbnail_url': thumbnailUrl,
         'media_type': l['media_type'] ?? 'image',
+        'likes_count': l['likes_count'] ?? 0,
+        'comments_count': l['comments_count'] ?? 0,
+        'is_liked': l['is_liked'] == true || l['is_liked'] == 1 ? 1 : 0,
+        'engagement_synced_at': l['engagement_synced_at'],
         'category': l['category'] ?? 'General',
         'is_verified': (l['is_verified'] == true || l['is_verified'] == 1)
             ? 1
@@ -775,14 +882,17 @@ class LocalDbService {
     String type,
     String postId, {
     Map<String, dynamic>? payload,
+    String? dedupeKey,
   }) async {
     final db = await database;
     await db.insert('social_actions_queue', {
       'action_type': type,
       'post_id': postId,
       'payload': payload == null ? null : jsonEncode(payload),
+      'dedupe_key': dedupeKey,
+      'retry_count': 0,
       'created_at': DateTime.now().toIso8601String(),
-    });
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Map<String, dynamic>>> getPendingActions() async {
@@ -795,15 +905,38 @@ class LocalDbService {
     await db.delete('social_actions_queue', where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<void> markActionAttempt(int id) async {
+    final db = await database;
+    await db.rawUpdate(
+      '''
+      UPDATE social_actions_queue
+      SET retry_count = COALESCE(retry_count, 0) + 1,
+          last_attempt_at = ?
+      WHERE id = ?
+      ''',
+      [DateTime.now().toIso8601String(), id],
+    );
+  }
+
   // ─── Notifications ────────────────────────────────────────────────────────
 
   Future<void> saveNotification(Map<String, dynamic> notif) async {
     final db = await database;
-    await db.insert(
-      'app_notifications',
-      notif,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('app_notifications', {
+      'id': notif['id'],
+      'type': notif['type'],
+      'title': notif['title'],
+      'body': notif['body'],
+      'payload': notif['payload'],
+      'actor_id': notif['actor_id'],
+      'actor_name': notif['actor_name'],
+      'actor_avatar': notif['actor_avatar'],
+      'target_id': notif['target_id'],
+      'target_type': notif['target_type'] ?? 'post',
+      'metadata': notif['metadata'] ?? '{}',
+      'is_read': notif['is_read'] ?? 0,
+      'created_at': notif['created_at'],
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     await db.rawDelete('''
       DELETE FROM app_notifications WHERE id IN (
         SELECT id FROM app_notifications ORDER BY created_at DESC LIMIT -1 OFFSET $_notifMaxRows
@@ -820,6 +953,27 @@ class LocalDbService {
     );
   }
 
+  Future<bool> hasNotification(String id) async {
+    final db = await database;
+    final rows = await db.query(
+      'app_notifications',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  Future<void> saveNotifications(
+    List<Map<String, dynamic>> notifications,
+  ) async {
+    if (notifications.isEmpty) return;
+    for (final notification in notifications) {
+      await saveNotification(notification);
+    }
+  }
+
   Future<void> markNotificationAsRead(String id) async {
     final db = await database;
     await db.update(
@@ -828,6 +982,11 @@ class LocalDbService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  Future<void> markAllNotificationsAsRead() async {
+    final db = await database;
+    await db.update('app_notifications', {'is_read': 1}, where: 'is_read = 0');
   }
 
   // ─── Transport Orders persistence ───────────────────────────────────────
@@ -906,10 +1065,62 @@ class LocalDbService {
             prof?['user_profile_url'] ??
             "https://necxa.app/u/$userId",
         'content': c['content'],
+        'sync_status': c['sync_status'] ?? 'synced',
+        'idempotency_key': c['idempotency_key'],
+        'target_type': c['target_type'] ?? 'post',
         'created_at': c['created_at'],
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
+  }
+
+  Future<Map<String, dynamic>> savePendingComment({
+    required String id,
+    required String postId,
+    required String userId,
+    required String content,
+    required String idempotencyKey,
+    required String targetType,
+    String? userName,
+    String? userAvatar,
+  }) async {
+    final createdAt = DateTime.now().toUtc().toIso8601String();
+    final comment = <String, dynamic>{
+      'id': id,
+      'post_id': postId,
+      'user_id': userId,
+      'user_name': userName ?? 'You',
+      'user_avatar': userAvatar,
+      'user_profile_url': 'https://necxa.app/u/$userId',
+      'content': content,
+      'sync_status': 'pending',
+      'idempotency_key': idempotencyKey,
+      'target_type': targetType,
+      'created_at': createdAt,
+    };
+    final db = await database;
+    await db.insert(
+      'community_comments',
+      comment,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return comment;
+  }
+
+  Future<void> reconcilePendingComment(
+    String localCommentId,
+    String postId,
+    Map<String, dynamic> serverComment,
+  ) async {
+    await saveComments(postId, [
+      {...serverComment, 'sync_status': 'synced'},
+    ]);
+    final db = await database;
+    await db.delete(
+      'community_comments',
+      where: 'id = ?',
+      whereArgs: [localCommentId],
+    );
   }
 
   Future<List<Map<String, dynamic>>> getCachedComments(String postId) async {

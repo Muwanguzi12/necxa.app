@@ -255,6 +255,20 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           return _buildEmptyState(hasError: snapshot.hasError);
                         }
 
+                        SchedulerBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted || items.isEmpty) return;
+                          final visibleIndex = _currentPageIndex < 0
+                              ? 0
+                              : (_currentPageIndex >= items.length
+                                    ? items.length - 1
+                                    : _currentPageIndex);
+                          widget.state.social.smartLoadEngagement(
+                            items,
+                            visibleIndex,
+                            isShop: _selectedTab == 1,
+                          );
+                        });
+
                         // Check for deep-link handover from Profile
                         if (widget.state.communityPostId != null &&
                             items.isNotEmpty) {
@@ -300,6 +314,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               itemCount: items.length,
                               onPageChanged: (index) {
                                 _currentPageIndex = index;
+                                widget.state.social.smartLoadEngagement(
+                                  items,
+                                  index,
+                                  isShop: _selectedTab == 1,
+                                );
                                 if (_selectedTab == 0) {
                                   widget.state.communityFeedIndex = index;
 
@@ -902,7 +921,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _isLiked = widget.post['is_liked'] == true;
+    _isLiked = widget.post['is_liked'] == true || widget.post['is_liked'] == 1;
     _likesCount = widget.post['likes_count'] ?? 0;
     _commentsCount = widget.post['comments_count'] ?? 0;
     _hydrateData();
@@ -926,6 +945,14 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   }
 
   late AnimationController _discController;
+
+  @override
+  void didUpdateWidget(covariant _ReelItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _isLiked = widget.post['is_liked'] == true || widget.post['is_liked'] == 1;
+    _likesCount = (widget.post['likes_count'] as num?)?.toInt() ?? 0;
+    _commentsCount = (widget.post['comments_count'] as num?)?.toInt() ?? 0;
+  }
 
   String get _engagementTargetType =>
       widget.post['listing_id'] == null ? 'post' : 'listing';
@@ -2209,7 +2236,8 @@ class _ShopReelItemState extends State<_ShopReelItem>
   @override
   void initState() {
     super.initState();
-    _isLiked = widget.listing['is_liked'] == true;
+    _isLiked =
+        widget.listing['is_liked'] == true || widget.listing['is_liked'] == 1;
     _likesCount = widget.listing['likes_count'] ?? 0;
     _commentsCount = widget.listing['comments_count'] ?? 0;
 
@@ -2227,6 +2255,15 @@ class _ShopReelItemState extends State<_ShopReelItem>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant _ShopReelItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _isLiked =
+        widget.listing['is_liked'] == true || widget.listing['is_liked'] == 1;
+    _likesCount = (widget.listing['likes_count'] as num?)?.toInt() ?? 0;
+    _commentsCount = (widget.listing['comments_count'] as num?)?.toInt() ?? 0;
   }
 
   void _toggleExpanded() {
@@ -3067,14 +3104,28 @@ class _CommentSheetState extends State<_CommentSheet> {
   void initState() {
     super.initState();
     _refreshComments();
+    Future.microtask(_smartRefreshComments);
   }
 
-  void _refreshComments() {
+  void _refreshComments({bool forceRefresh = false}) {
     setState(() {
       _commentsFuture = widget.state.social.fetchComments(
         widget.targetId ?? widget.post['id'],
         targetType: widget.targetType,
+        forceRefresh: forceRefresh,
       );
+    });
+  }
+
+  Future<void> _smartRefreshComments() async {
+    final comments = await widget.state.social.fetchComments(
+      widget.targetId ?? widget.post['id'],
+      targetType: widget.targetType,
+      forceRefresh: true,
+    );
+    if (!mounted) return;
+    setState(() {
+      _commentsFuture = Future.value(comments);
     });
   }
 
@@ -3098,7 +3149,8 @@ class _CommentSheetState extends State<_CommentSheet> {
         localPostId: widget.post['id']?.toString(),
       );
       _ctrl.clear();
-      _refreshComments(); // 🚀 TRIGGER RE-FETCH
+      _refreshComments();
+      Future.delayed(const Duration(seconds: 1), _smartRefreshComments);
       if (mounted) FocusScope.of(context).unfocus();
     } catch (e) {
       debugPrint('Comment Error: $e');
@@ -3208,6 +3260,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                           content: c['content'] ?? '',
                           isVerified: iden['is_verified'] == true,
                           createdAt: c['created_at'],
+                          isPending: c['sync_status'] == 'pending',
                         );
                       }
 
@@ -3218,6 +3271,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                           avatar: c['user_avatar'],
                           content: c['content'] ?? '',
                           createdAt: c['created_at'],
+                          isPending: c['sync_status'] == 'pending',
                         );
                       }
 
@@ -3238,6 +3292,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                             content: c['content'] ?? '',
                             isVerified: false,
                             createdAt: c['created_at'],
+                            isPending: c['sync_status'] == 'pending',
                           );
                         },
                       );
@@ -3259,6 +3314,7 @@ class _CommentSheetState extends State<_CommentSheet> {
     required String content,
     bool isVerified = false,
     String? createdAt,
+    bool isPending = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
@@ -3300,6 +3356,17 @@ class _CommentSheetState extends State<_CommentSheet> {
                         Icons.verified,
                         size: 12,
                         color: Color(0xFF00E5FF),
+                      ),
+                    ],
+                    if (isPending) ...[
+                      const SizedBox(width: 6),
+                      const Tooltip(
+                        message: 'Waiting to sync',
+                        child: Icon(
+                          Icons.schedule_rounded,
+                          size: 12,
+                          color: Colors.white38,
+                        ),
                       ),
                     ],
                   ],

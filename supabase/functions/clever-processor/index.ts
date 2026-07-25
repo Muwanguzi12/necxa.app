@@ -746,6 +746,14 @@ async function handleToggleLike(userId: string, payload: any) {
     }
   }
 
+  if (result.liked) {
+    await handleTriggerNotification(userId, {
+      type: "like",
+      target_id: targetId,
+      target_type: targetType,
+    })
+  }
+
   return json({
     success: true,
     action,
@@ -833,19 +841,21 @@ async function handleCreateComment(userId: string, payload: any) {
       }
 
       // 🚀 AUTO-TRIGGER: Alert the content owner
-      await handleTriggerNotification(userId, {
-        type: 'comment',
-        target_id: post_id,
-        actor_id: userId,
-        metadata: {
-          snippet: cleanContent.substring(0, 50),
-          identity: normalizedComment.metadata.identity,
-        }
-      });
     } catch (e) {
       console.error("REDIS Comment Sync Error:", e);
     }
   }
+
+  await handleTriggerNotification(userId, {
+    type: "comment",
+    target_id: post_id,
+    target_type,
+    metadata: {
+      comment_id: normalizedComment.id,
+      snippet: cleanContent.substring(0, 80),
+      identity: normalizedComment.metadata.identity,
+    },
+  })
 
   return json({
     success: true,
@@ -928,6 +938,125 @@ async function handleFetchComments(payload: any) {
   } catch (error) {
     console.error("Mongo comment retrieval failed:", error)
     return err("Engagement service is temporarily unavailable", 503)
+  }
+}
+
+async function handleFetchEngagement(userId: string, payload: any) {
+  const rawEntities = Array.isArray(payload.entities) ? payload.entities : []
+  const entities = rawEntities
+    .map((entity: any) => ({
+      id: String(entity?.id ?? "").trim(),
+      localId: String(entity?.local_id ?? entity?.id ?? "").trim(),
+      targetType: entity?.target_type === "listing" ? "listing" : "post",
+    }))
+    .filter((entity: any) => entity.id && entity.localId)
+    .slice(0, 12)
+
+  if (entities.length === 0) {
+    return json({ success: true, data: [] })
+  }
+
+  try {
+    const postIds = entities
+      .filter((entity: any) => entity.targetType === "post")
+      .map((entity: any) => entity.id)
+    const productIds = entities
+      .filter((entity: any) => entity.targetType === "listing")
+      .map((entity: any) => entity.id)
+    const [postSummaries, productSummaries] = await Promise.all([
+      getEntitySummaries({
+        entityType: "post",
+        entityIds: postIds,
+        userId,
+      }),
+      getEntitySummaries({
+        entityType: "product",
+        entityIds: productIds,
+        userId,
+      }),
+    ])
+
+    const data = entities.map((entity: any) => {
+      const summary = entity.targetType === "listing"
+        ? productSummaries.get(entity.id)
+        : postSummaries.get(entity.id)
+      return {
+        id: entity.id,
+        local_id: entity.localId,
+        target_type: entity.targetType,
+        likes_count: summary?.likes ?? 0,
+        comments_count: summary?.comments ?? 0,
+        is_liked: summary?.likedByUser ?? false,
+      }
+    })
+    return json({ success: true, data, source: "mongodb" })
+  } catch (error) {
+    console.error("Mongo engagement smart-load failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
+  }
+}
+
+function classifyMongoError(error: unknown) {
+  const candidate = error && typeof error === "object"
+    ? error as Record<string, unknown>
+    : {}
+  const name = typeof candidate.name === "string"
+    ? candidate.name
+    : "UnknownError"
+  const code = typeof candidate.code === "string" ||
+      typeof candidate.code === "number"
+    ? String(candidate.code)
+    : null
+  const message = typeof candidate.message === "string"
+    ? candidate.message.toLowerCase()
+    : ""
+  let category = "unknown"
+  if (
+    code === "ENOTFOUND" ||
+    code === "ECONNREFUSED" ||
+    message.includes("querysrv")
+  ) {
+    category = "dns"
+  } else if (
+    code === "ETIMEDOUT" ||
+    message.includes("server selection") ||
+    message.includes("timed out")
+  ) {
+    category = "network"
+  } else if (
+    code === "18" ||
+    message.includes("authentication failed") ||
+    message.includes("bad auth")
+  ) {
+    category = "authentication"
+  } else if (
+    message.includes("unsupported") ||
+    message.includes("not implemented")
+  ) {
+    category = "runtime"
+  }
+  return { name, code, category }
+}
+
+async function handleDiagnoseEngagement(user: any) {
+  const isAdmin = user?.app_metadata?.role === "admin" ||
+    user?.app_metadata?.is_admin === true
+  if (!isAdmin) return err("Administrator authorization required", 403)
+
+  try {
+    await getEntitySummaries({
+      entityType: "post",
+      entityIds: [`diagnostic-${Date.now()}`],
+      userId: user.id,
+    })
+    return json({ success: true, status: "mongodb-ready" })
+  } catch (error) {
+    console.error("Mongo engagement diagnostic failed:", error)
+    return json({
+      success: false,
+      status: "mongodb-unavailable",
+      diagnostic: classifyMongoError(error),
+    }, 503)
   }
 }
 
@@ -1101,110 +1230,229 @@ async function handleVerifyAsset(userId: string, payload: any) {
   return json({ success: true, verified: true, asset_id });
 }
 
-/**
- * TRIGGER-NOTIFICATION: Centralized social alert orchestration via Redis & Supabase.
- */
-async function handleTriggerNotification(userId: string, payload: any) {
-  const { type, target_id, actor_id, metadata = {} } = payload;
-  const redis = await getRedis();
-  
-  // 1. Determine the recipient (owner of the content or the follow target)
-  let recipientId = target_id;
-  if (['like', 'comment', 'share', 'save'].includes(type)) {
-    const { data: post } = await supabase
-      .from('community_posts')
-      .select('author_id')
-      .eq('id', target_id)
-      .single();
-    if (post) recipientId = post.author_id;
+const notificationTypes = new Set([
+  "like",
+  "comment",
+  "follow",
+  "share",
+  "save",
+  "mention",
+])
+
+async function resolveNotificationRecipient(
+  type: string,
+  targetId: string,
+  targetType: string,
+) {
+  if (type === "follow") return targetId
+
+  if (targetType === "listing") {
+    const { data, error } = await supabase
+      .from("listings")
+      .select("lister_id")
+      .eq("id", targetId)
+      .maybeSingle()
+    if (error) throw error
+    return data?.lister_id as string | undefined
   }
 
-  // Prevent self-notifications
-  if (recipientId === actor_id) return json({ success: true, message: "Self-notification skipped." });
+  const { data, error } = await supabase
+    .from("community_posts")
+    .select("author_id")
+    .eq("id", targetId)
+    .maybeSingle()
+  if (error) throw error
+  return data?.author_id as string | undefined
+}
 
-  const notification = {
-    id: crypto.randomUUID(),
-    type,
-    target_id,
-    actor_id,
-    metadata,
-    created_at: new Date().toISOString(),
-    read: false
-  };
-
-  // 2. High-Performance Redis Delivery (for instant in-app alerts)
-  if (redis) {
-    try {
-      await redis.lpush(`notifications:${recipientId}`, JSON.stringify(notification));
-      await redis.ltrim(`notifications:${recipientId}`, 0, 49); // Keep last 50 for the quick-view
-    } catch (e) {
-      console.error("REDIS Notification Error:", e);
+function notificationCopy(
+  type: string,
+  actorName: string,
+  metadata: Record<string, unknown>,
+) {
+  switch (type) {
+    case "like":
+      return {
+        title: "New like",
+        body: `${actorName} liked your content.`,
+      }
+    case "comment": {
+      const snippet = String(metadata.snippet ?? "").trim()
+      return {
+        title: "New comment",
+        body: snippet
+          ? `${actorName}: ${snippet}`
+          : `${actorName} commented on your content.`,
+      }
     }
+    case "follow":
+      return {
+        title: "New follower",
+        body: `${actorName} started following you.`,
+      }
+    case "share":
+      return {
+        title: "Content shared",
+        body: `${actorName} shared your content.`,
+      }
+    case "save":
+      return {
+        title: "Content saved",
+        body: `${actorName} saved your content.`,
+      }
+    default:
+      return {
+        title: "New activity",
+        body: `${actorName} engaged with your content.`,
+      }
   }
-
-  // 3. Persistent Storage in Supabase
-  try {
-    await supabase.from('notifications').insert({
-      user_id: recipientId,
-      actor_id: actor_id,
-      type: type, // Handled by trigger for 'notification_type'
-      target_id: String(target_id),
-      metadata: metadata
-    });
-  } catch (e) {
-    console.error("SUPABASE Notification Error:", e);
-  }
-
-  return json({ success: true, message: "Neural alert dispatched." });
 }
 
 /**
- * FETCH-NOTIFICATIONS: Retrieve the latest alerts from Redis.
+ * Persist an authenticated engagement notification for the recipient.
  */
-async function handleFetchNotifications(userId: string) {
-  const redis = await getRedis();
-  let notifications: any[] = [];
+async function handleTriggerNotification(userId: string, payload: any) {
+  const type = String(payload.type ?? "")
+  const targetId = String(payload.target_id ?? "")
+  const targetType = payload.target_type === "listing"
+    ? "listing"
+    : type === "follow"
+    ? "profile"
+    : "post"
+  const metadata = payload.metadata &&
+      typeof payload.metadata === "object" &&
+      !Array.isArray(payload.metadata)
+    ? payload.metadata as Record<string, unknown>
+    : {}
 
-  // 1. Try Redis for High-Performance Real-time Alerts
+  if (!notificationTypes.has(type)) return err("Unsupported notification type")
+  if (!targetId) return err("target_id required")
+
+  let recipientId: string | undefined
+  try {
+    recipientId = await resolveNotificationRecipient(type, targetId, targetType)
+  } catch (error) {
+    console.error("Notification recipient lookup failed:", error)
+    return err("Notification target could not be resolved", 404)
+  }
+  if (!recipientId) return err("Notification target was not found", 404)
+  if (recipientId === userId) {
+    return json({ success: true, skipped: "self_notification" })
+  }
+
+  const { data: actor } = await supabase
+    .from("profiles")
+    .select("full_name, avatar_url")
+    .eq("id", userId)
+    .maybeSingle()
+  const actorName = String(actor?.full_name || "Someone")
+  const actorAvatar = toStorageCdnUrl(actor?.avatar_url ?? null)
+  const copy = notificationCopy(type, actorName, metadata)
+  const eventId = type === "comment"
+    ? String(metadata.comment_id ?? payload.idempotency_key ?? crypto.randomUUID())
+    : targetId
+  const dedupeKey = `${type}:${userId}:${targetType}:${eventId}`
+  const notificationId = crypto.randomUUID()
+  const notificationMetadata = {
+    ...metadata,
+    actor_name: actorName,
+    actor_avatar: actorAvatar,
+  }
+  const row = {
+    id: notificationId,
+    user_id: recipientId,
+    actor_id: userId,
+    type,
+    title: copy.title,
+    body: copy.body,
+    target_id: targetId,
+    target_type: targetType,
+    metadata: notificationMetadata,
+    dedupe_key: dedupeKey,
+    is_read: false,
+    created_at: new Date().toISOString(),
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("notifications")
+    .upsert(row, {
+      onConflict: "user_id,dedupe_key",
+      ignoreDuplicates: true,
+    })
+    .select("*")
+    .maybeSingle()
+  if (insertError) {
+    console.error("Notification persistence failed:", insertError)
+    return err("Notification persistence failed", 503)
+  }
+  if (!inserted) {
+    return json({ success: true, skipped: "duplicate" })
+  }
+
+  const redis = await getRedis()
   if (redis) {
     try {
-      const raw = await redis.lrange(`notifications:${userId}`, 0, 49) as string[];
-      notifications = raw.map(r => JSON.parse(r));
-    } catch (e) {
-      console.error("REDIS Fetch Notifs Error:", e);
+      await redis.lpush(
+        `notifications:${recipientId}`,
+        JSON.stringify(inserted),
+      )
+      await redis.ltrim(`notifications:${recipientId}`, 0, 49)
+    } catch (error) {
+      console.error("Notification cache update failed:", error)
     }
   }
 
-  // 2. Fallback to Supabase for Persistent/Missed Alerts
-  if (notifications.length === 0) {
-    try {
-      const { data: dbNotifs } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('is_read', false)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      
-      if (dbNotifs) {
-        notifications = dbNotifs.map(n => ({
-          id: n.id,
-          type: n.type || n.notification_type,
-          title: n.title,
-          body: n.body,
-          target_id: n.target_id,
-          actor_id: n.actor_id,
-          metadata: n.metadata,
-          created_at: n.created_at,
-          read: n.is_read
-        }));
-      }
-    } catch (e) {
-      console.error("SUPABASE Fetch Notifs Fallback Error:", e);
-    }
+  return json({ success: true, data: inserted })
+}
+
+async function handleFetchNotifications(userId: string, payload: any) {
+  const requestedLimit = Number(payload.limit ?? 30)
+  const limit = Math.max(1, Math.min(50, requestedLimit))
+  let query = supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit)
+  if (typeof payload.before === "string" && payload.before) {
+    query = query.lt("created_at", payload.before)
   }
 
-  return json({ success: true, data: notifications });
+  const { data, error } = await query
+  if (error) {
+    console.error("Notification fetch failed:", error)
+    return err("Notifications are temporarily unavailable", 503)
+  }
+  const notifications = data ?? []
+  return json({
+    success: true,
+    data: notifications,
+    next_cursor: notifications.length === limit
+      ? notifications[notifications.length - 1]?.created_at
+      : null,
+  })
+}
+
+async function handleMarkNotificationRead(userId: string, payload: any) {
+  const notificationId = String(payload.notification_id ?? "")
+  if (!notificationId) return err("notification_id required")
+  const { error } = await supabase
+    .from("notifications")
+    .update({ is_read: true, read_at: new Date().toISOString() })
+    .eq("id", notificationId)
+    .eq("user_id", userId)
+  if (error) return err("Notification could not be updated", 503)
+  return json({ success: true })
+}
+
+async function handleMarkAllNotificationsRead(userId: string) {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ is_read: true, read_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("is_read", false)
+  if (error) return err("Notifications could not be updated", 503)
+  return json({ success: true })
 }
 
 /**
@@ -1366,6 +1614,9 @@ Deno.serve(async (req: Request) => {
     if (action === "migrate-legacy-engagement") {
       return handleMigrateLegacyEngagement(user, req);
     }
+    if (action === "diagnose-engagement") {
+      return handleDiagnoseEngagement(user);
+    }
 
     if (!userId) return err("Unauthorized", 401);
 
@@ -1379,12 +1630,15 @@ Deno.serve(async (req: Request) => {
       case "delete-post":          return handleDeletePost(userId, payload);
       case "clear-feed-cache":     return handleClearCache();
       case "trigger-notification": return handleTriggerNotification(userId, payload);
-      case "fetch-notifications":  return handleFetchNotifications(userId);
+      case "fetch-notifications":  return handleFetchNotifications(userId, payload);
+      case "mark-notification-read": return handleMarkNotificationRead(userId, payload);
+      case "mark-all-notifications-read": return handleMarkAllNotificationsRead(userId);
       case "create-comment":       return handleCreateComment(userId, payload);
       case "submit-review":        return handleSubmitReview(userId, payload);
       case "fetch-reviews":        return handleFetchReviews(payload);
       case "fetch-shop-feed":      return handleFetchShopFeed(userId, payload);
       case "fetch-comments":       return handleFetchComments(payload);
+      case "fetch-engagement":     return handleFetchEngagement(userId, payload);
       case "fetch-showcase":       return handleFetchShowcase(payload);
       case "create-listing":       return handleCreateListing(userId, payload);
       case "hydrate-post":         return handleHydratePost(payload);

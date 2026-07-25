@@ -36,6 +36,7 @@ async function engagementDb(): Promise<Db> {
   databasePromise = (async () => {
     const client = new MongoClient(uri, {
       appName: "necxa-edge-engagement",
+      family: 4,
       connectTimeoutMS: 5_000,
       serverSelectionTimeoutMS: 5_000,
       maxPoolSize: 8,
@@ -74,6 +75,10 @@ async function engagementDb(): Promise<Db> {
       db.collection("engagement_totals").createIndex(
         { entityType: 1, entityId: 1 },
         { unique: true, name: "unique_entity_totals" },
+      ),
+      db.collection("engagement_migrations").createIndex(
+        { key: 1 },
+        { unique: true, name: "unique_engagement_migration" },
       ),
     ])
     return db

@@ -1,5 +1,8 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter/material.dart';
+
 import '../models/notification_model.dart';
 import 'local_db_service.dart';
 
@@ -8,62 +11,83 @@ class NotificationService {
   factory NotificationService() => _instance;
   NotificationService._internal();
 
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
   final LocalDbService _localDb = LocalDbService();
+  final ValueNotifier<Map<String, dynamic>?> tappedNotification = ValueNotifier(
+    null,
+  );
 
   Future<void> init() async {
-    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const InitializationSettings initializationSettings = InitializationSettings(
-      android: initializationSettingsAndroid,
+    const initializationSettings = InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(),
     );
 
     await flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // Handle notification tap
-        debugPrint('Notification clicked: ${response.payload}');
+      onDidReceiveNotificationResponse: (response) {
+        tappedNotification.value = _decodePayload(response.payload);
       },
     );
+
+    const channel = AndroidNotificationChannel(
+      'necxa_main_channel',
+      'Necxa Notifications',
+      description: 'Likes, comments, follows, and account alerts',
+      importance: Importance.max,
+    );
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
   }
 
   Future<void> requestPermissions() async {
-    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
-        flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    final androidImplementation = flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await androidImplementation?.requestNotificationsPermission();
   }
 
-  Future<void> showNotification(AppNotification notif) async {
-    // 1. Show System Notification
-    const AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
-      'necxa_main_channel',
-      'Necxa Notifications',
-      channelDescription: 'Main notification channel for Necxa',
-      importance: Importance.max,
-      priority: Priority.high,
-      ticker: 'ticker',
-    );
-    const NotificationDetails platformChannelSpecifics = NotificationDetails(android: androidPlatformChannelSpecifics);
-    
-    await flutterLocalNotificationsPlugin.show(
-      notif.id.hashCode,
-      notif.title,
-      notif.body,
-      platformChannelSpecifics,
-      payload: notif.payload,
+  Future<void> showNotification(
+    AppNotification notification, {
+    bool showSystem = true,
+  }) async {
+    final alreadySaved = await _localDb.hasNotification(notification.id);
+    await _localDb.saveNotification(notification.toMap());
+    if (!showSystem || alreadySaved) return;
+
+    const notificationDetails = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'necxa_main_channel',
+        'Necxa Notifications',
+        channelDescription: 'Likes, comments, follows, and account alerts',
+        importance: Importance.max,
+        priority: Priority.high,
+      ),
+      iOS: DarwinNotificationDetails(presentAlert: true, presentBadge: true),
     );
 
-    // 2. Save to Local DB for offline access
-    await _localDb.saveNotification(notif.toMap());
+    await flutterLocalNotificationsPlugin.show(
+      notification.id.hashCode,
+      notification.title,
+      notification.body,
+      notificationDetails,
+      payload: notification.payload,
+    );
   }
 
-  Future<void> simulateNotification(String type, String title, String body) async {
-    final notif = AppNotification(
-      id: 'notif_${DateTime.now().millisecondsSinceEpoch}',
-      type: type,
-      title: title,
-      body: body,
-      createdAt: DateTime.now(),
-    );
-    await showNotification(notif);
+  Map<String, dynamic>? _decodePayload(String? payload) {
+    if (payload == null || payload.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      debugPrint('Notification payload used the legacy target-only format.');
+    }
+    return {'target_id': payload};
   }
 }

@@ -131,7 +131,52 @@ try {
     [{ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 60, name: "idx_notif_ttl" }],
   ]);
 
-  console.log("\n🎉  All indexes applied successfully.");
+  // Engagement data lives separately from ephemeral live-stream data so live
+  // retention policies can never remove post or product interactions.
+  const engagementDb = client.db("necxa_engagement");
+  console.log("\nEngagement database: necxa_engagement");
+  await ensureIndexes(engagementDb, "engagement_likes", [
+    [
+      { entityType: 1, entityId: 1, userId: 1 },
+      { unique: true, name: "unique_entity_like" },
+    ],
+  ]);
+  await ensureIndexes(engagementDb, "engagement_comments", [
+    [
+      { entityType: 1, entityId: 1, createdAt: -1 },
+      { name: "entity_comments_recent" },
+    ],
+    [
+      { entityType: 1, entityId: 1, userId: 1, idempotencyKey: 1 },
+      {
+        unique: true,
+        name: "unique_entity_comment_request",
+        partialFilterExpression: { idempotencyKey: { $type: "string" } },
+      },
+    ],
+    [
+      { sourceId: 1 },
+      {
+        unique: true,
+        name: "unique_legacy_comment_source",
+        partialFilterExpression: { sourceId: { $type: "string" } },
+      },
+    ],
+  ]);
+  await ensureIndexes(engagementDb, "engagement_totals", [
+    [
+      { entityType: 1, entityId: 1 },
+      { unique: true, name: "unique_entity_totals" },
+    ],
+  ]);
+  await ensureIndexes(engagementDb, "engagement_migrations", [
+    [
+      { key: 1 },
+      { unique: true, name: "unique_engagement_migration" },
+    ],
+  ]);
+
+  console.log("\nAll indexes applied successfully.");
 } catch (e) {
   console.error("❌  Fatal error:", e instanceof Error ? e.message : e);
   Deno.exit(1);
