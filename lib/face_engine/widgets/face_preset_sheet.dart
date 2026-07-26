@@ -79,7 +79,7 @@ class _FacePresetSheetState extends State<FacePresetSheet> {
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 78,
+              height: 94,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: FacePresets.all.length,
@@ -123,6 +123,15 @@ class _FacePresetSheetState extends State<FacePresetSheet> {
                               sz: 10.5,
                               w: FontWeight.w700,
                               c: selected ? C.text : C.dim,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            preset.isPro ? 'PRO' : 'FREE',
+                            style: dm(
+                              sz: 8,
+                              w: FontWeight.w800,
+                              c: preset.isPro ? C.gold : C.green,
                             ),
                           ),
                         ],

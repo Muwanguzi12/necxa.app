@@ -389,7 +389,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _tracks = _project.tracks;
     _playback = _project.playback;
     _history = _project.history;
-    _bottomNavController = TabController(length: 7, vsync: this);
+    _bottomNavController = TabController(length: 8, vsync: this);
 
     _verticalScrollController.addListener(() {
       if (_sidebarScrollController.hasClients &&
@@ -2839,6 +2839,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       (Icons.music_note, 'Audio'),
       (Icons.text_fields, 'Text'),
       (Icons.auto_awesome, 'Effects'),
+      (Icons.face_retouching_natural, 'Face'),
       (Icons.swap_horiz, 'Transitions'),
       (Icons.settings, 'Settings'),
     ];
@@ -2870,9 +2871,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 );
               } else if (index == 5) {
                 WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _showTransitionLibrarySheet(),
+                  (_) => _showFaceEngineSheet(),
                 );
               } else if (index == 6) {
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => _showTransitionLibrarySheet(),
+                );
+              } else if (index == 7) {
                 WidgetsBinding.instance.addPostFrameCallback(
                   (_) => _showEditorSettingsSheet(),
                 );
@@ -3418,11 +3423,38 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showFaceEngineSheet() {
-    final clip = _selectedClip;
-    if (clip?.file == null) {
-      _showSnack('Select a video clip first');
+    TimelineTrack? targetTrack;
+    TimelineClip? targetClip;
+
+    for (final track in _tracks) {
+      if (track.type != TrackType.video) continue;
+      for (final clip in track.clips) {
+        if (clip.file == null) continue;
+        if (clip.id == _selectedClip?.id) {
+          targetTrack = track;
+          targetClip = clip;
+          break;
+        }
+        targetTrack ??= track;
+        targetClip ??= clip;
+      }
+      if (targetClip?.id == _selectedClip?.id) break;
+    }
+
+    if (targetTrack == null || targetClip == null) {
+      _showSnack('Add a video to use Face Engine');
       return;
     }
+
+    setState(() {
+      _selectedClip = targetClip;
+      _selectedClipIds
+        ..clear()
+        ..add(targetClip!.id);
+      _selectedTrackId = targetTrack!.id;
+      _selectedTrackIndex = _tracks.indexOf(targetTrack);
+    });
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,

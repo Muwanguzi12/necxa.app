@@ -2313,7 +2313,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   _primaryAction(Icons.tune, 'Adjust', _showAdjustSheet),
                   _primaryAction(
                     Icons.face_retouching_natural,
-                    'Beauty',
+                    'Face AI',
                     _showBeautySheet,
                   ),
                 ]),
