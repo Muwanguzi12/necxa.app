@@ -829,24 +829,45 @@ serve(async (req) => {
       const contextNote = body.contextNote as string;
       const isAnonymous = Boolean(body.isAnonymous);
       const idempotencyKey = (body.idempotencyKey as string) || `gift-${user.id}-${Date.now()}`;
+      const metadata = (body.metadata ?? {}) as Record<string, unknown>;
 
-      // For gifts we map to post ID, if there's no context ID we fake one or rely on the RPC handling it
-      const postId = contextId && contextId.startsWith("direct") ? "00000000-0000-0000-0000-000000000000" : (contextId || "00000000-0000-0000-0000-000000000000");
+      const isLiveGift = contextType === "live_stream" || contextType === "live";
+      const rpcName = isLiveGift ? "process_live_gift_ncx" : "process_gift_ncx";
+      const rpcPayload = isLiveGift
+        ? {
+            p_sender_auth_id: user.id,
+            p_receiver_auth_id: receiverId,
+            p_channel_id: contextId,
+            p_ncx_amount: ncxAmount,
+            p_gift_platform_fee_rate: 0.11,
+            p_gift_details: {
+              gift_item_id: giftItemId,
+              context_type: contextType,
+              context_note: contextNote,
+              is_anonymous: isAnonymous,
+              idempotency_key: idempotencyKey,
+              sender_name: isAnonymous ? "Anonymous" : (metadata.sender_name || user.email || "Viewer"),
+              sender_avatar: isAnonymous ? "" : (metadata.sender_avatar || ""),
+            },
+          }
+        : {
+            p_sender_auth_id: user.id,
+            p_receiver_auth_id: receiverId,
+            p_post_id: contextId && !contextId.startsWith("direct")
+              ? contextId
+              : "00000000-0000-0000-0000-000000000000",
+            p_ncx_amount: ncxAmount,
+            p_gift_platform_fee_rate: 0.11,
+            p_gift_details: {
+              gift_item_id: giftItemId,
+              context_type: contextType,
+              context_note: contextNote,
+              is_anonymous: isAnonymous,
+              idempotency_key: idempotencyKey,
+            },
+          };
 
-      const { data, error } = await supabase.rpc("process_gift_ncx", {
-        p_sender_auth_id: user.id,
-        p_receiver_auth_id: receiverId,
-        p_post_id: postId,
-        p_ncx_amount: ncxAmount,
-        p_gift_platform_fee_rate: 0.11, // 11% platform fee (89% to creator)
-        p_gift_details: {
-          gift_item_id: giftItemId,
-          context_type: contextType,
-          context_note: contextNote,
-          is_anonymous: isAnonymous,
-          idempotency_key: idempotencyKey,
-        },
-      });
+      const { data, error } = await supabase.rpc(rpcName, rpcPayload);
 
       if (error) {
         return json({ success: false, message: error.message }, 500);
@@ -872,7 +893,7 @@ serve(async (req) => {
 
       return json({
         success: true,
-        giftId: idempotencyKey,
+        giftId: resData?.gift_id || idempotencyKey,
         giftEmoji: giftDef.emoji,
         giftName: giftDef.name,
         ncxAmount: ncxAmount,
@@ -889,33 +910,60 @@ serve(async (req) => {
       const contextId = body.contextId as string;
       if (!contextId) return json({ success: false, message: "contextId required." }, 400);
 
-      // Query recent gifts from the ledger / community_gifts table
+      // Live channels are text identifiers and have their own finance table.
       const { data: gifts, error } = await supabase
-        .from("community_gifts")
-        .select(`
-          id, gift_type, coin_amount, created_at,
-          sender:profiles!community_gifts_sender_id_fkey(full_name, avatar_url)
-        `)
-        .eq("post_id", contextId) // Assuming post_id is being reused for live streams
+        .from("live_gifts")
+        .select("id, sender_id, sender_name, sender_avatar, gift_type, coin_amount, created_at")
+        .eq("channel_id", contextId)
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(1000);
 
       if (error) {
-        // Fallback for missing table relations or schemas (just so it doesn't break streaming)
-        return json({ success: true, gifts: [] });
+        return json({ success: false, message: error.message }, 503);
       }
 
-      const formatted = (gifts || []).map(g => ({
+      const formatted = (gifts || []).slice(0, 20).map(g => ({
         id: g.id,
-        senderName: g.sender?.full_name || "Anonymous",
-        senderAvatar: g.sender?.avatar_url || "",
+        senderId: g.sender_id,
+        senderName: g.sender_name || "Anonymous",
+        senderAvatar: g.sender_avatar || "",
         giftEmoji: g.gift_type === "rose" ? "🌹" : (g.gift_type === "diamond" ? "💎" : "🎁"),
         giftName: g.gift_type,
         amount: g.coin_amount,
         timestamp: g.created_at,
       }));
 
-      return json({ success: true, gifts: formatted });
+      const totalsBySender = new Map<string, {
+        senderId: string;
+        senderName: string;
+        senderAvatar: string;
+        amount: number;
+      }>();
+      let totalAmount = 0;
+      for (const gift of gifts || []) {
+        const amount = Number(gift.coin_amount) || 0;
+        totalAmount += amount;
+        const senderId = gift.sender_id || gift.sender_name || "anonymous";
+        const current = totalsBySender.get(senderId) ?? {
+          senderId,
+          senderName: gift.sender_name || "Anonymous",
+          senderAvatar: gift.sender_avatar || "",
+          amount: 0,
+        };
+        current.amount += amount;
+        totalsBySender.set(senderId, current);
+      }
+      const topGifter = [...totalsBySender.values()]
+        .sort((a, b) => b.amount - a.amount)[0] ?? null;
+      const milestones = [100, 500, 1000, 5000, 10000, 25000, 50000, 100000];
+      const goalTarget = milestones.find(value => value > totalAmount)
+        ?? Math.ceil((totalAmount + 1) / 100000) * 100000;
+
+      return json({
+        success: true,
+        gifts: formatted,
+        summary: { totalAmount, goalTarget, topGifter },
+      });
     }
 
     // ── Action: get_wallet ───────────────────────────────────────────────────

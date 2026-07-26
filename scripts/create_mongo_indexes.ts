@@ -53,6 +53,8 @@ try {
     [{ startedAt: -1 }, { name: "idx_startedAt_desc"                                  }],
     // Compound: active stream listing — used by list_active
     [{ status: 1, startedAt: -1 }, { name: "idx_status_startedAt"                   }],
+    [{ status: 1, lastHeartbeatAt: 1 }, { name: "idx_status_heartbeat"              }],
+    [{ status: 1, prepareExpiresAt: 1 }, { name: "idx_status_prepare_expiry"         }],
     // Compound: duplicate session prevention — used by start action
     [{ hostId: 1, status: 1 },     { name: "idx_hostId_status"                       }],
     // TTL: auto-delete ended streams after 90 days
@@ -61,33 +63,79 @@ try {
 
   // ── viewers ──────────────────────────────────────────────────────────────────
   console.log("\n📁  viewers");
-  await ensureIndexes(db, "viewers", [
-    [{ streamId: 1 }, { name: "idx_viewers_streamId"                             }],
+  await ensureIndexes(db, "stream_viewers", [
+    [{ channelId: 1 }, { name: "idx_viewers_channelId"                           }],
     [{ userId:   1 }, { name: "idx_viewers_userId"                               }],
     // Compound: unique viewer per stream
-    [{ streamId: 1, userId: 1 }, { unique: true, name: "idx_viewers_stream_user" }],
+    [{ channelId: 1, userId: 1 }, { unique: true, name: "idx_viewers_channel_user" }],
+    [{ channelId: 1, active: 1, lastSeenAt: -1 }, { name: "idx_viewers_active"    }],
     // TTL: remove viewer records 7 days after they left
     [{ leftAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7, sparse: true, name: "idx_viewers_ttl" }],
   ]);
 
   // ── chat_messages ────────────────────────────────────────────────────────────
   console.log("\n📁  chat_messages");
-  await ensureIndexes(db, "chat_messages", [
-    [{ streamId:  1  }, { name: "idx_chat_streamId"                              }],
-    [{ createdAt: -1 }, { name: "idx_chat_createdAt_desc"                        }],
+  await db.collection("stream_chat").updateMany(
+    { channelId: { $exists: false }, channelName: { $type: "string" } },
+    [
+      {
+        $set: {
+          channelId: "$channelName",
+          status: { $ifNull: ["$status", "active"] },
+          createdAt: { $ifNull: ["$createdAt", "$timestamp"] },
+          updatedAt: { $ifNull: ["$updatedAt", "$timestamp"] },
+        },
+      },
+    ],
+  );
+  await ensureIndexes(db, "stream_chat", [
+    [{ channelName: 1  }, { name: "idx_chat_channel"                              }],
+    [{ channelId: 1  }, { name: "idx_chat_channel_id"                             }],
+    [{ timestamp: -1 }, { name: "idx_chat_timestamp_desc"                        }],
     // Compound: paginating chat for a specific stream
-    [{ streamId: 1, createdAt: -1 }, { name: "idx_chat_stream_time"              }],
+    [{ channelName: 1, timestamp: -1 }, { name: "idx_chat_channel_time"           }],
+    [{ channelId: 1, timestamp: -1, _id: -1 }, { name: "idx_chat_page_cursor"     }],
+    [{ channelId: 1, updatedAt: 1, _id: 1 }, { name: "idx_chat_sync_cursor"       }],
+    [
+      { channelId: 1, userId: 1, clientRequestId: 1 },
+      {
+        unique: true,
+        name: "idx_chat_idempotency",
+        partialFilterExpression: { clientRequestId: { $type: "string" } },
+      },
+    ],
     // TTL: auto-delete chat after 30 days
-    [{ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30, name: "idx_chat_ttl" }],
+    [{ timestamp: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30, name: "idx_chat_ttl" }],
+  ]);
+
+  console.log("\nðŸ“  stream_comment_reports");
+  await ensureIndexes(db, "stream_comment_reports", [
+    [
+      { channelId: 1, commentId: 1, reporterId: 1 },
+      { unique: true, name: "idx_comment_report_unique" },
+    ],
+    [
+      { channelId: 1, status: 1, createdAt: -1 },
+      { name: "idx_comment_reports_moderation" },
+    ],
+  ]);
+
+  console.log("\nðŸ“  stream_comment_moderation");
+  await ensureIndexes(db, "stream_comment_moderation", [
+    [
+      { channelId: 1, commentId: 1, createdAt: -1 },
+      { name: "idx_comment_moderation_history" },
+    ],
   ]);
 
   // ── reactions ────────────────────────────────────────────────────────────────
   console.log("\n📁  reactions");
-  await ensureIndexes(db, "reactions", [
-    [{ streamId:  1  }, { name: "idx_reactions_streamId"                         }],
-    [{ createdAt: -1 }, { name: "idx_reactions_createdAt"                        }],
+  await ensureIndexes(db, "stream_reactions", [
+    [{ channelId:  1  }, { name: "idx_reactions_channel"                         }],
+    [{ timestamp: -1 }, { name: "idx_reactions_timestamp"                        }],
+    [{ channelId: 1, timestamp: -1 }, { name: "idx_reactions_channel_time"       }],
     // TTL: auto-delete reactions after 7 days
-    [{ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7, name: "idx_reactions_ttl" }],
+    [{ timestamp: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7, name: "idx_reactions_ttl" }],
   ]);
 
   // ── gifts ────────────────────────────────────────────────────────────────────
@@ -113,10 +161,49 @@ try {
       { name: "idx_stream_events_channel_time" },
     ],
     [
+      { channelId: 1, timestamp: 1, _id: 1 },
+      { name: "idx_stream_events_cursor" },
+    ],
+    [
+      { channelId: 1, sequence: 1 },
+      {
+        unique: true,
+        name: "idx_stream_events_sequence",
+        partialFilterExpression: { sequence: { $type: "number" } },
+      },
+    ],
+    [
       { timestamp: 1 },
       {
         expireAfterSeconds: 60 * 60 * 24 * 7,
         name: "idx_stream_events_ttl",
+      },
+    ],
+  ]);
+  await ensureIndexes(db, "stream_event_counters", [
+    [
+      { channelId: 1 },
+      { unique: true, name: "idx_stream_event_counter_channel" },
+    ],
+  ]);
+  await ensureIndexes(db, "stream_guest_requests", [
+    [
+      { channelId: 1, guestId: 1 },
+      { unique: true, name: "idx_guest_request_channel_guest" },
+    ],
+    [
+      { channelId: 1, hostId: 1, status: 1, updatedAt: -1 },
+      { name: "idx_guest_request_host_queue" },
+    ],
+    [
+      { channelId: 1, guestId: 1, status: 1 },
+      { name: "idx_guest_request_guest_state" },
+    ],
+    [
+      { expiresAt: 1 },
+      {
+        expireAfterSeconds: 0,
+        name: "idx_guest_request_ttl",
       },
     ],
   ]);

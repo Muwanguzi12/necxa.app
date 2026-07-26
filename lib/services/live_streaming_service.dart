@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -8,18 +9,41 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_state.dart';
 
+class _LiveBackendException implements Exception {
+  final int statusCode;
+  final String message;
+
+  const _LiveBackendException(this.statusCode, this.message);
+
+  bool get isPermanent =>
+      statusCode >= 400 &&
+      statusCode < 500 &&
+      statusCode != 408 &&
+      statusCode != 429;
+
+  @override
+  String toString() => message;
+}
+
 /// Necxa Live Studio: Core Streaming Engine
 /// Handles video/audio via LiveKit and real-time metadata via MongoDB.
 class LiveStreamingService {
   final AppState state;
   Room? _room;
+  EventsListener<RoomEvent>? _roomEventsListener;
   String? _activeChannelName;
   bool _hostingActiveChannel = false;
+  String _currentRole = 'viewer';
+  final Set<String> _commentSyncChannels = <String>{};
+  final Random _requestRandom = Random.secure();
+  final StreamController<Map<String, dynamic>> _controlEvents =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   static const Duration _permissionTimeout = Duration(seconds: 15);
   static const Duration _backendTimeout = Duration(seconds: 20);
   static const Duration _roomTimeout = Duration(seconds: 25);
   static const Duration _trackTimeout = Duration(seconds: 12);
+  static const String _controlTopic = 'necxa.live.control.v1';
 
   static const String liveKitUrl = 'wss://necxa-live-dtb2j623.livekit.cloud';
   static const String liveBackendUrl = String.fromEnvironment(
@@ -34,6 +58,13 @@ class LiveStreamingService {
   LiveStreamingService(this.state);
 
   Room? get room => _room;
+  bool get isCoHostPublishing => _currentRole == 'publisher';
+
+  Stream<Map<String, dynamic>> controlEventsForChannel(String channelId) {
+    return _controlEvents.stream.where(
+      (event) => event['channelId']?.toString() == channelId,
+    );
+  }
 
   Future<void> init() async {}
 
@@ -64,12 +95,12 @@ class LiveStreamingService {
       'channelId': channelName,
       'userId': state.user?.id,
       if (role != null) 'role': role,
-      if (action == 'start')
-        'metadata': {
-          'hostName': state.myProfile?['full_name'] ?? 'Necxa Creator',
-          'avatar': state.myProfile?['avatar_url'] ?? '',
-          'title': 'Live Studio Session',
-        },
+      'metadata': {
+        'name': state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
+        'hostName': state.myProfile?['full_name'] ?? 'Necxa Creator',
+        'avatar': state.myProfile?['avatar_url'] ?? '',
+        if (action == 'start') 'title': 'Live Studio Session',
+      },
       if (action == 'start')
         'location': {
           'lat': state.currentGps?.latitude ?? 0.0,
@@ -101,7 +132,7 @@ class LiveStreamingService {
             'Authorization': 'Bearer $accessToken',
             'Content-Type': 'application/json',
           },
-          body: jsonEncode(body),
+          body: jsonEncode({...body, 'protocolVersion': 2}),
         )
         .timeout(
           _backendTimeout,
@@ -125,7 +156,10 @@ class LiveStreamingService {
         fallback: 'Live authentication failed',
       );
       debugPrint('Necxa Live backend error (${response.statusCode}): $error');
-      throw _publicFunctionError(error);
+      throw _LiveBackendException(
+        response.statusCode,
+        _publicFunctionError(error),
+      );
     }
     return data;
   }
@@ -137,6 +171,11 @@ class LiveStreamingService {
     required bool publish,
   }) async {
     final previousRoom = _room;
+    final previousListener = _roomEventsListener;
+    _roomEventsListener = null;
+    if (previousListener != null) {
+      await previousListener.dispose();
+    }
     if (previousRoom != null) {
       try {
         await previousRoom.disconnect().timeout(const Duration(seconds: 5));
@@ -162,6 +201,7 @@ class LiveStreamingService {
             onTimeout: () =>
                 throw TimeoutException('The live video room did not connect.'),
           );
+      _listenForControlEvents(nextRoom, channelName);
       if (publish) {
         await nextRoom.localParticipant
             ?.setCameraEnabled(true)
@@ -190,20 +230,139 @@ class LiveStreamingService {
     }
   }
 
+  void _listenForControlEvents(Room room, String channelName) {
+    final listener = room.createListener();
+    _roomEventsListener = listener;
+    listener.on<DataReceivedEvent>((received) {
+      if (received.topic != _controlTopic) return;
+      try {
+        final decoded = jsonDecode(utf8.decode(received.data));
+        if (decoded is! Map) return;
+        final message = Map<String, dynamic>.from(decoded);
+        if (message['channelId']?.toString() != channelName) return;
+        final rawEvent = message['event'];
+        if (rawEvent is! Map) return;
+        final event = Map<String, dynamic>.from(rawEvent);
+        final senderId = received.participant?.identity;
+        final type = event['type']?.toString();
+        final eventUserId = event['userId']?.toString();
+        final data = Map<String, dynamic>.from(
+          event['data'] as Map? ?? const {},
+        );
+        final hostId = data['hostId']?.toString();
+        final validSender = switch (type) {
+          'cohost_request' || 'cohost_cancelled' => senderId == eventUserId,
+          'cohost_invite' => hostId != null && senderId == hostId,
+          'cohost_invite_decision' || 'cohost_left' => senderId == eventUserId,
+          'cohost_decision' => hostId != null && senderId == hostId,
+          _ => false,
+        };
+        if (!validSender) return;
+        _controlEvents.add({
+          ...event,
+          'channelId': channelName,
+          'transport': 'livekit',
+        });
+      } catch (error) {
+        debugPrint('Necxa Live: Ignored malformed room control data: $error');
+      }
+    });
+  }
+
+  Future<void> _publishControlEvent(
+    Map<String, dynamic>? event, {
+    String? destinationIdentity,
+  }) async {
+    if (event == null || event.isEmpty) return;
+    final participant = _room?.localParticipant;
+    final channelName = _activeChannelName;
+    if (participant == null || channelName == null) return;
+    try {
+      await participant.publishData(
+        utf8.encode(jsonEncode({'channelId': channelName, 'event': event})),
+        reliable: true,
+        destinationIdentities:
+            destinationIdentity == null || destinationIdentity.isEmpty
+            ? null
+            : [destinationIdentity],
+        topic: _controlTopic,
+      );
+    } catch (error) {
+      debugPrint(
+        'Necxa Live: Immediate control delivery failed; polling will recover: $error',
+      );
+    }
+  }
+
+  Future<void> _confirmJoin(String channelName, {required String role}) async {
+    await _invokeLiveBackend({
+      'action': 'confirm_join',
+      'channelId': channelName,
+      'userId': state.user?.id,
+      'role': role,
+      'metadata': {
+        'name': state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
+        'avatar': state.myProfile?['avatar_url'] ?? '',
+      },
+    });
+  }
+
+  Future<void> _disconnectRoom() async {
+    final room = _room;
+    _room = null;
+    final listener = _roomEventsListener;
+    _roomEventsListener = null;
+    _activeChannelName = null;
+    _hostingActiveChannel = false;
+    _currentRole = 'viewer';
+    if (listener != null) await listener.dispose();
+    if (room == null) return;
+    try {
+      await room.disconnect().timeout(const Duration(seconds: 5));
+    } catch (error) {
+      debugPrint('Necxa Live: Room disconnect cleanup failed: $error');
+    }
+  }
+
   Future<void> startStreaming(String channelName) async {
-    // Check permissions before the backend creates an active stream record.
     await _ensurePublishingPermissions();
     final creds = await _fetchCredentials(
       action: 'start',
       channelName: channelName,
     );
-    await _connect(
-      channelName: channelName,
-      url: creds['url']!,
-      token: creds['token']!,
-      publish: true,
-    );
-    _hostingActiveChannel = true;
+    try {
+      await _connect(
+        channelName: channelName,
+        url: creds['url']!,
+        token: creds['token']!,
+        publish: true,
+      );
+      await _invokeLiveBackend({
+        'action': 'confirm_start',
+        'channelId': channelName,
+        'userId': state.user?.id,
+        'metadata': {
+          'name': state.myProfile?['full_name'] ?? 'Necxa Creator',
+          'avatar': state.myProfile?['avatar_url'] ?? '',
+        },
+      });
+      _hostingActiveChannel = true;
+      _currentRole = 'host';
+    } catch (error) {
+      try {
+        await _invokeLiveBackend({
+          'action': 'abort_start',
+          'channelId': channelName,
+          'userId': state.user?.id,
+        });
+      } catch (abortError) {
+        debugPrint(
+          'Necxa Live: Start rollback will expire automatically: $abortError',
+        );
+      }
+      await _disconnectRoom();
+      rethrow;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getActiveStreams() async {
@@ -222,37 +381,50 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'audience',
     );
-    await _connect(
-      channelName: channelName,
-      url: creds['url']!,
-      token: creds['token']!,
-      publish: false,
-    );
-    _hostingActiveChannel = false;
+    try {
+      await _connect(
+        channelName: channelName,
+        url: creds['url']!,
+        token: creds['token']!,
+        publish: false,
+      );
+      await _confirmJoin(channelName, role: 'audience');
+      _hostingActiveChannel = false;
+      _currentRole = 'viewer';
+    } catch (_) {
+      await _disconnectRoom();
+      rethrow;
+    }
   }
 
   Future<void> leaveChannel() async {
     final channelName = _activeChannelName;
     final shouldStop = _hostingActiveChannel && channelName != null;
-    if (shouldStop) {
-      await stopStreaming(channelName);
+    Object? lifecycleError;
+    try {
+      if (shouldStop) {
+        await stopStreaming(channelName);
+      } else if (channelName != null) {
+        await _invokeLiveBackend({
+          'action': 'leave',
+          'channelId': channelName,
+          'userId': state.user?.id,
+        });
+      }
+    } catch (error) {
+      lifecycleError = error;
+    } finally {
+      await _disconnectRoom();
     }
-    await _room?.disconnect();
-    _room = null;
-    _activeChannelName = null;
-    _hostingActiveChannel = false;
+    if (lifecycleError != null) throw lifecycleError;
   }
 
   Future<void> stopStreaming(String channelName) async {
-    try {
-      await _invokeLiveBackend({
-        'action': 'stop',
-        'channelId': channelName,
-        'userId': state.user?.id,
-      });
-    } catch (e) {
-      debugPrint('Necxa Live: Stop sync failed: $e');
-    }
+    await _invokeLiveBackend({
+      'action': 'stop',
+      'channelId': channelName,
+      'userId': state.user?.id,
+    });
   }
 
   Future<void> switchRoleToBroadcaster() async {
@@ -265,17 +437,34 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'publisher',
     );
-    await _connect(
-      channelName: channelName,
-      url: creds['url']!,
-      token: creds['token']!,
-      publish: true,
-    );
+    try {
+      await _connect(
+        channelName: channelName,
+        url: creds['url']!,
+        token: creds['token']!,
+        publish: true,
+      );
+      await _confirmJoin(channelName, role: 'publisher');
+      _currentRole = 'publisher';
+    } catch (_) {
+      try {
+        await _invokeLiveBackend({
+          'action': 'leave',
+          'channelId': channelName,
+          'userId': state.user?.id,
+        });
+      } catch (_) {
+        // Presence expires automatically if cleanup cannot reach the backend.
+      }
+      await _disconnectRoom();
+      rethrow;
+    }
   }
 
   Future<void> switchRoleToAudience() async {
     await _room?.localParticipant?.setCameraEnabled(false);
     await _room?.localParticipant?.setMicrophoneEnabled(false);
+    _currentRole = 'viewer';
   }
 
   Future<void> setAVEnabled(bool enabled) async {
@@ -283,115 +472,501 @@ class LiveStreamingService {
     await _room?.localParticipant?.setMicrophoneEnabled(enabled);
   }
 
-  Future<void> pinProduct(
+  Future<Map<String, dynamic>> pinProduct(
     String channelId,
     Map<String, dynamic> product,
   ) async {
-    await _invokeLiveBackend({
+    final response = await _invokeLiveBackend({
       'action': 'pin_product',
       'channelId': channelId,
       'userId': state.user?.id,
-      'product': product,
+      'product': {'id': product['id']},
+    });
+    final data = response is Map ? response['data'] : null;
+    final canonicalProduct = data is Map ? data['product'] : null;
+    if (canonicalProduct is! Map) {
+      throw 'The pinned product could not be verified.';
+    }
+    return Map<String, dynamic>.from(canonicalProduct);
+  }
+
+  Future<void> unpinProduct(String channelId) async {
+    await _invokeLiveBackend({
+      'action': 'unpin_product',
+      'channelId': channelId,
+      'userId': state.user?.id,
     });
   }
 
   Future<Map<String, dynamic>?> fetchPinnedProduct(String channelId) async {
+    final state = await fetchLiveState(channelId);
+    final product = state['pinnedProduct'];
+    return product is Map ? Map<String, dynamic>.from(product) : null;
+  }
+
+  Future<Map<String, dynamic>> fetchLiveState(String channelId) async {
     final response = await _invokeLiveBackend({
       'action': 'fetch_stream_state',
       'channelId': channelId,
     });
     final data = response is Map ? response['data'] : null;
-    final product = data is Map ? data['pinnedProduct'] : null;
-    return product is Map ? Map<String, dynamic>.from(product) : null;
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
-  Future<void> sendCoHostRequest(
+  Future<Map<String, dynamic>> sendCoHostRequest(
     String channelId,
     String userId,
     Map<String, dynamic> metadata,
   ) async {
-    await _invokeLiveBackend({
+    final response = await _invokeLiveBackend({
       'action': 'cohost_request',
       'channelId': channelId,
       'userId': userId,
       'metadata': metadata,
     });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    final request = Map<String, dynamic>.from(
+      data['request'] as Map? ?? const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: request['hostId']?.toString(),
+    );
+    return request;
   }
 
-  Future<void> sendCoHostDecision(
+  Future<Map<String, dynamic>> cancelCoHostRequest(String channelId) async {
+    final response = await _invokeLiveBackend({
+      'action': 'cohost_cancel',
+      'channelId': channelId,
+      'userId': state.user?.id,
+    });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    final request = Map<String, dynamic>.from(
+      data['request'] as Map? ?? const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: request['hostId']?.toString(),
+    );
+    return request;
+  }
+
+  Future<Map<String, dynamic>> sendCoHostDecision(
     String channelId,
     String guestId,
     bool accepted,
   ) async {
-    await _invokeLiveBackend({
+    final response = await _invokeLiveBackend({
       'action': 'cohost_decision',
       'channelId': channelId,
       'userId': state.user?.id,
       'guestId': guestId,
       'metadata': {'accepted': accepted},
     });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: guestId,
+    );
+    return Map<String, dynamic>.from(data['request'] as Map? ?? const {});
   }
 
-  Future<void> sendLiveComment(
+  Future<Map<String, dynamic>> inviteCoHostByUsername(
+    String channelId,
+    String userName,
+  ) async {
+    final response = await _invokeLiveBackend({
+      'action': 'cohost_invite',
+      'channelId': channelId,
+      'userId': state.user?.id,
+      'userName': userName,
+    });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    final request = Map<String, dynamic>.from(
+      data['request'] as Map? ?? const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: request['guestId']?.toString(),
+    );
+    return request;
+  }
+
+  Future<Map<String, dynamic>> respondToCoHostInvite(
+    String channelId,
+    bool accepted,
+  ) async {
+    final response = await _invokeLiveBackend({
+      'action': 'cohost_invite_response',
+      'channelId': channelId,
+      'userId': state.user?.id,
+      'metadata': {'accepted': accepted},
+    });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    final request = Map<String, dynamic>.from(
+      data['request'] as Map? ?? const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: request['hostId']?.toString(),
+    );
+    return request;
+  }
+
+  Future<Map<String, dynamic>> leaveCoHosting(String channelId) async {
+    final response = await _invokeLiveBackend({
+      'action': 'cohost_leave',
+      'channelId': channelId,
+      'userId': state.user?.id,
+    });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    final request = Map<String, dynamic>.from(
+      data['request'] as Map? ?? const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: request['hostId']?.toString(),
+    );
+    return request;
+  }
+
+  String _newCommentRequestId(String prefix) {
+    final userId = state.user?.id ?? 'anonymous';
+    return '${prefix}_${userId}_${DateTime.now().microsecondsSinceEpoch}_'
+        '${_requestRandom.nextInt(1 << 32)}';
+  }
+
+  Future<List<Map<String, dynamic>>> loadCachedLiveComments(
+    String channelName,
+  ) {
+    return state.localDb.getCachedLiveComments(channelName);
+  }
+
+  Future<Map<String, dynamic>> sendLiveComment(
     String channelName,
     String userName,
     String text,
   ) async {
+    final userId = state.user?.id;
+    if (userId == null || userId.isEmpty) {
+      throw 'Sign in to comment.';
+    }
+    final requestId = _newCommentRequestId('live_comment');
+    final pending = await state.localDb.savePendingLiveComment(
+      id: 'local_$requestId',
+      channelId: channelName,
+      userId: userId,
+      userName: userName,
+      userAvatar: state.myProfile?['avatar_url']?.toString() ?? '',
+      text: text,
+      clientRequestId: requestId,
+    );
+    unawaited(syncPendingLiveComments(channelName));
+    return pending;
+  }
+
+  bool _commentRetryDue(Map<String, dynamic> mutation) {
+    final lastAttempt = DateTime.tryParse(
+      mutation['lastAttemptAt']?.toString() ?? '',
+    );
+    if (lastAttempt == null) return true;
+    final retries = (mutation['retryCount'] as num?)?.toInt() ?? 0;
+    final delaySeconds = min(30, 2 << min(retries, 3));
+    return DateTime.now().toUtc().difference(lastAttempt).inSeconds >=
+        delaySeconds;
+  }
+
+  Future<void> syncPendingLiveComments(String channelName) async {
+    if (!_commentSyncChannels.add(channelName)) return;
     try {
-      await _invokeLiveBackend({
-        'action': 'send_comment',
-        'channelId': channelName,
-        'userId': state.user?.id,
-        'userName': userName,
-        'text': text,
-      });
-    } catch (e) {
-      debugPrint('Necxa Live: Failed to push comment: $e');
-      rethrow;
+      final mutations = await state.localDb.getPendingLiveCommentMutations(
+        channelName,
+      );
+      for (final mutation in mutations) {
+        if (!_commentRetryDue(mutation)) continue;
+        final localId = mutation['id']?.toString() ?? '';
+        final pendingAction = mutation['pendingAction']?.toString() ?? 'send';
+        try {
+          late final dynamic response;
+          if (pendingAction == 'edit') {
+            response = await _invokeLiveBackend({
+              'action': 'edit_comment',
+              'channelId': channelName,
+              'commentId': localId,
+              'text': mutation['text'],
+            });
+          } else if (pendingAction == 'delete') {
+            response = await _invokeLiveBackend({
+              'action': 'delete_comment',
+              'channelId': channelName,
+              'commentId': localId,
+            });
+          } else {
+            response = await _invokeLiveBackend({
+              'action': 'send_comment',
+              'channelId': channelName,
+              'userId': state.user?.id,
+              'userName': mutation['userName'] ?? mutation['user'],
+              'text': mutation['text'],
+              'clientRequestId': mutation['clientRequestId'],
+              'metadata': {'avatar': mutation['avatar'] ?? ''},
+            });
+          }
+          final data = response is Map ? response['data'] : null;
+          await state.localDb.reconcileLiveCommentMutation(
+            localId,
+            channelName,
+            data is Map ? Map<String, dynamic>.from(data) : null,
+          );
+        } catch (error) {
+          await state.localDb.markLiveCommentMutationAttempt(
+            localId,
+            error: error.toString(),
+            failed: error is _LiveBackendException && error.isPermanent,
+          );
+        }
+      }
+
+      final actions = await state.localDb.getPendingLiveCommentActions(
+        channelName,
+      );
+      for (final queued in actions) {
+        if (!_commentRetryDue({
+          'lastAttemptAt': queued['last_attempt_at'],
+          'retryCount': queued['retry_count'],
+        })) {
+          continue;
+        }
+        final actionId = queued['id']?.toString() ?? '';
+        final payload = Map<String, dynamic>.from(
+          queued['payload'] as Map? ?? const {},
+        );
+        try {
+          await _invokeLiveBackend({
+            'action': queued['action_type'],
+            'channelId': channelName,
+            'commentId': queued['comment_id'],
+            ...payload,
+          });
+          await state.localDb.completeLiveCommentAction(actionId);
+        } catch (error) {
+          await state.localDb.markLiveCommentActionAttempt(
+            actionId,
+            error: error.toString(),
+            failed: error is _LiveBackendException && error.isPermanent,
+          );
+        }
+      }
+    } finally {
+      _commentSyncChannels.remove(channelName);
     }
   }
 
-  Future<List<Map<String, dynamic>>> fetchLiveComments(
+  Future<void> syncAllPendingLiveComments() async {
+    final channels = await state.localDb.getPendingLiveCommentChannels();
+    for (final channelId in channels) {
+      await syncPendingLiveComments(channelId);
+    }
+  }
+
+  Future<Map<String, dynamic>> fetchLiveCommentPage(
+    String channelName, {
+    String? before,
+    String? after,
+    int limit = 50,
+  }) async {
+    final response = await _invokeLiveBackend({
+      'action': 'fetch_comments',
+      'channelId': channelName,
+      if (before != null) 'before': before,
+      if (after != null) 'after': after,
+      'limit': limit,
+    });
+    final data = response is Map ? response['data'] : null;
+    if (data is! Map) {
+      throw 'Live comments returned an invalid response.';
+    }
+    final comments = (data['comments'] as List? ?? const [])
+        .whereType<Map>()
+        .map((comment) => Map<String, dynamic>.from(comment))
+        .toList();
+    await state.localDb.saveLiveComments(channelName, comments);
+    return <String, dynamic>{
+      'comments': comments,
+      'hasMore': data['hasMore'] == true,
+      'nextCursor': data['nextCursor']?.toString(),
+      'syncCursor': data['syncCursor']?.toString(),
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLiveComments(String channelName) {
+    return loadCachedLiveComments(channelName);
+  }
+
+  Future<void> editLiveComment(
     String channelName,
+    String commentId,
+    String text,
   ) async {
-    try {
-      final response = await _invokeLiveBackend({
-        'action': 'fetch_comments',
-        'channelId': channelName,
-      });
-      final data = response is Map ? response['data'] : null;
-      if (data is! List) return [];
-      return data
-          .whereType<Map>()
-          .map(
-            (comment) => <String, dynamic>{
-              'user': comment['userName'] ?? 'User',
-              'text': comment['text'] ?? '',
-            },
-          )
-          .toList();
-    } catch (e) {
-      debugPrint('Necxa Live: Failed to fetch comments: $e');
-      return [];
-    }
+    await state.localDb.queueLiveCommentEdit(commentId, text);
+    unawaited(syncPendingLiveComments(channelName));
   }
 
-  Stream<Map<String, dynamic>> listenToEvents(String channelId) {
-    return Stream.periodic(const Duration(seconds: 1)).asyncMap((_) async {
+  Future<void> deleteLiveComment(String channelName, String commentId) async {
+    await state.localDb.queueLiveCommentDelete(commentId);
+    unawaited(syncPendingLiveComments(channelName));
+  }
+
+  Future<void> retryLiveComment(String channelName, String commentId) async {
+    await state.localDb.resetLiveCommentMutation(commentId);
+    unawaited(syncPendingLiveComments(channelName));
+  }
+
+  Future<void> reportLiveComment(
+    String channelName,
+    String commentId, {
+    String reason = 'inappropriate',
+  }) async {
+    await state.localDb.enqueueLiveCommentAction(
+      id: _newCommentRequestId('live_report'),
+      channelId: channelName,
+      commentId: commentId,
+      actionType: 'report_comment',
+      payload: {'reason': reason},
+    );
+    unawaited(syncPendingLiveComments(channelName));
+  }
+
+  Future<void> moderateLiveComment(
+    String channelName,
+    String commentId, {
+    required String moderationAction,
+    String reason = 'host_action',
+  }) async {
+    await state.localDb.enqueueLiveCommentAction(
+      id: _newCommentRequestId('live_moderation'),
+      channelId: channelName,
+      commentId: commentId,
+      actionType: 'moderate_comment',
+      payload: {'moderationAction': moderationAction, 'reason': reason},
+    );
+    unawaited(syncPendingLiveComments(channelName));
+  }
+
+  Future<Map<String, dynamic>> sendReaction(
+    String channelId,
+    String reactionType,
+  ) async {
+    final response = await _invokeLiveBackend({
+      'action': 'send_reaction',
+      'channelId': channelId,
+      'userId': state.user?.id,
+      'userName':
+          state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
+      'reactionType': reactionType,
+      'metadata': {'avatar': state.myProfile?['avatar_url'] ?? ''},
+    });
+    final data = response is Map ? response['data'] : null;
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> recordShare(String channelId) async {
+    final response = await _invokeLiveBackend({
+      'action': 'record_share',
+      'channelId': channelId,
+      'userId': state.user?.id,
+    });
+    final data = response is Map ? response['data'] : null;
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  Stream<Map<String, dynamic>> listenToEvents(
+    String channelId, {
+    String? initialCursor,
+  }) async* {
+    var cursor = initialCursor;
+    while (true) {
+      await Future<void>.delayed(const Duration(seconds: 1));
       try {
         final response = await _invokeLiveBackend({
           'action': 'poll_event',
           'channelId': channelId,
+          'role': _currentRole,
+          if (cursor != null) 'eventCursor': cursor,
+          'metadata': {
+            'name':
+                state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
+            'avatar': state.myProfile?['avatar_url'] ?? '',
+          },
         });
         final data = response is Map ? response['data'] : null;
-        return data is Map
-            ? Map<String, dynamic>.from(data)
-            : <String, dynamic>{};
+        if (data is! Map) {
+          yield <String, dynamic>{};
+          continue;
+        }
+        final envelope = Map<String, dynamic>.from(data);
+        final events = envelope['events'];
+        if (events is List && events.isNotEmpty) {
+          for (final rawEvent in events.whereType<Map>()) {
+            final event = Map<String, dynamic>.from(rawEvent);
+            final eventCursor = event['cursor']?.toString();
+            if (eventCursor != null && eventCursor.isNotEmpty) {
+              cursor = eventCursor;
+            }
+            yield <String, dynamic>{
+              ...event,
+              'pinnedProduct': envelope['pinnedProduct'],
+              'summary': envelope['summary'],
+              'eventCursor': cursor,
+            };
+          }
+        } else {
+          final nextCursor = envelope['eventCursor']?.toString();
+          if (nextCursor != null && nextCursor.isNotEmpty) cursor = nextCursor;
+          yield envelope;
+        }
       } catch (e) {
         debugPrint('Necxa Live: Failed to poll events: $e');
-        return <String, dynamic>{};
+        yield <String, dynamic>{};
       }
-    });
+    }
   }
 
   String _functionError(dynamic data, {required String fallback}) {

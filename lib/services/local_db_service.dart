@@ -21,7 +21,7 @@ class LocalDbService {
   static const int _feedMaxRows = 500;
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
-  static const int _dbVersion = 12;
+  static const int _dbVersion = 14;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
@@ -134,6 +134,28 @@ class LocalDbService {
             'ALTER TABLE app_notifications ADD COLUMN target_id TEXT',
             "ALTER TABLE app_notifications ADD COLUMN target_type TEXT DEFAULT 'post'",
             "ALTER TABLE app_notifications ADD COLUMN metadata TEXT DEFAULT '{}'",
+          ]) {
+            try {
+              await db.execute(statement);
+            } catch (_) {}
+          }
+        }
+        if (oldVersion < 13) {
+          debugPrint(
+            'LocalDb: Migrating to v13 (durable live comments and mutation queue)',
+          );
+        }
+        if (oldVersion < 14) {
+          for (final statement in [
+            'ALTER TABLE shop_listings ADD COLUMN description TEXT',
+            'ALTER TABLE shop_listings ADD COLUMN price_ugx REAL DEFAULT 0',
+            'ALTER TABLE shop_listings ADD COLUMN sku TEXT',
+            'ALTER TABLE shop_listings ADD COLUMN stock_count INTEGER DEFAULT 0',
+            'ALTER TABLE shop_listings ADD COLUMN lister_id TEXT',
+            "ALTER TABLE shop_listings ADD COLUMN status TEXT DEFAULT 'active'",
+            'ALTER TABLE shop_listings ADD COLUMN pickup_address TEXT',
+            'ALTER TABLE shop_listings ADD COLUMN latitude REAL',
+            'ALTER TABLE shop_listings ADD COLUMN longitude REAL',
           ]) {
             try {
               await db.execute(statement);
@@ -262,7 +284,13 @@ class LocalDbService {
         lister_name TEXT,
         lister_avatar TEXT,
         title TEXT,
+        description TEXT,
         price REAL DEFAULT 0,
+        price_ugx REAL DEFAULT 0,
+        sku TEXT,
+        stock_count INTEGER DEFAULT 0,
+        lister_id TEXT,
+        status TEXT DEFAULT 'active',
         media_url TEXT,
         thumbnail_url TEXT,
         media_type TEXT DEFAULT 'image',
@@ -274,6 +302,9 @@ class LocalDbService {
         is_verified INTEGER DEFAULT 0,
         photos TEXT, -- JSON Array of miniature URLs
         film_hub_content TEXT, -- Explicit main media URL
+        pickup_address TEXT,
+        latitude REAL,
+        longitude REAL,
         created_at TEXT
       )
     ''');
@@ -370,6 +401,60 @@ class LocalDbService {
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_comments_post ON community_comments(post_id, created_at DESC)',
+    );
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_comments (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        user_id TEXT,
+        user_name TEXT,
+        user_avatar TEXT,
+        text TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        sync_status TEXT DEFAULT 'synced',
+        pending_action TEXT,
+        client_request_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        edited_at TEXT,
+        deleted_at TEXT,
+        last_error TEXT,
+        retry_count INTEGER DEFAULT 0,
+        last_attempt_at TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_live_comments_channel_time '
+      'ON live_comments(channel_id, created_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_live_comments_pending '
+      'ON live_comments(channel_id, sync_status, last_attempt_at)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_live_comments_request '
+      'ON live_comments(channel_id, client_request_id) '
+      'WHERE client_request_id IS NOT NULL',
+    );
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_comment_actions (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        comment_id TEXT NOT NULL,
+        action_type TEXT NOT NULL,
+        payload TEXT DEFAULT '{}',
+        sync_status TEXT DEFAULT 'pending',
+        retry_count INTEGER DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        last_attempt_at TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_live_comment_actions_pending '
+      'ON live_comment_actions(channel_id, sync_status, last_attempt_at)',
     );
   }
 
@@ -655,6 +740,12 @@ class LocalDbService {
             profile?['avatar_url'],
         'title': l['title'],
         'price': l['price'] ?? l['price_ugx'] ?? 0,
+        'description': l['description'],
+        'price_ugx': l['price_ugx'] ?? l['price'] ?? 0,
+        'sku': l['sku'],
+        'stock_count': l['stock_count'] ?? 0,
+        'lister_id': l['lister_id'] ?? l['user_id'],
+        'status': l['status'] ?? 'active',
         'media_url': mediaUrl,
         'thumbnail_url': thumbnailUrl,
         'media_type': l['media_type'] ?? 'image',
@@ -668,6 +759,9 @@ class LocalDbService {
             : 0,
         'photos': jsonEncode(photos),
         'film_hub_content': _extractUrl(l['film_hub_content']) ?? mediaUrl,
+        'pickup_address': l['pickup_address'],
+        'latitude': l['latitude'],
+        'longitude': l['longitude'],
         'created_at': l['created_at'],
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
@@ -1032,6 +1126,8 @@ class LocalDbService {
     await db.delete('sync_cursors');
     await db.delete('app_notifications');
     await db.delete('community_comments');
+    await db.delete('live_comments');
+    await db.delete('live_comment_actions');
   }
 
   // ─── Comments API ────────────────────────────────────────────────────────
@@ -1130,6 +1226,349 @@ class LocalDbService {
       where: 'post_id = ?',
       whereArgs: [postId],
       orderBy: 'created_at DESC',
+    );
+  }
+
+  Map<String, dynamic> _liveCommentFromRow(Map<String, Object?> row) {
+    return <String, dynamic>{
+      'id': row['id'],
+      'channelId': row['channel_id'],
+      'userId': row['user_id'],
+      'user': row['user_name'] ?? 'User',
+      'userName': row['user_name'] ?? 'User',
+      'avatar': row['user_avatar'] ?? '',
+      'text': row['text'] ?? '',
+      'status': row['status'] ?? 'active',
+      'syncStatus': row['sync_status'] ?? 'synced',
+      'pendingAction': row['pending_action'],
+      'clientRequestId': row['client_request_id'],
+      'timestamp': row['created_at'],
+      'createdAt': row['created_at'],
+      'updatedAt': row['updated_at'],
+      'editedAt': row['edited_at'],
+      'deletedAt': row['deleted_at'],
+      'lastError': row['last_error'],
+      'retryCount': row['retry_count'] ?? 0,
+      'lastAttemptAt': row['last_attempt_at'],
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedLiveComments(
+    String channelId, {
+    int limit = 1000,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'live_comments',
+      where: 'channel_id = ?',
+      whereArgs: [channelId],
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+    return rows.map(_liveCommentFromRow).toList();
+  }
+
+  Future<Map<String, dynamic>> savePendingLiveComment({
+    required String id,
+    required String channelId,
+    required String userId,
+    required String userName,
+    required String userAvatar,
+    required String text,
+    required String clientRequestId,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final row = <String, Object?>{
+      'id': id,
+      'channel_id': channelId,
+      'user_id': userId,
+      'user_name': userName,
+      'user_avatar': userAvatar,
+      'text': text,
+      'status': 'active',
+      'sync_status': 'pending',
+      'pending_action': 'send',
+      'client_request_id': clientRequestId,
+      'created_at': now,
+      'updated_at': now,
+      'retry_count': 0,
+    };
+    final db = await database;
+    await db.insert(
+      'live_comments',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    return _liveCommentFromRow(row);
+  }
+
+  Future<void> saveLiveComments(
+    String channelId,
+    List<Map<String, dynamic>> comments, {
+    bool overwritePending = false,
+  }) async {
+    if (comments.isEmpty) return;
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final comment in comments) {
+        final id = comment['id']?.toString();
+        if (id == null || id.isEmpty) continue;
+        final requestId = comment['clientRequestId']?.toString();
+        if (requestId != null && requestId.isNotEmpty) {
+          await txn.delete(
+            'live_comments',
+            where: 'channel_id = ? AND client_request_id = ? AND id != ?',
+            whereArgs: [channelId, requestId, id],
+          );
+        }
+        final localRows = await txn.query(
+          'live_comments',
+          columns: ['sync_status'],
+          where: 'id = ?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (!overwritePending &&
+            localRows.isNotEmpty &&
+            localRows.first['sync_status'] != 'synced') {
+          continue;
+        }
+        final createdAt =
+            (comment['createdAt'] ?? comment['timestamp'])?.toString() ??
+            DateTime.now().toUtc().toIso8601String();
+        final updatedAt = comment['updatedAt']?.toString() ?? createdAt;
+        await txn.insert('live_comments', {
+          'id': id,
+          'channel_id': channelId,
+          'user_id': comment['userId']?.toString(),
+          'user_name':
+              (comment['userName'] ?? comment['user'])?.toString() ?? 'User',
+          'user_avatar':
+              (comment['avatar'] ?? comment['userAvatar'])?.toString() ?? '',
+          'text': comment['text']?.toString() ?? '',
+          'status': comment['status']?.toString() ?? 'active',
+          'sync_status': 'synced',
+          'pending_action': null,
+          'client_request_id': requestId,
+          'created_at': createdAt,
+          'updated_at': updatedAt,
+          'edited_at': comment['editedAt']?.toString(),
+          'deleted_at': comment['deletedAt']?.toString(),
+          'last_error': null,
+          'retry_count': 0,
+          'last_attempt_at': null,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingLiveCommentMutations(
+    String channelId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'live_comments',
+      where: "channel_id = ? AND sync_status IN ('pending', 'retrying')",
+      whereArgs: [channelId],
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(_liveCommentFromRow).toList();
+  }
+
+  Future<void> markLiveCommentMutationAttempt(
+    String id, {
+    String? error,
+    bool failed = false,
+  }) async {
+    final db = await database;
+    await db.rawUpdate(
+      '''
+      UPDATE live_comments
+      SET sync_status = ?,
+          retry_count = retry_count + 1,
+          last_error = ?,
+          last_attempt_at = ?
+      WHERE id = ?
+      ''',
+      [
+        failed ? 'failed' : 'retrying',
+        error,
+        DateTime.now().toUtc().toIso8601String(),
+        id,
+      ],
+    );
+  }
+
+  Future<void> resetLiveCommentMutation(String id) async {
+    final db = await database;
+    await db.update(
+      'live_comments',
+      {
+        'sync_status': 'pending',
+        'last_error': null,
+        'retry_count': 0,
+        'last_attempt_at': null,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> reconcileLiveCommentMutation(
+    String localId,
+    String channelId,
+    Map<String, dynamic>? serverComment,
+  ) async {
+    if (serverComment == null) {
+      final db = await database;
+      await db.delete('live_comments', where: 'id = ?', whereArgs: [localId]);
+      return;
+    }
+    await saveLiveComments(channelId, [serverComment], overwritePending: true);
+    if (serverComment['id']?.toString() != localId) {
+      final db = await database;
+      await db.delete('live_comments', where: 'id = ?', whereArgs: [localId]);
+    }
+  }
+
+  Future<void> queueLiveCommentEdit(String id, String text) async {
+    final db = await database;
+    final rows = await db.query(
+      'live_comments',
+      columns: ['pending_action'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    final isPendingSend = rows.first['pending_action'] == 'send';
+    await db.update(
+      'live_comments',
+      {
+        'text': text,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+        'sync_status': 'pending',
+        if (!isPendingSend) 'pending_action': 'edit',
+        'last_error': null,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> queueLiveCommentDelete(String id) async {
+    final db = await database;
+    final rows = await db.query(
+      'live_comments',
+      columns: ['pending_action'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return;
+    if (rows.first['pending_action'] == 'send') {
+      await db.delete('live_comments', where: 'id = ?', whereArgs: [id]);
+      return;
+    }
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.update(
+      'live_comments',
+      {
+        'status': 'deleted',
+        'sync_status': 'pending',
+        'pending_action': 'delete',
+        'updated_at': now,
+        'deleted_at': now,
+        'last_error': null,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> enqueueLiveCommentAction({
+    required String id,
+    required String channelId,
+    required String commentId,
+    required String actionType,
+    Map<String, dynamic> payload = const {},
+  }) async {
+    final db = await database;
+    await db.insert('live_comment_actions', {
+      'id': id,
+      'channel_id': channelId,
+      'comment_id': commentId,
+      'action_type': actionType,
+      'payload': jsonEncode(payload),
+      'sync_status': 'pending',
+      'retry_count': 0,
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingLiveCommentActions(
+    String channelId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'live_comment_actions',
+      where: "channel_id = ? AND sync_status IN ('pending', 'retrying')",
+      whereArgs: [channelId],
+      orderBy: 'created_at ASC',
+    );
+    return rows.map((row) {
+      Map<String, dynamic> payload = {};
+      try {
+        payload = Map<String, dynamic>.from(
+          jsonDecode(row['payload']?.toString() ?? '{}') as Map,
+        );
+      } catch (_) {}
+      return <String, dynamic>{...row, 'payload': payload};
+    }).toList();
+  }
+
+  Future<List<String>> getPendingLiveCommentChannels() async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT channel_id FROM live_comments
+      WHERE sync_status IN ('pending', 'retrying')
+      UNION
+      SELECT DISTINCT channel_id FROM live_comment_actions
+      WHERE sync_status IN ('pending', 'retrying')
+    ''');
+    return rows
+        .map((row) => row['channel_id']?.toString())
+        .whereType<String>()
+        .where((channelId) => channelId.isNotEmpty)
+        .toList();
+  }
+
+  Future<void> completeLiveCommentAction(String id) async {
+    final db = await database;
+    await db.delete('live_comment_actions', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> markLiveCommentActionAttempt(
+    String id, {
+    required String error,
+    bool failed = false,
+  }) async {
+    final db = await database;
+    await db.rawUpdate(
+      '''
+      UPDATE live_comment_actions
+      SET sync_status = ?,
+          retry_count = retry_count + 1,
+          last_error = ?,
+          last_attempt_at = ?
+      WHERE id = ?
+      ''',
+      [
+        failed ? 'failed' : 'retrying',
+        error,
+        DateTime.now().toUtc().toIso8601String(),
+        id,
+      ],
     );
   }
 }

@@ -145,6 +145,7 @@ class AppState extends ChangeNotifier {
             _connectionType != ConnectivityResult.none &&
             user != null) {
           social.syncPendingActions();
+          unawaited(live.syncAllPendingLiveComments());
         }
       }
     });
@@ -339,6 +340,7 @@ class AppState extends ChangeNotifier {
     // Background modular sync (Modularly until completion)
     if (isAuthenticated) {
       _modularBackgroundSync();
+      unawaited(live.syncAllPendingLiveComments());
     }
     notify();
   }
@@ -637,21 +639,88 @@ class AppState extends ChangeNotifier {
   // ── Live Streaming State ──
   String? activeLiveChannel;
   bool isLiveHosting = false;
-  Map<String, dynamic>? pinnedLiveProduct;
-  List<Map<String, dynamic>> liveGuestRequests = [];
+  final Map<String, Map<String, dynamic>?> _pinnedLiveProducts = {};
+  Map<String, dynamic>? get pinnedLiveProduct {
+    final channel = activeLiveChannel;
+    return channel == null ? null : _pinnedLiveProducts[channel];
+  }
+
+  final Map<String, List<Map<String, dynamic>>> _liveGuestRequests = {};
+  List<Map<String, dynamic>> get liveGuestRequests {
+    final channel = activeLiveChannel;
+    if (channel == null || channel.isEmpty) return const [];
+    return _liveGuestRequests.putIfAbsent(
+      channel,
+      () => <Map<String, dynamic>>[],
+    );
+  }
+
+  Map<String, dynamic>? pinnedProductForChannel(String channelId) {
+    return _pinnedLiveProducts[channelId];
+  }
 
   void setLiveChannel(String? channel, {bool isHosting = false}) {
     activeLiveChannel = channel;
     isLiveHosting = isHosting;
-    if (channel == null) {
-      pinnedLiveProduct = null;
-      liveGuestRequests = [];
+    notify();
+  }
+
+  void replaceLiveGuestRequests(
+    String channelId,
+    Iterable<Map<String, dynamic>> requests,
+  ) {
+    _liveGuestRequests[channelId] = requests
+        .map((request) => Map<String, dynamic>.from(request))
+        .toList();
+    notify();
+  }
+
+  void upsertLiveGuestRequest(String channelId, Map<String, dynamic> request) {
+    final requests = _liveGuestRequests.putIfAbsent(
+      channelId,
+      () => <Map<String, dynamic>>[],
+    );
+    final requestId = request['id']?.toString();
+    final guestId = (request['guestId'] ?? request['userId'])?.toString();
+    final index = requests.indexWhere((existing) {
+      final existingRequestId = existing['id']?.toString();
+      final existingGuestId = (existing['guestId'] ?? existing['userId'])
+          ?.toString();
+      return requestId != null && requestId.isNotEmpty
+          ? existingRequestId == requestId
+          : guestId != null && guestId.isNotEmpty && existingGuestId == guestId;
+    });
+    final normalized = Map<String, dynamic>.from(request);
+    if (index >= 0) {
+      requests[index] = normalized;
+    } else {
+      requests.add(normalized);
     }
     notify();
   }
 
-  void updatePinnedProduct(Map<String, dynamic>? product) {
-    pinnedLiveProduct = product;
+  void removeLiveGuestRequest(
+    String channelId, {
+    String? requestId,
+    String? guestId,
+  }) {
+    final requests = _liveGuestRequests[channelId];
+    if (requests == null) return;
+    requests.removeWhere((request) {
+      if (requestId != null && request['id']?.toString() == requestId) {
+        return true;
+      }
+      final requestGuestId = (request['guestId'] ?? request['userId'])
+          ?.toString();
+      return guestId != null && requestGuestId == guestId;
+    });
+    notify();
+  }
+
+  void updatePinnedProduct(Map<String, dynamic>? product, {String? channelId}) {
+    final channel = channelId ?? activeLiveChannel;
+    if (channel == null || channel.isEmpty) return;
+    _pinnedLiveProducts[channel] = product;
     notify();
   }
 

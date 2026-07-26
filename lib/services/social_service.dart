@@ -665,7 +665,7 @@ class SocialService {
       final res = await client
           .from('listings')
           .select(
-            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)',
+            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, status, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, latitude, longitude, profiles:user_id(full_name, avatar_url, trust_score_tier)',
           )
           .eq('user_id', userId)
           .order('created_at', ascending: false)
@@ -830,7 +830,7 @@ class SocialService {
       final res = await client
           .from('listings')
           .select(
-            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)',
+            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, status, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, latitude, longitude, profiles:user_id(full_name, avatar_url, trust_score_tier)',
           )
           .eq('user_id', userId)
           .order('created_at', ascending: false)
