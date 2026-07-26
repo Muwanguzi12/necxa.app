@@ -50,9 +50,17 @@ jobs:
     - name: Build APK Release (split per ABI)
       run: flutter build apk --release --split-per-abi
 
+    - name: Add build provenance
+      run: |
+        printf "commit=%s\nbranch=%s\nrun=%s\n" \
+          "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" \
+          > build/app/outputs/flutter-apk/BUILD_INFO.txt
+
     - name: Upload Release APKs
       uses: actions/upload-artifact@v4
       with:
-        name: necxa-apk-release
-        path: build/app/outputs/flutter-apk/app-*-release.apk
+        name: necxa-apk-${{ github.run_number }}-${{ github.sha }}
+        path: |
+          build/app/outputs/flutter-apk/app-*-release.apk
+          build/app/outputs/flutter-apk/BUILD_INFO.txt
         retention-days: 30
