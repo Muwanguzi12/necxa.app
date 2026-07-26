@@ -1024,7 +1024,7 @@ class _MoreOptionsSheet extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     _ThemeToggleBtn(
-                      label: 'Light',
+                      label: 'Soft White',
                       icon: Icons.light_mode,
                       activeColor: Colors.yellow,
                       isActive: state.themeMode == ThemeMode.light,
