@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:livekit_client/livekit_client.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_state.dart';
 
 /// Necxa Live Studio: Core Streaming Engine
@@ -23,11 +24,11 @@ class LiveStreamingService {
   static const String liveKitUrl = 'wss://necxa-live-dtb2j623.livekit.cloud';
   static const String liveBackendUrl = String.fromEnvironment(
     'NECXA_LIVE_SUPABASE_URL',
-    defaultValue: 'https://ayvescksetiuekoyfqar.supabase.co',
+    defaultValue: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
   );
   static const String liveBackendPublishableKey = String.fromEnvironment(
     'NECXA_LIVE_SUPABASE_PUBLISHABLE_KEY',
-    defaultValue: 'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT',
+    defaultValue: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
   );
 
   LiveStreamingService(this.state);
@@ -86,12 +87,18 @@ class LiveStreamingService {
   }
 
   Future<dynamic> _invokeLiveBackend(Map<String, dynamic> body) async {
+    final accessToken =
+        Supabase.instance.client.auth.currentSession?.accessToken;
+    if (accessToken == null || accessToken.isEmpty) {
+      throw 'Sign in to use live streaming.';
+    }
+
     final response = await http
         .post(
           Uri.parse('$liveBackendUrl/functions/v1/live-studio-engine'),
           headers: {
             'apikey': liveBackendPublishableKey,
-            'Authorization': 'Bearer $liveBackendPublishableKey',
+            'Authorization': 'Bearer $accessToken',
             'Content-Type': 'application/json',
           },
           body: jsonEncode(body),
@@ -113,7 +120,12 @@ class LiveStreamingService {
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw _functionError(data, fallback: 'Live authentication failed');
+      final error = _functionError(
+        data,
+        fallback: 'Live authentication failed',
+      );
+      debugPrint('Necxa Live backend error (${response.statusCode}): $error');
+      throw _publicFunctionError(error);
     }
     return data;
   }
@@ -386,6 +398,17 @@ class LiveStreamingService {
     if (data is Map && data['error'] != null) return data['error'].toString();
     if (data is String && data.trim().isNotEmpty) return data;
     return fallback;
+  }
+
+  String _publicFunctionError(String error) {
+    final normalized = error.toLowerCase();
+    if (normalized.contains('querysrv') ||
+        normalized.contains('enotfound') ||
+        normalized.contains('mongodb') ||
+        normalized.contains('mongo_uri')) {
+      return 'Live product sync is temporarily unavailable. Please try again.';
+    }
+    return error;
   }
 
   Future<void> dispose() async {

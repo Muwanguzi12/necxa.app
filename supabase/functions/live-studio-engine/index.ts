@@ -22,6 +22,22 @@ function json(body: Record<string, unknown> | unknown[], status = 200) {
   });
 }
 
+function jwtSubject(req: Request): string | null {
+  try {
+    const token = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
+    const encodedPayload = token?.split(".")[1];
+    if (!encodedPayload) return null;
+    const normalized = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded)) as { sub?: unknown };
+    return typeof payload.sub === "string" && payload.sub.trim()
+      ? payload.sub.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function buildLiveKitToken(
   roomName: string,
   identity: string,
@@ -70,7 +86,7 @@ serve(async (req) => {
     const {
       action,
       channelId,
-      userId,
+      userId: requestedUserId,
       role,
       metadata = {},
       location  = {},
@@ -90,6 +106,14 @@ serve(async (req) => {
       userName?: string;
       text?: string;
     };
+
+    const userId = jwtSubject(req);
+    if (!userId) {
+      return json({ error: "A valid signed-in session is required" }, 401);
+    }
+    if (requestedUserId?.trim() && requestedUserId.trim() !== userId) {
+      return json({ error: "The requested user does not match the session" }, 403);
+    }
 
     // ── 3. Validate action ────────────────────────────────────────────────────
     if (!VALID_ACTIONS.includes(action as Action)) {
@@ -412,7 +436,7 @@ serve(async (req) => {
     ) {
       if (!mongoSuccess) {
         return json(
-          { error: mongoErrorMsg || "Live engagement service is unavailable" },
+          { error: "Live engagement service is temporarily unavailable" },
           503,
         );
       }
