@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
+import '../face_engine/models/face_preset.dart';
 
 class ClipData {
   final String path;
@@ -137,6 +138,7 @@ class VideoEnhancementService {
     void Function(double progress)? onProgress,
   }) async {
     if (!options.applyBeautyFilter &&
+        !(options.faceParameters?.isEnabled ?? false) &&
         !options.autoBalance &&
         !options.sharpen) {
       return inputVideo;
@@ -145,7 +147,35 @@ class VideoEnhancementService {
     final outputPath = await _getOutputPath();
     List<String> filters = [];
 
-    if (options.applyBeautyFilter) {
+    final face = options.faceParameters;
+    if (face?.isEnabled ?? false) {
+      // This export fallback applies the shared preset conservatively across the
+      // frame. The real-time renderer can use the same values with face masks.
+      final smoothingRadius = 0.5 + (face!.skinSmooth * 3.5);
+      if (face.skinSmooth > 0.01) {
+        filters.add(
+          "smartblur=lr=${smoothingRadius.toStringAsFixed(2)}:ls=-0.5:lt=0",
+        );
+      }
+
+      final brightness = (face.lighting * 0.055) + (face.complexion * 0.018);
+      final contrast =
+          1 + (face.jawDefinition * 0.05) + (face.skinTone * 0.025);
+      final saturation = 1 + (face.skinTone * 0.11) + (face.lipEnhance * 0.08);
+      filters.add(
+        "eq=brightness=${brightness.toStringAsFixed(3)}:"
+        "contrast=${contrast.toStringAsFixed(3)}:"
+        "saturation=${saturation.toStringAsFixed(3)}",
+      );
+
+      final detail =
+          (face.sharpening * 0.8) +
+          (face.eyeEnhance * 0.25) +
+          (face.beardDetail * 0.35);
+      if (detail > 0.04) {
+        filters.add("unsharp=5:5:${detail.toStringAsFixed(2)}");
+      }
+    } else if (options.applyBeautyFilter) {
       // Apply edge-preserving blur (skin smoothing) and basic color correction
       filters.add("smartblur=lr=3:ls=-0.5:lt=0");
       filters.add("eq=brightness=0.03:saturation=1.1");
@@ -664,6 +694,7 @@ class VideoEnhancementService {
 
 class VideoEnhancementOptions {
   final bool applyBeautyFilter;
+  final FaceRenderParameters? faceParameters;
   final bool autoBalance;
   final bool sharpen;
   final Size? upscaleTo;
@@ -672,6 +703,7 @@ class VideoEnhancementOptions {
 
   const VideoEnhancementOptions({
     this.applyBeautyFilter = false,
+    this.faceParameters,
     this.autoBalance = false,
     this.sharpen = false,
     this.upscaleTo,

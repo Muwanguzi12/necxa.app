@@ -19,6 +19,9 @@ import 'music_library_screen.dart';
 import '../services/editor_voiceover_service.dart';
 import '../services/editor_audio_service.dart';
 import '../services/timeline_playback_controller.dart';
+import '../services/video_enhancement_service.dart';
+import '../face_engine/core/face_engine_controller.dart';
+import '../face_engine/widgets/face_preset_sheet.dart';
 
 // Private enum for clip drag modes (top-level so it compiles in class scope)
 enum _ClipDragMode { none, move, resizeLeft, resizeRight, stretch }
@@ -65,6 +68,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   late final TimelineHistoryController _history;
   late final bool _ownsProject;
   final EditorMediaService _mediaService = EditorMediaService();
+  final VideoEnhancementService _videoEnhancementService =
+      VideoEnhancementService();
+  final FaceEngineController _faceEngine = FaceEngineController();
   final Set<String> _selectedMediaPaths = <String>{};
   final Set<String> _favoriteMediaPaths = <String>{};
   String _mediaCategory = 'Recent';
@@ -2756,6 +2762,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           _buildToolButton('Speed', () => _adjustSpeed()),
           _buildToolButton('Opacity', () => _adjustOpacity()),
           _buildToolButton('Filter', _showFilterSheet),
+          _buildToolButton('Face', _showFaceEngineSheet),
           _buildToolButton('Volume', _adjustVolume),
           _buildToolButton('Reverse', _toggleReverse),
           _buildToolButton('Delete', () => _deleteClip()),
@@ -3408,6 +3415,102 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     });
     _playback.updateProject(_tracks);
     _queueCompositionSync();
+  }
+
+  void _showFaceEngineSheet() {
+    final clip = _selectedClip;
+    if (clip?.file == null) {
+      _showSnack('Select a video clip first');
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (_) => FacePresetSheet(
+        controller: _faceEngine,
+        isPro: _isProEnabled,
+        onApply: _applyFacePresetToSelectedClip,
+        onLockedPreset: (preset) {
+          _showSnack('${preset.name} is available with NECXA Pro');
+        },
+      ),
+    );
+  }
+
+  Future<void> _applyFacePresetToSelectedClip() async {
+    final clip = _selectedClip;
+    final input = clip?.file;
+    if (clip == null || input == null) return;
+
+    Navigator.pop(context);
+    if (!_faceEngine.parameters.isEnabled) {
+      _showSnack('Original clip kept unchanged');
+      return;
+    }
+
+    _playback.pause();
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PopScope(
+          canPop: false,
+          child: Center(
+            child: Material(
+              color: C.card,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(color: C.brand),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Applying ${_faceEngine.selectedPreset.name}',
+                      style: syne(sz: 13, w: FontWeight.w700, c: C.text),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final enhanced = await _videoEnhancementService.enhanceVideo(
+        inputVideo: input,
+        options: VideoEnhancementOptions(
+          faceParameters: _faceEngine.parameters,
+        ),
+      );
+      if (!mounted) return;
+      if (enhanced.path == input.path) {
+        _showSnack('Face preset could not be applied');
+        return;
+      }
+
+      _captureTimeline();
+      _mediaService.registerFile(enhanced);
+      setState(() {
+        clip.file = enhanced;
+        _selectedClip = clip;
+        _activeVisualClipId = null;
+        _compositionVisualClip = null;
+      });
+      _playback.updateProject(_tracks);
+      _queueCompositionSync();
+      _showSnack('${_faceEngine.selectedPreset.name} preset applied');
+    } catch (error) {
+      if (mounted) _showSnack('Face preset failed: $error');
+    } finally {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
   }
 
   Future<void> _showProSheet() async {

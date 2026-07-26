@@ -19,6 +19,9 @@ import '../app_state.dart';
 import '../services/editor_voiceover_service.dart';
 import '../services/timeline_playback_controller.dart';
 import '../services/editor_export_service.dart';
+import '../services/editor_subscription_service.dart';
+import '../face_engine/core/face_engine_controller.dart';
+import '../face_engine/widgets/face_preset_sheet.dart';
 import 'dart:math' as math;
 
 enum ImageFilter {
@@ -119,12 +122,13 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   final EditorMediaService _mediaService = EditorMediaService();
   final ImageEnhancementService _enhancementService = ImageEnhancementService();
   final VideoEnhancementService _videoService = VideoEnhancementService();
+  final FaceEngineController _faceEngine = FaceEngineController();
+  bool _isProEnabled = false;
 
   VideoPlayerController? _videoController;
 
   // Real-time Editing State
   ImageFilter? _selectedFilter;
-  final double _beautyLevel = 0.5;
   bool _isProcessing = false;
   MusicTrack? _selectedTrack;
   final AudioPlayer _musicPlayer = AudioPlayer();
@@ -197,6 +201,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     super.initState();
     _project = widget.projectController ?? EditorProjectController();
     _ownsProjectController = widget.projectController == null;
+    _loadProState();
     final sharedFiles =
         _project.tracks
             .where(
@@ -250,18 +255,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     }
     final sharedProject = _project;
     for (final timelineClip in sharedProject.tracks.expand(
-        (track) => track.clips,
-      )) {
-        final operation = timelineClip.operation;
-        if (operation is OverlayOperation) {
-          _overlays.add(operation.copy());
-        } else if (operation is TransitionOperation &&
-            timelineClip.id.startsWith('desktop-transition-')) {
-          final index = int.tryParse(
-            timelineClip.id.substring('desktop-transition-'.length),
-          );
-          if (index != null) _transitions[index] = operation;
-        }
+      (track) => track.clips,
+    )) {
+      final operation = timelineClip.operation;
+      if (operation is OverlayOperation) {
+        _overlays.add(operation.copy());
+      } else if (operation is TransitionOperation &&
+          timelineClip.id.startsWith('desktop-transition-')) {
+        final index = int.tryParse(
+          timelineClip.id.substring('desktop-transition-'.length),
+        );
+        if (index != null) _transitions[index] = operation;
+      }
     }
 
     if (widget.initialTrack != null) {
@@ -279,6 +284,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     for (var clip in _sequence) {
       if (clip.isVideo) _generateProxyForClip(clip);
     }
+  }
+
+  Future<void> _loadProState() async {
+    final isPro = await EditorSubscriptionService.isProEnabled();
+    if (!mounted) return;
+    setState(() => _isProEnabled = isPro);
   }
 
   Future<void> _loadShaders() async {
@@ -420,9 +431,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   @override
   void dispose() {
-    _project.playback.removeListener(
-      _followSharedPlaybackClock,
-    );
+    _project.playback.removeListener(_followSharedPlaybackClock);
     _videoController?.dispose();
     _musicPlayer.dispose();
     _voicePlayer.dispose();
@@ -910,7 +919,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             },
           )
           .toList(),
-      'beauty': _beautyLevel,
+      'beauty': _faceEngine.intensity,
+      'facePreset': _faceEngine.selectedPreset.id,
       'total_duration': _totalDuration,
       'clip_count': _sequence.length,
     });
@@ -3297,6 +3307,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       return;
     }
 
+    if (!_faceEngine.parameters.isEnabled) {
+      Navigator.pop(context);
+      _feedback("Original clip kept unchanged.");
+      return;
+    }
+
     _videoController?.pause();
     _musicPlayer.pause();
     Navigator.pop(context); // close sheet
@@ -3311,7 +3327,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             const CircularProgressIndicator(color: C.brand),
             const SizedBox(height: 16),
             Text(
-              "Applying Beauty Filter (FFmpeg)...",
+              "Applying ${_faceEngine.selectedPreset.name}...",
               style: syne(sz: 14, w: FontWeight.bold, c: Colors.white),
             ),
           ],
@@ -3322,10 +3338,16 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     try {
       final enhancedFile = await _videoService.enhanceVideo(
         inputVideo: clip.file,
-        options: const VideoEnhancementOptions(applyBeautyFilter: true),
+        options: VideoEnhancementOptions(
+          faceParameters: _faceEngine.parameters,
+        ),
       );
 
       if (mounted) {
+        if (enhancedFile.path == clip.file.path) {
+          _feedback("Face preset could not be applied.");
+          return;
+        }
         setState(() {
           _saveHistory();
           _sequence[_activeClipIndex] = VideoClip(
@@ -3335,9 +3357,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             duration: clip.duration,
             speed: clip.speed,
             volume: clip.volume,
+            hasAudio: clip.hasAudio,
+            scale: clip.scale,
+            rotation: clip.rotation,
+            offsetX: clip.offsetX,
+            offsetY: clip.offsetY,
+            opacity: clip.opacity,
           );
         });
-        _feedback("Beauty Filter Applied! ✨");
+        _feedback("${_faceEngine.selectedPreset.name} preset applied.");
       }
     } catch (e) {
       if (mounted) _feedback("Failed to apply filter: $e");
@@ -3352,47 +3380,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   void _showBeautySheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        height: 220,
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.95),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              'FACE BEAUTY (POST-PROCESS)',
-              style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 2),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Uses our custom FFmpeg min-gpl engine to apply skin smoothing (smartblur) and color equalization.',
-              style: dm(sz: 12, c: Colors.white54),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.auto_awesome, color: Colors.black),
-              label: Text(
-                "Apply Beauty Filter",
-                style: syne(sz: 14, w: FontWeight.bold, c: Colors.black),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: C.brand,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 14,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              onPressed: () => _applyBeautyFilterToClip(),
-            ),
-          ],
-        ),
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      builder: (_) => FacePresetSheet(
+        controller: _faceEngine,
+        isPro: _isProEnabled,
+        onApply: _applyBeautyFilterToClip,
+        onLockedPreset: (preset) {
+          _feedback('${preset.name} is available with NECXA Pro.');
+        },
       ),
     );
   }
