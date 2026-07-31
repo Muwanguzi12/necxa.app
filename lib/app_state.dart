@@ -773,6 +773,12 @@ class AppState extends ChangeNotifier {
 
   // ── Local Financial Cache ──
   Wallet? userWallet;
+  bool isWalletSyncing = false;
+  String? walletSyncError;
+  DateTime? walletLastSyncedAt;
+  Future<void>? _walletSyncFuture;
+  String? _walletOwnerId;
+
   double get fiatBalance => userWallet?.fiatBalance.toDouble() ?? 0.0;
   double get coinBalance => userWallet?.coinBalance.toDouble() ?? 0.0;
   double get escrowBalance => userWallet?.escrowBalance.toDouble() ?? 0.0;
@@ -788,18 +794,63 @@ class AppState extends ChangeNotifier {
   Future<void> syncVault() => _syncVault();
 
   Future<void> _syncVault() async {
-    if (user == null) return;
+    final activeSync = _walletSyncFuture;
+    if (activeSync != null) {
+      await activeSync;
+      return;
+    }
+
+    final sync = _performWalletSync();
+    _walletSyncFuture = sync;
+    try {
+      await sync;
+    } finally {
+      if (identical(_walletSyncFuture, sync)) {
+        _walletSyncFuture = null;
+      }
+    }
+  }
+
+  Future<void> _performWalletSync() async {
+    final walletUser = user;
+    if (walletUser == null) {
+      userWallet = null;
+      _walletOwnerId = null;
+      walletLastSyncedAt = null;
+      walletSyncError = 'Sign in to view your wallet.';
+      notify();
+      return;
+    }
+
+    if (_walletOwnerId != null && _walletOwnerId != walletUser.id) {
+      userWallet = null;
+      walletLastSyncedAt = null;
+    }
+    isWalletSyncing = true;
+    walletSyncError = null;
+    notify();
     try {
       final result = await FinanceBackend.instance.invoke('get_wallet');
       final wallet = Map<String, dynamic>.from(
         result['wallet'] as Map? ?? const {},
       );
-      if (wallet.isNotEmpty) {
-        userWallet = Wallet.fromJson(wallet);
-        notify();
+      if (wallet.isEmpty) {
+        throw const FinanceBackendException(
+          code: 'wallet_missing',
+          message: 'The finance backend did not return a wallet.',
+        );
       }
+
+      if (user?.id != walletUser.id) return;
+      userWallet = Wallet.fromJson(wallet);
+      _walletOwnerId = walletUser.id;
+      walletLastSyncedAt = DateTime.now();
     } catch (e) {
+      walletSyncError = 'Wallet balances could not be refreshed.';
       debugPrint('Vault Sync Error: $e');
+    } finally {
+      isWalletSyncing = false;
+      notify();
     }
   }
 
