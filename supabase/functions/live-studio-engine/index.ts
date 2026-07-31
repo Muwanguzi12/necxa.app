@@ -20,7 +20,6 @@ const COMMENT_PAGE_LIMIT = 50;
 const COMMENT_MAX_PAGE_LIMIT = 100;
 const COMMENT_MAX_LENGTH = 2_000;
 const GUEST_REQUEST_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-const GUEST_REQUEST_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 let cachedMongoClient: MongoClient | null = null;
 let cachedMongoDatabase: Db | null = null;
@@ -102,34 +101,6 @@ function serializeComment(comment: Record<string, unknown>) {
     ...data,
     text: visibleText,
   };
-}
-
-function serializeGuestRequest(request: Record<string, unknown> | null) {
-  if (!request) return null;
-  const { _id, ...data } = request;
-  return {
-    id: String(data.requestId ?? (_id as ObjectId | undefined)?.toString() ?? ""),
-    ...data,
-  };
-}
-
-function streamEventPayload(
-  event: Record<string, unknown>,
-  result: { insertedId: ObjectId; sequence: number },
-) {
-  return {
-    id: result.insertedId.toString(),
-    ...event,
-    cursor: String(result.sequence),
-  };
-}
-
-function normalizedViewerHandle(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .replace(/^@+/, "")
-    .replace(/[_\s]+/g, "")
-    .toLowerCase();
 }
 
 function serializeGuestRequest(request: Record<string, unknown> | null) {
