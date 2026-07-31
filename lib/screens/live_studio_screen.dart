@@ -95,11 +95,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       widget.hostId ?? (widget.isHost ? widget.state.user?.id : null);
   int get _viewerCount {
     final syncedCount = (_liveSummary['viewerCount'] as num?)?.toInt();
-    if (syncedCount != null) return syncedCount;
-    final room = widget.state.live.room;
-    if (room == null) return 0;
-    return room.remoteParticipants.length +
-        (room.localParticipant != null ? 1 : 0);
+    return syncedCount ?? 0;
   }
 
   @override

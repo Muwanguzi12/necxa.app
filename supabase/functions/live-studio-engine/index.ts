@@ -532,6 +532,7 @@ serve(async (req) => {
     const {
       action,
       channelId,
+      streamId,
       userId: requestedUserId,
       role,
       metadata = {},
@@ -553,6 +554,7 @@ serve(async (req) => {
     } = body as {
       action: string;
       channelId?: string;
+      streamId?: string;
       userId?: string;
       role?: string;
       metadata?: Record<string, unknown>;
@@ -667,6 +669,10 @@ serve(async (req) => {
         if (action === "start") {
           await expireStaleStreams(db);
           const preparedAt = new Date();
+          const requestedHostName =
+            String(metadata.hostName ?? metadata.name ?? "Necxa Creator")
+              .trim() || "Necxa Creator";
+          const requestedAvatar = String(metadata.avatar ?? "").trim();
           let existing = await streams.findOne({
             hostId: userId,
             status: { $in: ["starting", "live"] },
@@ -686,8 +692,6 @@ serve(async (req) => {
               thumbnail = "",
               category = "",
               tags = [],
-              hostName = "Necxa Creator",
-              avatar = "",
             } = metadata as Record<string, unknown>;
 
             await Promise.all([
@@ -707,9 +711,12 @@ serve(async (req) => {
               thumbnail,
               category,
               tags,
-              hostName,
-              avatar,
-              metadata: { hostName, avatar },
+              hostName: requestedHostName,
+              avatar: requestedAvatar,
+              metadata: {
+                hostName: requestedHostName,
+                avatar: requestedAvatar,
+              },
               location,
               viewerCount: 0,
               peakViewers: 0,
@@ -732,6 +739,23 @@ serve(async (req) => {
             });
           } else {
             newStreamId = existing.streamId?.toString() ?? null;
+            await streams.updateOne(
+              { _id: existing._id },
+              {
+                $set: {
+                  hostName: requestedHostName,
+                  avatar: requestedAvatar,
+                  "metadata.hostName": requestedHostName,
+                  "metadata.avatar": requestedAvatar,
+                  updatedAt: preparedAt,
+                },
+              },
+            );
+            existing = {
+              ...existing,
+              hostName: requestedHostName,
+              avatar: requestedAvatar,
+            };
           }
 
           // Keep already-installed clients working while protocol v2 rolls out.
@@ -790,6 +814,7 @@ serve(async (req) => {
             channelId,
             hostId: userId,
             status: { $in: ["starting", "live"] },
+            ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
           });
           if (
             !prepared ||
@@ -853,19 +878,40 @@ serve(async (req) => {
 
         } else if (action === "abort_start") {
           const abortedAt = new Date();
-          const aborted = await streams.updateOne(
-            { channelId, hostId: userId, status: "starting" },
-            {
-              $set: {
-                status: "failed",
-                endedAt: abortedAt,
-                endedReason: "livekit_connection_failed",
-                viewerCount: 0,
+          const hasAttemptId = Boolean(streamId?.trim());
+          const prepared = await streams.findOne({
+            channelId,
+            hostId: userId,
+            status: hasAttemptId ? { $in: ["starting", "live"] } : "starting",
+            ...(hasAttemptId ? { streamId: streamId!.trim() } : {}),
+          });
+          let aborted = false;
+          if (prepared) {
+            const wasLive = prepared.status === "live";
+            const result = await streams.updateOne(
+              { _id: prepared._id, status: prepared.status },
+              {
+                $set: {
+                  status: wasLive ? "ended" : "failed",
+                  endedAt: abortedAt,
+                  endedReason: wasLive
+                    ? "start_confirmation_aborted"
+                    : "livekit_connection_failed",
+                  viewerCount: 0,
+                  updatedAt: abortedAt,
+                },
+                $unset: { prepareExpiresAt: "" },
               },
-              $unset: { prepareExpiresAt: "" },
-            },
-          );
-          actionResult = { aborted: aborted.modifiedCount > 0 };
+            );
+            aborted = result.modifiedCount > 0;
+            if (aborted && wasLive) {
+              await db.collection("stream_viewers").updateMany(
+                { channelId, active: true },
+                { $set: { active: false, leftAt: abortedAt } },
+              );
+            }
+          }
+          actionResult = { aborted };
           mongoSuccess = true;
 
         } else if (action === "join") {
@@ -1027,10 +1073,28 @@ serve(async (req) => {
 
         } else if (action === "list_active") {
           await expireStaleStreams(db);
-          activeStreams = await streams
+          const liveStreams = await streams
             .find({ status: "live" })
             .sort({ startedAt: -1 })
             .toArray();
+          activeStreams = liveStreams.map((stream) => {
+            const storedMetadata =
+              stream.metadata && typeof stream.metadata === "object"
+                ? stream.metadata as Record<string, unknown>
+                : {};
+            const hostName = String(
+              stream.hostName ?? storedMetadata.hostName ?? "Necxa Creator",
+            );
+            const avatar = String(
+              stream.avatar ?? storedMetadata.avatar ?? "",
+            );
+            return {
+              ...stream,
+              hostName,
+              avatar,
+              metadata: { ...storedMetadata, hostName, avatar },
+            };
+          });
           mongoSuccess = true;
         } else if (action === "pin_product") {
           const ownedStream = await streams.findOne({
