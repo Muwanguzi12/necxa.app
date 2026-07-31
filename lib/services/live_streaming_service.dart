@@ -32,6 +32,7 @@ class LiveStreamingService {
   Room? _room;
   EventsListener<RoomEvent>? _roomEventsListener;
   String? _activeChannelName;
+  String? _activeStreamId;
   bool _hostingActiveChannel = false;
   String _currentRole = 'viewer';
   final Set<String> _commentSyncChannels = <String>{};
@@ -58,6 +59,7 @@ class LiveStreamingService {
   LiveStreamingService(this.state);
 
   Room? get room => _room;
+  String? get activeStreamId => _activeStreamId;
   bool get isCoHostPublishing => _currentRole == 'publisher';
 
   Map<String, dynamic> _identityMetadata({String fallbackName = 'Viewer'}) {
@@ -105,6 +107,7 @@ class LiveStreamingService {
     final response = await _invokeLiveBackend({
       'action': action,
       'channelId': channelName,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
       if (role != null) 'role': role,
       'metadata': {
@@ -335,6 +338,7 @@ class LiveStreamingService {
     await _invokeLifecycleBackend({
       'action': 'confirm_join',
       'channelId': channelName,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
       'role': role,
       'metadata': _identityMetadata(),
@@ -347,6 +351,7 @@ class LiveStreamingService {
     final listener = _roomEventsListener;
     _roomEventsListener = null;
     _activeChannelName = null;
+    _activeStreamId = null;
     _hostingActiveChannel = false;
     _currentRole = 'viewer';
     if (listener != null) await listener.dispose();
@@ -364,6 +369,7 @@ class LiveStreamingService {
       action: 'start',
       channelName: channelName,
     );
+    _activeStreamId = creds['streamId'];
     try {
       await _connect(
         channelName: channelName,
@@ -414,6 +420,7 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'audience',
     );
+    _activeStreamId = creds['streamId'];
     try {
       await _connect(
         channelName: channelName,
@@ -429,6 +436,7 @@ class LiveStreamingService {
         await _invokeLifecycleBackend({
           'action': 'leave',
           'channelId': channelName,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
           'userId': state.user?.id,
         }, attempts: 2);
       } catch (leaveError) {
@@ -453,6 +461,7 @@ class LiveStreamingService {
         await _invokeLifecycleBackend({
           'action': 'leave',
           'channelId': channelName,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
           'userId': state.user?.id,
         });
       }
@@ -468,6 +477,7 @@ class LiveStreamingService {
     await _invokeLifecycleBackend({
       'action': 'stop',
       'channelId': channelName,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
     });
   }
@@ -482,6 +492,7 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'publisher',
     );
+    _activeStreamId = creds['streamId'];
     try {
       await _connect(
         channelName: channelName,
@@ -496,6 +507,7 @@ class LiveStreamingService {
         await _invokeLifecycleBackend({
           'action': 'leave',
           'channelId': channelName,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
           'userId': state.user?.id,
         }, attempts: 2);
       } catch (_) {
@@ -553,6 +565,7 @@ class LiveStreamingService {
     final response = await _invokeLiveBackend({
       'action': 'fetch_stream_state',
       'channelId': channelId,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
     });
     final data = response is Map ? response['data'] : null;
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
@@ -942,10 +955,12 @@ class LiveStreamingService {
     final response = await _invokeLiveBackend({
       'action': 'send_reaction',
       'channelId': channelId,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
       'userName':
           state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
       'reactionType': reactionType,
+      'clientRequestId': _newCommentRequestId('live_reaction'),
       'metadata': {'avatar': state.myProfile?['avatar_url'] ?? ''},
     });
     final data = response is Map ? response['data'] : null;
@@ -973,6 +988,7 @@ class LiveStreamingService {
         final response = await _invokeLiveBackend({
           'action': 'poll_event',
           'channelId': channelId,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
           'role': _currentRole,
           if (cursor != null) 'eventCursor': cursor,
           'metadata': _identityMetadata(),
@@ -1005,6 +1021,20 @@ class LiveStreamingService {
         }
       } catch (e) {
         debugPrint('Necxa Live: Failed to poll events: $e');
+        if (e is _LiveBackendException && e.statusCode == 410) {
+          yield <String, dynamic>{
+            'streamEnded': true,
+            'summary': <String, dynamic>{
+              'streamId': _activeStreamId ?? '',
+              'viewerCount': 0,
+              'likes': 0,
+              'shares': 0,
+              'reactionCounts': <String, int>{},
+              'viewers': <Map<String, dynamic>>[],
+            },
+          };
+          break;
+        }
         yield <String, dynamic>{};
       }
     }

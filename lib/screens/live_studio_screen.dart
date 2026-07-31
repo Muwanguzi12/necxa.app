@@ -161,6 +161,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (rawSummary is Map) {
       _applyLiveSummary(Map<String, dynamic>.from(rawSummary));
     }
+    if (event['streamEnded'] == true) {
+      setState(() => _reactionBursts.clear());
+      if (!widget.isHost) {
+        _showToast('This live session has ended.');
+      }
+      return;
+    }
 
     if (event.containsKey('pinnedProduct')) {
       final rawProduct = event['pinnedProduct'];
@@ -383,7 +390,18 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   void _applyLiveSummary(Map<String, dynamic> summary) {
     if (!mounted) return;
     if (jsonEncode(_liveSummary) == jsonEncode(summary)) return;
-    setState(() => _liveSummary = summary);
+    final previousSession = _liveSummary['streamId']?.toString();
+    final nextSession = summary['streamId']?.toString();
+    setState(() {
+      if (previousSession != null &&
+          previousSession.isNotEmpty &&
+          nextSession != null &&
+          nextSession.isNotEmpty &&
+          previousSession != nextSession) {
+        _reactionBursts.clear();
+      }
+      _liveSummary = summary;
+    });
   }
 
   void _startGiftStatsSync() {

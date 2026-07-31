@@ -454,6 +454,79 @@ function liveHeartbeatFilter(now = new Date()) {
   };
 }
 
+async function archiveSessionEngagement(
+  db: Db,
+  sessions: Array<Record<string, unknown>>,
+  endedAt: Date,
+  endedReason: string,
+): Promise<void> {
+  if (sessions.length === 0) return;
+  try {
+    const sessionScopes = sessions.map((session) => {
+      const streamId = String(session.streamId ?? "").trim();
+      const channelId = String(session.channelId ?? "").trim();
+      return streamId
+        ? {
+          $or: [
+            { streamId },
+            { channelId, streamId: { $exists: false } },
+          ],
+        }
+        : { channelId };
+    });
+    const analyticsWrites = sessions
+      .filter((session) => String(session.streamId ?? "").trim())
+      .map((session) => {
+        const counts = session.reactionCounts &&
+            typeof session.reactionCounts === "object"
+          ? session.reactionCounts as Record<string, unknown>
+          : {};
+        const totalReactions = Object.values(counts).reduce(
+          (total, value) => total + finiteNumber(value),
+          0,
+        );
+        return {
+          updateOne: {
+            filter: { streamId: String(session.streamId) },
+            update: {
+              $set: {
+                streamId: String(session.streamId),
+                channelId: String(session.channelId ?? ""),
+                hostId: String(session.hostId ?? ""),
+                likes: finiteNumber(session.likes),
+                reactionCounts: counts,
+                totalReactions,
+                startedAt: session.startedAt ?? null,
+                endedAt,
+                endedReason,
+              },
+              $setOnInsert: { createdAt: endedAt },
+            },
+            upsert: true,
+          },
+        };
+      });
+
+    await Promise.all([
+      analyticsWrites.length > 0
+        ? db.collection("stream_session_analytics").bulkWrite(analyticsWrites)
+        : Promise.resolve(),
+      db.collection("stream_reactions").deleteMany(
+        sessionScopes.length === 1 ? sessionScopes[0] : { $or: sessionScopes },
+      ),
+      db.collection("stream_events").deleteMany({
+        type: "live_reaction",
+        ...(sessionScopes.length === 1 ? sessionScopes[0] : { $or: sessionScopes }),
+      }),
+    ]);
+  } catch (error) {
+    console.error(
+      "Live session engagement cleanup failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 async function expireStaleStreams(db: Db): Promise<void> {
   const now = new Date();
   const activeSince = new Date(now.getTime() - HOST_ACTIVE_WINDOW_MS);
@@ -468,7 +541,8 @@ async function expireStaleStreams(db: Db): Promise<void> {
       },
     ],
   };
-  const staleChannels = await streams.distinct("channelId", staleLiveFilter);
+  const staleSessions = await streams.find(staleLiveFilter).toArray();
+  const staleChannels = staleSessions.map((stream) => stream.channelId);
   await Promise.all([
     streams.updateMany(
       staleLiveFilter,
@@ -478,6 +552,8 @@ async function expireStaleStreams(db: Db): Promise<void> {
           endedAt: now,
           endedReason: "host_heartbeat_timeout",
           viewerCount: 0,
+          likes: 0,
+          reactionCounts: {},
         },
       },
     ),
@@ -489,6 +565,8 @@ async function expireStaleStreams(db: Db): Promise<void> {
           endedAt: now,
           endedReason: "start_confirmation_timeout",
           viewerCount: 0,
+          likes: 0,
+          reactionCounts: {},
         },
       },
     ),
@@ -499,6 +577,12 @@ async function expireStaleStreams(db: Db): Promise<void> {
           { $set: { active: false, leftAt: now } },
         ),
   ]);
+  await archiveSessionEngagement(
+    db,
+    staleSessions,
+    now,
+    "host_heartbeat_timeout",
+  );
 }
 
 async function liveSummary(
@@ -518,6 +602,8 @@ async function liveSummary(
       {
         projection: {
           _id: 0,
+          streamId: 1,
+          startedAt: 1,
           likes: 1,
           shares: 1,
           reactionCounts: 1,
@@ -563,6 +649,8 @@ async function liveSummary(
   );
 
   return {
+    streamId: String(stream?.streamId ?? ""),
+    sessionStartedAt: stream?.startedAt ?? null,
     viewerCount,
     likes: Number(stream?.likes ?? 0),
     shares: Number(stream?.shares ?? 0),
@@ -803,6 +891,7 @@ serve(async (req) => {
               db.collection("stream_event_counters").deleteOne({ channelId }),
               db.collection("stream_viewers").deleteMany({ channelId }),
               db.collection("stream_guest_requests").deleteMany({ channelId }),
+              db.collection("stream_reactions").deleteMany({ channelId }),
             ]);
             await streams.insertOne({
               streamId: newStreamId,
@@ -895,6 +984,7 @@ serve(async (req) => {
               {
                 $set: {
                   channelId,
+                  streamId: legacyStream?.streamId ?? newStreamId,
                   userId,
                   ...await verifiedViewerIdentity(
                     userId,
@@ -962,6 +1052,7 @@ serve(async (req) => {
             {
               $set: {
                 channelId,
+                streamId: prepared.streamId,
                 userId,
                 ...await verifiedViewerIdentity(
                   userId,
@@ -1008,6 +1099,8 @@ serve(async (req) => {
                     ? "start_confirmation_aborted"
                     : "livekit_connection_failed",
                   viewerCount: 0,
+                  likes: 0,
+                  reactionCounts: {},
                   updatedAt: abortedAt,
                 },
                 $unset: { prepareExpiresAt: "" },
@@ -1018,6 +1111,16 @@ serve(async (req) => {
               await db.collection("stream_viewers").updateMany(
                 { channelId, active: true },
                 { $set: { active: false, leftAt: abortedAt } },
+              );
+            }
+            if (aborted) {
+              await archiveSessionEngagement(
+                db,
+                [prepared],
+                abortedAt,
+                wasLive
+                  ? "start_confirmation_aborted"
+                  : "livekit_connection_failed",
               );
             }
           }
@@ -1057,6 +1160,7 @@ serve(async (req) => {
               {
                 $set: {
                   channelId,
+                  streamId: liveStream.streamId,
                   userId,
                   ...await verifiedViewerIdentity(userId, metadata),
                   role: role === "publisher" ? "cohost" : "viewer",
@@ -1069,6 +1173,7 @@ serve(async (req) => {
               { upsert: true },
             );
           }
+          newStreamId = liveStream.streamId?.toString() ?? null;
           actionResult = {
             ready: true,
             summary: usesConfirmedLifecycle
@@ -1082,6 +1187,7 @@ serve(async (req) => {
           const liveStream = await streams.findOne({
             channelId,
             status: "live",
+            ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
             ...liveHeartbeatFilter(joinedAt),
           });
           if (!liveStream) {
@@ -1117,6 +1223,7 @@ serve(async (req) => {
             {
               $set: {
                 channelId,
+                streamId: liveStream.streamId,
                 userId,
                 ...await verifiedViewerIdentity(userId, metadata),
                 role: role === "publisher" ? "cohost" : "viewer",
@@ -1133,7 +1240,11 @@ serve(async (req) => {
 
         } else if (action === "leave") {
           await db.collection("stream_viewers").updateOne(
-            { channelId, userId },
+            {
+              channelId,
+              userId,
+              ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
+            },
             { $set: { active: false, leftAt: new Date(), lastSeenAt: new Date() } },
           );
           actionResult = await liveSummary(db, channelId!);
@@ -1141,25 +1252,42 @@ serve(async (req) => {
 
         } else if (action === "stop") {
           const stoppedAt = new Date();
+          const endingFilter = {
+            channelId,
+            hostId: userId,
+            status: { $in: ["starting", "live"] },
+            ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
+          };
+          const endingSessions = await streams.find(endingFilter).toArray();
+          if (endingSessions.length === 0) {
+            return json({ error: "This live session is already closed" }, 410);
+          }
+          const endingStreamIds = endingSessions
+            .map((session) => String(session.streamId ?? "").trim())
+            .filter(Boolean);
           const [stopped] = await Promise.all([
             streams.updateMany(
-              {
-                channelId,
-                hostId: userId,
-                status: { $in: ["starting", "live"] },
-              },
+              endingFilter,
               {
                 $set: {
                   status: "ended",
                   endedAt: stoppedAt,
                   endedReason: "host_stopped",
                   viewerCount: 0,
+                  likes: 0,
+                  reactionCounts: {},
                 },
                 $unset: { prepareExpiresAt: "" },
               },
             ),
             db.collection("stream_viewers").updateMany(
-              { channelId, active: true },
+              {
+                channelId,
+                active: true,
+                ...(endingStreamIds.length > 0
+                  ? { streamId: { $in: endingStreamIds } }
+                  : {}),
+              },
               { $set: { active: false, leftAt: stoppedAt } },
             ),
             db.collection("stream_guest_requests").updateMany(
@@ -1176,6 +1304,12 @@ serve(async (req) => {
               },
             ),
           ]);
+          await archiveSessionEngagement(
+            db,
+            endingSessions,
+            stoppedAt,
+            "host_stopped",
+          );
           actionResult = { stopped: stopped.modifiedCount > 0 };
           mongoSuccess = true;
 
@@ -1330,7 +1464,11 @@ serve(async (req) => {
           mongoSuccess = true;
         } else if (action === "fetch_stream_state") {
           const liveStream = await streams.findOne(
-            { channelId, status: "live" },
+            {
+              channelId,
+              status: "live",
+              ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
+            },
             { projection: { _id: 0, hostId: 1 } },
           );
           if (!liveStream) {
@@ -2100,36 +2238,84 @@ serve(async (req) => {
           );
           mongoSuccess = true;
         } else if (action === "send_reaction") {
-          const liveStream = await streams.findOne({ channelId, status: "live" });
+          const requestedSessionId = streamId?.trim();
+          const liveStream = await streams.findOne({
+            channelId,
+            status: "live",
+            ...(requestedSessionId ? { streamId: requestedSessionId } : {}),
+          });
           if (!liveStream) {
             return json({ error: "This live stream has ended" }, 410);
           }
+          const activeStreamId = String(liveStream.streamId ?? "").trim();
+          if (!activeStreamId) {
+            return json({ error: "This live session has no valid identity" }, 409);
+          }
           const reactedAt = new Date();
+          const reactionRequestId = clientRequestId?.trim() || crypto.randomUUID();
           const reaction = {
+            streamId: activeStreamId,
             channelId,
             userId,
+            clientRequestId: reactionRequestId,
             userName: userName?.trim() || "Viewer",
             avatar: metadata.avatar ?? "",
             type: reactionType,
             timestamp: reactedAt,
           };
-          const reactionResult = await db.collection("stream_reactions").insertOne(reaction);
+          const reactions = db.collection("stream_reactions");
+          const previousReaction = await reactions.findOneAndUpdate(
+            { streamId: activeStreamId, userId, clientRequestId: reactionRequestId },
+            { $setOnInsert: reaction },
+            { upsert: true, returnDocument: "before" },
+          );
+          if (previousReaction) {
+            actionResult = {
+              id: previousReaction._id.toString(),
+              reactionType: previousReaction.type,
+              duplicate: true,
+              streamId: activeStreamId,
+              summary: await liveSummary(db, channelId!),
+            };
+            mongoSuccess = true;
+            return json({ success: true, data: actionResult });
+          }
           const increments: Record<string, number> = {
             [`reactionCounts.${reactionType}`]: 1,
           };
           if (reactionType === "like") increments.likes = 1;
-          await streams.updateOne(
-            { channelId, status: "live" },
+          const incremented = await streams.updateOne(
+            { _id: liveStream._id, streamId: activeStreamId, status: "live" },
             { $inc: increments, $set: { updatedAt: reactedAt } },
           );
+          if (incremented.matchedCount === 0) {
+            await reactions.deleteOne({
+              streamId: activeStreamId,
+              userId,
+              clientRequestId: reactionRequestId,
+            });
+            return json({ error: "This live stream has ended" }, 410);
+          }
           await insertStreamEvent(db, {
             ...reaction,
             type: "live_reaction",
-            data: { reactionType, userName: reaction.userName, avatar: reaction.avatar },
+            data: {
+              streamId: activeStreamId,
+              reactionType,
+              userName: reaction.userName,
+              avatar: reaction.avatar,
+            },
+          });
+          const savedReaction = await reactions.findOne({
+            streamId: activeStreamId,
+            userId,
+            clientRequestId: reactionRequestId,
           });
           actionResult = {
-            id: reactionResult.insertedId.toString(),
+            id: savedReaction?._id.toString() ?? reactionRequestId,
             reactionType,
+            duplicate: false,
+            streamId: activeStreamId,
             summary: await liveSummary(db, channelId!),
           };
           mongoSuccess = true;
@@ -2146,7 +2332,12 @@ serve(async (req) => {
           mongoSuccess = true;
         } else if (action === "poll_event") {
           const polledAt = new Date();
-          const liveStream = await streams.findOne({ channelId, status: "live" });
+          const requestedSessionId = streamId?.trim();
+          const liveStream = await streams.findOne({
+            channelId,
+            status: "live",
+            ...(requestedSessionId ? { streamId: requestedSessionId } : {}),
+          });
           if (!liveStream) {
             return json({ error: "This live stream has ended" }, 410);
           }
@@ -2173,8 +2364,16 @@ serve(async (req) => {
                     endedAt: polledAt,
                     endedReason: "host_heartbeat_timeout",
                     viewerCount: 0,
+                    likes: 0,
+                    reactionCounts: {},
                   },
                 },
+              );
+              await archiveSessionEngagement(
+                db,
+                [liveStream],
+                polledAt,
+                "host_heartbeat_timeout",
               );
               return json({ error: "This live stream has ended" }, 410);
             }
@@ -2201,6 +2400,7 @@ serve(async (req) => {
             {
               $set: {
                 active: true,
+                streamId: liveStream.streamId,
                 lastSeenAt: polledAt,
                 userName: String(metadata.name ?? "Viewer"),
                 avatar: String(metadata.avatar ?? ""),
@@ -2307,6 +2507,7 @@ serve(async (req) => {
       return json({
         token,
         url:          LIVEKIT_URL,
+        streamId:     newStreamId,
         status:       "ready",
       });
     }
