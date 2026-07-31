@@ -89,6 +89,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Future<List<Map<String, dynamic>>>? _itemsFuture;
   int _currentFeedLimit = 10;
   int _currentShopLimit = 10;
+  bool _showLiveOverlay = false;
+  bool _loadingLiveStreams = false;
+  List<Map<String, dynamic>> _activeLiveStreams = [];
+  Timer? _liveRefreshTimer;
 
   @override
   void initState() {
@@ -110,6 +114,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   void _onStateUpdate() {
     if (!mounted) return;
+
+    if (widget.state.isFeedCleanMode && _showLiveOverlay) {
+      _showLiveOverlay = false;
+      _liveRefreshTimer?.cancel();
+    }
 
     // 🚀 NEURAL DESTINATION WARP: Consume pending tab switch from upload wizard
     final dest = widget.state.pendingDestinationTab;
@@ -165,6 +174,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   void dispose() {
+    _liveRefreshTimer?.cancel();
     widget.state.removeListener(_onStateUpdate);
     _pageController.dispose();
     super.dispose();
@@ -398,12 +408,34 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     CheckoutOverlay(state: widget.state),
 
                   // ── Smart Live Pipeline (Active Streams) ──
-                  if (!widget.state.isFeedCleanMode)
+                  if (!widget.state.isFeedCleanMode &&
+                      !widget.state.showCheckoutOverlay)
                     Positioned(
-                      top: MediaQuery.of(context).padding.top + 65,
-                      left: 0,
-                      right: 0,
-                      child: _buildLivePipeline(),
+                      left: 16,
+                      right: 16,
+                      bottom: MediaQuery.of(context).padding.bottom + 92,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 240),
+                        reverseDuration: const Duration(milliseconds: 180),
+                        transitionBuilder: (child, animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(
+                              scale: Tween<double>(
+                                begin: 0.96,
+                                end: 1,
+                              ).animate(animation),
+                              alignment: Alignment.bottomCenter,
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: _showLiveOverlay
+                            ? _buildLivePipeline()
+                            : const SizedBox.shrink(
+                                key: ValueKey('live-overlay-hidden'),
+                              ),
+                      ),
                     ),
                 ],
               );
@@ -435,6 +467,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
             ),
           ),
         ),
+
+        _buildLiveButton(),
 
         // Toggle Pill (Feed / Shop) + Sync Indicator above it
         Column(
@@ -564,90 +598,410 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 
   Widget _buildLivePipeline() {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: widget.state.live.getActiveStreams(),
-      builder: (context, snapshot) {
-        final streams = snapshot.data ?? [];
-        if (streams.isEmpty) return const SizedBox.shrink();
-
-        return SizedBox(
-          height: 70,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            scrollDirection: Axis.horizontal,
-            itemCount: streams.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              final s = streams[i];
-              final metadata = s['metadata'] as Map? ?? {};
-              return GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => LiveStudioScreen(
-                        state: widget.state,
-                        channelName: s['channelId'],
-                        isHost: false,
-                        hostId: s['hostId']?.toString(),
-                      ),
-                    ),
-                  );
-                },
-                child: Column(
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: ConstrainedBox(
+        key: const ValueKey('live-overlay-visible'),
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            height: 194,
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+            decoration: BoxDecoration(
+              color: const Color(0xF2111419),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white12),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black54,
+                  blurRadius: 20,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
+                      width: 7,
+                      height: 7,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFF334E),
                         shape: BoxShape.circle,
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFFF0000), Color(0xFFFF5C00)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFFF0000).withOpacity(0.3),
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                      child: CircleAvatar(
-                        radius: 22,
-                        backgroundColor: Colors.black,
-                        backgroundImage:
-                            metadata['avatar'] != null &&
-                                metadata['avatar'] != ''
-                            ? NetworkImage(metadata['avatar'])
-                            : null,
-                        child:
-                            (metadata['avatar'] == null ||
-                                metadata['avatar'] == '')
-                            ? const Icon(
-                                Icons.person,
-                                color: Colors.white,
-                                size: 20,
-                              )
-                            : null,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(width: 7),
                     Text(
-                      metadata['hostName']?.split(' ').first ?? 'Live',
-                      style: syne(
-                        sz: 9,
-                        w: FontWeight.w900,
-                        c: Colors.white,
-                        ls: 0.5,
+                      'LIVE Now',
+                      style: syne(sz: 13, w: FontWeight.w900, c: Colors.white),
+                    ),
+                    const Spacer(),
+                    if (_activeLiveStreams.isNotEmpty)
+                      TextButton(
+                        onPressed: () => _showLiveDirectory(_activeLiveStreams),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        child: const Text('View All'),
+                      ),
+                    IconButton(
+                      onPressed: _toggleLiveOverlay,
+                      tooltip: 'Collapse live streams',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: Colors.white70,
+                        size: 22,
                       ),
                     ),
                   ],
                 ),
-              );
-            },
+                const SizedBox(height: 6),
+                Expanded(child: _buildLiveStreamRail()),
+              ],
+            ),
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLiveButton() {
+    return Tooltip(
+      message: _showLiveOverlay ? 'Hide live streams' : 'Show live streams',
+      child: InkResponse(
+        onTap: _toggleLiveOverlay,
+        radius: 30,
+        child: SizedBox(
+          width: 50,
+          height: 56,
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: _showLiveOverlay
+                      ? const Color(0x33FF334E)
+                      : Colors.black.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _showLiveOverlay
+                        ? const Color(0xFFFF334E)
+                        : Colors.white.withValues(alpha: 0.12),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.sensors_rounded,
+                  color: Colors.white,
+                  size: 23,
+                ),
+              ),
+              Positioned(
+                bottom: -1,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF334E),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.black, width: 1.5),
+                  ),
+                  child: Text(
+                    'LIVE',
+                    style: syne(sz: 8, w: FontWeight.w900, c: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _toggleLiveOverlay() {
+    final opening = !_showLiveOverlay;
+    setState(() => _showLiveOverlay = opening);
+    _liveRefreshTimer?.cancel();
+    if (!opening) return;
+
+    _loadLiveStreams();
+    _liveRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _loadLiveStreams(quiet: true);
+    });
+  }
+
+  Future<void> _loadLiveStreams({bool quiet = false}) async {
+    if (_loadingLiveStreams) return;
+    _loadingLiveStreams = true;
+    if (!quiet && mounted) setState(() {});
+    try {
+      final streams = await widget.state.live.getActiveStreams();
+      if (!mounted) return;
+      setState(() {
+        if (_showLiveOverlay) _activeLiveStreams = streams;
+        _loadingLiveStreams = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingLiveStreams = false);
+    }
+  }
+
+  Widget _buildLiveStreamRail() {
+    if (_loadingLiveStreams && _activeLiveStreams.isEmpty) {
+      return const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            color: Color(0xFFFF334E),
+            strokeWidth: 2,
+          ),
+        ),
+      );
+    }
+    if (_activeLiveStreams.isEmpty) {
+      return Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.videocam_off_outlined,
+              color: Colors.white38,
+              size: 22,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'No live streams right now',
+              style: dm(sz: 12, c: Colors.white54),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: _activeLiveStreams.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 10),
+      itemBuilder: (context, index) =>
+          _buildLiveStreamTile(_activeLiveStreams[index]),
+    );
+  }
+
+  Widget _buildLiveStreamTile(
+    Map<String, dynamic> stream, {
+    VoidCallback? onTap,
+  }) {
+    final metadata = Map<String, dynamic>.from(
+      stream['metadata'] as Map? ?? const {},
+    );
+    final hostName =
+        (stream['hostName'] ?? metadata['hostName'] ?? 'Necxa Creator')
+            .toString();
+    final avatar = (stream['avatar'] ?? metadata['avatar'] ?? '').toString();
+    final preview = (stream['thumbnail'] ?? metadata['thumbnail'] ?? avatar)
+        .toString();
+    final viewerCount =
+        int.tryParse((stream['viewerCount'] ?? 0).toString()) ?? 0;
+    final subtitle = (metadata['title'] ?? 'Live').toString();
+
+    return InkWell(
+      onTap: onTap ?? () => _openLiveStream(stream),
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: 88,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: SizedBox(
+                    width: 88,
+                    height: 86,
+                    child: preview.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: preview,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) =>
+                                _liveStreamPlaceholder(),
+                          )
+                        : _liveStreamPlaceholder(),
+                  ),
+                ),
+                Positioned(
+                  left: 5,
+                  bottom: 5,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF334E),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'LIVE',
+                      style: syne(sz: 8, w: FontWeight.w900, c: Colors.white),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 5,
+                  bottom: 5,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.person, color: Colors.white, size: 8),
+                        const SizedBox(width: 2),
+                        Text(
+                          _compactCount(viewerCount),
+                          style: dm(sz: 8, w: FontWeight.bold, c: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 5),
+            Text(
+              hostName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: syne(sz: 10, w: FontWeight.w800, c: Colors.white),
+            ),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: dm(sz: 9, c: Colors.white54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _liveStreamPlaceholder() {
+    return Container(
+      color: const Color(0xFF252932),
+      alignment: Alignment.center,
+      child: const Icon(Icons.person, color: Colors.white38, size: 30),
+    );
+  }
+
+  String _compactCount(int value) {
+    if (value >= 1000000) {
+      return '${(value / 1000000).toStringAsFixed(value >= 10000000 ? 0 : 1)}M';
+    }
+    if (value >= 1000) {
+      return '${(value / 1000).toStringAsFixed(value >= 10000 ? 0 : 1)}K';
+    }
+    return value.toString();
+  }
+
+  void _openLiveStream(Map<String, dynamic> stream) {
+    final channelName = stream['channelId']?.toString() ?? '';
+    if (channelName.isEmpty) return;
+    _liveRefreshTimer?.cancel();
+    setState(() => _showLiveOverlay = false);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LiveStudioScreen(
+          state: widget.state,
+          channelName: channelName,
+          isHost: false,
+          hostId: stream['hostId']?.toString(),
+        ),
+      ),
+    );
+  }
+
+  void _showLiveDirectory(List<Map<String, dynamic>> streams) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF111419),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheetContext).height * 0.62,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 10, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.sensors_rounded, color: Color(0xFFFF334E)),
+                    const SizedBox(width: 9),
+                    Text(
+                      'LIVE Now',
+                      style: syne(sz: 17, w: FontWeight.w900, c: Colors.white),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(color: Colors.white12, height: 1),
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 116,
+                    mainAxisExtent: 126,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 14,
+                  ),
+                  itemCount: streams.length,
+                  itemBuilder: (_, index) => _buildLiveStreamTile(
+                    streams[index],
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      await Future<void>.delayed(
+                        const Duration(milliseconds: 180),
+                      );
+                      if (!mounted) return;
+                      _openLiveStream(streams[index]);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
