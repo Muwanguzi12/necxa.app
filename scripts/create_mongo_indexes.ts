@@ -69,6 +69,10 @@ try {
     // Compound: unique viewer per stream
     [{ channelId: 1, userId: 1 }, { unique: true, name: "idx_viewers_channel_user" }],
     [{ channelId: 1, active: 1, lastSeenAt: -1 }, { name: "idx_viewers_active"    }],
+    [
+      { channelId: 1, active: 1, normalizedUsername: 1, lastSeenAt: -1 },
+      { name: "idx_viewers_online_username" },
+    ],
     // TTL: remove viewer records 7 days after they left
     [{ leftAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7, sparse: true, name: "idx_viewers_ttl" }],
   ]);

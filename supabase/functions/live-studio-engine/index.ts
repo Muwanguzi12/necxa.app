@@ -131,6 +131,58 @@ function normalizedViewerHandle(value: unknown): string {
     .toLowerCase();
 }
 
+function viewerIdentity(
+  metadata: Record<string, unknown>,
+  fallbackName: unknown = "Viewer",
+  fallbackAvatar: unknown = "",
+) {
+  const username = String(metadata.username ?? "")
+    .trim()
+    .replace(/^@+/, "");
+  return {
+    userName: String(metadata.name ?? fallbackName ?? "Viewer"),
+    avatar: String(metadata.avatar ?? fallbackAvatar ?? ""),
+    ...(username
+      ? {
+        username,
+        normalizedUsername: normalizedViewerHandle(username),
+      }
+      : {}),
+  };
+}
+
+async function verifiedViewerIdentity(
+  userId: string,
+  metadata: Record<string, unknown>,
+  fallbackName: unknown = "Viewer",
+  fallbackAvatar: unknown = "",
+) {
+  const fallback = viewerIdentity(metadata, fallbackName, fallbackAvatar);
+  if (!supabaseAdmin) return fallback;
+
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, username, avatar_url")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) {
+    console.warn("Viewer profile lookup failed:", error.message);
+    return fallback;
+  }
+  if (!data || typeof data !== "object") return fallback;
+
+  const profile = data as Record<string, unknown>;
+  return viewerIdentity(
+    {
+      name: profile.full_name ?? fallback.userName,
+      username: profile.username ?? metadata.username,
+      avatar: profile.avatar_url ?? fallback.avatar,
+    },
+    fallback.userName,
+    fallback.avatar,
+  );
+}
+
 function productPhotos(value: unknown): string[] {
   let source = value;
   if (typeof source === "string") {
@@ -485,6 +537,7 @@ async function liveSummary(
             _id: 0,
             userId: 1,
             userName: 1,
+            username: 1,
             avatar: 1,
             role: 1,
           },
@@ -843,9 +896,12 @@ serve(async (req) => {
                 $set: {
                   channelId,
                   userId,
-                  userName:
-                    legacyStream?.hostName ?? metadata.name ?? "Necxa Creator",
-                  avatar: legacyStream?.avatar ?? metadata.avatar ?? "",
+                  ...await verifiedViewerIdentity(
+                    userId,
+                    metadata,
+                    legacyStream?.hostName ?? "Necxa Creator",
+                    legacyStream?.avatar ?? "",
+                  ),
                   role: "host",
                   active: true,
                   lastSeenAt: preparedAt,
@@ -907,8 +963,12 @@ serve(async (req) => {
               $set: {
                 channelId,
                 userId,
-                userName: prepared.hostName ?? metadata.name ?? "Necxa Creator",
-                avatar: prepared.avatar ?? metadata.avatar ?? "",
+                ...await verifiedViewerIdentity(
+                  userId,
+                  metadata,
+                  prepared.hostName ?? "Necxa Creator",
+                  prepared.avatar ?? "",
+                ),
                 role: "host",
                 active: true,
                 lastSeenAt: confirmedAt,
@@ -998,8 +1058,7 @@ serve(async (req) => {
                 $set: {
                   channelId,
                   userId,
-                  userName: metadata.name ?? "Viewer",
-                  avatar: metadata.avatar ?? "",
+                  ...await verifiedViewerIdentity(userId, metadata),
                   role: role === "publisher" ? "cohost" : "viewer",
                   active: true,
                   lastSeenAt: joinedAt,
@@ -1059,8 +1118,7 @@ serve(async (req) => {
               $set: {
                 channelId,
                 userId,
-                userName: metadata.name ?? "Viewer",
-                avatar: metadata.avatar ?? "",
+                ...await verifiedViewerIdentity(userId, metadata),
                 role: role === "publisher" ? "cohost" : "viewer",
                 active: true,
                 lastSeenAt: joinedAt,
@@ -1279,13 +1337,17 @@ serve(async (req) => {
             return json({ error: "This live stream has ended" }, 410);
           }
           const isHost = liveStream.hostId === userId;
-          const [streamState, summary, eventCounter, guestRequestState] = await Promise.all([
+          // Capture the recovery cursor first. Any state change after this read
+          // receives a larger sequence and is replayed by poll_event.
+          const eventCounter = await db.collection("stream_event_counters")
+            .findOne({ channelId });
+          const stateCursor = String(eventCounter?.sequence ?? 0);
+          const [streamState, summary, guestRequestState] = await Promise.all([
             db.collection("stream_metadata").findOne(
               { channelId },
               { projection: { _id: 0, pinnedProduct: 1, updatedAt: 1 } },
             ),
             liveSummary(db, channelId!),
-            db.collection("stream_event_counters").findOne({ channelId }),
             isHost
               ? db.collection("stream_guest_requests")
                 .find({
@@ -1304,7 +1366,7 @@ serve(async (req) => {
           actionResult = {
             pinnedProduct: streamState?.pinnedProduct ?? null,
             updatedAt: streamState?.updatedAt ?? null,
-            eventCursor: String(eventCounter?.sequence ?? 0),
+            eventCursor: stateCursor,
             summary,
             guestRequests: isHost && Array.isArray(guestRequestState)
               ? guestRequestState.map((request) => serializeGuestRequest(request))
@@ -1362,6 +1424,9 @@ serve(async (req) => {
                 hostId: liveStream.hostId,
                 guestId: userId,
                 guestName: String(metadata.name ?? activeViewer.userName ?? "Viewer"),
+                guestUsername: String(
+                  activeViewer.username ?? metadata.username ?? "",
+                ),
                 avatar: String(metadata.avatar ?? activeViewer.avatar ?? ""),
                 direction: "viewer_request",
                 status: "pending",
@@ -1386,6 +1451,7 @@ serve(async (req) => {
             data: {
               requestId,
               name: request?.guestName ?? "Viewer",
+              username: request?.guestUsername ?? "",
               avatar: request?.avatar ?? "",
               status: "pending",
             },
@@ -1491,35 +1557,46 @@ serve(async (req) => {
             return json({ error: "Only the live host can invite a guest" }, 403);
           }
           const activeSince = new Date(Date.now() - VIEWER_ACTIVE_WINDOW_MS);
-          const onlineViewers = await db.collection("stream_viewers")
-            .find({
-              channelId,
-              active: true,
-              userId: { $ne: userId },
-              lastSeenAt: { $gte: activeSince },
-            })
-            .limit(100)
-            .toArray();
+          const viewers = db.collection("stream_viewers");
+          const onlineViewerFilter = {
+            channelId,
+            active: true,
+            userId: { $ne: userId },
+            lastSeenAt: { $gte: activeSince },
+          };
           let invitedViewer = guestId?.trim()
-            ? onlineViewers.find((viewer) => viewer.userId === guestId.trim())
+            ? await viewers.findOne({
+              ...onlineViewerFilter,
+              userId: guestId.trim(),
+            })
             : null;
           if (!invitedViewer) {
             const handle = normalizedViewerHandle(userName);
-            const exactMatches = onlineViewers.filter((viewer) =>
-              normalizedViewerHandle(viewer.userName) === handle
-            );
-            const partialMatches = exactMatches.length > 0
+            if (!handle) {
+              return json({ error: "Enter the viewer's full username" }, 400);
+            }
+            const exactMatches = await viewers.find({
+              ...onlineViewerFilter,
+              normalizedUsername: handle,
+            }).limit(2).toArray();
+
+            // Records created before username presence was added are matched
+            // exactly by their stored handle during the migration window.
+            const legacyMatches = exactMatches.length > 0
               ? exactMatches
-              : onlineViewers.filter((viewer) =>
-                normalizedViewerHandle(viewer.userName).includes(handle)
+              : (await viewers.find({
+                ...onlineViewerFilter,
+                normalizedUsername: { $exists: false },
+              }).limit(200).toArray()).filter((viewer) =>
+                normalizedViewerHandle(viewer.username ?? viewer.userName) === handle
               );
-            if (partialMatches.length > 1) {
+            if (legacyMatches.length > 1) {
               return json(
-                { error: "More than one online viewer matches that name. Enter the full username." },
+                { error: "More than one online viewer matches that username" },
                 409,
               );
             }
-            invitedViewer = partialMatches[0];
+            invitedViewer = legacyMatches[0];
           }
           if (!invitedViewer) {
             return json({ error: "That viewer is not currently online in this live" }, 404);
@@ -1555,6 +1632,7 @@ serve(async (req) => {
                 hostId: userId,
                 guestId: invitedViewer.userId,
                 guestName: String(invitedViewer.userName ?? "Viewer"),
+                guestUsername: String(invitedViewer.username ?? ""),
                 avatar: String(invitedViewer.avatar ?? ""),
                 direction: "host_invite",
                 status: "invited",
@@ -1579,6 +1657,7 @@ serve(async (req) => {
             data: {
               requestId,
               hostId: userId,
+              username: request?.guestUsername ?? "",
               status: "invited",
             },
             timestamp: invitedAt,
@@ -2123,8 +2202,8 @@ serve(async (req) => {
               $set: {
                 active: true,
                 lastSeenAt: polledAt,
-                userName: metadata.name ?? "Viewer",
-                avatar: metadata.avatar ?? "",
+                userName: String(metadata.name ?? "Viewer"),
+                avatar: String(metadata.avatar ?? ""),
                 role: role === "publisher" ? "cohost" : (role === "host" ? "host" : "viewer"),
               },
               $setOnInsert: { joinedAt: polledAt, channelId, userId },

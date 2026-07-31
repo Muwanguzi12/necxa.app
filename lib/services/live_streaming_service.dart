@@ -60,6 +60,15 @@ class LiveStreamingService {
   Room? get room => _room;
   bool get isCoHostPublishing => _currentRole == 'publisher';
 
+  Map<String, dynamic> _identityMetadata({String fallbackName = 'Viewer'}) {
+    final profile = state.myProfile;
+    return {
+      'name': profile?['full_name'] ?? state.user?.email ?? fallbackName,
+      'username': profile?['username']?.toString().trim() ?? '',
+      'avatar': profile?['avatar_url'] ?? '',
+    };
+  }
+
   Stream<Map<String, dynamic>> controlEventsForChannel(String channelId) {
     return _controlEvents.stream.where(
       (event) => event['channelId']?.toString() == channelId,
@@ -90,15 +99,17 @@ class LiveStreamingService {
     required String channelName,
     String? role,
   }) async {
+    final identity = _identityMetadata(
+      fallbackName: action == 'start' ? 'Necxa Creator' : 'Viewer',
+    );
     final response = await _invokeLiveBackend({
       'action': action,
       'channelId': channelName,
       'userId': state.user?.id,
       if (role != null) 'role': role,
       'metadata': {
-        'name': state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
-        'hostName': state.myProfile?['full_name'] ?? 'Necxa Creator',
-        'avatar': state.myProfile?['avatar_url'] ?? '',
+        ...identity,
+        'hostName': identity['name'],
         if (action == 'start') 'title': 'Live Studio Session',
       },
       if (action == 'start')
@@ -326,10 +337,7 @@ class LiveStreamingService {
       'channelId': channelName,
       'userId': state.user?.id,
       'role': role,
-      'metadata': {
-        'name': state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
-        'avatar': state.myProfile?['avatar_url'] ?? '',
-      },
+      'metadata': _identityMetadata(),
     });
   }
 
@@ -368,10 +376,7 @@ class LiveStreamingService {
         'channelId': channelName,
         'userId': state.user?.id,
         if (creds['streamId'] != null) 'streamId': creds['streamId'],
-        'metadata': {
-          'name': state.myProfile?['full_name'] ?? 'Necxa Creator',
-          'avatar': state.myProfile?['avatar_url'] ?? '',
-        },
+        'metadata': _identityMetadata(fallbackName: 'Necxa Creator'),
       });
       _hostingActiveChannel = true;
       _currentRole = 'host';
@@ -970,11 +975,7 @@ class LiveStreamingService {
           'channelId': channelId,
           'role': _currentRole,
           if (cursor != null) 'eventCursor': cursor,
-          'metadata': {
-            'name':
-                state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
-            'avatar': state.myProfile?['avatar_url'] ?? '',
-          },
+          'metadata': _identityMetadata(),
         });
         final data = response is Map ? response['data'] : null;
         if (data is! Map) {

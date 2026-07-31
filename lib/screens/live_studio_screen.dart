@@ -2927,6 +2927,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               widget.state.myProfile?['full_name'] ??
               widget.state.user?.email ??
               'Viewer',
+          'username': widget.state.myProfile?['username'] ?? '',
           'avatar': widget.state.myProfile?['avatar_url'] ?? '',
         });
         setState(() => _isRequestPending = true);
