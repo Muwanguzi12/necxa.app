@@ -155,6 +155,11 @@ function productPhotos(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function finiteNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 async function ownedListingProduct(
   listingId: string,
   userId: string,
@@ -170,7 +175,7 @@ async function ownedListingProduct(
   }
   const { data, error } = await supabaseAdmin
     .from("listings")
-    .select("*, profiles:user_id(full_name, avatar_url)")
+    .select("*")
     .eq("id", listingId)
     .maybeSingle();
   if (error) {
@@ -183,7 +188,19 @@ async function ownedListingProduct(
   if (!data) return { error: "Product listing was not found", status: 404 };
 
   const listing = data as Record<string, unknown>;
-  const ownerId = String(listing.user_id ?? listing.lister_id ?? "");
+  const userOwnerId = String(listing.user_id ?? "").trim();
+  const listerOwnerId = String(listing.lister_id ?? "").trim();
+  if (
+    userOwnerId &&
+    listerOwnerId &&
+    userOwnerId !== listerOwnerId
+  ) {
+    return {
+      error: "This listing has inconsistent ownership and cannot be pinned",
+      status: 409,
+    };
+  }
+  const ownerId = userOwnerId || listerOwnerId;
   if (!ownerId || ownerId !== userId) {
     return {
       error: "You can only pin products owned by your hosting account",
@@ -191,11 +208,22 @@ async function ownedListingProduct(
     };
   }
   const status = String(listing.status ?? "active").toLowerCase();
-  if (!["active", "verified", "published"].includes(status)) {
+  if (status !== "active") {
     return { error: "This product is not available for sale", status: 409 };
   }
 
-  const photos = productPhotos(listing.photos);
+  const price = finiteNumber(listing.price ?? listing.price_ugx);
+  if (price <= 0) {
+    return { error: "This product does not have a valid sale price", status: 409 };
+  }
+  const stockCount = finiteNumber(listing.stock_count);
+  if (stockCount <= 0) {
+    return { error: "This product is out of stock", status: 409 };
+  }
+
+  const photos = productPhotos(
+    listing.miniature_photos ?? listing.photos ?? listing.listing_photos,
+  );
   const thumbnail = String(
     listing.thumbnail_url ??
       listing.image_url ??
@@ -210,10 +238,20 @@ async function ownedListingProduct(
       listing.film_hub_content ??
       thumbnail,
   );
-  const profile = listing.profiles && typeof listing.profiles === "object"
-    ? listing.profiles as Record<string, unknown>
+  const { data: ownerProfile, error: ownerProfileError } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, avatar_url")
+    .eq("id", ownerId)
+    .maybeSingle();
+  if (ownerProfileError) {
+    console.warn(
+      "Listing owner profile lookup failed:",
+      ownerProfileError.message,
+    );
+  }
+  const profile = ownerProfile && typeof ownerProfile === "object"
+    ? ownerProfile as Record<string, unknown>
     : {};
-  const price = Number(listing.price ?? listing.price_ugx ?? 0);
 
   return {
     product: {
@@ -224,18 +262,30 @@ async function ownedListingProduct(
       ownerId,
       title: String(listing.title ?? "Product"),
       description: String(listing.description ?? ""),
-      price: Number.isFinite(price) ? price : 0,
-      price_ugx: Number.isFinite(price) ? price : 0,
+      price,
+      price_ugx: finiteNumber(listing.price_ugx, price),
+      currency: String(listing.currency ?? "UGX"),
       sku: String(listing.sku ?? ""),
-      stock_count:
-        listing.stock_count == null ? null : Number(listing.stock_count),
+      stock_count: stockCount,
       category: String(listing.category ?? "General"),
       photos,
+      miniature_photos: photos,
+      listing_photos: photos,
       thumbnail_url: thumbnail,
       image_url: thumbnail,
       image: thumbnail,
       media_url: mediaUrl,
+      media_type: String(listing.media_type ?? "image"),
       film_hub_content: String(listing.film_hub_content ?? mediaUrl),
+      weight_kg: finiteNumber(listing.weight_kg),
+      length_cm: finiteNumber(listing.length_cm),
+      width_cm: finiteNumber(listing.width_cm),
+      height_cm: finiteNumber(listing.height_cm),
+      latitude:
+        listing.latitude == null ? null : finiteNumber(listing.latitude),
+      longitude:
+        listing.longitude == null ? null : finiteNumber(listing.longitude),
+      pickup_address: String(listing.pickup_address ?? ""),
       lister_name: String(
         listing.lister_name ?? profile.full_name ?? "Vendor",
       ),
@@ -1116,9 +1166,23 @@ serve(async (req) => {
             );
           }
           const pinnedAt = new Date();
+          const previousState = await db.collection("stream_metadata").findOne(
+            { channelId },
+            { projection: { _id: 0, pinnedProduct: 1 } },
+          );
+          const previousProduct =
+            previousState?.pinnedProduct &&
+              typeof previousState.pinnedProduct === "object"
+              ? previousState.pinnedProduct as Record<string, unknown>
+              : null;
+          const sameProduct =
+            String(previousProduct?.id ?? "") ===
+              String(listingResult.product.id ?? "");
           const canonicalProduct = {
             ...listingResult.product,
-            pinnedAt,
+            pinnedAt: sameProduct
+              ? previousProduct?.pinnedAt ?? pinnedAt
+              : pinnedAt,
             pinnedBy: userId,
           };
           await db.collection("stream_metadata").updateOne(
@@ -1132,18 +1196,28 @@ serve(async (req) => {
             },
             { upsert: true },
           );
-          const eventResult = await insertStreamEvent(db, {
-            channelId,
-            userId,
-            type: "product_pinned",
-            data: { product: canonicalProduct },
-            timestamp: pinnedAt,
-          });
-          actionResult = {
-            pinned: true,
-            eventId: eventResult.insertedId.toString(),
-            product: canonicalProduct,
-          };
+          if (sameProduct) {
+            actionResult = {
+              pinned: true,
+              unchanged: true,
+              eventId: null,
+              product: canonicalProduct,
+            };
+          } else {
+            const eventResult = await insertStreamEvent(db, {
+              channelId,
+              userId,
+              type: "product_pinned",
+              data: { product: canonicalProduct },
+              timestamp: pinnedAt,
+            });
+            actionResult = {
+              pinned: true,
+              unchanged: false,
+              eventId: eventResult.insertedId.toString(),
+              product: canonicalProduct,
+            };
+          }
           mongoSuccess = true;
         } else if (action === "unpin_product") {
           const ownedStream = await streams.findOne({
@@ -1168,23 +1242,33 @@ serve(async (req) => {
               { upsert: true, returnDocument: "before" },
             );
           const previousProduct = previousState?.pinnedProduct ?? null;
-          const eventResult = await insertStreamEvent(db, {
-            channelId,
-            userId,
-            type: "product_unpinned",
-            data: {
-              productId:
-                previousProduct && typeof previousProduct === "object"
-                  ? (previousProduct as Record<string, unknown>).id ?? null
-                  : null,
-            },
-            timestamp: unpinnedAt,
-          });
-          actionResult = {
-            pinned: false,
-            eventId: eventResult.insertedId.toString(),
-            product: null,
-          };
+          if (!previousProduct) {
+            actionResult = {
+              pinned: false,
+              unchanged: true,
+              eventId: null,
+              product: null,
+            };
+          } else {
+            const eventResult = await insertStreamEvent(db, {
+              channelId,
+              userId,
+              type: "product_unpinned",
+              data: {
+                productId:
+                  typeof previousProduct === "object"
+                    ? (previousProduct as Record<string, unknown>).id ?? null
+                    : null,
+              },
+              timestamp: unpinnedAt,
+            });
+            actionResult = {
+              pinned: false,
+              unchanged: false,
+              eventId: eventResult.insertedId.toString(),
+              product: null,
+            };
+          }
           mongoSuccess = true;
         } else if (action === "fetch_stream_state") {
           const liveStream = await streams.findOne(

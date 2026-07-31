@@ -167,9 +167,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       final product = rawProduct is Map
           ? Map<String, dynamic>.from(rawProduct)
           : null;
-      final currentId = widget.state.pinnedLiveProduct?['id']?.toString();
-      final nextId = product?['id']?.toString();
-      if (currentId != nextId) {
+      if (jsonEncode(widget.state.pinnedLiveProduct) != jsonEncode(product)) {
         widget.state.updatePinnedProduct(
           product,
           channelId: widget.channelName,
@@ -251,17 +249,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
       if (mounted) setState(() {});
     } else if (type == 'product_pinned') {
-      final product = data['product'];
-      if (product is! Map) return;
-      widget.state.updatePinnedProduct(
-        Map<String, dynamic>.from(product),
-        channelId: widget.channelName,
-      );
       if (!widget.isHost) {
         _showToast('A product was pinned to this live.');
       }
     } else if (type == 'product_unpinned') {
-      widget.state.updatePinnedProduct(null, channelId: widget.channelName);
       if (!widget.isHost) {
         _showToast('The product was removed from this live.');
       }
