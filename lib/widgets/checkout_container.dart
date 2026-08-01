@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:async';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/logistics_engine.dart';
 import '../models/transport_models.dart';
 import '../services/wallet_service.dart';
+import '../services/commerce_service.dart';
 
 class CheckoutContainer extends StatefulWidget {
   final AppState state;
@@ -38,6 +38,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   VehicleType _selectedVehicle = VehicleType.bike;
   double _deliveryFare = 0;
   int _quantity = 1;
+  final CommerceService _commerce = CommerceService();
+  Timer? _trackingTimer;
+  CommerceOrder? _trackedOrder;
+  bool _trackingLoading = false;
+  String? _trackingError;
+  late final String _checkoutIdempotencyKey;
 
   double _listingNumber(String key) =>
       double.tryParse(widget.listing[key]?.toString() ?? '') ?? 0;
@@ -131,7 +137,17 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   @override
   void initState() {
     super.initState();
+    _checkoutIdempotencyKey =
+        'checkout-${widget.listing['id']}-${DateTime.now().microsecondsSinceEpoch}';
     _deliveryFare = _calculateDeliveryFare(_selectedTier);
+  }
+
+  @override
+  void dispose() {
+    _trackingTimer?.cancel();
+    _addressController.dispose();
+    _contactController.dispose();
+    super.dispose();
   }
 
   // Order Details
@@ -143,8 +159,42 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   );
   String? _coordinates;
 
-  void _next() => setState(() => _step++);
-  void _back() => setState(() => _step--);
+  void _next() {
+    setState(() => _step++);
+    if (_step == 5) _startTracking();
+  }
+
+  void _back() {
+    if (_step == 5) _trackingTimer?.cancel();
+    setState(() => _step--);
+  }
+
+  void _startTracking() {
+    _trackingTimer?.cancel();
+    _refreshTracking();
+    _trackingTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _refreshTracking(silent: true),
+    );
+  }
+
+  Future<void> _refreshTracking({bool silent = false}) async {
+    final orderId = _currentOrderId;
+    if (orderId == null || _trackingLoading) return;
+    if (!silent && mounted) setState(() => _trackingLoading = true);
+    try {
+      final order = await _commerce.fetchOrder(orderId);
+      if (!mounted) return;
+      setState(() {
+        _trackedOrder = order;
+        _trackingError = null;
+      });
+    } catch (error) {
+      if (mounted && !silent) setState(() => _trackingError = error.toString());
+    } finally {
+      if (mounted) setState(() => _trackingLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -703,10 +753,6 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             () async {
               setState(() => _loading = true);
               try {
-                final itemsUgx =
-                    (widget.listing['price'] ?? 0).toDouble() * _quantity;
-                final totalUgx = itemsUgx + _deliveryFare;
-
                 if (_selectedPaymentMethod == 'balance') {
                   final coordinates = _dropoffCoordinates;
                   if (coordinates == null) {
@@ -726,6 +772,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     deliveryAddress: _addressController.text,
                     customerNumber: _contactController.text,
                     deliveryFeeUgx: _deliveryFare.toInt(),
+                    idempotencyKey: '$_checkoutIdempotencyKey-wallet',
                   );
 
                   if (res.isSuccess && res.orderId != null) {
@@ -737,7 +784,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     await widget.state.syncVault();
                     _next();
                   } else if (res.needsTopUp) {
-                    throw Exception('Insufficient balance. Please deposit funds first.');
+                    throw Exception(
+                      'Insufficient balance. Please deposit funds first.',
+                    );
                   } else {
                     throw Exception(res.message);
                   }
@@ -745,7 +794,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     _selectedPaymentMethod == 'card') {
                   final coordinates = _dropoffCoordinates;
                   if (coordinates == null) {
-                    throw Exception('Pin your delivery location before paying.');
+                    throw Exception(
+                      'Pin your delivery location before paying.',
+                    );
                   }
 
                   // Initiate Pesapal order via finance-engine
@@ -761,6 +812,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     deliveryAddress: _addressController.text,
                     customerNumber: _contactController.text,
                     deliveryFeeUgx: _deliveryFare.toInt(),
+                    idempotencyKey: '$_checkoutIdempotencyKey-pesapal',
                   );
 
                   if (res.isSuccess && res.redirectUrl != null) {
@@ -778,17 +830,31 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
                     // Poll for confirmation in background
                     if (res.paymentId != null) {
-                      WalletService().pollShopPaymentStatus(res.paymentId!).then((paid) {
+                      WalletService().pollShopPaymentStatus(res.paymentId!).then((
+                        paid,
+                      ) {
                         if (paid && mounted) {
                           widget.state.syncVault();
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('✅ Payment confirmed! Your order is being processed.')),
+                            const SnackBar(
+                              content: Text(
+                                '✅ Payment confirmed! Your order is being processed.',
+                              ),
+                            ),
                           );
                         }
                       });
                     }
+                  } else if (res.isSuccess && res.orderId != null) {
+                    setState(() {
+                      _currentOrderId = res.orderId;
+                      _loading = false;
+                    });
+                    _next();
                   } else if (res.needsTopUp) {
-                    throw Exception('Insufficient balance. Please top up your wallet first.');
+                    throw Exception(
+                      'Insufficient balance. Please top up your wallet first.',
+                    );
                   } else {
                     throw Exception(res.message);
                   }
@@ -877,6 +943,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
   // --- STEP 4: TRACKING ---
   Widget _buildTracking() {
+    final order = _trackedOrder;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
       child: Column(
@@ -884,103 +951,174 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _stepHeader('7', 'TRACK ORDER', onBack: _back),
-
           Text(
-            _currentOrderId ?? 'ORD-PENDING',
+            order?.orderNumber ?? _currentOrderId ?? 'ORD-PENDING',
             style: syne(sz: 16, w: FontWeight.w900, c: Colors.white),
           ),
           Text(
-            'Real-time tracking enabled via Firebase',
+            'Protected delivery and escrow tracking',
             style: dm(sz: 11, c: Colors.white38),
           ),
-
           const SizedBox(height: 24),
-          StreamBuilder<DocumentSnapshot>(
-            stream: _currentOrderId != null
-                ? widget.state.orders.streamOrder(_currentOrderId!)
-                : const Stream.empty(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (!snapshot.hasData || snapshot.data?.data() == null) {
-                return const Text('Waiting for order confirmation...');
-              }
-
-              final data = snapshot.data!.data() as Map<String, dynamic>;
-              final history = data['tracking_history'] as List? ?? [];
-              final status = data['status'] ?? 'pending';
-              final driverName = data['driver_name'] as String?;
-              final driverPhone = data['driver_phone'] as String?;
-              final driverLat = (data['driver_lat'] as num?)?.toDouble();
-              final driverLng = (data['driver_lng'] as num?)?.toDouble();
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 🗺️ Live Map Tracking
-                  if (driverLat != null && driverLng != null) ...[
-                    Container(
-                      height: 200,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: C.brand.withOpacity(0.3)),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: LatLng(driverLat, driverLng),
-                          zoom: 15.0,
-                        ),
-                        markers: {
-                          Marker(
-                            markerId: const MarkerId('driver'),
-                            position: LatLng(driverLat, driverLng),
-                            infoWindow: InfoWindow(
-                              title: driverName ?? 'Courier',
-                            ),
-                            icon: BitmapDescriptor.defaultMarkerWithHue(
-                              BitmapDescriptor.hueOrange,
-                            ),
-                          ),
-                        },
-                        myLocationButtonEnabled: false,
-                        zoomControlsEnabled: false,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // 🚚 Driver Identity & Coordination HUD
-                  if (driverName != null) ...[
-                    _buildDriverHud(driverName, driverPhone, data['driver_id']),
-                    const SizedBox(height: 24),
-                  ],
-
-                  for (int i = 0; i < history.length; i++) ...[
-                    _trackNode(
-                      history[i]['status'],
-                      history[i]['message'],
-                      true,
-                      active: i == history.length - 1,
-                    ),
-                    if (i < history.length - 1) _trackLine(true),
-                  ],
-                  if (status != 'delivered' && status != 'completed') ...[
-                    _trackLine(false),
-                    _trackNode('Next Step', 'Finalizing fulfillment...', false),
-                  ],
-                ],
-              );
-            },
-          ),
-
+          if (_trackingLoading && order == null)
+            const Center(child: CircularProgressIndicator(color: C.brand))
+          else if (_trackingError != null && order == null)
+            Column(
+              children: [
+                Text(_trackingError!, style: dm(c: Colors.redAccent)),
+                TextButton(
+                  onPressed: _refreshTracking,
+                  child: const Text('Retry'),
+                ),
+              ],
+            )
+          else if (order == null)
+            Text(
+              'Waiting for order confirmation...',
+              style: dm(c: Colors.white70),
+            )
+          else
+            _buildCommerceTracking(order),
           const SizedBox(height: 40),
           _actionButton('Done', widget.onDismiss),
         ],
       ),
     );
   }
+
+  Widget _buildCommerceTracking(CommerceOrder order) {
+    const stages = [
+      'confirmed',
+      'ready_for_pickup',
+      'driver_assigned',
+      'picked_up',
+      'out_for_delivery',
+      'delivered',
+      'completed',
+    ];
+    final currentIndex = stages.indexOf(order.status);
+    final driverId = order.delivery?['driver_id']?.toString();
+    final driverName = order.driver == null
+        ? null
+        : order.participantName('driver');
+    final driverPhone = order.driver?['phone']?.toString();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (driverName != null) ...[
+          _buildDriverHud(driverName, driverPhone, driverId),
+          const SizedBox(height: 24),
+        ],
+        if (order.deliveryCode != null &&
+            [
+              'driver_assigned',
+              'picked_up',
+              'out_for_delivery',
+            ].contains(order.status)) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: C.brand.withOpacity(.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: C.brand.withOpacity(.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'DELIVERY CODE',
+                  style: syne(sz: 10, w: FontWeight.w800, c: C.brand, ls: 1),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  order.deliveryCode!,
+                  style: syne(sz: 26, w: FontWeight.w900, c: Colors.white),
+                ),
+                Text(
+                  'Share it only when the package reaches you.',
+                  style: dm(sz: 11, c: Colors.white54),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+        for (var index = 0; index < stages.length; index++) ...[
+          _trackNode(
+            _commerceStatusLabel(stages[index]),
+            _commerceStatusMessage(stages[index]),
+            index <= currentIndex,
+            active: index == currentIndex,
+          ),
+          if (index < stages.length - 1) _trackLine(index < currentIndex),
+        ],
+        if (order.status == 'delivered') ...[
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _buyerOrderAction(order, 'buyer_confirm'),
+              icon: const Icon(Icons.verified_outlined),
+              label: const Text('Confirm package received'),
+            ),
+          ),
+        ],
+        if (![
+          'completed',
+          'cancelled',
+          'refunded',
+          'disputed',
+        ].contains(order.status)) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => _buyerOrderAction(order, 'open_dispute'),
+              icon: const Icon(Icons.report_problem_outlined),
+              label: const Text('Report an order problem'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _buyerOrderAction(CommerceOrder order, String transition) async {
+    setState(() => _trackingLoading = true);
+    try {
+      await _commerce.transitionOrder(order.id, transition);
+      await _refreshTracking();
+      if (transition == 'buyer_confirm') await widget.state.syncVault();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString()),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _trackingLoading = false);
+    }
+  }
+
+  String _commerceStatusLabel(String status) => status
+      .split('_')
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+
+  String _commerceStatusMessage(String status) => switch (status) {
+    'confirmed' => 'Payment is protected in escrow.',
+    'ready_for_pickup' => 'The seller has packed your order.',
+    'driver_assigned' => 'A verified courier accepted the delivery.',
+    'picked_up' => 'The pickup code was verified.',
+    'out_for_delivery' => 'Your package is on the way.',
+    'delivered' => 'The delivery code was verified.',
+    'completed' => 'Escrow was released to the seller and courier.',
+    _ => 'Order update received.',
+  };
 
   Widget _buildDriverHud(String name, String? phone, String? driverId) {
     return Container(
@@ -1019,11 +1157,10 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           const SizedBox(height: 16),
           Row(
             children: [
-              _hudBtn(Icons.phone, 'CALL', () {
-                if (phone != null) {
-                  // In a real app: launch('tel:$phone');
-                  debugPrint('📞 Calling Driver: $phone');
-                }
+              _hudBtn(Icons.phone, 'CALL', () async {
+                final number = phone?.trim();
+                if (number == null || number.isEmpty) return;
+                await launchUrlString('tel:${Uri.encodeComponent(number)}');
               }),
               const SizedBox(width: 8),
               _hudBtn(Icons.chat_bubble_outline, 'CHAT', () {
@@ -1032,14 +1169,26 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     driverId,
                     name,
                     null,
-                    context: 'vendor', // Treat driver as a service vendor
+                    initialContextText:
+                        'Regarding commerce order ${_trackedOrder?.orderNumber ?? ''}',
+                    context: 'commerce_order',
                   );
                   widget.onDismiss(); // Close checkout to enter chat
                 }
               }),
               const SizedBox(width: 8),
               _hudBtn(Icons.mic_none, 'VOICE', () {
-                // Coordination voice note logic
+                if (driverId != null) {
+                  widget.state.openCreatorChat(
+                    driverId,
+                    name,
+                    null,
+                    initialContextText:
+                        'Voice update for commerce order ${_trackedOrder?.orderNumber ?? ''}',
+                    context: 'commerce_order',
+                  );
+                  widget.onDismiss();
+                }
               }, color: Colors.redAccent),
             ],
           ),
@@ -1275,22 +1424,6 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           val,
           style: syne(sz: 14, w: FontWeight.w900, c: Colors.white),
         ),
-      ],
-    );
-  }
-
-  Widget _trackingStepper() {
-    return Column(
-      children: [
-        _trackNode('Order Confirmed', 'May 24, 10:15 AM', true),
-        _trackLine(true),
-        _trackNode('Picked Up by Jumia', 'May 24, 02:30 PM', true),
-        _trackLine(true),
-        _trackNode('In Transit', 'May 24, 08:45 PM', true, active: true),
-        _trackLine(false),
-        _trackNode('Out for Delivery', 'May 25, 09:00 AM', false),
-        _trackLine(false),
-        _trackNode('Delivered', 'May 25, Before 6 PM', false),
       ],
     );
   }

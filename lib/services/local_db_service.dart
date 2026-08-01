@@ -21,7 +21,7 @@ class LocalDbService {
   static const int _feedMaxRows = 500;
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
-  static const int _dbVersion = 14;
+  static const int _dbVersion = 15;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
@@ -156,6 +156,17 @@ class LocalDbService {
             'ALTER TABLE shop_listings ADD COLUMN pickup_address TEXT',
             'ALTER TABLE shop_listings ADD COLUMN latitude REAL',
             'ALTER TABLE shop_listings ADD COLUMN longitude REAL',
+          ]) {
+            try {
+              await db.execute(statement);
+            } catch (_) {}
+          }
+        }
+        if (oldVersion < 15) {
+          for (final statement in [
+            'ALTER TABLE transport_orders ADD COLUMN updated_at TEXT',
+            'ALTER TABLE transport_orders ADD COLUMN delivery_lat REAL',
+            'ALTER TABLE transport_orders ADD COLUMN delivery_lng REAL',
           ]) {
             try {
               await db.execute(statement);
@@ -376,7 +387,10 @@ class LocalDbService {
         dropoff_location TEXT,
         status TEXT,
         price REAL,
-        created_at TEXT
+        created_at TEXT,
+        updated_at TEXT,
+        delivery_lat REAL,
+        delivery_lng REAL
       )
     ''');
     await db.execute(
@@ -1089,18 +1103,41 @@ class LocalDbService {
     final db = await database;
     final batch = db.batch();
     for (var order in orders) {
+      final cachedOrder = <String, dynamic>{
+        for (final key in [
+          'id',
+          'user_id',
+          'driver_id',
+          'pickup_location',
+          'dropoff_location',
+          'status',
+          'price',
+          'created_at',
+          'updated_at',
+          'delivery_lat',
+          'delivery_lng',
+        ])
+          key: order[key],
+      };
       batch.insert(
         'transport_orders',
-        order,
+        cachedOrder,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
     await batch.commit(noResult: true);
   }
 
-  Future<List<Map<String, dynamic>>> getCachedTransportOrders() async {
+  Future<List<Map<String, dynamic>>> getCachedTransportOrders(
+    String userId,
+  ) async {
     final db = await database;
-    return await db.query('transport_orders', orderBy: 'created_at DESC');
+    return await db.query(
+      'transport_orders',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'updated_at DESC, created_at DESC',
+    );
   }
 
   // ─── Selective Cache Clears ───────────────────────────────────────────────
@@ -1128,6 +1165,7 @@ class LocalDbService {
     await db.delete('community_comments');
     await db.delete('live_comments');
     await db.delete('live_comment_actions');
+    await db.delete('transport_orders');
   }
 
   // ─── Comments API ────────────────────────────────────────────────────────

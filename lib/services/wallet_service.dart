@@ -161,8 +161,8 @@ class ShopPurchaseResult {
   final String? orderId;
   final String? orderNumber;
   final double? deliveryFeeUgx;
-  final String? redirectUrl;  // Pesapal checkout URL (momo/card path)
-  final String? paymentId;    // idempotency_key for status polling
+  final String? redirectUrl; // Pesapal checkout URL (momo/card path)
+  final String? paymentId; // idempotency_key for status polling
 
   ShopPurchaseResult.success(
     this.message, {
@@ -205,6 +205,7 @@ extension WalletServiceShop on WalletService {
     required String deliveryAddress,
     required String customerNumber,
     int deliveryFeeUgx = 0,
+    String? idempotencyKey,
   }) async {
     try {
       final result = await _invoke(
@@ -218,7 +219,7 @@ extension WalletServiceShop on WalletService {
           'deliveryAddress': deliveryAddress,
           'customerNumber': customerNumber,
           'deliveryFeeUgx': deliveryFeeUgx,
-          'idempotencyKey': _idempotencyKey('shop-purchase'),
+          'idempotencyKey': idempotencyKey ?? _idempotencyKey('shop-purchase'),
         },
       );
       return ShopPurchaseResult.success(
@@ -247,6 +248,7 @@ extension WalletServiceShop on WalletService {
     required String deliveryAddress,
     required String customerNumber,
     int deliveryFeeUgx = 0,
+    String? idempotencyKey,
   }) async {
     try {
       final result = await _invoke(
@@ -260,7 +262,7 @@ extension WalletServiceShop on WalletService {
           'deliveryAddress': deliveryAddress,
           'customerNumber': customerNumber,
           'deliveryFeeUgx': deliveryFeeUgx,
-          'idempotencyKey': _idempotencyKey('shop-pesapal'),
+          'idempotencyKey': idempotencyKey ?? _idempotencyKey('shop-pesapal'),
         },
       );
       return ShopPurchaseResult.success(
@@ -295,7 +297,9 @@ extension WalletServiceShop on WalletService {
         final status = result['status']?.toString() ?? 'pending';
         if (status == 'completed') return true;
         if (status == 'failed' || status == 'cancelled') return false;
-      } catch (_) { /* keep polling on transient errors */ }
+      } catch (_) {
+        /* keep polling on transient errors */
+      }
       await Future<void>.delayed(const Duration(seconds: 3));
     }
     return false;

@@ -10,13 +10,12 @@ import '../data.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 import 'dart:convert';
-import '../models/music_models.dart';
-import '../services/music_library_service.dart';
 import 'sound_hub_screen.dart';
 import 'live_studio_screen.dart';
 import '../widgets/checkout_overlay.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../services/commerce_service.dart';
 
 String? _extractListingImageUrl(dynamic value) {
   if (value == null) return null;
@@ -4191,9 +4190,13 @@ class _ReviewSheet extends StatefulWidget {
 }
 
 class _ReviewSheetState extends State<_ReviewSheet> {
+  final _commerce = CommerceService();
   bool _canReview = false;
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   List<Map<String, dynamic>> _reviews = [];
+  String? _eligibleOrderId;
+  String? _nextCursor;
 
   @override
   void initState() {
@@ -4202,25 +4205,73 @@ class _ReviewSheetState extends State<_ReviewSheet> {
   }
 
   Future<void> _loadReviews() async {
-    final sku = widget.listing['sku'];
-    if (sku != null) {
-      try {
-        final res = await widget.state.social.client.functions.invoke(
-          'clever-processor',
-          body: {
-            'action': 'fetch-reviews',
-            'payload': {'sku': sku},
-          },
-        );
-        if (res.data?['success'] == true && mounted) {
-          setState(() {
-            _reviews = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
-            _canReview = true; // For now, we allow all for testing
-          });
-        }
-      } catch (_) {}
+    final listingId = widget.listing['id']?.toString();
+    if (listingId == null || listingId.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
     }
-    if (mounted) setState(() => _isLoading = false);
+    try {
+      final results = await Future.wait([
+        _commerce.fetchReviews(listingId: listingId),
+        _commerce.reviewEligibility(listingId),
+      ]);
+      final reviewData = results[0];
+      final eligibility = results[1];
+      if (!mounted) return;
+      setState(() {
+        _reviews = List<Map<String, dynamic>>.from(
+          reviewData['reviews'] ?? const [],
+        );
+        _nextCursor = reviewData['nextCursor']?.toString();
+        _canReview = eligibility['eligible'] == true;
+        _eligibleOrderId = eligibility['orderId']?.toString();
+      });
+    } catch (_) {
+      // Keep the review sheet usable when the network is temporarily unavailable.
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadMore() async {
+    final listingId = widget.listing['id']?.toString();
+    if (_isLoadingMore || listingId == null || _nextCursor == null) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final data = await _commerce.fetchReviews(
+        listingId: listingId,
+        cursor: _nextCursor,
+      );
+      if (!mounted) return;
+      setState(() {
+        _reviews.addAll(
+          List<Map<String, dynamic>>.from(data['reviews'] ?? const []),
+        );
+        _nextCursor = data['nextCursor']?.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
+  }
+
+  Future<void> _openReviewForm() async {
+    final orderId = _eligibleOrderId;
+    if (orderId == null) return;
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          _SubmitCommerceReviewSheet(orderId: orderId, commerce: _commerce),
+    );
+    if (submitted == true) {
+      setState(() {
+        _isLoading = true;
+        _reviews = [];
+        _nextCursor = null;
+      });
+      await _loadReviews();
+    }
   }
 
   @override
@@ -4264,7 +4315,8 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     itemBuilder: (context, index) {
                       final r = _reviews[index];
-                      final prof = r['profiles'] ?? {};
+                      final prof = r['buyer'] ?? {};
+                      final avatarUrl = prof['avatar_url']?.toString() ?? '';
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 24),
                         child: Column(
@@ -4274,9 +4326,12 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                               children: [
                                 CircleAvatar(
                                   radius: 14,
-                                  backgroundImage: NetworkImage(
-                                    prof['avatar_url'] ?? '',
-                                  ),
+                                  backgroundImage: avatarUrl.isEmpty
+                                      ? null
+                                      : NetworkImage(avatarUrl),
+                                  child: avatarUrl.isEmpty
+                                      ? const Icon(Icons.person, size: 14)
+                                      : null,
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
@@ -4307,25 +4362,46 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                               r['comment'] ?? '',
                               style: dm(sz: 14, c: Colors.white70, h: 1.4),
                             ),
+                            if (r['seller_response']?.toString().isNotEmpty ==
+                                true) ...[
+                              const SizedBox(height: 10),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withAlpha(13),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  'Seller: ${r['seller_response']}',
+                                  style: dm(sz: 12, c: Colors.white60),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       );
                     },
                   ),
           ),
+          if (_nextCursor != null)
+            TextButton.icon(
+              onPressed: _isLoadingMore ? null : _loadMore,
+              icon: _isLoadingMore
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.expand_more_rounded),
+              label: const Text('LOAD MORE'),
+            ),
           if (_canReview)
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
               child: _buildPrimaryButton(
                 text: 'WRITE A REVIEW',
-                onPressed: () {
-                  // Review Submission Logic
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Purchase verification in progress...'),
-                    ),
-                  );
-                },
+                onPressed: _openReviewForm,
               ),
             ),
         ],
@@ -4356,6 +4432,137 @@ class _ReviewSheetState extends State<_ReviewSheet> {
           child: Text(
             text.toUpperCase(),
             style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 1.5),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubmitCommerceReviewSheet extends StatefulWidget {
+  const _SubmitCommerceReviewSheet({
+    required this.orderId,
+    required this.commerce,
+  });
+
+  final String orderId;
+  final CommerceService commerce;
+
+  @override
+  State<_SubmitCommerceReviewSheet> createState() =>
+      _SubmitCommerceReviewSheetState();
+}
+
+class _SubmitCommerceReviewSheetState
+    extends State<_SubmitCommerceReviewSheet> {
+  final _commentController = TextEditingController();
+  int _rating = 5;
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final comment = _commentController.text.trim();
+    if (_submitting || comment.length < 3) return;
+    setState(() => _submitting = true);
+    try {
+      await widget.commerce.submitReview(
+        orderId: widget.orderId,
+        rating: _rating,
+        comment: comment,
+      );
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+        decoration: const BoxDecoration(
+          color: Color(0xFF121212),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
+              Text(
+                'RATE YOUR PURCHASE',
+                style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: List.generate(
+                  5,
+                  (index) => IconButton(
+                    tooltip: '${index + 1} stars',
+                    onPressed: () => setState(() => _rating = index + 1),
+                    icon: Icon(
+                      index < _rating ? Icons.star : Icons.star_border,
+                      color: Colors.amberAccent,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _commentController,
+                minLines: 3,
+                maxLines: 6,
+                maxLength: 2000,
+                style: dm(c: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Share what arrived and how the purchase went',
+                  hintStyle: dm(c: Colors.white38),
+                  filled: true,
+                  fillColor: Colors.white.withAlpha(13),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _submitting ? null : _submit,
+                  child: _submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('PUBLISH VERIFIED REVIEW'),
+                ),
+              ),
+            ],
           ),
         ),
       ),

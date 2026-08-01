@@ -35,9 +35,7 @@ import 'services/music_library_service.dart';
 import 'services/draft_service.dart';
 import 'services/payment_service.dart';
 import 'services/finance_gifting_service.dart';
-import 'services/firebase_liquidation_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'services/firebase_vault_service.dart';
+import 'services/finance_liquidation_service.dart';
 import 'services/finance_backend.dart';
 import 'services/finance_deposit_service.dart';
 import 'services/finance_withdrawal_service.dart';
@@ -48,7 +46,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'services/contact_discovery_service.dart';
 import 'services/notification_service.dart';
-import 'services/order_tracking_service.dart';
+import 'services/commerce_service.dart';
 import 'services/live_streaming_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -320,17 +318,15 @@ class AppState extends ChangeNotifier {
   // ── Service Modules ──
   final VaultService vault = VaultService();
   late final SocialService social;
-  final FirebaseVaultService firebaseVault = FirebaseVaultService();
   final FinanceDepositService financeDeposits = FinanceDepositService();
   final FinanceWithdrawalService financeWithdrawals =
       FinanceWithdrawalService();
   final FinanceCoinPurchaseService financeCoinPurchases =
       FinanceCoinPurchaseService();
-  final FirebaseLiquidationService firebaseLiquidation =
-      FirebaseLiquidationService();
+  final FinanceLiquidationService financeLiquidation =
+      FinanceLiquidationService();
   final NecxaCloud cloud = NecxaCloud();
   final LocalDbService localDb = LocalDbService();
-  late final OrderTrackingService orders;
   late final LiveStreamingService live;
 
   Future<void> init() async {
@@ -401,13 +397,12 @@ class AppState extends ChangeNotifier {
   final MusicLibraryService music = MusicLibraryService();
   final PaymentService payment = PaymentService();
   final FinanceGiftingService financeGifting = FinanceGiftingService();
-  final FirebaseLiquidationService fbLiquidation = FirebaseLiquidationService();
+  final FinanceLiquidationService liquidation = FinanceLiquidationService();
   final ContactDiscoveryService discovery =
       ContactDiscoveryService(); // Restored Member
 
   AppState() {
     social = SocialService(this);
-    orders = OrderTrackingService(this);
     live = LiveStreamingService(this);
     NotificationService().tappedNotification.addListener(
       _handleNotificationTap,
@@ -854,20 +849,8 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> syncVaultToFirebase() async {
-    if (user == null || userWallet == null) return;
-    try {
-      await FirebaseFirestore.instance.collection('wallets').doc(user!.id).set({
-        'user_id': user!.id,
-        'coin_balance': userWallet!.coinBalance,
-        'fiat_balance': userWallet!.fiatBalance,
-        'escrow_balance': userWallet!.escrowBalance,
-        'last_sync_from_supabase': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      debugPrint('🔥 Vault: Firebase Shard Synchronized.');
-    } catch (e) {
-      debugPrint('🔥 Vault: Firebase Sync Fail: $e');
-    }
+  Future<void> syncVaultFromFinance() async {
+    await _syncVault();
   }
 
   Future<Map<String, dynamic>> depositFiat(double amt, {String? phone}) async {
@@ -887,59 +870,26 @@ class AppState extends ChangeNotifier {
   Duration recordDuration = Duration.zero;
 
   Future<void> syncForexRates() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('system_config')
-          .doc('forex')
-          .get();
-      if (doc.exists) {
-        currentForexRate = (doc.data()?['USD_TO_UGX'] ?? 3800.0).toDouble();
-        notify();
-      } else {
-        // Trigger a refresh if missing
-        await firebaseVault.refreshForexRates();
-      }
-    } catch (e) {
-      debugPrint('Forex Sync Error: $e');
-    }
+    currentForexRate = 3800;
+    notify();
   }
 
   Future<void> syncPaymentMethods() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('system_config')
-          .doc('payment_methods')
-          .get();
-      if (doc.exists) {
-        final data = doc.data()?['methods'] as Map<String, dynamic>? ?? {};
-        paymentMethods = data.values
-            .map((v) => Map<String, dynamic>.from(v))
-            .toList();
-        notify();
-      }
-    } catch (e) {
-      debugPrint('Payment Methods Sync Error: $e');
-    }
+    paymentMethods = const [
+      {'id': 'balance', 'name': 'Necxa Wallet', 'enabled': true},
+      {'id': 'mtn', 'name': 'MTN MoMo', 'enabled': true},
+      {'id': 'airtel', 'name': 'Airtel Money', 'enabled': true},
+      {'id': 'card', 'name': 'Card', 'enabled': true},
+    ];
+    notify();
   }
 
   Future<void> checkSecurityStatus() async {
     if (user == null) return;
-    await syncForexRates(); // Sync rates on status check
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('wallets')
-          .doc(user!.id)
-          .collection('security')
-          .doc('config')
-          .get();
-      if (doc.exists) {
-        is2faEnabled = doc.data()?['is_2fa_enabled'] ?? false;
-        notify();
-      }
-      await syncPaymentMethods();
-    } catch (e) {
-      debugPrint('Error checking security status: $e');
-    }
+    await syncForexRates();
+    await syncPaymentMethods();
+    is2faEnabled = _is2FAEnabled;
+    notify();
   }
 
   Future<Map<String, dynamic>> withdraw(
@@ -1054,7 +1004,7 @@ class AppState extends ChangeNotifier {
 
     final securityData = await getFullSecurityMetadata();
 
-    final result = await firebaseLiquidation.liquidate(
+    final result = await financeLiquidation.liquidate(
       userId: user!.id,
       ncxAmount: shards,
       securityMetadata: securityData,
@@ -2001,6 +1951,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await localDb.clearAllOnLogout();
+    myTransportOrders = [];
+    myDriverOrders = [];
+    currentDriverProfile = null;
+    isDriver = false;
     await Supabase.instance.client.auth.signOut();
     notifyListeners();
   }
@@ -2651,6 +2606,9 @@ class AppState extends ChangeNotifier {
   Future<void> updateOrderStatus(String orderId, String status) async {
     try {
       final updates = <String, dynamic>{'status': status};
+      if (status == 'accepted' && currentDriverProfile != null) {
+        updates['driver_id'] = currentDriverProfile!.id;
+      }
 
       // If marking as delivered, record the current GPS location
       if (status == 'delivered') {
@@ -2661,15 +2619,21 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      if (status == 'completed') {
+        await _releaseEscrow(orderId);
+      }
+      if (status == 'cancelled') {
+        await FinanceBackend.instance.invoke(
+          'refund_transport_booking',
+          body: {'orderId': orderId, 'reason': 'customer_cancelled'},
+        );
+        await _syncVault();
+      }
+
       await Supabase.instance.client
           .from('transport_orders')
           .update(updates)
           .eq('id', orderId);
-
-      // If completed, we should release escrow
-      if (status == 'completed') {
-        await _releaseEscrow(orderId);
-      }
 
       await fetchMyOrders();
       await fetchDriverOrders();
@@ -2678,6 +2642,7 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Update Status Error: $e');
+      rethrow;
     }
   }
 
@@ -2710,43 +2675,30 @@ class AppState extends ChangeNotifier {
         'lng': currentGps?.longitude,
       });
 
+      await FinanceBackend.instance.invoke(
+        'dispute_transport_booking',
+        body: {'orderId': orderId, 'reason': reason},
+      );
+
       // 4. Update Order Status to disputed
       await updateOrderStatus(orderId, 'disputed');
 
       pickedMedia = null;
     } catch (e) {
       debugPrint('Raise Dispute Error: $e');
+      rethrow;
+    } finally {
+      isTransportLoading = false;
+      notify();
     }
-    isTransportLoading = false;
-    notify();
   }
 
   Future<void> _releaseEscrow(String orderId) async {
-    try {
-      final orderRes = await Supabase.instance.client
-          .from('transport_orders')
-          .select()
-          .eq('id', orderId)
-          .single();
-
-      final double price = (orderRes['price'] as num).toDouble();
-      final String driverId = orderRes['driver_id'];
-
-      // 🔥 FIREBASE: Release escrow to the driver's wallet securely
-      final result = await firebaseVault.releaseEscrow(
-        transactionId: orderId,
-        recipientId: driverId,
-        amount: price,
-      );
-
-      if (result['success'] == true) {
-        debugPrint('🔥 Escrow Successfully Released to Driver: $driverId');
-      } else {
-        throw Exception(result['message'] ?? 'Failed to release escrow');
-      }
-    } catch (e) {
-      debugPrint('Escrow Release Error: $e');
-    }
+    await FinanceBackend.instance.invoke(
+      'settle_transport_booking',
+      body: {'orderId': orderId},
+    );
+    await _syncVault();
   }
 
   Future<void> registerDriver(Map<String, dynamic> data) async {
@@ -2800,6 +2752,7 @@ class AppState extends ChangeNotifier {
       if (res != null) {
         isDriver = true;
         currentDriverProfile = TransportDriver.fromJson(res);
+        await fetchDriverOrders();
       } else {
         isDriver = false;
         currentDriverProfile = null;
@@ -2819,6 +2772,8 @@ class AppState extends ChangeNotifier {
     if (user == null) return;
     isTransportLoading = true;
     notify();
+    String? transactionId;
+    var orderCreated = false;
     try {
       // 1. Check Wallet Balance
       if (fiatBalance < price) {
@@ -2828,14 +2783,19 @@ class AppState extends ChangeNotifier {
       }
 
       // 2. Create Order in Escrow Style
-      final transactionId = _generateUuidv4();
+      transactionId = _generateUuidv4();
 
-      // 🔥 FIREBASE: Hold funds in escrow
-      final escrowRes = await firebaseVault.holdInEscrow(
-        userId: user!.id,
-        amount: price,
-        transactionId: transactionId,
-        contextType: 'transport',
+      // Hold the fare in the Finance Supabase escrow before creating the trip.
+      final escrowRes = await FinanceBackend.instance.invoke(
+        'create_transport_booking',
+        body: {
+          'orderId': transactionId,
+          'driverId': driver.id,
+          'pickup': pickup,
+          'dropoff': dropoff,
+          'amountUgx': price.round(),
+          'idempotencyKey': 'transport-$transactionId',
+        },
       );
 
       if (escrowRes['success'] != true) {
@@ -2858,19 +2818,27 @@ class AppState extends ChangeNotifier {
 
       // Perform the insert
       await Supabase.instance.client.from('transport_orders').insert(orderData);
-
-      // Deduct from wallet (Simplified: just update local and DB)
-      final newBalance = fiatBalance - price;
-      await Supabase.instance.client
-          .from('wallets')
-          .update({'fiat_balance': newBalance})
-          .eq('user_id', user!.id);
+      orderCreated = true;
 
       await _syncVault(); // Refresh local wallet state
 
       await fetchMyOrders();
     } catch (e) {
       debugPrint('Create Transport Order Error: $e');
+      if (transactionId != null && !orderCreated) {
+        try {
+          await FinanceBackend.instance.invoke(
+            'refund_transport_booking',
+            body: {
+              'orderId': transactionId,
+              'reason': 'primary_order_creation_failed',
+            },
+          );
+          await _syncVault();
+        } catch (refundError) {
+          debugPrint('Transport Escrow Refund Error: $refundError');
+        }
+      }
       rethrow;
     } finally {
       isTransportLoading = false;
@@ -2885,7 +2853,7 @@ class AppState extends ChangeNotifier {
 
     try {
       // 1. Serve from local cache immediately (Local-First)
-      final cached = await localDb.getCachedTransportOrders();
+      final cached = await localDb.getCachedTransportOrders(user!.id);
       if (cached.isNotEmpty) {
         myTransportOrders = List<TransportOrder>.from(
           cached.map((j) => TransportOrder.fromJson(j)),
@@ -2900,22 +2868,29 @@ class AppState extends ChangeNotifier {
       isTransportSyncing = true;
       notify();
 
-      final cursor = await localDb.getSyncCursor('transport');
-      var query = Supabase.instance.client.from('transport_orders').select();
+      final cursorKey = 'transport:${user!.id}';
+      final cursor = await localDb.getSyncCursor(cursorKey);
+      var query = Supabase.instance.client
+          .from('transport_orders')
+          .select()
+          .eq('user_id', user!.id);
 
       // If we have a cursor, only fetch what's newer
       if (cursor != null) {
-        query = query.gt('created_at', cursor);
+        query = query.gt('updated_at', cursor);
       }
 
-      final res = await query.order('created_at', ascending: false);
+      final res = await query.order('updated_at', ascending: false);
       if ((res as List).isNotEmpty) {
         final list = List<Map<String, dynamic>>.from(res);
         await localDb.saveTransportOrders(list);
-        await localDb.setSyncCursor('transport', list.first['created_at']);
+        await localDb.setSyncCursor(
+          cursorKey,
+          list.first['updated_at'] ?? list.first['created_at'],
+        );
 
         // Refresh full local list
-        final fresh = await localDb.getCachedTransportOrders();
+        final fresh = await localDb.getCachedTransportOrders(user!.id);
         myTransportOrders = List<TransportOrder>.from(
           fresh.map((j) => TransportOrder.fromJson(j)),
         );
@@ -3034,17 +3009,17 @@ class AppState extends ChangeNotifier {
     // 🧠 NEURAL PULSE: Real-time subscription
     _subscribeToNotifications();
 
-    // 🛍️ VENDOR ORDERS: Listen for new sales
-    if (user != null) {
-      FirebaseFirestore.instance
-          .collection('orders')
-          .where('vendor_id', isEqualTo: user!.id)
-          .where('status', isEqualTo: 'pending_payment') // Or 'processing'
-          .snapshots()
-          .listen((snapshot) {
-            pendingVendorOrders = snapshot.docs.length;
-            notify();
-          });
+    unawaited(_syncVendorOrderCount());
+  }
+
+  Future<void> _syncVendorOrderCount() async {
+    if (user == null) return;
+    try {
+      final dashboard = await CommerceService().fetchVendorDashboard();
+      pendingVendorOrders = dashboard.openOrders;
+      notify();
+    } catch (error) {
+      debugPrint('Vendor order sync error: $error');
     }
   }
 
@@ -3063,6 +3038,7 @@ class AppState extends ChangeNotifier {
       notify();
 
       await refreshNotifications();
+      await _syncVendorOrderCount();
     } catch (e) {
       debugPrint('Notification Sync Error: $e');
     }
