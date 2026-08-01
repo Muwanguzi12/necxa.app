@@ -2,7 +2,7 @@ name: Build Android
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/engagement-service-skeleton ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
