@@ -596,7 +596,12 @@ class AppState extends ChangeNotifier {
 
   Future<void> loadMyProfile() async {
     if (user == null) return;
-    myProfile = await social.getProfile(user!.id);
+    final profile = await social.getProfile(user!.id);
+    final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
+    myProfile = {
+      ...?profile,
+      if (financeSnapshot != null) 'finance': financeSnapshot,
+    };
     notify();
   }
 
@@ -840,13 +845,71 @@ class AppState extends ChangeNotifier {
       userWallet = Wallet.fromJson(wallet);
       _walletOwnerId = walletUser.id;
       walletLastSyncedAt = DateTime.now();
+      myProfile = {...?myProfile, 'finance': wallet};
+    } on FinanceBackendException catch (e) {
+      final restored = await _restoreWalletFromPrimarySnapshot(walletUser);
+      walletSyncError = restored
+          ? 'Showing your last profile-synced wallet balance.'
+          : switch (e.statusCode) {
+              401 =>
+                'Your finance session could not be verified. Please sign in again.',
+              503 =>
+                'Wallet service is temporarily unavailable. Please try again.',
+              _ =>
+                e.message.isNotEmpty
+                    ? e.message
+                    : 'Wallet balances could not be refreshed.',
+            };
+      debugPrint(
+        'Vault Sync Error (${e.statusCode ?? 'no status'}/${e.code}): '
+        '${e.message}',
+      );
     } catch (e) {
-      walletSyncError = 'Wallet balances could not be refreshed.';
+      final restored = await _restoreWalletFromPrimarySnapshot(walletUser);
+      walletSyncError = restored
+          ? 'Showing your last profile-synced wallet balance.'
+          : 'Wallet balances could not be refreshed. Please retry.';
       debugPrint('Vault Sync Error: $e');
     } finally {
       isWalletSyncing = false;
       notify();
     }
+  }
+
+  Future<Map<String, dynamic>?> _loadPrimaryFinanceSnapshot(
+    String userId,
+  ) async {
+    try {
+      final data = await Supabase.instance.client
+          .from('profile_finance_snapshots')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+      return data == null ? null : Map<String, dynamic>.from(data);
+    } catch (error) {
+      debugPrint('Profile finance snapshot unavailable: $error');
+      return null;
+    }
+  }
+
+  Future<bool> _restoreWalletFromPrimarySnapshot(User walletUser) async {
+    final snapshot = await _loadPrimaryFinanceSnapshot(walletUser.id);
+    if (snapshot == null || user?.id != walletUser.id) return false;
+
+    final walletData = <String, dynamic>{
+      ...snapshot,
+      'id': snapshot['finance_wallet_id'],
+      'user_id': walletUser.id,
+      'created_at': snapshot['synced_at'],
+      'updated_at': snapshot['finance_updated_at'] ?? snapshot['synced_at'],
+    };
+    userWallet = Wallet.fromJson(walletData);
+    _walletOwnerId = walletUser.id;
+    walletLastSyncedAt = DateTime.tryParse(
+      snapshot['synced_at']?.toString() ?? '',
+    );
+    myProfile = {...?myProfile, 'finance': snapshot};
+    return true;
   }
 
   Future<void> syncVaultFromFinance() async {

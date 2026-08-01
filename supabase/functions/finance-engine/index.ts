@@ -145,12 +145,13 @@ async function settleVerifiedPesapalPayment(
   ).toUpperCase();
 
   if (mappedStatus === "PENDING") {
-    await financeClient.from("payments").update({
+    const { error } = await financeClient.from("payments").update({
       provider_status: providerStatus,
       provider_response: statusData,
       last_checked_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq("id", payment.id);
+    if (error) throw new Error(`Payment status update failed: ${error.message}`);
     return mappedStatus;
   }
 
@@ -178,13 +179,16 @@ async function settleVerifiedPesapalPayment(
         await mirrorFinanceInventoryToPrimary(financeClient, String(order.listing_id));
       }
     }
-    await financeClient.from("payments").update({
-      status: "FAILED",
+    const { error: failedPaymentError } = await financeClient.from("payments").update({
+      status: "failed",
       provider_status: providerStatus,
       provider_response: statusData,
       last_checked_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq("id", payment.id).is("settled_at", null);
+    if (failedPaymentError) {
+      throw new Error(`Failed payment update failed: ${failedPaymentError.message}`);
+    }
     return mappedStatus;
   }
 
@@ -198,6 +202,11 @@ async function settleVerifiedPesapalPayment(
       p_provider_response: statusData,
     });
     if (error) throw new Error(`Wallet settlement failed: ${error.message}`);
+    try {
+      await mirrorUserWalletSnapshotToPrimary(financeClient, String(payment.user_id));
+    } catch (snapshotError) {
+      console.error("Post-settlement profile finance sync failed:", snapshotError);
+    }
     return mappedStatus;
   }
 
@@ -215,14 +224,17 @@ async function settleVerifiedPesapalPayment(
     });
     if (fundingError) throw new Error(fundingError.message);
     await mirrorFinanceInventoryToPrimary(financeClient, String(order.listing_id));
-    await financeClient.from("payments").update({
-      status: "COMPLETED",
+    const { error: completedPaymentError } = await financeClient.from("payments").update({
+      status: "completed",
       provider_status: providerStatus,
       provider_response: statusData,
       last_checked_at: new Date().toISOString(),
       settled_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq("id", payment.id);
+    if (completedPaymentError) {
+      throw new Error(`Completed payment update failed: ${completedPaymentError.message}`);
+    }
     return mappedStatus;
   }
 
@@ -279,7 +291,7 @@ async function reconcileUserPesapalPayments(
     .eq("provider", "pesapal")
     .not("provider_reference", "is", null)
     .is("settled_at", null)
-    .in("status", ["PENDING", "COMPLETED"])
+    .in("status", ["pending", "completed"])
     .order("created_at", { ascending: false })
     .limit(10);
   if (error) throw new Error(error.message);
@@ -393,6 +405,95 @@ async function mirrorFinanceInventoryToPrimary(
 }
 
 // ── Main handler ────────────────────────────────────────────────────────────
+async function mirrorWalletSnapshotToPrimary(wallet: Record<string, unknown>) {
+  if (!PRIMARY_SUPABASE_URL || !PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+    return { synced: false, reason: "primary_finance_sync_not_configured" };
+  }
+
+  const primaryAdmin = createClient(
+    PRIMARY_SUPABASE_URL,
+    PRIMARY_SUPABASE_SERVICE_ROLE_KEY,
+  );
+  const syncedAt = new Date().toISOString();
+  const { error } = await primaryAdmin.from("profile_finance_snapshots").upsert({
+    user_id: wallet.user_id,
+    finance_wallet_id: wallet.id,
+    fiat_balance: wallet.fiat_balance ?? 0,
+    coin_balance: wallet.coin_balance ?? 0,
+    escrow_balance: wallet.escrow_balance ?? 0,
+    total_earned: wallet.total_earned ?? 0,
+    total_spent: wallet.total_spent ?? 0,
+    finance_updated_at: wallet.updated_at ?? null,
+    synced_at: syncedAt,
+    source_project: "supabase2",
+  }, { onConflict: "user_id" });
+  if (error) {
+    throw new Error(`Primary finance snapshot sync failed: ${error.message}`);
+  }
+  return { synced: true, syncedAt };
+}
+
+async function mirrorUserWalletSnapshotToPrimary(
+  financeClient: ReturnType<typeof createClient>,
+  userId: string,
+) {
+  const { data: wallet, error } = await financeClient
+    .from("wallets")
+    .select("id, user_id, fiat_balance, coin_balance, escrow_balance, total_earned, total_spent, updated_at")
+    .eq("user_id", userId)
+    .single();
+  if (error || !wallet) {
+    throw new Error(error?.message ?? "Finance wallet not found for profile sync.");
+  }
+  return await mirrorWalletSnapshotToPrimary(wallet);
+}
+
+type PrimaryAuthUser = {
+  id: string;
+  email?: string | null;
+  phone?: string | null;
+  user_metadata?: Record<string, unknown>;
+};
+
+async function syncPrimaryIdentityToFinance(
+  primaryClient: ReturnType<typeof createClient>,
+  financeClient: ReturnType<typeof createClient>,
+  user: PrimaryAuthUser,
+) {
+  const { data: primaryProfile, error: profileError } = await primaryClient
+    .from("profiles")
+    .select("id, email, phone, full_name, avatar_url")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profileError) {
+    throw new Error(`Primary profile sync failed: ${profileError.message}`);
+  }
+
+  const metadata = user.user_metadata ?? {};
+  const syncedAt = new Date().toISOString();
+  const financeProfile = {
+    id: user.id,
+    email: primaryProfile?.email ?? user.email ?? null,
+    phone: primaryProfile?.phone ?? user.phone ?? null,
+    full_name: primaryProfile?.full_name ?? metadata.full_name ?? metadata.name ?? null,
+    avatar_url: primaryProfile?.avatar_url ?? metadata.avatar_url ?? null,
+    updated_at: syncedAt,
+  };
+  const { error: financeProfileError } = await financeClient
+    .from("profiles")
+    .upsert(financeProfile, { onConflict: "id" });
+  if (financeProfileError) {
+    throw new Error(`Finance profile sync failed: ${financeProfileError.message}`);
+  }
+
+  return {
+    source: "supabase1",
+    target: "supabase2",
+    userId: user.id,
+    syncedAt,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: cors });
@@ -456,11 +557,21 @@ serve(async (req) => {
     );
   }
 
-  // Sync stub profile to satisfy foreign key constraints on Supabase 2 (wallets -> profiles)
-  await supabase.from("profiles").upsert(
-    { id: user.id, email: user.email, updated_at: new Date().toISOString() },
-    { onConflict: "id", ignoreDuplicates: true }
-  );
+  let identitySync: Record<string, unknown>;
+  try {
+    identitySync = await syncPrimaryIdentityToFinance(
+      userSupabase,
+      supabase,
+      user,
+    );
+  } catch (error) {
+    console.error("Cross-project identity sync failed:", error);
+    return json({
+      success: false,
+      code: "identity_sync_failed",
+      message: "Your finance account could not be synchronized.",
+    }, 503);
+  }
 
   const syncCommerceListing = async (listingId: string, forceStock = false) => {
     const fields = "id, title, price, stock_count, status, user_id, lister_id, category, media_url, weight_kg, length_cm, width_cm, height_cm, latitude, longitude, pickup_address";
@@ -587,7 +698,7 @@ serve(async (req) => {
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle();
 
-      if (existingPayment && existingPayment.status === "COMPLETED") {
+      if (existingPayment && String(existingPayment.status).toLowerCase() === "completed") {
         return json({ success: false, message: "This deposit was already completed." }, 409);
       }
 
@@ -607,12 +718,15 @@ serve(async (req) => {
       });
 
       // Upsert a payments record in PENDING state
-      await supabase.from("payments").upsert({
+      const { error: paymentRecordError } = await supabase.from("payments").upsert({
         user_id: user.id,
         provider: "pesapal",
         provider_reference: orderResult.order_tracking_id,
         idempotency_key: idempotencyKey,
-        status: "PENDING",
+        purpose: "wallet_deposit",
+        amount: amountUgx,
+        currency: "UGX",
+        status: "pending",
         request: {
           amount: amountUgx,
           currency: "UGX",
@@ -622,6 +736,9 @@ serve(async (req) => {
         },
         response: orderResult,
       }, { onConflict: "idempotency_key" });
+      if (paymentRecordError) {
+        throw new Error(`Deposit payment record failed: ${paymentRecordError.message}`);
+      }
 
       return json({
         success: true,
@@ -651,7 +768,7 @@ serve(async (req) => {
       if (payment.settled_at) {
         return json({ success: true, status: "completed" });
       }
-      if (payment.status === "FAILED") {
+      if (String(payment.status).toLowerCase() === "failed") {
         return json({ success: true, status: payment.status.toLowerCase() });
       }
 
@@ -938,15 +1055,21 @@ serve(async (req) => {
       if (orderErr) throw new Error(orderErr.message);
 
       // Also upsert a payments row for the pesapal-ipn webhook to find
-      await supabase.from("payments").upsert({
+      const { error: paymentRecordError } = await supabase.from("payments").upsert({
         user_id: user.id,
         provider: "pesapal",
         provider_reference: orderResult.order_tracking_id,
         idempotency_key: idempotencyKey,
-        status: "PENDING",
+        purpose: "shop_purchase",
+        amount: totalUgx,
+        currency: "UGX",
+        status: "pending",
         request: { amount: totalUgx, currency: "UGX", type: "shop_purchase", listingId, quantity },
         response: orderResult,
       }, { onConflict: "idempotency_key" });
+      if (paymentRecordError) {
+        throw new Error(`Shop payment record failed: ${paymentRecordError.message}`);
+      }
 
       return json({
         success: true,
@@ -983,7 +1106,7 @@ serve(async (req) => {
       if (payment.settled_at) {
         return json({ success: true, status: "completed" });
       }
-      if (payment.status === "FAILED") {
+      if (String(payment.status).toLowerCase() === "failed") {
         return json({ success: true, status: "failed" });
       }
 
@@ -1614,7 +1737,7 @@ serve(async (req) => {
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle();
 
-      if (existingPayment && existingPayment.status === "COMPLETED") {
+      if (existingPayment && String(existingPayment.status).toLowerCase() === "completed") {
         return json({ success: false, message: "Purchase already processed." }, 409);
       }
 
@@ -1647,15 +1770,21 @@ serve(async (req) => {
         }
 
         // Record a completed payment for idempotency tracking
-        await supabase.from("payments").upsert({
+        const { error: paymentRecordError } = await supabase.from("payments").upsert({
           user_id: user.id,
           provider: "wallet_balance",
           provider_reference: idempotencyKey,
           idempotency_key: idempotencyKey,
-          status: "COMPLETED",
+          purpose: "coin_purchase",
+          amount: pack.fiat,
+          currency: "UGX",
+          status: "completed",
           request: { type: "coin_purchase", packId, method },
           response: { success: true },
         }, { onConflict: "idempotency_key" });
+        if (paymentRecordError) {
+          throw new Error(`Wallet coin payment record failed: ${paymentRecordError.message}`);
+        }
 
         return json({ success: true });
       }
@@ -1687,15 +1816,21 @@ serve(async (req) => {
           branch: "Necxa - Coin Purchase",
         });
 
-        await supabase.from("payments").upsert({
+        const { error: paymentRecordError } = await supabase.from("payments").upsert({
           user_id: user.id,
           provider: "pesapal",
           provider_reference: orderResult.order_tracking_id,
           idempotency_key: idempotencyKey,
-          status: "PENDING",
+          purpose: "coin_purchase",
+          amount: pack.fiat,
+          currency: "UGX",
+          status: "pending",
           request: { type: "coin_purchase", packId, method, ncxAmount: pack.ncx, fiatAmount: pack.fiat },
           response: orderResult,
         }, { onConflict: "idempotency_key" });
+        if (paymentRecordError) {
+          throw new Error(`PesaPal coin payment record failed: ${paymentRecordError.message}`);
+        }
 
         return json({
           success: true,
@@ -1724,7 +1859,7 @@ serve(async (req) => {
       if (payment.settled_at) {
         return json({ success: true, status: "completed" });
       }
-      if (payment.status === "FAILED") {
+      if (String(payment.status).toLowerCase() === "failed") {
         return json({ success: true, status: payment.status.toLowerCase() });
       }
 
@@ -1922,6 +2057,14 @@ serve(async (req) => {
         return json({ success: false, message: "Wallet not found." }, 404);
       }
 
+      let profileFinanceSync: Record<string, unknown>;
+      try {
+        profileFinanceSync = await mirrorWalletSnapshotToPrimary(wallet);
+      } catch (snapshotError) {
+        console.error("Profile finance snapshot sync failed:", snapshotError);
+        profileFinanceSync = { synced: false, reason: "primary_sync_failed" };
+      }
+
       // Also fetch recent ledger entries for the transaction history
       const { data: ledger } = await supabase
         .from("immutable_financial_ledger")
@@ -1958,6 +2101,8 @@ serve(async (req) => {
           metadata: e.metadata,
           createdAt: e.created_at,
         })),
+        identitySync,
+        profileFinanceSync,
         reconciliation,
       });
     }

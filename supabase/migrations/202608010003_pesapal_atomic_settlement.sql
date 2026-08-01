@@ -57,7 +57,7 @@ select
   coalesce(p.updated_at, p.created_at, now())
 from public.payments p
 where p.provider = 'pesapal'
-  and p.status = 'COMPLETED'
+  and p.status = 'completed'
   and p.request ->> 'type' in ('wallet_deposit', 'coin_purchase')
   and case
     when p.request ->> 'type' = 'wallet_deposit'
@@ -99,7 +99,7 @@ update public.payments p
 set settled_at = coalesce(p.updated_at, p.created_at, now()),
     provider_status = coalesce(p.provider_status, 'COMPLETED')
 where p.provider = 'pesapal'
-  and p.status = 'COMPLETED'
+  and p.status = 'completed'
   and p.request ->> 'type' = 'shop_purchase'
   and exists (
     select 1 from public.commerce_orders o
@@ -237,7 +237,7 @@ begin
   end if;
 
   update public.payments
-  set status = 'COMPLETED',
+  set status = 'completed',
       provider_status = p_provider_status,
       provider_response = coalesce(p_provider_response, '{}'::jsonb),
       response = coalesce(response, '{}'::jsonb) || jsonb_build_object(
