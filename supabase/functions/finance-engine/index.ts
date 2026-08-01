@@ -119,6 +119,189 @@ async function getPesapalTransactionStatus(token: string, orderTrackingId: strin
   return await res.json();
 }
 
+type PesapalStatus = "PENDING" | "COMPLETED" | "FAILED";
+
+function mapPesapalStatus(statusData: Record<string, unknown>): PesapalStatus {
+  const description = String(
+    statusData.payment_status_description ?? statusData.status_code ?? "",
+  ).toUpperCase();
+  if (description.includes("COMPLETED") || statusData.status_code === 1) return "COMPLETED";
+  if (
+    description.includes("FAILED") ||
+    description.includes("INVALID") ||
+    statusData.status_code === 2
+  ) return "FAILED";
+  return "PENDING";
+}
+
+async function settleVerifiedPesapalPayment(
+  financeClient: ReturnType<typeof createClient>,
+  payment: Record<string, any>,
+  statusData: Record<string, unknown>,
+): Promise<PesapalStatus> {
+  const mappedStatus = mapPesapalStatus(statusData);
+  const providerStatus = String(
+    statusData.payment_status_description ?? statusData.status_code ?? mappedStatus,
+  ).toUpperCase();
+
+  if (mappedStatus === "PENDING") {
+    await financeClient.from("payments").update({
+      provider_status: providerStatus,
+      provider_response: statusData,
+      last_checked_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", payment.id);
+    return mappedStatus;
+  }
+
+  if (mappedStatus === "FAILED") {
+    const paymentRequest = (payment.request ?? {}) as Record<string, unknown>;
+    if (String(paymentRequest.type ?? "") === "shop_purchase") {
+      const { data: order } = await financeClient
+        .from("commerce_orders")
+        .select("id, listing_id")
+        .eq("payment_id", payment.idempotency_key)
+        .maybeSingle();
+      if (order) {
+        await financeClient.from("commerce_orders").update({
+          payment_status: "FAILED",
+          status: "cancelled",
+          cancelled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", order.id);
+        const { error: inventoryError } = await financeClient.rpc("finalize_commerce_inventory", {
+          p_idempotency_key: `${payment.idempotency_key}-inv`,
+          p_finance_order_id: null,
+          p_commit: false,
+        });
+        if (inventoryError) throw new Error(inventoryError.message);
+        await mirrorFinanceInventoryToPrimary(financeClient, String(order.listing_id));
+      }
+    }
+    await financeClient.from("payments").update({
+      status: "FAILED",
+      provider_status: providerStatus,
+      provider_response: statusData,
+      last_checked_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", payment.id).is("settled_at", null);
+    return mappedStatus;
+  }
+
+  const paymentRequest = (payment.request ?? {}) as Record<string, unknown>;
+  const paymentType = String(paymentRequest.type ?? "wallet_deposit");
+
+  if (paymentType === "wallet_deposit" || paymentType === "coin_purchase") {
+    const { error } = await financeClient.rpc("settle_pesapal_wallet_payment", {
+      p_payment_id: payment.id,
+      p_provider_status: providerStatus,
+      p_provider_response: statusData,
+    });
+    if (error) throw new Error(`Wallet settlement failed: ${error.message}`);
+    return mappedStatus;
+  }
+
+  if (paymentType === "shop_purchase") {
+    const { data: order, error: orderError } = await financeClient
+      .from("commerce_orders")
+      .select("id, listing_id, payment_method")
+      .eq("payment_id", payment.idempotency_key)
+      .single();
+    if (orderError || !order) throw new Error(orderError?.message ?? "Shop order not found.");
+    const { error: fundingError } = await financeClient.rpc("fund_commerce_order_from_external_payment", {
+      p_order_id: order.id,
+      p_payment_id: payment.idempotency_key,
+      p_funding_source: order.payment_method === "card" ? "card" : "pesapal",
+    });
+    if (fundingError) throw new Error(fundingError.message);
+    await mirrorFinanceInventoryToPrimary(financeClient, String(order.listing_id));
+    await financeClient.from("payments").update({
+      status: "COMPLETED",
+      provider_status: providerStatus,
+      provider_response: statusData,
+      last_checked_at: new Date().toISOString(),
+      settled_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", payment.id);
+    return mappedStatus;
+  }
+
+  throw new Error(`Unsupported PesaPal payment type: ${paymentType}`);
+}
+
+async function findPesapalPayment(
+  financeClient: ReturnType<typeof createClient>,
+  orderTrackingId: string,
+  merchantReference?: string | null,
+) {
+  if (merchantReference) {
+    const { data, error } = await financeClient
+      .from("payments")
+      .select("*")
+      .eq("idempotency_key", merchantReference)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return data;
+  }
+
+  const { data, error } = await financeClient
+    .from("payments")
+    .select("*")
+    .eq("provider", "pesapal")
+    .eq("provider_reference", orderTrackingId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function reconcilePesapalReference(
+  financeClient: ReturnType<typeof createClient>,
+  orderTrackingId: string,
+  merchantReference?: string | null,
+) {
+  const token = await getPesapalToken();
+  const statusData = await getPesapalTransactionStatus(token, orderTrackingId) as Record<string, unknown>;
+  const verifiedReference = String(statusData.merchant_reference ?? merchantReference ?? "");
+  const payment = await findPesapalPayment(financeClient, orderTrackingId, verifiedReference);
+  if (!payment) throw new Error("Payment record not found for PesaPal transaction.");
+  const status = await settleVerifiedPesapalPayment(financeClient, payment, statusData);
+  return { payment, status, statusData };
+}
+
+async function reconcileUserPesapalPayments(
+  financeClient: ReturnType<typeof createClient>,
+  userId: string,
+) {
+  const { data: payments, error } = await financeClient
+    .from("payments")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("provider", "pesapal")
+    .not("provider_reference", "is", null)
+    .is("settled_at", null)
+    .in("status", ["PENDING", "COMPLETED"])
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw new Error(error.message);
+  if (!payments?.length) return { checked: 0, settled: 0 };
+
+  const token = await getPesapalToken();
+  let settled = 0;
+  for (const payment of payments) {
+    try {
+      const statusData = await getPesapalTransactionStatus(
+        token,
+        String(payment.provider_reference),
+      ) as Record<string, unknown>;
+      const status = await settleVerifiedPesapalPayment(financeClient, payment, statusData);
+      if (status === "COMPLETED") settled += 1;
+    } catch (error) {
+      console.error(`PesaPal recovery failed for payment ${payment.id}:`, error);
+    }
+  }
+  return { checked: payments.length, settled };
+}
+
 function asFiniteNumber(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -217,64 +400,39 @@ serve(async (req) => {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
   const urlObj = new URL(req.url);
-  const orderTrackingId = urlObj.searchParams.get("OrderTrackingId") || urlObj.searchParams.get("orderTrackingId");
+  let providerPayload: Record<string, unknown> = {};
+  if (req.method === "POST" && req.headers.get("content-type")?.includes("application/json")) {
+    providerPayload = await req.clone().json().catch(() => ({}));
+  }
+  const orderTrackingId = urlObj.searchParams.get("OrderTrackingId") ||
+    urlObj.searchParams.get("orderTrackingId") ||
+    String(providerPayload.OrderTrackingId ?? providerPayload.orderTrackingId ?? "");
   const orderMerchantRef = urlObj.searchParams.get("OrderMerchantReference") ||
-    urlObj.searchParams.get("orderMerchantReference") || urlObj.searchParams.get("paymentId");
+    urlObj.searchParams.get("orderMerchantReference") ||
+    urlObj.searchParams.get("paymentId") ||
+    String(providerPayload.OrderMerchantReference ?? providerPayload.orderMerchantReference ?? "");
+  const notificationType = urlObj.searchParams.get("OrderNotificationType") ||
+    String(providerPayload.OrderNotificationType ?? providerPayload.orderNotificationType ?? "IPNCHANGE");
 
   // Provider callbacks do not carry a NECXA user session. Pesapal is queried
   // directly before one replay-safe financial effect is applied.
-  if (req.method === "GET" && orderTrackingId && orderMerchantRef) {
+  if (orderTrackingId) {
     try {
-      const { data: payment } = await supabase
-        .from("payments")
-        .select("*")
-        .eq("idempotency_key", orderMerchantRef)
-        .maybeSingle();
-
-      if (payment && payment.status !== "COMPLETED") {
-        const token = await getPesapalToken();
-        const statusData = await getPesapalTransactionStatus(token, orderTrackingId);
-        const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
-
-        if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) {
-          const paymentRequest = (payment.request ?? {}) as Record<string, unknown>;
-          const paymentType = String(paymentRequest.type ?? "wallet_deposit");
-          const amountUgx = Number(paymentRequest.amount) || 0;
-
-          if (paymentType === "shop_purchase") {
-            const { data: order, error: orderError } = await supabase
-              .from("commerce_orders")
-              .select("id, listing_id, payment_method")
-              .eq("payment_id", orderMerchantRef)
-              .single();
-            if (orderError || !order) throw new Error(orderError?.message ?? "Shop order not found.");
-            const { error: fundingError } = await supabase.rpc("fund_commerce_order_from_external_payment", {
-              p_order_id: order.id,
-              p_payment_id: orderMerchantRef,
-              p_funding_source: order.payment_method === "card" ? "card" : "pesapal",
-            });
-            if (fundingError) throw new Error(fundingError.message);
-            await mirrorFinanceInventoryToPrimary(supabase, String(order.listing_id));
-          } else if (paymentType === "wallet_deposit" && amountUgx > 0 && payment.user_id) {
-            const { error: creditError } = await supabase.rpc("credit_wallet_fiat", {
-              p_user_id: payment.user_id,
-              p_amount_ugx: amountUgx,
-              p_reference: orderMerchantRef,
-            });
-            if (creditError) throw new Error(creditError.message);
-          } else {
-            return json({ success: true, orderNotificationType: "IPNCHANGE", orderTrackingId, status: "202" });
-          }
-
-          await supabase.from("payments")
-            .update({ status: "COMPLETED", updated_at: new Date().toISOString() })
-            .eq("idempotency_key", orderMerchantRef);
-        }
-      }
-      return json({ success: true, orderNotificationType: "IPNCHANGE", orderTrackingId, status: "200" });
+      const result = await reconcilePesapalReference(supabase, orderTrackingId, orderMerchantRef);
+      return json({
+        orderNotificationType: notificationType || "IPNCHANGE",
+        orderTrackingId,
+        orderMerchantReference: result.payment.idempotency_key,
+        status: 200,
+      });
     } catch (ipnErr) {
       console.error("IPN handler error:", ipnErr);
-      return json({ success: false, error: String(ipnErr) }, 500);
+      return json({
+        orderNotificationType: notificationType || "IPNCHANGE",
+        orderTrackingId,
+        orderMerchantReference: orderMerchantRef,
+        status: 500,
+      }, 500);
     }
   }
 
@@ -480,7 +638,7 @@ serve(async (req) => {
 
       const { data: payment, error: payErr } = await supabase
         .from("payments")
-        .select("status, provider_reference, user_id")
+        .select("*")
         .eq("idempotency_key", paymentId)
         .eq("user_id", user.id)
         .single();
@@ -489,45 +647,20 @@ serve(async (req) => {
         return json({ success: false, message: "Payment not found." }, 404);
       }
 
-      // If already completed or failed, return stored status
-      if (payment.status === "COMPLETED" || payment.status === "FAILED") {
+      // Completion is final only after the atomic settlement marker exists.
+      if (payment.settled_at) {
+        return json({ success: true, status: "completed" });
+      }
+      if (payment.status === "FAILED") {
         return json({ success: true, status: payment.status.toLowerCase() });
       }
 
-      // Otherwise query Pesapal for real-time status
       const token = await getPesapalToken();
-      const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
-      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
-
-      let mappedStatus = "PENDING";
-      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) mappedStatus = "COMPLETED";
-      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) mappedStatus = "FAILED";
-
-      // Update the DB if status has changed
-      if (mappedStatus !== "PENDING") {
-        await supabase
-          .from("payments")
-          .update({ status: mappedStatus, updated_at: new Date().toISOString() })
-          .eq("idempotency_key", paymentId);
-
-        // Credit wallet if completed
-        if (mappedStatus === "COMPLETED") {
-          const { data: payFull } = await supabase
-            .from("payments")
-            .select("request")
-            .eq("idempotency_key", paymentId)
-            .single();
-          const amountUgx = (payFull?.request as Record<string, number>)?.amount ?? 0;
-          if (amountUgx > 0) {
-            await supabase.rpc("credit_wallet_fiat", {
-              p_user_id: user.id,
-              p_amount_ugx: amountUgx,
-              p_reference: paymentId,
-            }).throwOnError();
-          }
-        }
-      }
-
+      const statusData = await getPesapalTransactionStatus(
+        token,
+        payment.provider_reference,
+      ) as Record<string, unknown>;
+      const mappedStatus = await settleVerifiedPesapalPayment(supabase, payment, statusData);
       return json({ success: true, status: mappedStatus.toLowerCase() });
     }
 
@@ -832,7 +965,7 @@ serve(async (req) => {
 
       const { data: payment } = await supabase
         .from("payments")
-        .select("status, provider_reference")
+        .select("*")
         .eq("idempotency_key", paymentId)
         .eq("user_id", user.id)
         .single();
@@ -847,53 +980,19 @@ serve(async (req) => {
         .single();
       if (!shopOrder) return json({ success: false, message: "Shop order not found." }, 404);
 
-      if (payment.status === "COMPLETED" || payment.status === "FAILED") {
-        if (payment.status === "COMPLETED") {
-          const { error: fundingError } = await supabase.rpc("fund_commerce_order_from_external_payment", {
-            p_order_id: shopOrder.id,
-            p_payment_id: paymentId,
-            p_funding_source: shopOrder.payment_method === "card" ? "card" : "pesapal",
-          });
-          if (fundingError) throw new Error(fundingError.message);
-          await mirrorFinanceInventoryToPrimary(supabase, String(shopOrder.listing_id));
-        }
-        return json({ success: true, status: payment.status.toLowerCase() });
+      if (payment.settled_at) {
+        return json({ success: true, status: "completed" });
+      }
+      if (payment.status === "FAILED") {
+        return json({ success: true, status: "failed" });
       }
 
-      // Ask Pesapal directly
       const token = await getPesapalToken();
-      const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
-      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
-
-      let mappedStatus = "PENDING";
-      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) mappedStatus = "COMPLETED";
-      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) mappedStatus = "FAILED";
-
-      if (mappedStatus !== "PENDING") {
-        if (mappedStatus === "COMPLETED") {
-          const { error: fundingError } = await supabase.rpc("fund_commerce_order_from_external_payment", {
-            p_order_id: shopOrder.id,
-            p_payment_id: paymentId,
-            p_funding_source: shopOrder.payment_method === "card" ? "card" : "pesapal",
-          });
-          if (fundingError) throw new Error(fundingError.message);
-          await mirrorFinanceInventoryToPrimary(supabase, String(shopOrder.listing_id));
-        } else {
-          await supabase.from("commerce_orders")
-            .update({ payment_status: "FAILED", status: "cancelled", cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-            .eq("id", shopOrder.id);
-          await supabase.rpc("finalize_commerce_inventory", {
-            p_idempotency_key: paymentId + "-inv",
-            p_finance_order_id: null,
-            p_commit: false,
-          }).throwOnError();
-          await mirrorFinanceInventoryToPrimary(supabase, String(shopOrder.listing_id));
-        }
-
-        await supabase.from("payments")
-          .update({ status: mappedStatus, updated_at: new Date().toISOString() })
-          .eq("idempotency_key", paymentId);
-      }
+      const statusData = await getPesapalTransactionStatus(
+        token,
+        payment.provider_reference,
+      ) as Record<string, unknown>;
+      const mappedStatus = await settleVerifiedPesapalPayment(supabase, payment, statusData);
 
       return json({ success: true, status: mappedStatus.toLowerCase() });
     }
@@ -1615,46 +1714,26 @@ serve(async (req) => {
 
       const { data: payment } = await supabase
         .from("payments")
-        .select("status, provider_reference, request")
+        .select("*")
         .eq("idempotency_key", paymentId)
         .eq("user_id", user.id)
         .single();
 
       if (!payment) return json({ success: false, message: "Payment not found." }, 404);
 
-      if (payment.status === "COMPLETED" || payment.status === "FAILED") {
+      if (payment.settled_at) {
+        return json({ success: true, status: "completed" });
+      }
+      if (payment.status === "FAILED") {
         return json({ success: true, status: payment.status.toLowerCase() });
       }
 
       const token = await getPesapalToken();
-      const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
-      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
-
-      let mappedStatus = "PENDING";
-      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) mappedStatus = "COMPLETED";
-      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) mappedStatus = "FAILED";
-
-      if (mappedStatus !== "PENDING") {
-        await supabase.from("payments")
-          .update({ status: mappedStatus, updated_at: new Date().toISOString() })
-          .eq("idempotency_key", paymentId);
-
-        if (mappedStatus === "COMPLETED") {
-          // Credit the coins!
-          const reqData = payment.request as Record<string, any>;
-          await supabase.rpc("credit_ncx", {
-            p_user_auth_id: user.id,
-            p_amount_ncx: reqData.ncxAmount,
-            p_transaction_type: "COIN_PURCHASE",
-            p_fiat_amount: reqData.fiatAmount,
-            p_fiat_currency: "UGX",
-            p_reference_id: paymentId,
-            p_reference_type: "pesapal",
-            p_metadata: {},
-          });
-        }
-      }
-
+      const statusData = await getPesapalTransactionStatus(
+        token,
+        payment.provider_reference,
+      ) as Record<string, unknown>;
+      const mappedStatus = await settleVerifiedPesapalPayment(supabase, payment, statusData);
       return json({ success: true, status: mappedStatus.toLowerCase() });
     }
 
@@ -1824,6 +1903,9 @@ serve(async (req) => {
     // Returns the current wallet for the authenticated user.
     // Called by Flutter _syncVault() every time the UI needs to refresh balances.
     if (action === "get_wallet") {
+      // Recover delayed IPNs and payments completed while the app was closed.
+      const reconciliation = await reconcileUserPesapalPayments(supabase, user.id);
+
       // Ensure wallet row exists (0 balance if first request)
       await supabase.from("wallets").upsert(
         { user_id: user.id, fiat_balance: 0, coin_balance: 0, escrow_balance: 0 },
@@ -1876,6 +1958,7 @@ serve(async (req) => {
           metadata: e.metadata,
           createdAt: e.created_at,
         })),
+        reconciliation,
       });
     }
 
@@ -1925,68 +2008,23 @@ serve(async (req) => {
       if (!payment) return json({ success: false, message: "Payment record not found." }, 404);
 
       // Already credited — avoid double-credit
-      if (payment.status === "COMPLETED") {
+      if (payment.settled_at) {
         return json({ success: true, status: "already_credited", message: "This deposit was already credited to your wallet." });
       }
 
       // Check current Pesapal status
       const token = await getPesapalToken();
-      const statusData = await getPesapalTransactionStatus(token, payment.provider_reference);
-      const pesapalStatus = String(statusData.payment_status_description || statusData.status_code || "").toUpperCase();
-
-      console.log(`Reconcile deposit ${paymentId}: Pesapal says "${pesapalStatus}", status_code=${statusData.status_code}`);
-
-      let reconciledStatus = "PENDING";
-      if (pesapalStatus.includes("COMPLETED") || statusData.status_code === 1) reconciledStatus = "COMPLETED";
-      else if (pesapalStatus.includes("FAILED") || pesapalStatus.includes("INVALID") || statusData.status_code === 2) reconciledStatus = "FAILED";
-
-      // Update payment record
-      await supabase.from("payments")
-        .update({ status: reconciledStatus, updated_at: new Date().toISOString() })
-        .eq("idempotency_key", paymentId);
+      const statusData = await getPesapalTransactionStatus(
+        token,
+        payment.provider_reference,
+      ) as Record<string, unknown>;
+      const reconciledStatus = await settleVerifiedPesapalPayment(supabase, payment, statusData);
 
       if (reconciledStatus === "COMPLETED") {
-        const amountUgx = (payment.request as Record<string, number>)?.amount ?? 0;
-        if (amountUgx > 0) {
-          const { error: creditErr } = await supabase.rpc("credit_wallet_fiat", {
-            p_user_id: user.id,
-            p_amount_ugx: amountUgx,
-            p_reference: paymentId,
-          });
-          if (creditErr) {
-            console.error("credit_wallet_fiat error:", creditErr);
-            // Don't fail — update was successful, just log
-          }
-        }
-
-        // Insert reconciliation record
-        await supabase.from("payment_reconciliations").upsert({
-          payment_id: payment.id,
-          idempotency_key: paymentId,
-          user_id: user.id,
-          provider: "pesapal",
-          amount_ugx: (payment.request as Record<string, number>)?.amount ?? 0,
-          pesapal_status: pesapalStatus,
-          reconciled_status: "RECONCILED",
-          reconciled_at: new Date().toISOString(),
-          pesapal_response: statusData,
-        }, { onConflict: "idempotency_key" });
-
         return json({ success: true, status: "completed", message: "Deposit confirmed and wallet credited!" });
       }
 
       if (reconciledStatus === "FAILED") {
-        await supabase.from("payment_reconciliations").upsert({
-          payment_id: payment.id,
-          idempotency_key: paymentId,
-          user_id: user.id,
-          provider: "pesapal",
-          amount_ugx: (payment.request as Record<string, number>)?.amount ?? 0,
-          pesapal_status: pesapalStatus,
-          reconciled_status: "FAILED",
-          reconciled_at: new Date().toISOString(),
-          pesapal_response: statusData,
-        }, { onConflict: "idempotency_key" });
         return json({ success: false, status: "failed", message: "Payment was unsuccessful. Please try again." });
       }
 

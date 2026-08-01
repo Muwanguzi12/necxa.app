@@ -113,6 +113,7 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _state.checkInactivityLock();
+      _state.syncVault();
     } else if (state == AppLifecycleState.paused) {
       _state.updateActivity();
     }
