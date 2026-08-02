@@ -1,0 +1,10 @@
+project_id = "goobox-support"
+
+[functions.verify-support-token]
+verify_jwt = false
+
+[functions.create-support-ticket]
+verify_jwt = false
+
+[functions.deliver-necxa-support-reply]
+verify_jwt = false

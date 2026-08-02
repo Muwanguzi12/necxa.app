@@ -8,6 +8,7 @@ import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/commerce_service.dart';
+import '../services/support_service.dart';
 
 const String necxaSupportUrl = 'https://goobox.necxa.uk';
 const String necxaTermsUrl = 'https://goobox.necxa.uk/terms';
@@ -1251,6 +1252,29 @@ class _MoreOptionsSheet extends StatelessWidget {
     }
   }
 
+  Future<void> _openSupportLink(BuildContext context) async {
+    final uri = await SupportService().createGooboxUri();
+    if (!context.mounted) return;
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to open Necxa Support right now.'),
+          ),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to open Necxa Support right now.'),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -1379,7 +1403,7 @@ class _MoreOptionsSheet extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               GestureDetector(
-                onTap: () => _openExternalLink(context, necxaSupportUrl),
+                onTap: () => _openSupportLink(context),
                 child: const _SheetBtn(
                   label: 'Necxa Support',
                   subtitle: 'goobox.necxa.uk',

@@ -10,7 +10,7 @@ import { redisCall, syncMessageToRedis, triggerChatNotification, normalizeMessag
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-primary-jwt",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-primary-jwt, x-goobox-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
@@ -26,6 +26,8 @@ const err = (message: string, status = 400) => json({ error: message }, status)
 const PRIMARY_SUPABASE_URL = Deno.env.get("PRIMARY_SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
 const PRIMARY_SUPABASE_ANON_KEY = Deno.env.get("PRIMARY_SUPABASE_ANON_KEY") || "sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR"
 const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE_ROLE_KEY")
+const GOOBOX_SHARED_SECRET = Deno.env.get("GOOBOX_SHARED_SECRET") || ""
+const SUPPORT_ACCOUNT_ID = Deno.env.get("SUPPORT_ACCOUNT_ID") || ""
 
 // Enforce database operations execute against the primary backend
 const primaryAdminKey = PRIMARY_SUPABASE_SERVICE_ROLE_KEY || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -33,6 +35,22 @@ const primaryUrl = PRIMARY_SUPABASE_SERVICE_ROLE_KEY ? PRIMARY_SUPABASE_URL : De
 
 const supabase = createClient(primaryUrl, primaryAdminKey)
 const primaryClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY)
+
+async function secretsMatch(candidate: string, expected: string): Promise<boolean> {
+  if (!candidate || !expected || expected.length < 32) return false
+  const encoder = new TextEncoder()
+  const [candidateHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(candidate)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ])
+  const left = new Uint8Array(candidateHash)
+  const right = new Uint8Array(expectedHash)
+  let difference = left.length ^ right.length
+  for (let index = 0; index < Math.min(left.length, right.length); index++) {
+    difference |= left[index] ^ right[index]
+  }
+  return difference === 0
+}
 
 
 // ============================================
@@ -198,9 +216,27 @@ async function handleAI(_userId: string, payload: any) {
 
 
 // --- 💬 2. Send Message (Direct) ---
-async function handleSendMessage(userId: string, payload: any) {
-  const { id, to_user_id, room_id, content, media_url, message_type = "text", metadata = {} } = payload
+async function handleSendMessage(
+  userId: string,
+  payload: any,
+  options: { isSupport?: boolean } = {},
+) {
+  const { id, to_user_id, room_id, content, media_url, message_type = "text" } = payload
+  const metadata = options.isSupport
+    ? {
+        interaction_context: "support",
+        source: "goobox",
+        ticket_id: payload.ticket_id,
+      }
+    : (payload.metadata ?? {})
   if (!to_user_id && !room_id) return err("Missing recipient or room")
+  if (options.isSupport) {
+    if (!to_user_id || typeof to_user_id !== "string") return err("Missing support recipient")
+    if (to_user_id === userId) return err("Support recipient cannot be the support account")
+    if (typeof content !== "string" || !content.trim()) return err("Missing support reply")
+    if (content.length > 5000) return err("Support reply is too long")
+    if (typeof payload.ticket_id !== "string" || !payload.ticket_id.trim()) return err("Missing ticket_id")
+  }
 
   // 1. Resolve/Create Room
   let finalRoomId = room_id
@@ -245,6 +281,36 @@ async function handleSendMessage(userId: string, payload: any) {
   const recipientId = to_user_id || (roomInfo?.user_a === userId ? roomInfo?.user_b : roomInfo?.user_a)
   if (recipientId) {
     await triggerChatNotification(recipientId, userId, finalRoomId, content)
+  }
+
+  // Goobox replies also enter the durable notification pipeline used by the
+  // Flutter app. Redis alone is not enough because the app listens to the
+  // primary Postgres notifications table for its visible/system alert.
+  if (options.isSupport && recipientId) {
+    const preview = content.trim().slice(0, 180)
+    const { error: notificationError } = await supabase
+      .from("notifications")
+      .upsert({
+        user_id: recipientId,
+        actor_id: userId,
+        notification_type: "system",
+        type: "system",
+        title: "Necxa Support replied",
+        body: preview,
+        target_id: finalRoomId,
+        target_type: "system",
+        dedupe_key: `support-message:${message.id}`,
+        metadata: {
+          interaction_context: "support",
+          room_id: finalRoomId,
+          message_id: message.id,
+          ticket_id: payload.ticket_id,
+        },
+      }, { onConflict: "user_id,dedupe_key" })
+
+    if (notificationError) {
+      console.error("Support notification insert failed:", notificationError)
+    }
   }
 
 
@@ -313,30 +379,45 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
 
   try {
-    // Auth Check using primary auth server - Strict Federated Auth Bridge
-    const primaryJwt = req.headers.get("x-primary-jwt")
-    if (!primaryJwt) return err("Unauthorized: missing x-primary-jwt", 401)
+    // Federated user JWTs remain the default. Goobox gets one narrowly scoped,
+    // server-to-server path that may only send as the dedicated support account.
+    const gooboxSecret = req.headers.get("x-goobox-secret") || ""
+    const isGoobox = gooboxSecret.length > 0
+    let userId: string
 
-    const primaryUserClient = createClient(
-      PRIMARY_SUPABASE_URL,
-      PRIMARY_SUPABASE_ANON_KEY,
-      { global: { headers: { Authorization: `Bearer ${primaryJwt}` } } }
-    )
+    if (isGoobox) {
+      if (!SUPPORT_ACCOUNT_ID || !(await secretsMatch(gooboxSecret, GOOBOX_SHARED_SECRET))) {
+        return err("Unauthorized: invalid Goobox credentials", 401)
+      }
+      userId = SUPPORT_ACCOUNT_ID
+    } else {
+      const primaryJwt = req.headers.get("x-primary-jwt")
+      if (!primaryJwt) return err("Unauthorized: missing x-primary-jwt", 401)
 
-    const { data: { user }, error: userError } = await primaryUserClient.auth.getUser()
-    if (userError || !user) return err("Unauthorized: invalid primary JWT", 401)
+      const primaryUserClient = createClient(
+        PRIMARY_SUPABASE_URL,
+        PRIMARY_SUPABASE_ANON_KEY,
+        { global: { headers: { Authorization: `Bearer ${primaryJwt}` } } }
+      )
 
-    const userId = user.id
+      const { data: { user }, error: userError } = await primaryUserClient.auth.getUser()
+      if (userError || !user) return err("Unauthorized: invalid primary JWT", 401)
+      userId = user.id
+    }
 
     const body = await req.json()
     const { action, payload = {} } = body
+
+    if (isGoobox && action !== "SEND_MESSAGE") {
+      return err("Goobox may only send support messages", 403)
+    }
 
     // Route Actions
     switch (action) {
       case "AI_ASSISTANT":
         return handleAI(userId, body) // Body passed for legacy 'messages' field
       case "SEND_MESSAGE":
-        return handleSendMessage(userId, payload)
+        return handleSendMessage(userId, payload, { isSupport: isGoobox })
       case "FETCH_MESSAGES":
         return handleFetchMessages(userId, payload)
       case "FETCH_ROOMS":

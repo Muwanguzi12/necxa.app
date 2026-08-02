@@ -2113,6 +2113,9 @@ class AppState extends ChangeNotifier {
             );
             final notif = AppNotification.fromMap(payload.newRecord);
             await NotificationService().showNotification(notif);
+            if (notif.metadata['interaction_context'] == 'support') {
+              await fetchCreatorConversations(force: true);
+            }
             await loadNotifications();
           },
         )
@@ -2181,13 +2184,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> fetchCreatorConversations() async {
+  Future<void> fetchCreatorConversations({bool force = false}) async {
     // 1. Instant Load from Cache — always shown immediately
     if (!isInboxHydrated) await hydrateFromLocal();
 
     // 2. TTL GUARD: skip network if refreshed within the last 60 seconds
     final now = DateTime.now();
-    if (_lastInboxSync != null &&
+    if (!force &&
+        _lastInboxSync != null &&
         now.difference(_lastInboxSync!).inSeconds < 60) {
       debugPrint(
         '⏱️ Inbox sync skipped (TTL: ${now.difference(_lastInboxSync!).inSeconds}s old)',
@@ -3052,7 +3056,32 @@ class AppState extends ChangeNotifier {
     }
     if (notification.targetType == 'post' && notification.targetId != null) {
       go('community', extra: notification.targetId);
+      return;
     }
+    final roomId = notification.metadata['room_id']?.toString();
+    if (roomId != null && roomId.isNotEmpty) {
+      unawaited(_openNotificationChat(roomId));
+    }
+  }
+
+  Future<void> _openNotificationChat(String roomId) async {
+    await fetchCreatorConversations(force: true);
+    ChatRoom? room;
+    for (final candidate in rooms) {
+      if (candidate.id == roomId) {
+        room = candidate;
+        break;
+      }
+    }
+    if (room == null) return;
+    activeConversation = room;
+    await fetchMessages(room.id);
+    await markRoomAsRead(room.id);
+    go(
+      room.metadata?['interaction_context'] == 'social'
+          ? 'creator-chat-detail'
+          : 'chat-detail',
+    );
   }
 
   // ── Sync Engine (Neural Pulse) ────────────────────────────────
