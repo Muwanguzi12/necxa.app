@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-primary-jwt, x-shield-signature",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
 }
 
@@ -15,6 +15,10 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!!
+// SP1 remains the authentication project. This function runs on SP2 so that
+// the identity shard and private images have a single authoritative home.
+const PRIMARY_SUPABASE_URL = Deno.env.get("PRIMARY_SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
+const PRIMARY_SUPABASE_ANON_KEY = Deno.env.get("PRIMARY_SUPABASE_ANON_KEY") || "sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR"
 
 async function fileToBase64(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer()
@@ -50,11 +54,13 @@ Deno.serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     
-    // 1. Get User from Auth Header
-    const authHeader = req.headers.get('Authorization')!!
+    // 1. Validate the caller against SP1. Gateway verification is disabled on
+    // SP2 because it cannot validate an SP1 session JWT.
+    const authHeader = req.headers.get('Authorization') || ''
+    if (!authHeader.startsWith('Bearer ')) return json({ error: "Unauthorized" }, 401)
     const { data: { user }, error: authError } = await createClient(
-      SUPABASE_URL, 
-      Deno.env.get("SUPABASE_ANON_KEY")!!, 
+      PRIMARY_SUPABASE_URL,
+      PRIMARY_SUPABASE_ANON_KEY,
       { global: { headers: { Authorization: authHeader } } }
     ).auth.getUser()
 
@@ -73,6 +79,18 @@ Deno.serve(async (req) => {
     // 3. AI Processing — Cloudflare Workers AI Biometric Engine
     const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk';
     const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || '';
+    if (!NECXA_AI_API_KEY) {
+      return json({ error: "Identity AI is not configured on SP2." }, 503)
+    }
+
+    // Finance/verification SP2 keeps a minimal profile stub for its foreign
+    // key. SP1 remains the user-profile authority.
+    const { error: profileError } = await supabase.from('profiles').upsert({
+      id: user.id,
+      email: user.email ?? null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' })
+    if (profileError) throw profileError
 
     const [frontOcr, backOcr, holdingOcr] = await Promise.all([
       verifyDocumentWithAi(idFront, 'id_front', NECXA_AI_URL, NECXA_AI_API_KEY),
@@ -133,11 +151,7 @@ Deno.serve(async (req) => {
     // 4. Persistence (Storage)
     const store = async (file: File, path: string) => {
       const storagePath = `${user.id}/${Date.now()}_${path}`
-      let upload = await supabase.storage.from('identity-shards').upload(storagePath, file)
-      if (upload.error) {
-        console.warn(`identity-shards upload failed, falling back to verifications: ${upload.error.message}`)
-        upload = await supabase.storage.from('verifications').upload(storagePath, file)
-      }
+      const upload = await supabase.storage.from('identity-shards').upload(storagePath, file)
       if (upload.error) throw upload.error
       return upload.data?.path
     }
@@ -168,15 +182,6 @@ Deno.serve(async (req) => {
     }).select().single()
 
     if (dbError) throw dbError
-
-    // 6. 🚀 Update Unified Profile Status
-    if (aiResponse.verified) {
-      await supabase.from('profiles').update({
-        face_verified: true,
-        full_name: aiResponse.extracted_name,
-        verified_at: new Date().toISOString()
-      }).eq('id', user.id);
-    }
 
     return json({
       identity_shard_id: shard.id,

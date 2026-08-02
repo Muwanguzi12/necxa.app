@@ -76,6 +76,10 @@ class NecxaAI {
   //            /api/verify/listing, /api/verify/live-frame,
   //            /api/assistant/chat/sync
   static const String _workerBase = 'https://api.necxa.uk';
+  static const String _identityVerificationUrl =
+      'https://ayvescksetiuekoyfqar.supabase.co/functions/v1/verify-identity-shard';
+  static const String _identityVerificationPublishableKey =
+      'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
   static const Duration _imageVerificationTimeout = Duration(seconds: 45);
   static const Duration _videoVerificationTimeout = Duration(seconds: 90);
   static const Duration _audioVerificationTimeout = Duration(seconds: 90);
@@ -413,6 +417,38 @@ class NecxaAI {
     return headers;
   }
 
+  /// The app authenticates on SP1, while SP2 is the authoritative home for
+  /// verification processing. SP2 validates this forwarded SP1 JWT itself.
+  static Future<Map<String, dynamic>> _invokeIdentityVerification(
+    Map<String, dynamic> payload,
+  ) async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      throw Exception('User must be signed in to verify identity.');
+    }
+
+    final response = await http
+        .post(
+          Uri.parse(_identityVerificationUrl),
+          headers: {
+            'Authorization': 'Bearer ${session.accessToken}',
+            'x-primary-jwt': session.accessToken,
+            'apikey': _identityVerificationPublishableKey,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(payload),
+        )
+        .timeout(const Duration(seconds: 45));
+    final raw = response.body.trim();
+    final data = raw.isEmpty
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(data['error']?.toString() ?? 'Identity verification failed.');
+    }
+    return data;
+  }
+
   // ── IDENTITY VERIFICATION ──
   static Future<Map<String, dynamic>> verifyID(
     File imageFile, {
@@ -425,17 +461,13 @@ class NecxaAI {
         throw Exception("User must be logged in to verify ID natively.");
 
       final primaryBase64 = await fileToBase64(imageFile);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-identity-shard',
-        headers: _aiHeaders(),
-        body: buildIdentityShardPayload(
+      final data = await _invokeIdentityVerification(
+        buildIdentityShardPayload(
           action: action,
           primaryBase64: primaryBase64,
           userId: userId ?? session.user.id,
         ),
       );
-
-      final data = Map<String, dynamic>.from(res.data ?? {});
       final verified = data['verified'] == true;
       final feedback =
           data['feedback']?.toString() ??
@@ -472,17 +504,13 @@ class NecxaAI {
         );
 
       final primaryBase64 = await fileToBase64(selfieFile);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-identity-shard',
-        headers: _aiHeaders(),
-        body: buildIdentityShardPayload(
+      final data = await _invokeIdentityVerification(
+        buildIdentityShardPayload(
           action: 'verify-face-only',
           primaryBase64: primaryBase64,
           userId: userId ?? session.user.id,
         ),
       );
-
-      final data = Map<String, dynamic>.from(res.data ?? {});
       final faceMatch = data['faceMatch'] == true || data['verified'] == true;
       final feedback =
           data['feedback']?.toString() ??
@@ -557,18 +585,14 @@ class NecxaAI {
 
       final primaryBase64 = await fileToBase64(selfieFile);
       final secondaryBase64 = await fileToBase64(idReferenceFile);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-identity-shard',
-        headers: _aiHeaders(),
-        body: buildIdentityShardPayload(
+      final data = await _invokeIdentityVerification(
+        buildIdentityShardPayload(
           action: 'verify-selfie',
           primaryBase64: primaryBase64,
           secondaryBase64: secondaryBase64,
           userId: userId ?? session.user.id,
         ),
       );
-
-      final data = Map<String, dynamic>.from(res.data ?? {});
       final faceMatch = data['faceMatch'] == true || data['verified'] == true;
       final feedback =
           data['feedback']?.toString() ??

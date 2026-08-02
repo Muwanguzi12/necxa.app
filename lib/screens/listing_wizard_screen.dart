@@ -380,11 +380,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   IDResult _idResultFrom(Map<String, dynamic> data) {
-    final rawScore = data['score'];
-    final score = rawScore is num
-        ? rawScore
-        : num.tryParse(rawScore?.toString() ?? '');
-    final verified = data['verified'] == true || (score != null && score >= 70);
+    // A score is diagnostic information, not an approval. Only the identity
+    // verification service can approve a document capture.
+    final verified = data['verified'] == true;
     return IDResult(
       verified: verified,
       sessionId:
@@ -395,14 +393,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   SelfieResult _selfieResultFrom(Map<String, dynamic> data) {
-    final rawScore = data['score'];
-    final score = rawScore is num
-        ? rawScore
-        : num.tryParse(rawScore?.toString() ?? '');
-    final faceMatch =
-        data['faceMatch'] == true ||
-        data['verified'] == true ||
-        (score != null && score >= 70);
+    // Face matching must be an explicit result from the biometric service.
+    final faceMatch = data['faceMatch'] == true || data['verified'] == true;
     return SelfieResult(
       faceMatch: faceMatch,
       sessionId:
@@ -528,8 +520,15 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           facePhoto: state.faceImage!,
         );
 
-        state.identityShardId = res['identity_shard_id'] ?? 'MOCK_SHARD';
-        _identityShardId = state.identityShardId;
+        final identityShardId = res['identity_shard_id']?.toString();
+        if (res['verified'] != true || identityShardId == null || identityShardId.isEmpty) {
+          throw Exception(
+            res['message']?.toString() ??
+                'Identity shard verification was not approved. Please retake the scans.',
+          );
+        }
+        state.identityShardId = identityShardId;
+        _identityShardId = identityShardId;
         state.verificationSubStep = 4;
       }
 
@@ -928,7 +927,10 @@ class _Step3Identity extends StatelessWidget {
       children: [
         Stack(
           children: [
-            _NeuralScannerOverlay(key: scannerKey),
+            _NeuralScannerOverlay(
+              key: scannerKey,
+              documentMode: subStep < 3,
+            ),
             if (loading)
               Positioned.fill(
                 child: Container(
@@ -1073,7 +1075,8 @@ class _InstructionCard extends StatelessWidget {
 }
 
 class _NeuralScannerOverlay extends StatefulWidget {
-  const _NeuralScannerOverlay({super.key});
+  final bool documentMode;
+  const _NeuralScannerOverlay({super.key, required this.documentMode});
   @override
   State<_NeuralScannerOverlay> createState() => _NeuralScannerOverlayState();
 }
@@ -1184,15 +1187,22 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 200,
+      height: 270,
       width: double.infinity,
       decoration: BoxDecoration(
         color: C.cardDk,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: C.brand.withOpacity(.3)),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: C.brand.withOpacity(.7), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: C.brand.withOpacity(.12),
+            blurRadius: 20,
+            spreadRadius: 1,
+          ),
+        ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(25),
         child: Stack(
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
@@ -1214,31 +1224,34 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 ),
               ),
 
-            if (_currentDirection == CameraLensDirection.back)
-              const IgnorePointer(
-                child: Center(
-                  child: FractionallySizedBox(
-                    widthFactor: .82,
-                    child: AspectRatio(
-                      aspectRatio: 1.586,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          border: Border.fromBorderSide(
-                            BorderSide(color: Colors.white70, width: 1.5),
+            IgnorePointer(
+              child: Center(
+                child: FractionallySizedBox(
+                  widthFactor: widget.documentMode ? .84 : .62,
+                  child: AspectRatio(
+                    aspectRatio: widget.documentMode ? 1.586 : .78,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.white.withOpacity(.9), width: 2.5),
+                        borderRadius: BorderRadius.circular(widget.documentMode ? 22 : 999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(.22),
+                            blurRadius: 14,
                           ),
-                          borderRadius: BorderRadius.all(Radius.circular(12)),
-                        ),
+                        ],
                       ),
                     ),
                   ),
                 ),
               ),
+            ),
 
             // The Scanner Eye
             AnimatedBuilder(
               animation: _ctrl,
               builder: (context, child) => Positioned(
-                top: _ctrl.value * 200,
+                top: _ctrl.value * 270,
                 left: 0,
                 right: 0,
                 child: Container(
@@ -1262,14 +1275,28 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 ),
               ),
             ),
-            const Positioned(top: 10, left: 10, child: _ScannerNodeStatus()),
+            const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
             Positioned(
-              top: 10,
-              right: 10,
-              child: IconButton(
-                onPressed: toggleCamera,
-                icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
-                style: IconButton.styleFrom(backgroundColor: Colors.black45),
+              top: 14,
+              right: 14,
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(.94),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: toggleCamera,
+                    icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+                    style: IconButton.styleFrom(backgroundColor: Colors.black45),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1285,10 +1312,6 @@ class _ScannerNodeStatus extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.black45,
-        borderRadius: BorderRadius.circular(6),
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1296,7 +1319,7 @@ class _ScannerNodeStatus extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             'NEURAL PULSE ACTIVE',
-            style: dm(sz: 8, w: FontWeight.w900, c: C.brand),
+            style: dm(sz: 10, w: FontWeight.w900, c: C.brand, ls: .4),
           ),
         ],
       ),

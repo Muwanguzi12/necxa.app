@@ -4,6 +4,12 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ListingSyncService {
+  // SP2 owns encrypted identity-verification evidence. SP1 remains the
+  // application/session and listing project.
+  static const _verificationProjectUrl =
+      'https://ayvescksetiuekoyfqar.supabase.co';
+  static const _verificationPublishableKey =
+      'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
   static String get _edgeFuncUrl {
     final restUrl = Supabase.instance.client.rest.url;
     final baseUrl = restUrl.split('/rest/v1')[0];
@@ -16,11 +22,8 @@ class ListingSyncService {
     return '$baseUrl/functions/v1/utility-verify';
   }
 
-  static String get _identityFuncUrl {
-    final restUrl = Supabase.instance.client.rest.url;
-    final baseUrl = restUrl.split('/rest/v1')[0];
-    return '$baseUrl/functions/v1/identity-verify';
-  }
+  static String get _identityFuncUrl =>
+      '$_verificationProjectUrl/functions/v1/identity-verify';
 
   static Future<Map<String, String>> _getHeaders() async {
     final session = Supabase.instance.client.auth.currentSession;
@@ -48,7 +51,9 @@ class ListingSyncService {
     required File facePhoto,
   }) async {
     final req = http.MultipartRequest('POST', Uri.parse(_identityFuncUrl));
-    req.headers.addAll(await _getHeaders());
+    final headers = await _getHeaders();
+    headers['apikey'] = _verificationPublishableKey;
+    req.headers.addAll(headers);
     
     req.fields['country'] = country;
     req.fields['doc_type'] = docType;
