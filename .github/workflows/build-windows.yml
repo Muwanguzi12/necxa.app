@@ -30,6 +30,16 @@ jobs:
         channel: 'stable'
         cache: true
 
+    - name: Setup CMake
+      shell: pwsh
+      run: |
+        choco install cmake --version 3.31.6 --installargs 'ADD_CMAKE_TO_PATH=System' --yes --no-progress
+        $cmakePath = Join-Path $env:ProgramFiles 'CMake\bin'
+        if (Test-Path $cmakePath) {
+          $env:Path = "$cmakePath;$env:Path"
+        }
+        cmake --version
+
     - name: Enable Windows Desktop
       run: flutter config --enable-windows-desktop
 
