@@ -28,9 +28,6 @@ import 'services/telemetry_service.dart';
 import 'services/notification_service.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
 import 'package:camera/camera.dart';
 
 List<CameraDescription> cameras = [];
@@ -42,20 +39,6 @@ void main() async {
     cameras = await availableCameras();
   } catch (e) {
     debugPrint('Camera error: $e');
-  }
-
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('🔥 Firebase Initialized Successfully');
-
-    if (FirebaseAuth.instance.currentUser == null) {
-      final credential = await FirebaseAuth.instance.signInAnonymously();
-      debugPrint('🔥 Firebase anonymous auth user: ${credential.user?.uid}');
-    }
-  } catch (e) {
-    debugPrint('🔥 Firebase Init Error (Likely missing config): $e');
   }
 
   await Supabase.initialize(
