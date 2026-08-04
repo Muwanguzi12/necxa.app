@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
@@ -417,7 +417,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       state.setShieldFeedback(null);
       final scanner = _scannerKey.currentState;
       if (scanner == null) {
-        throw Exception(
+        throw UserMessageException(
           'Camera is not ready yet. Please wait a moment and try again.',
         );
       }
@@ -440,7 +440,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         );
         final idResult = _idResultFrom(result);
         if (!idResult.verified) {
-          throw Exception(
+          throw UserMessageException(
             _aiFeedback(
               result,
               'National ID front scan failed. Please retake a clearer photo.',
@@ -459,7 +459,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         );
         final idResult = _idResultFrom(result);
         if (!idResult.verified) {
-          throw Exception(
+          throw UserMessageException(
             _aiFeedback(
               result,
               'National ID back scan failed. Please retake the back side clearly.',
@@ -478,7 +478,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         );
         final idResult = _idResultFrom(result);
         if (!idResult.verified) {
-          throw Exception(
+          throw UserMessageException(
             _aiFeedback(
               result,
               'Holding-ID scan failed. Keep your face and ID visible, then retry.',
@@ -501,7 +501,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         );
         final biometric = _selfieResultFrom(selfieResult);
         if (!biometric.faceMatch) {
-          throw Exception(
+          throw UserMessageException(
             _aiFeedback(
               selfieResult,
               'Biometric face match failed. Please retry in better light.',
@@ -522,7 +522,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
         final identityShardId = res['identity_shard_id']?.toString();
         if (res['verified'] != true || identityShardId == null || identityShardId.isEmpty) {
-          throw Exception(
+          throw UserMessageException(
             res['message']?.toString() ??
                 'Identity shard verification was not approved. Please retake the scans.',
           );
@@ -932,24 +932,40 @@ class _Step3Identity extends StatelessWidget {
               documentMode: subStep < 3,
             ),
             if (loading)
-              Positioned.fill(
+              Positioned(
+                left: 18,
+                right: 18,
+                bottom: 18,
                 child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.7),
-                    borderRadius: BorderRadius.circular(20),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  decoration: BoxDecoration(
+                    color: C.bg.withOpacity(.88),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: C.brand.withOpacity(.42)),
+                  ),
+                  child: Row(
                     children: [
-                      const CircularProgressIndicator(color: C.brand),
-                      const SizedBox(height: 16),
-                      Text(
-                        'NEURAL SYNTHESIS IN PROGRESS...',
-                        style: syne(
-                          sz: 10,
-                          c: C.brand,
-                          ls: 2,
-                          w: FontWeight.w800,
+                      const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          color: C.brand,
+                          strokeWidth: 2.5,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Verifying secure capture...',
+                          style: syne(
+                            sz: 10,
+                            c: C.brand,
+                            ls: 1.1,
+                            w: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ],
@@ -958,27 +974,7 @@ class _Step3Identity extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 24),
-
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(
-            4,
-            (i) => Container(
-              width: 8,
-              height: 8,
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: i == subStep
-                    ? C.brand
-                    : (i < subStep ? C.green : C.border),
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         _InstructionCard(
           title: currentInstr.$1,
           desc: currentInstr.$2,
@@ -1166,17 +1162,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     return activeController;
   }
 
-  Future<void> toggleCamera() async {
-    final newDirection = _currentDirection == CameraLensDirection.back
-        ? CameraLensDirection.front
-        : CameraLensDirection.back;
-    try {
-      await switchCamera(newDirection);
-    } catch (error) {
-      debugPrint('Camera switch failed: $error');
-    }
-  }
-
   @override
   void dispose() {
     _ctrl.dispose();
@@ -1207,9 +1192,37 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
               Positioned.fill(
-                child: ColoredBox(
-                  color: Colors.black,
-                  child: Center(child: CameraPreview(cameraCtrl!)),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // The camera plugin exposes a portrait preview. Scale it to
+                    // to cover the viewport rather than leaving black bars.
+                    final viewportAspect = constraints.maxWidth / constraints.maxHeight;
+                    double previewAspect = cameraCtrl!.value.aspectRatio;
+                    
+                    // Correct for camera's native aspect ratio inversion on portrait devices.
+                    // If the device is in portrait but the preview aspect ratio is landscape (> 1),
+                    // the CameraPreview widget will rotate it internally. We must use the inverted ratio.
+                    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+                    if (isPortrait && previewAspect > 1.0) {
+                      previewAspect = 1.0 / previewAspect;
+                    } else if (!isPortrait && previewAspect < 1.0) {
+                      previewAspect = 1.0 / previewAspect;
+                    }
+                    
+                    double scale;
+                    if (viewportAspect > previewAspect) {
+                      scale = viewportAspect / previewAspect;
+                    } else {
+                      scale = previewAspect / viewportAspect;
+                    }
+
+                    return ClipRect(
+                      child: Transform.scale(
+                        scale: scale,
+                        child: Center(child: CameraPreview(cameraCtrl!)),
+                      ),
+                    );
+                  },
                 ),
               )
             else
@@ -1225,78 +1238,61 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               ),
 
             IgnorePointer(
-              child: Center(
-                child: FractionallySizedBox(
-                  widthFactor: widget.documentMode ? .84 : .62,
-                  child: AspectRatio(
-                    aspectRatio: widget.documentMode ? 1.586 : .78,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.white.withOpacity(.9), width: 2.5),
-                        borderRadius: BorderRadius.circular(widget.documentMode ? 22 : 999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(.22),
-                            blurRadius: 14,
-                          ),
+              child: AnimatedBuilder(
+                animation: _ctrl,
+                builder: (context, child) {
+                  return CustomPaint(
+                    size: const Size(double.infinity, 270),
+                    painter: _ScannerOverlayPainter(
+                      documentMode: widget.documentMode,
+                      progress: _ctrl.value,
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // The Scanner Eye (Document Mode Only)
+            if (widget.documentMode)
+              AnimatedBuilder(
+                animation: _ctrl,
+                builder: (context, child) => Positioned(
+                  top: _ctrl.value * 270,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: 2,
+                    decoration: BoxDecoration(
+                      boxShadow: const [
+                        BoxShadow(
+                          color: C.brand,
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                      gradient: LinearGradient(
+                        colors: [
+                          C.brand.withOpacity(0),
+                          C.brand,
+                          C.brand.withOpacity(0),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-
-            // The Scanner Eye
-            AnimatedBuilder(
-              animation: _ctrl,
-              builder: (context, child) => Positioned(
-                top: _ctrl.value * 270,
-                left: 0,
-                right: 0,
-                child: Container(
-                  height: 2,
-                  decoration: BoxDecoration(
-                    boxShadow: const [
-                      BoxShadow(
-                        color: C.brand,
-                        blurRadius: 10,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                    gradient: LinearGradient(
-                      colors: [
-                        C.brand.withOpacity(0),
-                        C.brand,
-                        C.brand.withOpacity(0),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
             const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
             Positioned(
               top: 14,
               right: 14,
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(.94),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: toggleCamera,
-                    icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
-                    style: IconButton.styleFrom(backgroundColor: Colors.black45),
-                  ),
-                ],
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(.94),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
               ),
             ),
           ],
@@ -1722,3 +1718,94 @@ Widget _chip(String label, bool sel, VoidCallback onTap) => GestureDetector(
     ),
   ),
 );
+
+class _ScannerOverlayPainter extends CustomPainter {
+  final bool documentMode;
+  final double progress;
+
+  _ScannerOverlayPainter({
+    required this.documentMode,
+    required this.progress,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bgPaint = Paint()..color = Colors.black.withOpacity(0.65);
+    final bgPath = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+    
+    Path cutoutPath;
+    Rect cutoutRect;
+
+    if (documentMode) {
+      final w = size.width * 0.83;
+      final h = w / 1.586;
+      cutoutRect = Rect.fromCenter(
+        center: Offset(size.width / 2, size.height / 2),
+        width: w,
+        height: h,
+      );
+      cutoutPath = Path()..addRRect(RRect.fromRectAndRadius(cutoutRect, const Radius.circular(22)));
+    } else {
+      final h = size.height * 0.85;
+      final w = h * 0.72;
+      cutoutRect = Rect.fromCenter(
+        center: Offset(size.width / 2, size.height / 2),
+        width: w,
+        height: h,
+      );
+      cutoutPath = Path()..addOval(cutoutRect);
+    }
+
+    final maskPath = Path.combine(PathOperation.difference, bgPath, cutoutPath);
+    canvas.drawPath(maskPath, bgPaint);
+
+    if (documentMode) {
+      final docBorderPaint = Paint()
+        ..color = Colors.white.withOpacity(0.9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5;
+      canvas.drawPath(cutoutPath, docBorderPaint);
+    } else {
+      final dimPaint = Paint()
+        ..color = Colors.white.withOpacity(0.2)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+      canvas.drawOval(cutoutRect, dimPaint);
+
+      final sweepPaint = Paint()
+        ..color = const Color(0xFF00E5FF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 3);
+
+      final startAngle = (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
+      final sweepAngle = 3.141592653589793 * 0.45;
+      canvas.drawArc(cutoutRect, startAngle, sweepAngle, false, sweepPaint);
+      canvas.drawArc(cutoutRect, startAngle + 3.141592653589793, sweepAngle, false, sweepPaint);
+
+      final cx = size.width / 2;
+      final cy = size.height / 2;
+      final padding = 14.0;
+      final hw = cutoutRect.width / 2 + padding;
+      final hh = cutoutRect.height / 2 + padding;
+      final len = 22.0;
+      
+      final cornerPaint = Paint()
+        ..color = Colors.white.withOpacity(0.9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round;
+
+      canvas.drawPath(Path()..moveTo(cx - hw, cy - hh + len)..lineTo(cx - hw, cy - hh)..lineTo(cx - hw + len, cy - hh), cornerPaint);
+      canvas.drawPath(Path()..moveTo(cx + hw - len, cy - hh)..lineTo(cx + hw, cy - hh)..lineTo(cx + hw, cy - hh + len), cornerPaint);
+      canvas.drawPath(Path()..moveTo(cx - hw, cy + hh - len)..lineTo(cx - hw, cy + hh)..lineTo(cx - hw + len, cy + hh), cornerPaint);
+      canvas.drawPath(Path()..moveTo(cx + hw, cy + hh - len)..lineTo(cx + hw, cy + hh)..lineTo(cx + hw - len, cy + hh), cornerPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) {
+    return oldDelegate.documentMode != documentMode || oldDelegate.progress != progress;
+  }
+}

@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
@@ -62,6 +62,20 @@ String getUserFriendlyError(dynamic error) {
     return "Loading unsuccessful. Please check your connection and try again.";
   }
 
+  // If it's a standard generic exception, it might be a developer string or a clean message.
+  // If it's explicitly marked as UserMessageException, return it.
+  if (error is UserMessageException) {
+    return error.message;
+  }
+
   // Return a generic safe message for any other raw exceptions
   return "Loading unsuccessful. Please try again.";
+}
+
+/// Use this exception for messages that are already safe to show to the user.
+class UserMessageException implements Exception {
+  final String message;
+  UserMessageException(this.message);
+  @override
+  String toString() => message;
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -484,9 +484,11 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
       return {
         'verified': false,
-        'feedback': 'Verification failed: $e',
+        'feedback': msg,
         'score': 0,
       };
     }
@@ -527,9 +529,11 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
       return {
         'faceMatch': false,
-        'feedback': 'Verification failed: $e',
+        'feedback': msg,
         'score': 0,
       };
     }
@@ -609,9 +613,11 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
       return {
         'faceMatch': false,
-        'feedback': 'Verification failed: $e',
+        'feedback': msg,
         'score': 0,
       };
     }
