@@ -3,6 +3,8 @@ name: Deploy Flutter web to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -48,6 +50,7 @@ jobs:
           path: build/web
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
