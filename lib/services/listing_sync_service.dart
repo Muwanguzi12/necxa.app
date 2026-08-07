@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -24,6 +24,9 @@ class ListingSyncService {
 
   static String get _identityFuncUrl =>
       '$_verificationProjectUrl/functions/v1/identity-verify';
+
+  static String get _faceCacheFuncUrl =>
+      '$_verificationProjectUrl/functions/v1/face-session-cache';
 
   static Future<Map<String, String>> _getHeaders() async {
     final session = Supabase.instance.client.auth.currentSession;
@@ -71,7 +74,54 @@ class ListingSyncService {
     }
     return jsonDecode(resBody);
   }
-
+ 
+  static Future<Map<String, dynamic>> cacheFaceSession({
+    required String sessionId,
+    required String identityShardId,
+    required bool faceMatch,
+    required double score,
+    bool verified = true,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_faceCacheFuncUrl/cache'),
+      headers: {
+        ...await _getHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'sessionId': sessionId,
+        'identityShardId': identityShardId,
+        'faceMatch': faceMatch,
+        'score': score,
+        'verified': verified,
+      }),
+    );
+    final body = res.body;
+    if (res.statusCode >= 400) {
+      throw Exception('Face cache error (${res.statusCode}): $body');
+    }
+    return jsonDecode(body);
+  }
+ 
+  static Future<Map<String, dynamic>> compareFaceSession({
+    required String sessionId,
+    required File selfie,
+  }) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_faceCacheFuncUrl/compare?sessionId=$sessionId'),
+    );
+    req.headers.addAll(await _getHeaders());
+    req.files.add(await http.MultipartFile.fromPath('selfie', selfie.path));
+ 
+    final res = await req.send();
+    final resBody = await res.stream.bytesToString();
+    if (res.statusCode >= 400) {
+      throw Exception('Face compare error (${res.statusCode}): $resBody');
+    }
+    return jsonDecode(resBody);
+  }
+ 
   // ============================================
   // STAGE 2: UTILITY SHARD  →  utility-verify function
   // ============================================

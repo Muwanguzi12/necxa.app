@@ -395,12 +395,19 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   SelfieResult _selfieResultFrom(Map<String, dynamic> data) {
     // Face matching must be an explicit result from the biometric service.
     final faceMatch = data['faceMatch'] == true || data['verified'] == true;
+    double? score;
+    if (data['score'] is num) {
+      score = (data['score'] as num).toDouble();
+    } else if (data['similarityScore'] is num) {
+      score = (data['similarityScore'] as num).toDouble();
+    }
     return SelfieResult(
       faceMatch: faceMatch,
       sessionId:
           data['sessionLink']?.toString() ??
           data['sessionId']?.toString() ??
           'BIO-${DateTime.now().millisecondsSinceEpoch}',
+      score: score,
     );
   }
 
@@ -529,6 +536,19 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.identityShardId = identityShardId;
         _identityShardId = identityShardId;
+
+        try {
+          await ListingSyncService.cacheFaceSession(
+            sessionId: biometric.sessionId,
+            identityShardId: identityShardId,
+            faceMatch: biometric.faceMatch,
+            score: biometric.score ?? 0,
+          );
+        } catch (cacheError) {
+          // Face cache is best-effort; do not block the wizard.
+          print('Face cache integration failed: $cacheError');
+        }
+
         state.verificationSubStep = 4;
       }
 

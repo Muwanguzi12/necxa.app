@@ -24,7 +24,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -940,9 +940,7 @@ class AppState extends ChangeNotifier {
   Future<void> syncPaymentMethods() async {
     paymentMethods = const [
       {'id': 'balance', 'name': 'Necxa Wallet', 'enabled': true},
-      {'id': 'mtn', 'name': 'MTN MoMo', 'enabled': true},
-      {'id': 'airtel', 'name': 'Airtel Money', 'enabled': true},
-      {'id': 'card', 'name': 'Card', 'enabled': true},
+      {'id': 'mtn', 'name': 'MTN MoMo', 'type': 'disbursement', 'status': 'active', 'enabled': true},
     ];
     notify();
   }
@@ -979,6 +977,7 @@ class AppState extends ChangeNotifier {
       accountNumber: accountNumber,
       recipientName: recipientName,
       emailOtp: emailOtp,
+      totpToken: totpToken,
       securityMetadata: securityData,
       idempotencyKey: idempotencyKey,
     );
@@ -3156,7 +3155,8 @@ class IDResult {
 class SelfieResult {
   final bool faceMatch;
   final String sessionId;
-  SelfieResult({required this.faceMatch, required this.sessionId});
+  final double? score;
+  SelfieResult({required this.faceMatch, required this.sessionId, this.score});
 }
 
 class UtilityBillResult {
