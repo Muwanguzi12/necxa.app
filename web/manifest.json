@@ -1,11 +1,11 @@
 {
-    "name": "necxa_flutter",
-    "short_name": "necxa_flutter",
+    "name": "NECXA",
+    "short_name": "NECXA",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",
     "theme_color": "#FFFFFF",
-    "description": "A new Flutter project.",
+    "description": "NECXA social-financial web app for creators, communities, commerce and live experiences.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
