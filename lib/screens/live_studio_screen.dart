@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../data.dart';
 import '../theme.dart';
@@ -24,6 +24,7 @@ class LiveStudioScreen extends StatefulWidget {
   final String channelName;
   final bool isHost;
   final String? hostId;
+  final String? hostName;
 
   const LiveStudioScreen({
     super.key,
@@ -31,6 +32,7 @@ class LiveStudioScreen extends StatefulWidget {
     required this.channelName,
     this.isHost = false,
     this.hostId,
+    this.hostName,
   });
 
   @override
@@ -44,6 +46,18 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _isInitializing = false;
   int _automaticAuthRetries = 0;
   static const int _maxAutomaticAuthRetries = 1;
+  late String _channelName;
+
+  String get _hostDisplayName {
+    final String? candidate;
+    if (widget.isHost) {
+      candidate = widget.state.myProfile?['full_name']?.toString();
+    } else {
+      candidate = widget.hostName;
+    }
+    final normalized = candidate?.trim() ?? '';
+    return normalized.isEmpty ? 'Necxa Creator' : normalized;
+  }
 
   // Co-Hosting & Guest Interaction State
   bool _isRequestPending = false;
@@ -65,7 +79,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   StreamSubscription<Map<String, dynamic>>? _eventsSubscription;
   StreamSubscription<Map<String, dynamic>>? _controlEventsSubscription;
   StreamSubscription<Map<String, dynamic>>? _giftEventsSubscription;
-  late final Stream<Map<String, dynamic>> _liveGiftEvents;
+  Stream<Map<String, dynamic>> _liveGiftEvents = const Stream.empty();
   final Set<String> _handledEventKeys = <String>{};
   String? _eventCursor;
   bool _requiresVerification = false;
@@ -101,17 +115,25 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   @override
   void initState() {
     super.initState();
+    _channelName = widget.channelName;
     WidgetsBinding.instance.addObserver(this);
-    widget.state.setLiveChannel(widget.channelName, isHosting: widget.isHost);
     // Check cached verification state BEFORE calling initAgora.
     // If already verified within 30 days the user goes live with zero friction.
     unawaited(_prepareLiveStudio());
 
     _commentsScrollController.addListener(_onCommentsScrolled);
-    unawaited(_hydrateLiveComments());
+    // Channel-scoped sync starts only after the backend has returned the
+    // canonical session room. Hosts must never sync against their display-name
+    // placeholder because that room is intentionally not reusable.
+  }
 
+  void _startChannelSync() {
+    _commentsTimer?.cancel();
+    _giftStatsTimer?.cancel();
+    _promotionTimer?.cancel();
+    _giftEventsSubscription?.cancel();
     _liveGiftEvents = widget.state.financeGifting
-        .watchLiveGifts(widget.channelName)
+        .watchLiveGifts(_channelName)
         .map((gift) => <String, dynamic>{'type': 'gift', 'data': gift})
         .asBroadcastStream();
     _giftEventsSubscription = _liveGiftEvents.listen((event) {
@@ -123,12 +145,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       }
       unawaited(_syncGiftStats());
     });
-
+    unawaited(_hydrateLiveComments());
     _startCommentsSync();
     _startGiftStatsSync();
     _startPromotionClock();
-
-    // Guest requests are driven by live stream events.
   }
 
   Future<void> _prepareLiveStudio() async {
@@ -144,10 +164,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     _eventsSubscription?.cancel();
     _controlEventsSubscription?.cancel();
     _eventsSubscription = widget.state.live
-        .listenToEvents(widget.channelName, initialCursor: _eventCursor)
+        .listenToEvents(_channelName, initialCursor: _eventCursor)
         .listen(_handleLiveEvent);
     _controlEventsSubscription = widget.state.live
-        .controlEventsForChannel(widget.channelName)
+        .controlEventsForChannel(_channelName)
         .listen(_handleLiveEvent);
   }
 
@@ -175,10 +195,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           ? Map<String, dynamic>.from(rawProduct)
           : null;
       if (jsonEncode(widget.state.pinnedLiveProduct) != jsonEncode(product)) {
-        widget.state.updatePinnedProduct(
-          product,
-          channelId: widget.channelName,
-        );
+        widget.state.updatePinnedProduct(product, channelId: _channelName);
       }
     }
 
@@ -207,7 +224,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final guestId = event['userId']?.toString();
     if (type == 'cohost_request' && widget.isHost) {
       if (guestId == null || guestId.isEmpty) return;
-      widget.state.upsertLiveGuestRequest(widget.channelName, {
+      widget.state.upsertLiveGuestRequest(_channelName, {
         'id': data['requestId']?.toString() ?? eventKey,
         'guestId': guestId,
         'userId': guestId,
@@ -220,7 +237,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       if (mounted) setState(() {});
     } else if (type == 'cohost_cancelled' && widget.isHost) {
       widget.state.removeLiveGuestRequest(
-        widget.channelName,
+        _channelName,
         requestId: data['requestId']?.toString(),
         guestId: guestId,
       );
@@ -238,7 +255,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       unawaited(_showCoHostInvitation());
     } else if (type == 'cohost_invite_decision' && widget.isHost) {
       widget.state.removeLiveGuestRequest(
-        widget.channelName,
+        _channelName,
         requestId: data['requestId']?.toString(),
         guestId: guestId,
       );
@@ -250,7 +267,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
     } else if (type == 'cohost_left' && widget.isHost) {
       widget.state.removeLiveGuestRequest(
-        widget.channelName,
+        _channelName,
         requestId: data['requestId']?.toString(),
         guestId: guestId,
       );
@@ -324,10 +341,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     _inviteDialogVisible = false;
     if (!mounted || accepted == null) return;
     try {
-      await widget.state.live.respondToCoHostInvite(
-        widget.channelName,
-        accepted,
-      );
+      await widget.state.live.respondToCoHostInvite(_channelName, accepted);
       if (accepted) {
         await _activateCoHosting();
       } else if (mounted) {
@@ -341,7 +355,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   Future<void> _syncLiveState() async {
     try {
-      final state = await widget.state.live.fetchLiveState(widget.channelName);
+      final state = await widget.state.live.fetchLiveState(_channelName);
       if (!mounted) return;
       final rawSummary = state['summary'];
       if (rawSummary is Map) {
@@ -351,11 +365,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       final product = rawProduct is Map
           ? Map<String, dynamic>.from(rawProduct)
           : null;
-      widget.state.updatePinnedProduct(product, channelId: widget.channelName);
+      widget.state.updatePinnedProduct(product, channelId: _channelName);
       final rawRequests = state['guestRequests'];
       if (widget.isHost && rawRequests is List) {
         widget.state.replaceLiveGuestRequests(
-          widget.channelName,
+          _channelName,
           rawRequests.whereType<Map>().map(
             (request) => Map<String, dynamic>.from(request),
           ),
@@ -416,7 +430,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   Future<void> _syncGiftStats() async {
     try {
       final snapshot = await widget.state.financeGifting.fetchLiveGiftSnapshot(
-        widget.channelName,
+        _channelName,
       );
       final summary = snapshot['summary'];
       if (!mounted || summary is! Map) return;
@@ -443,7 +457,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       if (!mounted) return;
       try {
         final newComments = await widget.state.live.fetchLiveComments(
-          widget.channelName,
+          _channelName,
         );
         if (newComments.isNotEmpty && mounted) {
           setState(() {
@@ -473,7 +487,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     });
 
     try {
-      await widget.state.live.sendLiveComment(widget.channelName, myName, text);
+      await widget.state.live.sendLiveComment(_channelName, myName, text);
     } catch (e) {
       debugPrint('⚠️ Send Comment failed: $e');
     }
@@ -486,7 +500,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     });
   }
 
-  String get _commentCursorKey => 'live_comments_${widget.channelName}';
+  String get _commentCursorKey => 'live_comments_$_channelName';
 
   List<Map<String, dynamic>> _visibleLiveComments(
     List<Map<String, dynamic>> comments,
@@ -514,9 +528,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   }
 
   Future<void> _reloadCachedLiveComments() async {
-    final cached = await widget.state.live.loadCachedLiveComments(
-      widget.channelName,
-    );
+    final cached = await widget.state.live.loadCachedLiveComments(_channelName);
     if (!mounted) return;
     setState(() => _liveComments = _visibleLiveComments(cached));
   }
@@ -533,11 +545,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (!mounted || _commentsSyncing) return;
     _commentsSyncing = true;
     try {
-      await widget.state.live.syncPendingLiveComments(widget.channelName);
+      await widget.state.live.syncPendingLiveComments(_channelName);
 
       if (refreshLatestPage || _commentSyncCursor == null) {
         final latest = await widget.state.live.fetchLiveCommentPage(
-          widget.channelName,
+          _channelName,
         );
         _commentBeforeCursor = latest['nextCursor']?.toString();
         _hasMoreComments = latest['hasMore'] == true;
@@ -554,7 +566,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       final cursor = _commentSyncCursor;
       if (cursor != null) {
         final delta = await widget.state.live.fetchLiveCommentPage(
-          widget.channelName,
+          _channelName,
           after: cursor,
           limit: 100,
         );
@@ -594,7 +606,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     _loadingOlderComments = true;
     try {
       final page = await widget.state.live.fetchLiveCommentPage(
-        widget.channelName,
+        _channelName,
         before: cursor,
       );
       _commentBeforeCursor = page['nextCursor']?.toString();
@@ -617,7 +629,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         widget.state.user?.email ??
         'Viewer';
     try {
-      await widget.state.live.sendLiveComment(widget.channelName, myName, text);
+      await widget.state.live.sendLiveComment(_channelName, myName, text);
       await _reloadCachedLiveComments();
     } catch (error) {
       _commentController.text = text;
@@ -673,7 +685,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       return;
     }
     await widget.state.live.editLiveComment(
-      widget.channelName,
+      _channelName,
       comment['id'].toString(),
       updatedText,
     );
@@ -682,7 +694,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   Future<void> _deleteComment(Map<String, dynamic> comment) async {
     await widget.state.live.deleteLiveComment(
-      widget.channelName,
+      _channelName,
       comment['id'].toString(),
     );
     await _reloadCachedLiveComments();
@@ -714,7 +726,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   Navigator.pop(sheetContext);
                   unawaited(
                     widget.state.live
-                        .retryLiveComment(widget.channelName, commentId)
+                        .retryLiveComment(_channelName, commentId)
                         .then((_) => _reloadCachedLiveComments()),
                   );
                 },
@@ -757,7 +769,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   Navigator.pop(sheetContext);
                   unawaited(
                     widget.state.live.reportLiveComment(
-                      widget.channelName,
+                      _channelName,
                       commentId,
                     ),
                   );
@@ -783,7 +795,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   );
                   unawaited(
                     widget.state.live.moderateLiveComment(
-                      widget.channelName,
+                      _channelName,
                       commentId,
                       moderationAction: 'hide',
                     ),
@@ -813,12 +825,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       await liveService.init();
 
       if (widget.isHost) {
-        await liveService.startStreaming(widget.channelName);
+        _channelName = await liveService.startStreaming(widget.channelName);
       } else {
-        await liveService.joinAsViewer(widget.channelName);
+        await liveService.joinAsViewer(_channelName);
       }
 
       if (!mounted) return;
+      widget.state.setLiveChannel(_channelName, isHosting: widget.isHost);
+      _startChannelSync();
       setState(() {
         _localUserJoined = true;
       });
@@ -1166,6 +1180,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         children: [
           // ── Video Layer ──
           _buildVideoView(),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: MediaQuery.sizeOf(context).height * 0.42,
+            child: const IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0xE6000000)],
+                  ),
+                ),
+              ),
+            ),
+          ),
 
           // ── Shield Verification Wall (403 Handler) ──
           if (_requiresVerification) _buildShieldVerificationCard(),
@@ -1184,7 +1215,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             _buildReactionBurst(_reactionBursts[i], i),
 
           // ── Glass Overlay Layer ──
-          _buildHUD(),
+          _buildCompactHUD(),
 
           // ── Interaction Layer ──
           _buildInteractionUI(),
@@ -1300,39 +1331,239 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
 
     final room = widget.state.live.room!;
-    final participants = <Participant>[];
-    if (room.localParticipant != null) {
-      participants.add(room.localParticipant!);
+    final participants = _videoParticipants(room);
+    if (participants.isEmpty) {
+      return const Center(
+        child: Icon(
+          Icons.videocam_off_outlined,
+          color: Colors.white24,
+          size: 48,
+        ),
+      );
     }
-    participants.addAll(room.remoteParticipants.values);
 
-    return GridView.builder(
-      padding: EdgeInsets.zero,
-      itemCount: participants.length,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: participants.length > 1 ? 2 : 1,
-        childAspectRatio: 9 / 16,
+    final host = _hostParticipant(participants);
+    final guests = participants
+        .where((participant) => participant != host)
+        .toList();
+    if (host == null || guests.isEmpty) {
+      return _participantVideoTile(
+        host ?? participants.first,
+        isHostTile: true,
+        showChrome: false,
+      );
+    }
+
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final safeTop = MediaQuery.paddingOf(context).top;
+    final topSpace = safeTop + 126;
+    final bottomSpace = (screenHeight * 0.34).clamp(250.0, 330.0);
+    final guestSlots = widget.isHost
+        ? (guests.length >= 4 ? 8 : 4)
+        : guests.length;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(6, topSpace, 6, bottomSpace),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 11,
+            child: _participantVideoTile(host, isHostTile: true),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            flex: 10,
+            child: GridView.builder(
+              padding: EdgeInsets.zero,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: guestSlots,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 4,
+                mainAxisSpacing: 4,
+                childAspectRatio: 0.86,
+              ),
+              itemBuilder: (context, index) {
+                if (index < guests.length) {
+                  return _participantVideoTile(guests[index]);
+                }
+                return _guestRequestTile();
+              },
+            ),
+          ),
+        ],
       ),
-      itemBuilder: (context, index) {
-        final participant = participants[index];
-        final videoPub = participant.videoTrackPublications.firstOrNull;
-        if (videoPub != null && videoPub.track != null) {
-          return Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white10, width: 0.5),
+    );
+  }
+
+  List<Participant> _videoParticipants(Room room) {
+    final result = <Participant>[];
+    final local = room.localParticipant;
+    if (local != null &&
+        (widget.isHost ||
+            _isCoHosting ||
+            local.videoTrackPublications.isNotEmpty)) {
+      result.add(local);
+    }
+    result.addAll(
+      room.remoteParticipants.values.where(
+        (participant) => participant.videoTrackPublications.isNotEmpty,
+      ),
+    );
+    return result;
+  }
+
+  Participant? _hostParticipant(List<Participant> participants) {
+    final hostId = _hostUserId;
+    if (hostId != null) {
+      for (final participant in participants) {
+        if (participant.identity == hostId) return participant;
+      }
+    }
+    final local = widget.state.live.room?.localParticipant;
+    if (widget.isHost && local != null && participants.contains(local)) {
+      return local;
+    }
+    return participants.firstOrNull;
+  }
+
+  bool get _hasPublishingGuests {
+    final room = widget.state.live.room;
+    if (room == null) return false;
+    final participants = _videoParticipants(room);
+    final host = _hostParticipant(participants);
+    return host != null &&
+        participants.any((participant) => participant != host);
+  }
+
+  Widget _participantVideoTile(
+    Participant participant, {
+    bool isHostTile = false,
+    bool showChrome = true,
+  }) {
+    final videoPublication = participant.videoTrackPublications.firstOrNull;
+    final videoTrack = videoPublication?.track;
+    final displayName = participant.name.trim().isNotEmpty
+        ? participant.name.trim()
+        : participant.identity;
+    final audioPublications = participant.audioTrackPublications;
+    final isMuted =
+        audioPublications.isEmpty ||
+        audioPublications.every((publication) => publication.muted);
+
+    return ClipRRect(
+      borderRadius: showChrome ? BorderRadius.circular(8) : BorderRadius.zero,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF17151F),
+          border: showChrome ? Border.all(color: Colors.white12) : null,
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (videoTrack is VideoTrack)
+              VideoTrackRenderer(videoTrack, fit: VideoViewFit.cover)
+            else
+              const ColoredBox(
+                color: Color(0xFF17151F),
+                child: Center(
+                  child: Icon(Icons.person, color: Colors.white30, size: 40),
+                ),
+              ),
+            if (showChrome) ...[
+              Positioned(
+                top: 7,
+                left: 7,
+                child: _videoTileBadge(isHostTile ? 'HOST' : 'GUEST'),
+              ),
+              if (isMuted)
+                const Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Icon(
+                    Icons.mic_off_rounded,
+                    color: Colors.white70,
+                    size: 14,
+                  ),
+                ),
+              Positioned(
+                left: 7,
+                right: 7,
+                bottom: 7,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: dm(sz: 9, w: FontWeight.w800, c: Colors.white),
+                      ),
+                    ),
+                    if (!isHostTile) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        width: 20,
+                        height: 20,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFF176B),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.add,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _videoTileBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xCC0E2022),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: dm(sz: 8, w: FontWeight.w900, c: const Color(0xFF62F5EA)),
+      ),
+    );
+  }
+
+  Widget _guestRequestTile() {
+    return InkWell(
+      onTap: widget.isHost ? _showGuestRequestsManager : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1D1830),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: const Color(0xFF6F5AA7).withValues(alpha: 0.45),
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+            const SizedBox(height: 4),
+            Text(
+              'REQUEST',
+              style: dm(sz: 8, w: FontWeight.w700, c: Colors.white70),
             ),
-            child: VideoTrackRenderer(videoPub.track as VideoTrack),
-          );
-        } else {
-          return Container(
-            color: Colors.black,
-            child: const Center(
-              child: Icon(Icons.person, color: Colors.white24, size: 50),
-            ),
-          );
-        }
-      },
+          ],
+        ),
+      ),
     );
   }
 
@@ -1355,18 +1586,270 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-  List<Map<String, dynamic>> get _activeViewers {
-    final viewers = _liveSummary['viewers'];
-    if (viewers is! List) return const [];
-    return viewers
-        .whereType<Map>()
-        .map((viewer) => Map<String, dynamic>.from(viewer))
-        .toList();
-  }
-
   Map<String, dynamic>? get _topGifter {
     final top = _giftSummary['topGifter'];
     return top is Map ? Map<String, dynamic>.from(top) : null;
+  }
+
+  Widget _buildCompactHUD() {
+    final topGifter = _topGifter;
+    final giftTotal = (_giftSummary['totalAmount'] as num?)?.toInt() ?? 0;
+    final giftGoal = (_giftSummary['goalTarget'] as num?)?.toInt() ?? 100;
+    final goalProgress = giftGoal <= 0
+        ? 0.0
+        : (giftTotal / giftGoal).clamp(0.0, 1.0);
+    final topGifterName = topGifter?['senderName']?.toString().trim();
+    final topGifterAmount = (topGifter?['amount'] as num?) ?? 0;
+
+    return Positioned(
+      top: MediaQuery.paddingOf(context).top + 8,
+      left: 12,
+      right: 12,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: Container(
+                      height: 46,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            padding: const EdgeInsets.all(2),
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [Color(0xFFFF176B), Color(0xFF00E5FF)],
+                              ),
+                            ),
+                            child: CircleAvatar(
+                              backgroundColor: const Color(0xFF153B50),
+                              child: Text(
+                                _hostDisplayName[0].toUpperCase(),
+                                style: dm(
+                                  sz: 11,
+                                  w: FontWeight.w900,
+                                  c: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        _hostDisplayName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: syne(
+                                          sz: 11,
+                                          w: FontWeight.w800,
+                                          c: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Icon(
+                                      Icons.verified_rounded,
+                                      color: Color(0xFF00E5FF),
+                                      size: 13,
+                                    ),
+                                  ],
+                                ),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.visibility_outlined,
+                                      color: Colors.white70,
+                                      size: 10,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      '$_viewerCount viewers',
+                                      style: dm(sz: 8, c: Colors.white70),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 7),
+              Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF176B),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x55FF176B), blurRadius: 12),
+                  ],
+                ),
+                child: Text(
+                  'LIVE',
+                  style: syne(sz: 10, w: FontWeight.w900, c: Colors.white),
+                ),
+              ),
+              if (widget.isHost) ...[
+                const SizedBox(width: 7),
+                GestureDetector(
+                  onTap: _showProductPicker,
+                  child: _hudCircleButton(Icons.push_pin_outlined),
+                ),
+              ],
+              const SizedBox(width: 7),
+              GestureDetector(
+                onTap: _isLeaving ? null : _closeLiveStudio,
+                child: _hudCircleButton(
+                  Icons.close_rounded,
+                  loading: _isLeaving,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _compactHudChip(
+                  icon: Icons.local_fire_department_rounded,
+                  iconColor: const Color(0xFFFF8A00),
+                  title: 'TOP GIFTER',
+                  value: topGifterName == null || topGifterName.isEmpty
+                      ? 'No gifts yet'
+                      : '$topGifterName · ${_compactNumber(topGifterAmount)}',
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _compactHudChip(
+                  icon: Icons.card_giftcard_rounded,
+                  iconColor: const Color(0xFFFFA300),
+                  title: 'GOAL',
+                  value:
+                      '${_compactNumber(giftTotal)} / ${_compactNumber(giftGoal)} NCX',
+                  progress: goalProgress,
+                ),
+              ),
+              if (_hasPublishingGuests) ...[
+                const SizedBox(width: 7),
+                Tooltip(
+                  message: 'Live guest stage',
+                  child: _hudCircleButton(
+                    Icons.rocket_launch_rounded,
+                    color: const Color(0xFF6650A4),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactHudChip({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String value,
+    double? progress,
+  }) {
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.52),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 18),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: dm(sz: 7, w: FontWeight.w800, c: Colors.white60),
+                ),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: dm(sz: 8, w: FontWeight.w700, c: Colors.white),
+                ),
+                if (progress != null) ...[
+                  const SizedBox(height: 2),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 2,
+                      backgroundColor: Colors.white12,
+                      color: const Color(0xFFFF176B),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _hudCircleButton(
+    IconData icon, {
+    bool loading = false,
+    Color color = const Color(0x99000000),
+  }) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: loading
+          ? const Padding(
+              padding: EdgeInsets.all(10),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : Icon(icon, color: Colors.white, size: 19),
+    );
   }
 
   DateTime? _productExpiry(Map<String, dynamic>? product) {
@@ -1418,390 +1901,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     return '${hours.toString().padLeft(2, '0')}:$minutes:$seconds';
   }
 
-  Widget _viewerAvatar(Map<String, dynamic> viewer, int index) {
-    final avatar = viewer['avatar']?.toString() ?? '';
-    final name = viewer['userName']?.toString() ?? 'V';
-    return Positioned(
-      left: index * 12,
-      child: CircleAvatar(
-        radius: 10,
-        backgroundColor: Colors.black54,
-        backgroundImage: avatar.isNotEmpty
-            ? CachedNetworkImageProvider(avatar)
-            : null,
-        child: avatar.isEmpty
-            ? Text(
-                name.isEmpty ? 'V' : name[0].toUpperCase(),
-                style: dm(sz: 8, w: FontWeight.bold, c: Colors.white),
-              )
-            : null,
-      ),
-    );
-  }
-
-  Widget _buildHUD() {
-    final topGifter = _topGifter;
-    final giftTotal = (_giftSummary['totalAmount'] as num?)?.toInt() ?? 0;
-    final giftGoal = (_giftSummary['goalTarget'] as num?)?.toInt() ?? 100;
-    final goalProgress = giftGoal <= 0
-        ? 0.0
-        : (giftTotal / giftGoal).clamp(0.0, 1.0);
-    final viewerAvatars = _activeViewers.take(3).toList();
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 10,
-      left: 16,
-      right: 16,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ── Creator Header Row ──
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Creator Info & Pinned Product Button Row
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.4),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white10),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundColor: C.brand,
-                          child: Text(
-                            widget.channelName[0].toUpperCase(),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              widget.isHost
-                                  ? (widget.state.myProfile?['full_name'] ??
-                                        widget.channelName)
-                                  : widget.channelName,
-                              style: syne(
-                                sz: 11,
-                                w: FontWeight.bold,
-                                c: Colors.white,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Text(
-                                  '$_viewerCount Viewers',
-                                  style: dm(sz: 9, c: Colors.white70),
-                                ),
-                                const SizedBox(width: 4),
-                                if (widget.state.currentGps != null) ...[
-                                  const Icon(
-                                    Icons.location_on,
-                                    color: C.brand,
-                                    size: 8,
-                                  ),
-                                  Text(
-                                    '${widget.state.currentGps!.latitude.toStringAsFixed(2)}, ${widget.state.currentGps!.longitude.toStringAsFixed(2)}',
-                                    style: dm(sz: 8, c: C.brand),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.circular(4),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.red.withOpacity(0.5),
-                                blurRadius: 8,
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.fiber_manual_record,
-                                color: Colors.white,
-                                size: 8,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'LIVE',
-                                style: syne(
-                                  sz: 9,
-                                  w: FontWeight.w900,
-                                  c: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Identity Shield
-                        if (widget.isHost)
-                          const Icon(
-                            Icons.verified_user,
-                            color: Color(0xFF00E5FF),
-                            size: 14,
-                          ),
-                      ],
-                    ),
-                  ),
-                  if (widget.isHost) ...[
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: _showProductPicker,
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.4),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white10),
-                        ),
-                        child: const Icon(
-                          Icons.push_pin_outlined,
-                          color: Colors.yellow,
-                          size: 16,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-
-              // Close Button
-              GestureDetector(
-                onTap: _isLeaving ? null : _closeLiveStudio,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.4),
-                    shape: BoxShape.circle,
-                  ),
-                  child: _isLeaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.close, color: Colors.white, size: 20),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // ── Stats Sub-Header Row (Missing High-Fidelity Components) ──
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // 1. Top Gifter Card
-              Expanded(
-                child: _buildHUDCard(
-                  title: '🔥 Top Gifter',
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 12,
-                        backgroundColor: Colors.white10,
-                        backgroundImage:
-                            topGifter?['senderAvatar']?.toString().isNotEmpty ==
-                                true
-                            ? CachedNetworkImageProvider(
-                                topGifter!['senderAvatar'].toString(),
-                              )
-                            : null,
-                        child:
-                            topGifter?['senderAvatar']?.toString().isNotEmpty !=
-                                true
-                            ? const Icon(
-                                Icons.person,
-                                size: 12,
-                                color: Colors.white54,
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              topGifter?['senderName']?.toString() ??
-                                  'No gifts yet',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: dm(
-                                sz: 9,
-                                w: FontWeight.bold,
-                                c: Colors.white,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.monetization_on,
-                                  color: Colors.amber,
-                                  size: 10,
-                                ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  _compactNumber(
-                                    (topGifter?['amount'] as num?) ?? 0,
-                                  ),
-                                  style: dm(
-                                    sz: 9,
-                                    w: FontWeight.w900,
-                                    c: Colors.amber,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // 2. Goal Card
-              Expanded(
-                child: _buildHUDCard(
-                  title: '🎁 Goal',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Next ${_compactNumber(giftGoal)} NCX',
-                        style: dm(sz: 8, w: FontWeight.bold, c: Colors.white70),
-                      ),
-                      const SizedBox(height: 4),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: goalProgress,
-                          backgroundColor: Colors.white10,
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                            Colors.pink,
-                          ),
-                          minHeight: 6,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${_compactNumber(giftTotal)} / ${_compactNumber(giftGoal)}',
-                        style: dm(sz: 8, w: FontWeight.w900, c: Colors.pink),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // 3. Viewers Card
-              Expanded(
-                child: _buildHUDCard(
-                  title: '👥 Viewers',
-                  child: Row(
-                    children: [
-                      // Viewer count avatars — local placeholder circles, zero CDN egress
-                      SizedBox(
-                        width: 45,
-                        height: 20,
-                        child: Stack(
-                          children: viewerAvatars.isEmpty
-                              ? [
-                                  const Positioned(
-                                    left: 0,
-                                    child: CircleAvatar(
-                                      radius: 10,
-                                      backgroundColor: Colors.black54,
-                                      child: Icon(
-                                        Icons.person_outline,
-                                        size: 11,
-                                        color: Colors.white54,
-                                      ),
-                                    ),
-                                  ),
-                                ]
-                              : [
-                                  for (var i = 0; i < viewerAvatars.length; i++)
-                                    _viewerAvatar(viewerAvatars[i], i),
-                                ],
-                        ),
-                      ),
-                      Text(
-                        '$_viewerCount',
-                        style: syne(
-                          sz: 10,
-                          w: FontWeight.w900,
-                          c: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHUDCard({required String title, required Widget child}) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.4),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            title.toUpperCase(),
-            style: syne(sz: 8, w: FontWeight.w900, c: Colors.white38, ls: 1),
-          ),
-          const SizedBox(height: 6),
-          child,
-        ],
-      ),
-    );
-  }
-
   Widget _buildInteractionUI() {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final pinned = widget.state.pinnedLiveProduct;
@@ -1821,7 +1920,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         children: [
           // Chat Preview
           SizedBox(
-            height: pinned != null ? 120 : 200,
+            height: pinned != null ? 105 : (_hasPublishingGuests ? 135 : 160),
             child: ListView.builder(
               controller: _commentsScrollController,
               itemCount: _liveComments.length,
@@ -2159,74 +2258,62 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           ),
           const SizedBox(height: 10),
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              GestureDetector(
-                onTap: _showReactionPicker,
-                child: _reactionControl(),
-              ),
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: _showGiftPicker,
-                child: _actionIcon(Icons.card_giftcard, Colors.orange),
-              ),
-              const SizedBox(width: 10),
-              if (widget.isHost)
-                GestureDetector(
-                  onTap: _showGuestRequestsManager,
-                  child: Stack(
-                    children: [
-                      _actionIcon(
-                        Icons.people_outline,
-                        const Color(0xFF00E5FF),
-                      ),
-                      if (widget.state.liveGuestRequests.isNotEmpty)
-                        Positioned(
-                          top: 2,
-                          right: 2,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Text(
-                              '${widget.state.liveGuestRequests.length}',
-                              style: const TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                )
-              else ...[
-                GestureDetector(
-                  onTap: _openLiveShop,
-                  child: _actionIcon(Icons.shopping_bag_outlined, C.brand),
+              Expanded(
+                child: _liveActionButton(
+                  icon: Icons.favorite_border_rounded,
+                  label: 'Like',
+                  color: const Color(0xFFFF176B),
+                  badge: _reactionCount > 0
+                      ? _compactNumber(_reactionCount)
+                      : null,
+                  onTap: _reactionSending
+                      ? null
+                      : () => unawaited(_sendReaction('love')),
+                  onLongPress: _showReactionPicker,
                 ),
-                const SizedBox(width: 10),
-                GestureDetector(
-                  onTap: _toggleGuestRequest,
-                  child: _actionIcon(
-                    _isCoHosting
-                        ? Icons.videocam_off_outlined
-                        : (_isRequestPending
-                              ? Icons.ring_volume
-                              : Icons.mic_none),
-                    _isCoHosting
-                        ? Colors.red
-                        : (_isRequestPending ? Colors.green : Colors.white),
-                  ),
+              ),
+              Expanded(
+                child: _liveActionButton(
+                  icon: Icons.card_giftcard_rounded,
+                  label: 'Gift',
+                  color: const Color(0xFFFFA000),
+                  onTap: _showGiftPicker,
                 ),
-              ],
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: _shareLive,
-                child: _actionIcon(Icons.share_outlined, Colors.white),
+              ),
+              Expanded(
+                child: _liveActionButton(
+                  icon: _isCoHosting
+                      ? Icons.videocam_off_outlined
+                      : Icons.people_outline_rounded,
+                  label: 'Guests',
+                  color: _isCoHosting
+                      ? Colors.redAccent
+                      : const Color(0xFF00E5FF),
+                  badge:
+                      widget.isHost && widget.state.liveGuestRequests.isNotEmpty
+                      ? '${widget.state.liveGuestRequests.length}'
+                      : null,
+                  onTap: widget.isHost
+                      ? _showGuestRequestsManager
+                      : _toggleGuestRequest,
+                ),
+              ),
+              Expanded(
+                child: _liveActionButton(
+                  icon: Icons.toll_rounded,
+                  label: 'NCX',
+                  color: const Color(0xFF9C6CFF),
+                  onTap: _openNcxStore,
+                ),
+              ),
+              Expanded(
+                child: _liveActionButton(
+                  icon: Icons.more_horiz_rounded,
+                  label: 'More',
+                  color: Colors.white,
+                  onTap: _showLiveMenu,
+                ),
               ),
             ],
           ),
@@ -2290,33 +2377,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           ),
         ),
       ),
-    );
-  }
-
-  Widget _reactionControl() {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        _actionIcon(Icons.favorite_outline, Colors.pinkAccent),
-        if (_reactionCount > 0)
-          Positioned(
-            right: -4,
-            top: -5,
-            child: Container(
-              constraints: const BoxConstraints(minWidth: 20, minHeight: 18),
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.pink,
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Text(
-                _compactNumber(_reactionCount),
-                textAlign: TextAlign.center,
-                style: dm(sz: 8, w: FontWeight.bold, c: Colors.white),
-              ),
-            ),
-          ),
-      ],
     );
   }
 
@@ -2407,10 +2467,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       _liveSummary = {..._liveSummary, 'reactionCounts': counts};
     });
     try {
-      final result = await widget.state.live.sendReaction(
-        widget.channelName,
-        type,
-      );
+      final result = await widget.state.live.sendReaction(_channelName, type);
       final summary = result['summary'];
       if (mounted && summary is Map) {
         _applyLiveSummary(Map<String, dynamic>.from(summary));
@@ -2438,16 +2495,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     try {
       final creator = widget.isHost
           ? (widget.state.myProfile?['full_name']?.toString())
-          : widget.channelName.replaceAll('_Live', '');
+          : _hostDisplayName;
       final shareResult = await SharePlus.instance.share(
         ShareParams(
           text:
               'Watch ${creator ?? 'this creator'} live on NECXA: '
-              'https://necxa.app/live/${Uri.encodeComponent(widget.channelName)}',
+              'https://necxa.app/live/${Uri.encodeComponent(_channelName)}',
         ),
       );
       if (shareResult.status != ShareResultStatus.success) return;
-      final result = await widget.state.live.recordShare(widget.channelName);
+      final result = await widget.state.live.recordShare(_channelName);
       final summary = result['summary'];
       if (mounted && summary is Map) {
         _applyLiveSummary(Map<String, dynamic>.from(summary));
@@ -2459,12 +2516,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   Future<void> _unpinCurrentProduct() async {
     if (!widget.isHost) return;
-    final previous = widget.state.pinnedProductForChannel(widget.channelName);
-    widget.state.updatePinnedProduct(null, channelId: widget.channelName);
+    final previous = widget.state.pinnedProductForChannel(_channelName);
+    widget.state.updatePinnedProduct(null, channelId: _channelName);
     try {
-      await widget.state.live.unpinProduct(widget.channelName);
+      await widget.state.live.unpinProduct(_channelName);
     } catch (error) {
-      widget.state.updatePinnedProduct(previous, channelId: widget.channelName);
+      widget.state.updatePinnedProduct(previous, channelId: _channelName);
       if (mounted) _showToast('Product could not be unpinned: $error');
     }
   }
@@ -2609,10 +2666,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         Navigator.pop(context);
                         try {
                           final canonicalProduct = await widget.state.live
-                              .pinProduct(widget.channelName, mapped);
+                              .pinProduct(_channelName, mapped);
                           widget.state.updatePinnedProduct(
                             canonicalProduct,
-                            channelId: widget.channelName,
+                            channelId: _channelName,
                           );
                         } catch (e) {
                           if (mounted) {
@@ -2695,7 +2752,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   state: widget.state,
                   minimumNcx: gift.ncxValue - widget.state.coinBalance.toInt(),
                   purchaseContextType: 'live_stream_gift',
-                  purchaseContextId: widget.channelName,
+                  purchaseContextId: _channelName,
                   targetGiftItemId: gift.id,
                 ),
               );
@@ -2723,7 +2780,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               giftItemId: gift.id,
               ncxAmount: gift.ncxValue,
               contextType: 'live_stream',
-              contextId: widget.channelName,
+              contextId: _channelName,
               contextNote: 'Live gift: ${gift.name}',
               senderName:
                   widget.state.myProfile?['full_name']?.toString() ?? 'Viewer',
@@ -2910,7 +2967,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
       if (confirm == true) {
         try {
-          await widget.state.live.leaveCoHosting(widget.channelName);
+          await widget.state.live.leaveCoHosting(_channelName);
           await widget.state.live.switchRoleToAudience();
           setState(() {
             _isCoHosting = false;
@@ -2923,7 +2980,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       }
     } else if (_isRequestPending) {
       try {
-        await widget.state.live.cancelCoHostRequest(widget.channelName);
+        await widget.state.live.cancelCoHostRequest(_channelName);
         if (!mounted) return;
         setState(() => _isRequestPending = false);
         _showToast('Co-hosting request canceled');
@@ -2940,7 +2997,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       }
 
       try {
-        await widget.state.live.sendCoHostRequest(widget.channelName, userId, {
+        await widget.state.live.sendCoHostRequest(_channelName, userId, {
           'name':
               widget.state.myProfile?['full_name'] ??
               widget.state.user?.email ??
@@ -3098,12 +3155,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                         try {
                                           await widget.state.live
                                               .sendCoHostDecision(
-                                                widget.channelName,
+                                                _channelName,
                                                 guestId,
                                                 false,
                                               );
                                           widget.state.removeLiveGuestRequest(
-                                            widget.channelName,
+                                            _channelName,
                                             requestId: req['id']?.toString(),
                                             guestId: guestId,
                                           );
@@ -3137,13 +3194,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                         try {
                                           await widget.state.live
                                               .sendCoHostDecision(
-                                                widget.channelName,
+                                                _channelName,
                                                 guestId,
                                                 true,
                                               );
                                           if (!context.mounted) return;
                                           widget.state.removeLiveGuestRequest(
-                                            widget.channelName,
+                                            _channelName,
                                             requestId: req['id']?.toString(),
                                             guestId: guestId,
                                           );
@@ -3242,12 +3299,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               try {
                                 final request = await widget.state.live
                                     .inviteCoHostByUsername(
-                                      widget.channelName,
+                                      _channelName,
                                       val.trim(),
                                     );
                                 if (!mounted || !context.mounted) return;
                                 widget.state.upsertLiveGuestRequest(
-                                  widget.channelName,
+                                  _channelName,
                                   request,
                                 );
                                 _showToast('Invitation sent to @$val.');
@@ -3292,16 +3349,155 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-  Widget _actionIcon(IconData icon, Color color) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.4),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white10),
+  void _openNcxStore() {
+    showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => VaultBuyShardsOverlay(
+        state: widget.state,
+        purchaseContextType: 'live_stream_wallet',
+        purchaseContextId: _channelName,
       ),
-      child: Icon(icon, color: color, size: 22),
+    );
+  }
+
+  void _showLiveMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0C0E14),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.share_outlined, color: Colors.white),
+                title: Text('Share live', style: dm(c: Colors.white)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(_shareLive());
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.shopping_bag_outlined,
+                  color: Color(0xFF00E5FF),
+                ),
+                title: Text('Open live shop', style: dm(c: Colors.white)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openLiveShop();
+                },
+              ),
+              if (widget.isHost)
+                ListTile(
+                  leading: const Icon(
+                    Icons.push_pin_outlined,
+                    color: Colors.amber,
+                  ),
+                  title: Text('Pin a product', style: dm(c: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showProductPicker();
+                  },
+                ),
+              ListTile(
+                leading: const Icon(
+                  Icons.emoji_emotions_outlined,
+                  color: Color(0xFFFF176B),
+                ),
+                title: Text('Choose a reaction', style: dm(c: Colors.white)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showReactionPicker();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _liveActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+    VoidCallback? onLongPress,
+    String? badge,
+  }) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          height: 62,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 43,
+                    height: 43,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: color.withValues(alpha: 0.35)),
+                    ),
+                    child: Icon(icon, color: color, size: 21),
+                  ),
+                  if (badge != null && badge.isNotEmpty)
+                    Positioned(
+                      top: -4,
+                      right: -7,
+                      child: Container(
+                        constraints: const BoxConstraints(minWidth: 18),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF176B),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Text(
+                          badge,
+                          textAlign: TextAlign.center,
+                          style: dm(sz: 7, w: FontWeight.w900, c: Colors.white),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: dm(sz: 8, w: FontWeight.w600, c: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

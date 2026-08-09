@@ -936,6 +936,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
           channelName: channelName,
           isHost: false,
           hostId: stream['hostId']?.toString(),
+          hostName:
+              (stream['hostName'] ?? (stream['metadata'] as Map?)?['hostName'])
+                  ?.toString(),
         ),
       ),
     );

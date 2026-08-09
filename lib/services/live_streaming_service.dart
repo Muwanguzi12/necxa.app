@@ -25,6 +25,54 @@ class _LiveBackendException implements Exception {
   String toString() => message;
 }
 
+@immutable
+class LiveSessionCredentials {
+  final String token;
+  final String url;
+  final String streamId;
+  final String channelId;
+
+  const LiveSessionCredentials({
+    required this.token,
+    required this.url,
+    required this.streamId,
+    required this.channelId,
+  });
+
+  factory LiveSessionCredentials.fromBackend(
+    Map<String, dynamic> data, {
+    required String requestedChannelId,
+    required bool requireServerChannel,
+  }) {
+    final token = (data['token'] ?? '').toString().trim();
+    final url = (data['url'] ?? LiveStreamingService.liveKitUrl)
+        .toString()
+        .trim();
+    final streamId = (data['streamId'] ?? '').toString().trim();
+    final serverChannelId = (data['channelId'] ?? data['roomName'] ?? '')
+        .toString()
+        .trim();
+    final channelId = serverChannelId.isNotEmpty
+        ? serverChannelId
+        : (requireServerChannel ? '' : requestedChannelId.trim());
+
+    if (token.isEmpty) {
+      throw const FormatException('Live token was not returned by the server.');
+    }
+    if (channelId.isEmpty) {
+      throw const FormatException(
+        'The live server did not allocate a session room.',
+      );
+    }
+    return LiveSessionCredentials(
+      token: token,
+      url: url,
+      streamId: streamId,
+      channelId: channelId,
+    );
+  }
+}
+
 /// Necxa Live Studio: Core Streaming Engine
 /// Handles video/audio via LiveKit and real-time metadata via MongoDB.
 class LiveStreamingService {
@@ -96,7 +144,7 @@ class LiveStreamingService {
     }
   }
 
-  Future<Map<String, String>> _fetchCredentials({
+  Future<LiveSessionCredentials> _fetchCredentials({
     required String action,
     required String channelName,
     String? role,
@@ -123,17 +171,15 @@ class LiveStreamingService {
     });
 
     final data = Map<String, dynamic>.from(response as Map? ?? const {});
-    final token = (data['token'] ?? '').toString();
-    final url = (data['url'] ?? liveKitUrl).toString();
-    if (token.isEmpty) {
-      throw 'Live token was not returned by the server.';
+    try {
+      return LiveSessionCredentials.fromBackend(
+        data,
+        requestedChannelId: channelName,
+        requireServerChannel: action == 'start',
+      );
+    } on FormatException catch (error) {
+      throw error.message;
     }
-    final streamId = data['streamId']?.toString() ?? '';
-    return {
-      'token': token,
-      'url': url,
-      if (streamId.isNotEmpty) 'streamId': streamId,
-    };
   }
 
   Future<dynamic> _invokeLiveBackend(Map<String, dynamic> body) async {
@@ -363,36 +409,38 @@ class LiveStreamingService {
     }
   }
 
-  Future<void> startStreaming(String channelName) async {
+  Future<String> startStreaming(String channelName) async {
     await _ensurePublishingPermissions();
     final creds = await _fetchCredentials(
       action: 'start',
       channelName: channelName,
     );
-    _activeStreamId = creds['streamId'];
+    final canonicalChannelId = creds.channelId;
+    _activeStreamId = creds.streamId.isEmpty ? null : creds.streamId;
     try {
       await _connect(
-        channelName: channelName,
-        url: creds['url']!,
-        token: creds['token']!,
+        channelName: canonicalChannelId,
+        url: creds.url,
+        token: creds.token,
         publish: true,
       );
       await _invokeLifecycleBackend({
         'action': 'confirm_start',
-        'channelId': channelName,
+        'channelId': canonicalChannelId,
         'userId': state.user?.id,
-        if (creds['streamId'] != null) 'streamId': creds['streamId'],
+        if (creds.streamId.isNotEmpty) 'streamId': creds.streamId,
         'metadata': _identityMetadata(fallbackName: 'Necxa Creator'),
       });
       _hostingActiveChannel = true;
       _currentRole = 'host';
+      return canonicalChannelId;
     } catch (error) {
       try {
         await _invokeLifecycleBackend({
           'action': 'abort_start',
-          'channelId': channelName,
+          'channelId': canonicalChannelId,
           'userId': state.user?.id,
-          if (creds['streamId'] != null) 'streamId': creds['streamId'],
+          if (creds.streamId.isNotEmpty) 'streamId': creds.streamId,
         }, attempts: 2);
       } catch (abortError) {
         debugPrint(
@@ -420,22 +468,23 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'audience',
     );
-    _activeStreamId = creds['streamId'];
+    final canonicalChannelId = creds.channelId;
+    _activeStreamId = creds.streamId.isEmpty ? null : creds.streamId;
     try {
       await _connect(
-        channelName: channelName,
-        url: creds['url']!,
-        token: creds['token']!,
+        channelName: canonicalChannelId,
+        url: creds.url,
+        token: creds.token,
         publish: false,
       );
-      await _confirmJoin(channelName, role: 'audience');
+      await _confirmJoin(canonicalChannelId, role: 'audience');
       _hostingActiveChannel = false;
       _currentRole = 'viewer';
     } catch (_) {
       try {
         await _invokeLifecycleBackend({
           'action': 'leave',
-          'channelId': channelName,
+          'channelId': canonicalChannelId,
           if (_activeStreamId != null) 'streamId': _activeStreamId,
           'userId': state.user?.id,
         }, attempts: 2);
@@ -492,21 +541,22 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'publisher',
     );
-    _activeStreamId = creds['streamId'];
+    final canonicalChannelId = creds.channelId;
+    _activeStreamId = creds.streamId.isEmpty ? null : creds.streamId;
     try {
       await _connect(
-        channelName: channelName,
-        url: creds['url']!,
-        token: creds['token']!,
+        channelName: canonicalChannelId,
+        url: creds.url,
+        token: creds.token,
         publish: true,
       );
-      await _confirmJoin(channelName, role: 'publisher');
+      await _confirmJoin(canonicalChannelId, role: 'publisher');
       _currentRole = 'publisher';
     } catch (_) {
       try {
         await _invokeLifecycleBackend({
           'action': 'leave',
-          'channelId': channelName,
+          'channelId': canonicalChannelId,
           if (_activeStreamId != null) 'streamId': _activeStreamId,
           'userId': state.user?.id,
         }, attempts: 2);

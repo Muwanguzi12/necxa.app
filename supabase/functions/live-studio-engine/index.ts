@@ -722,7 +722,7 @@ serve(async (req) => {
     const body = await req.json();
     const {
       action,
-      channelId,
+      channelId: requestedChannelId,
       streamId,
       userId: requestedUserId,
       role,
@@ -766,6 +766,10 @@ serve(async (req) => {
       eventCursor?: string;
     };
     const usesConfirmedLifecycle = Number(protocolVersion) >= 2;
+    // `start` never trusts a client-selected media room. The server replaces the
+    // optional value with a session-scoped room name below. Other actions must
+    // address the canonical channel returned by start/list_active.
+    let channelId = requestedChannelId?.trim();
 
     const userId = jwtSubject(req);
     if (!userId) {
@@ -781,7 +785,7 @@ serve(async (req) => {
     }
 
     // ── 1. Validate required fields per action ────────────────────────────────
-    if (action !== "list_active" && !channelId?.trim()) {
+    if (!["start", "list_active"].includes(action) && !channelId) {
       return json({ error: "channelId is required" }, 400);
     }
     if (action === "start" && !userId?.trim()) {
@@ -868,15 +872,11 @@ serve(async (req) => {
             hostId: userId,
             status: { $in: ["starting", "live"] },
           });
-          if (existing && existing.channelId !== channelId) {
-            return json(
-              { error: "You already have an active stream. End it before starting another." },
-              409,
-            );
-          }
 
           if (!existing) {
-            newStreamId = crypto.randomUUID();
+            const sessionSuffix = crypto.randomUUID().replaceAll("-", "");
+            newStreamId = `live_${sessionSuffix}`;
+            channelId = `necxa_live_${sessionSuffix}`;
             const {
               title = "Live Session",
               description = "",
@@ -896,6 +896,7 @@ serve(async (req) => {
             await streams.insertOne({
               streamId: newStreamId,
               channelId,
+              roomName: channelId,
               hostId: userId,
               status: "starting",
               title,
@@ -930,6 +931,13 @@ serve(async (req) => {
               createdAt: preparedAt,
             });
           } else {
+            channelId = String(existing.channelId ?? "").trim();
+            if (!channelId) {
+              return json(
+                { error: "Your active live session has no media room. End it and start again." },
+                409,
+              );
+            }
             newStreamId = existing.streamId?.toString() ?? null;
             await streams.updateOne(
               { _id: existing._id },
@@ -2490,6 +2498,8 @@ serve(async (req) => {
         token,
         url:          LIVEKIT_URL,
         streamId:     newStreamId,
+        channelId,
+        roomName:     channelId,
         status:       usesConfirmedLifecycle ? "prepared" : "live",
       });
     }
@@ -2508,6 +2518,8 @@ serve(async (req) => {
         token,
         url:          LIVEKIT_URL,
         streamId:     newStreamId,
+        channelId,
+        roomName:     channelId,
         status:       "ready",
       });
     }
