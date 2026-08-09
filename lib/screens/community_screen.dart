@@ -939,6 +939,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
           hostName:
               (stream['hostName'] ?? (stream['metadata'] as Map?)?['hostName'])
                   ?.toString(),
+          hostAvatar:
+              (stream['avatar'] ?? (stream['metadata'] as Map?)?['avatar'])
+                  ?.toString(),
         ),
       ),
     );
@@ -1173,6 +1176,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           '${widget.state.myProfile?['full_name'] ?? 'User'}_Live',
                       isHost: true,
                       hostId: widget.state.user?.id,
+                      hostName: widget.state.myProfile?['full_name']
+                          ?.toString(),
+                      hostAvatar:
+                          (widget.state.myProfile?['avatar_url'] ??
+                                  widget.state.myProfile?['avatar'])
+                              ?.toString(),
                     ),
                   ),
                 );

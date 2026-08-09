@@ -603,6 +603,10 @@ async function liveSummary(
         projection: {
           _id: 0,
           streamId: 1,
+          hostId: 1,
+          hostName: 1,
+          avatar: 1,
+          metadata: 1,
           startedAt: 1,
           likes: 1,
           shares: 1,
@@ -650,6 +654,13 @@ async function liveSummary(
 
   return {
     streamId: String(stream?.streamId ?? ""),
+    hostId: String(stream?.hostId ?? ""),
+    hostName: String(
+      stream?.hostName ?? stream?.metadata?.hostName ?? "Necxa Creator",
+    ),
+    hostAvatar: String(
+      stream?.avatar ?? stream?.metadata?.avatar ?? "",
+    ),
     sessionStartedAt: stream?.startedAt ?? null,
     viewerCount,
     likes: Number(stream?.likes ?? 0),

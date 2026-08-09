@@ -25,6 +25,7 @@ class LiveStudioScreen extends StatefulWidget {
   final bool isHost;
   final String? hostId;
   final String? hostName;
+  final String? hostAvatar;
 
   const LiveStudioScreen({
     super.key,
@@ -33,6 +34,7 @@ class LiveStudioScreen extends StatefulWidget {
     this.isHost = false,
     this.hostId,
     this.hostName,
+    this.hostAvatar,
   });
 
   @override
@@ -49,6 +51,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   late String _channelName;
 
   String get _hostDisplayName {
+    final backendName = _liveSummary['hostName']?.toString().trim() ?? '';
+    if (backendName.isNotEmpty) return backendName;
     final String? candidate;
     if (widget.isHost) {
       candidate = widget.state.myProfile?['full_name']?.toString();
@@ -57,6 +61,21 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
     final normalized = candidate?.trim() ?? '';
     return normalized.isEmpty ? 'Necxa Creator' : normalized;
+  }
+
+  String get _hostAvatar {
+    final backendAvatar = _liveSummary['hostAvatar']?.toString().trim() ?? '';
+    if (backendAvatar.isNotEmpty) return backendAvatar;
+    final String? candidate;
+    if (widget.isHost) {
+      candidate =
+          (widget.state.myProfile?['avatar_url'] ??
+                  widget.state.myProfile?['avatar'])
+              ?.toString();
+    } else {
+      candidate = widget.hostAvatar;
+    }
+    return candidate?.trim() ?? '';
   }
 
   // Co-Hosting & Guest Interaction State
@@ -1591,6 +1610,315 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     return top is Map ? Map<String, dynamic>.from(top) : null;
   }
 
+  List<Map<String, dynamic>> get _giftLeaderboard {
+    final raw = _giftSummary['leaderboard'];
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    }
+    final top = _topGifter;
+    return top == null ? const [] : [top];
+  }
+
+  List<Map<String, dynamic>> get _activeViewers {
+    final raw = _liveSummary['viewers'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  Widget _liveSheetHandle() => Center(
+    child: Container(
+      width: 40,
+      height: 4,
+      decoration: BoxDecoration(
+        color: Colors.white24,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    ),
+  );
+
+  void _showLiveAudience() {
+    final viewers = _activeViewers;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0C0E14),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _liveSheetHandle(),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Icon(Icons.groups_2_rounded, color: Color(0xFF00E5FF)),
+                  const SizedBox(width: 9),
+                  Text(
+                    'LIVE AUDIENCE',
+                    style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _compactNumber(_viewerCount),
+                    style: dm(sz: 13, w: FontWeight.w800, c: Colors.white70),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (viewers.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 28),
+                  child: Text(
+                    _viewerCount == 0
+                        ? 'Waiting for viewers to join.'
+                        : 'Audience details are refreshing.',
+                    style: dm(sz: 12, c: Colors.white54),
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.48,
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: viewers.length,
+                    separatorBuilder: (_, __) =>
+                        const Divider(height: 1, color: Colors.white10),
+                    itemBuilder: (_, index) {
+                      final viewer = viewers[index];
+                      final rawName = viewer['userName']?.toString().trim();
+                      final name = rawName == null || rawName.isEmpty
+                          ? 'Viewer'
+                          : rawName;
+                      final username = viewer['username']?.toString().trim();
+                      final avatar = viewer['avatar']?.toString().trim() ?? '';
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.white12,
+                          backgroundImage: avatar.isEmpty
+                              ? null
+                              : CachedNetworkImageProvider(avatar),
+                          child: avatar.isEmpty
+                              ? Text(
+                                  name[0].toUpperCase(),
+                                  style: dm(
+                                    sz: 11,
+                                    w: FontWeight.w900,
+                                    c: Colors.white,
+                                  ),
+                                )
+                              : null,
+                        ),
+                        title: Text(
+                          name,
+                          style: dm(
+                            sz: 12,
+                            w: FontWeight.w700,
+                            c: Colors.white,
+                          ),
+                        ),
+                        subtitle: username == null || username.isEmpty
+                            ? null
+                            : Text(
+                                '@$username',
+                                style: dm(sz: 10, c: Colors.white54),
+                              ),
+                      );
+                    },
+                  ),
+                ),
+              if (_viewerCount > viewers.length && viewers.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Showing the ${viewers.length} most recently active viewers.',
+                  style: dm(sz: 9, c: Colors.white38),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showGiftLeaderboard() {
+    final leaders = _giftLeaderboard;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0C0E14),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _liveSheetHandle(),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.rocket_launch_rounded,
+                    color: Color(0xFFA78BFA),
+                  ),
+                  const SizedBox(width: 9),
+                  Text(
+                    'LIVE GIFT RANKING',
+                    style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (leaders.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 28),
+                  child: Text(
+                    'The first gift will start the ranking.',
+                    style: dm(sz: 12, c: Colors.white54),
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.5,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: leaders.length,
+                    itemBuilder: (_, index) {
+                      final leader = leaders[index];
+                      final rawName = leader['senderName']?.toString().trim();
+                      final name = rawName == null || rawName.isEmpty
+                          ? 'Anonymous'
+                          : rawName;
+                      final avatar =
+                          leader['senderAvatar']?.toString().trim() ?? '';
+                      final amount = (leader['amount'] as num?) ?? 0;
+                      final rank =
+                          (leader['rank'] as num?)?.toInt() ?? index + 1;
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.white12,
+                          backgroundImage: avatar.isEmpty
+                              ? null
+                              : CachedNetworkImageProvider(avatar),
+                          child: avatar.isEmpty
+                              ? Text(
+                                  '#$rank',
+                                  style: dm(
+                                    sz: 10,
+                                    w: FontWeight.w900,
+                                    c: rank == 1
+                                        ? const Color(0xFFFFA300)
+                                        : Colors.white,
+                                  ),
+                                )
+                              : null,
+                        ),
+                        title: Text(
+                          name,
+                          style: dm(
+                            sz: 12,
+                            w: FontWeight.w700,
+                            c: Colors.white,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Rank #$rank',
+                          style: dm(sz: 9, c: Colors.white38),
+                        ),
+                        trailing: Text(
+                          '${_compactNumber(amount)} NCX',
+                          style: dm(
+                            sz: 11,
+                            w: FontWeight.w900,
+                            c: const Color(0xFFFFA300),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showGiftGoalDetails() {
+    final total = (_giftSummary['totalAmount'] as num?)?.toInt() ?? 0;
+    final target = (_giftSummary['goalTarget'] as num?)?.toInt() ?? 100;
+    final remaining = (target - total).clamp(0, target);
+    final progress = target <= 0
+        ? 0.0
+        : (total / target).clamp(0.0, 1.0).toDouble();
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0C0E14),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 16, 22, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'LIVE GIFT GOAL',
+                style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${_compactNumber(total)} / ${_compactNumber(target)} NCX',
+                style: dm(
+                  sz: 22,
+                  w: FontWeight.w900,
+                  c: const Color(0xFFFFA300),
+                ),
+              ),
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 8,
+                  backgroundColor: Colors.white12,
+                  color: const Color(0xFFFF176B),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                remaining == 0
+                    ? 'Goal reached. The next milestone is refreshing.'
+                    : '${_compactNumber(remaining)} NCX to the next milestone.',
+                style: dm(sz: 11, c: Colors.white60),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCompactHUD() {
     final topGifter = _topGifter;
     final giftTotal = (_giftSummary['totalAmount'] as num?)?.toInt() ?? 0;
@@ -1611,88 +1939,100 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           Row(
             children: [
               Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: Container(
-                      height: 46,
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            padding: const EdgeInsets.all(2),
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: LinearGradient(
-                                colors: [Color(0xFFFF176B), Color(0xFF00E5FF)],
-                              ),
-                            ),
-                            child: CircleAvatar(
-                              backgroundColor: const Color(0xFF153B50),
-                              child: Text(
-                                _hostDisplayName[0].toUpperCase(),
-                                style: dm(
-                                  sz: 11,
-                                  w: FontWeight.w900,
-                                  c: Colors.white,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _showLiveAudience,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: Container(
+                        height: 46,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Color(0xFFFF176B),
+                                    Color(0xFF00E5FF),
+                                  ],
                                 ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 7),
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        _hostDisplayName,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: syne(
+                              child: CircleAvatar(
+                                backgroundColor: const Color(0xFF153B50),
+                                backgroundImage: _hostAvatar.isEmpty
+                                    ? null
+                                    : CachedNetworkImageProvider(_hostAvatar),
+                                child: _hostAvatar.isEmpty
+                                    ? Text(
+                                        _hostDisplayName[0].toUpperCase(),
+                                        style: dm(
                                           sz: 11,
-                                          w: FontWeight.w800,
+                                          w: FontWeight.w900,
                                           c: Colors.white,
                                         ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Icon(
-                                      Icons.verified_rounded,
-                                      color: Color(0xFF00E5FF),
-                                      size: 13,
-                                    ),
-                                  ],
-                                ),
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.visibility_outlined,
-                                      color: Colors.white70,
-                                      size: 10,
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      '$_viewerCount viewers',
-                                      style: dm(sz: 8, c: Colors.white70),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                      )
+                                    : null,
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          _hostDisplayName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: syne(
+                                            sz: 11,
+                                            w: FontWeight.w800,
+                                            c: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(
+                                        Icons.verified_rounded,
+                                        color: Color(0xFF00E5FF),
+                                        size: 13,
+                                      ),
+                                    ],
+                                  ),
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.visibility_outlined,
+                                        color: Colors.white70,
+                                        size: 10,
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        '$_viewerCount viewers',
+                                        style: dm(sz: 8, c: Colors.white70),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1743,6 +2083,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   value: topGifterName == null || topGifterName.isEmpty
                       ? 'No gifts yet'
                       : '$topGifterName · ${_compactNumber(topGifterAmount)}',
+                  onTap: _showGiftLeaderboard,
                 ),
               ),
               const SizedBox(width: 7),
@@ -1754,15 +2095,20 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   value:
                       '${_compactNumber(giftTotal)} / ${_compactNumber(giftGoal)} NCX',
                   progress: goalProgress,
+                  onTap: _showGiftGoalDetails,
                 ),
               ),
               if (_hasPublishingGuests) ...[
                 const SizedBox(width: 7),
-                Tooltip(
-                  message: 'Live guest stage',
-                  child: _hudCircleButton(
-                    Icons.rocket_launch_rounded,
-                    color: const Color(0xFF6650A4),
+                Expanded(
+                  child: _compactHudChip(
+                    icon: Icons.rocket_launch_rounded,
+                    iconColor: const Color(0xFFA78BFA),
+                    title: 'RANKING',
+                    value: _giftLeaderboard.isEmpty
+                        ? 'No gifts yet'
+                        : 'Top ${_giftLeaderboard.length}',
+                    onTap: _showGiftLeaderboard,
                   ),
                 ),
               ],
@@ -1779,50 +2125,55 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     required String title,
     required String value,
     double? progress,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      height: 42,
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.52),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: iconColor, size: 18),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: dm(sz: 7, w: FontWeight.w800, c: Colors.white60),
-                ),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: dm(sz: 8, w: FontWeight.w700, c: Colors.white),
-                ),
-                if (progress != null) ...[
-                  const SizedBox(height: 2),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 2,
-                      backgroundColor: Colors.white12,
-                      color: const Color(0xFFFF176B),
-                    ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 42,
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.52),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 18),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: dm(sz: 7, w: FontWeight.w800, c: Colors.white60),
                   ),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: dm(sz: 8, w: FontWeight.w700, c: Colors.white),
+                  ),
+                  if (progress != null) ...[
+                    const SizedBox(height: 2),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 2,
+                        backgroundColor: Colors.white12,
+                        color: const Color(0xFFFF176B),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

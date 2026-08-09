@@ -2021,8 +2021,11 @@ serve(async (req) => {
         current.amount += amount;
         totalsBySender.set(senderId, current);
       }
-      const topGifter = [...totalsBySender.values()]
-        .sort((a, b) => b.amount - a.amount)[0] ?? null;
+      const leaderboard = [...totalsBySender.values()]
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 10)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
+      const topGifter = leaderboard[0] ?? null;
       const milestones = [100, 500, 1000, 5000, 10000, 25000, 50000, 100000];
       const goalTarget = milestones.find(value => value > totalAmount)
         ?? Math.ceil((totalAmount + 1) / 100000) * 100000;
@@ -2030,7 +2033,7 @@ serve(async (req) => {
       return json({
         success: true,
         gifts: formatted,
-        summary: { totalAmount, goalTarget, topGifter },
+        summary: { totalAmount, goalTarget, topGifter, leaderboard },
       });
     }
 
