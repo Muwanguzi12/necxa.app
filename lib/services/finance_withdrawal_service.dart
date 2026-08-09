@@ -2,9 +2,9 @@ import 'finance_backend.dart';
 import 'finance_initializer.dart';
 
 class FinanceWithdrawalService {
-  Future<void> sendOtp() async {
+  Future<Map<String, dynamic>> sendOtp() async {
     await FinanceInitializer.instance.ensureInitialized();
-    await FinanceBackend.instance.invoke('send_withdrawal_otp');
+    return FinanceBackend.instance.invoke('send_withdrawal_otp');
   }
 
   Future<Map<String, dynamic>> request({
@@ -13,6 +13,7 @@ class FinanceWithdrawalService {
     required String accountNumber,
     required String recipientName,
     required String emailOtp,
+    String? totpToken,
     required Map<String, dynamic> securityMetadata,
     required String idempotencyKey,
   }) async {
@@ -25,6 +26,7 @@ class FinanceWithdrawalService {
         'accountNumber': accountNumber,
         'recipientName': recipientName,
         'emailOtp': emailOtp,
+        'totpToken': totpToken,
         'securityMetadata': securityMetadata,
         'idempotencyKey': idempotencyKey,
       },

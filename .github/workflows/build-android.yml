@@ -30,6 +30,9 @@ jobs:
         channel: 'stable'
         cache: true
 
+    - name: Reset generated Flutter state
+      run: flutter clean
+
     - name: Get dependencies
       run: flutter pub get
 
