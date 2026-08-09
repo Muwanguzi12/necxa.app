@@ -594,12 +594,61 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? get currentProfile => myProfile;
   bool get isAuthenticated => user != null;
 
+  String? _firstProfileValue(Iterable<dynamic> values) {
+    for (final value in values) {
+      final normalized = value?.toString().trim() ?? '';
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return null;
+  }
+
+  String? get myDisplayName => _firstProfileValue([
+    myProfile?['full_name'],
+    myProfile?['display_name'],
+    user?.userMetadata?['full_name'],
+    user?.userMetadata?['display_name'],
+    user?.userMetadata?['name'],
+    user?.email?.split('@').first,
+  ]);
+
+  String? get myAvatarUrl => _firstProfileValue([
+    myProfile?['avatar_url'],
+    myProfile?['photo_url'],
+    myProfile?['avatar'],
+    user?.userMetadata?['avatar_url'],
+    user?.userMetadata?['picture'],
+    user?.userMetadata?['avatar'],
+  ]);
+
+  String? get myUsername => _firstProfileValue([
+    myProfile?['username'],
+    user?.userMetadata?['username'],
+  ]);
+
   Future<void> loadMyProfile() async {
     if (user == null) return;
     final profile = await social.getProfile(user!.id);
     final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
+    final normalizedName = _firstProfileValue([
+      profile?['full_name'],
+      profile?['display_name'],
+      user?.userMetadata?['full_name'],
+      user?.userMetadata?['display_name'],
+      user?.userMetadata?['name'],
+      user?.email?.split('@').first,
+    ]);
+    final normalizedAvatar = _firstProfileValue([
+      profile?['avatar_url'],
+      profile?['photo_url'],
+      profile?['avatar'],
+      user?.userMetadata?['avatar_url'],
+      user?.userMetadata?['picture'],
+      user?.userMetadata?['avatar'],
+    ]);
     myProfile = {
       ...?profile,
+      if (normalizedName != null) 'full_name': normalizedName,
+      if (normalizedAvatar != null) 'avatar_url': normalizedAvatar,
       if (financeSnapshot != null) 'finance': financeSnapshot,
     };
     notify();
@@ -940,7 +989,13 @@ class AppState extends ChangeNotifier {
   Future<void> syncPaymentMethods() async {
     paymentMethods = const [
       {'id': 'balance', 'name': 'Necxa Wallet', 'enabled': true},
-      {'id': 'mtn', 'name': 'MTN MoMo', 'type': 'disbursement', 'status': 'active', 'enabled': true},
+      {
+        'id': 'mtn',
+        'name': 'MTN MoMo',
+        'type': 'disbursement',
+        'status': 'active',
+        'enabled': true,
+      },
     ];
     notify();
   }

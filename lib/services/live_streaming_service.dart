@@ -111,11 +111,10 @@ class LiveStreamingService {
   bool get isCoHostPublishing => _currentRole == 'publisher';
 
   Map<String, dynamic> _identityMetadata({String fallbackName = 'Viewer'}) {
-    final profile = state.myProfile;
     return {
-      'name': profile?['full_name'] ?? state.user?.email ?? fallbackName,
-      'username': profile?['username']?.toString().trim() ?? '',
-      'avatar': profile?['avatar_url'] ?? '',
+      'name': state.myDisplayName ?? fallbackName,
+      'username': state.myUsername ?? '',
+      'avatar': state.myAvatarUrl ?? '',
     };
   }
 
@@ -802,7 +801,7 @@ class LiveStreamingService {
       channelId: channelName,
       userId: userId,
       userName: userName,
-      userAvatar: state.myProfile?['avatar_url']?.toString() ?? '',
+      userAvatar: state.myAvatarUrl ?? '',
       text: text,
       clientRequestId: requestId,
     );
@@ -1007,11 +1006,10 @@ class LiveStreamingService {
       'channelId': channelId,
       if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
-      'userName':
-          state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
+      'userName': state.myDisplayName ?? 'Viewer',
       'reactionType': reactionType,
       'clientRequestId': _newCommentRequestId('live_reaction'),
-      'metadata': {'avatar': state.myProfile?['avatar_url'] ?? ''},
+      'metadata': {'avatar': state.myAvatarUrl ?? ''},
     });
     final data = response is Map ? response['data'] : null;
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
@@ -1041,7 +1039,6 @@ class LiveStreamingService {
           if (_activeStreamId != null) 'streamId': _activeStreamId,
           'role': _currentRole,
           if (cursor != null) 'eventCursor': cursor,
-          'metadata': _identityMetadata(),
         });
         final data = response is Map ? response['data'] : null;
         if (data is! Map) {

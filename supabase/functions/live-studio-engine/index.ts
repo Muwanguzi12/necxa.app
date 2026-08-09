@@ -1042,6 +1042,18 @@ serve(async (req) => {
               409,
             );
           }
+          const hostIdentity = await verifiedViewerIdentity(
+            userId,
+            metadata,
+            prepared.hostName ?? "Necxa Creator",
+            prepared.avatar ?? "",
+          );
+          const canonicalHostName = String(
+            hostIdentity.userName || prepared.hostName || "Necxa Creator",
+          );
+          const canonicalHostAvatar = String(
+            hostIdentity.avatar || prepared.avatar || "",
+          );
           if (prepared.status === "starting") {
             await streams.updateOne(
               { _id: prepared._id, status: "starting" },
@@ -1050,6 +1062,10 @@ serve(async (req) => {
                   status: "live",
                   startedAt: confirmedAt,
                   lastHeartbeatAt: confirmedAt,
+                  hostName: canonicalHostName,
+                  avatar: canonicalHostAvatar,
+                  "metadata.hostName": canonicalHostName,
+                  "metadata.avatar": canonicalHostAvatar,
                   updatedAt: confirmedAt,
                 },
                 $unset: { prepareExpiresAt: "" },
@@ -1061,6 +1077,10 @@ serve(async (req) => {
               {
                 $set: {
                   lastHeartbeatAt: confirmedAt,
+                  hostName: canonicalHostName,
+                  avatar: canonicalHostAvatar,
+                  "metadata.hostName": canonicalHostName,
+                  "metadata.avatar": canonicalHostAvatar,
                   updatedAt: confirmedAt,
                 },
               },
@@ -1073,12 +1093,7 @@ serve(async (req) => {
                 channelId,
                 streamId: prepared.streamId,
                 userId,
-                ...await verifiedViewerIdentity(
-                  userId,
-                  metadata,
-                  prepared.hostName ?? "Necxa Creator",
-                  prepared.avatar ?? "",
-                ),
+                ...hostIdentity,
                 role: "host",
                 active: true,
                 lastSeenAt: confirmedAt,
@@ -1914,6 +1929,23 @@ serve(async (req) => {
           if (!liveStream) {
             return json({ error: "This live stream has ended" }, 410);
           }
+          const commenterPresence = await db.collection("stream_viewers")
+            .findOne(
+              { channelId, userId },
+              { projection: { _id: 0, userName: 1, avatar: 1 } },
+            );
+          const fallbackCommentIdentity = viewerIdentity(
+            metadata,
+            userName?.trim() || "User",
+          );
+          const commentUserName = String(
+            commenterPresence?.userName ||
+              fallbackCommentIdentity.userName ||
+              "User",
+          );
+          const commentAvatar = String(
+            commenterPresence?.avatar || fallbackCommentIdentity.avatar || "",
+          );
           const requestId = clientRequestId?.trim() ||
             `legacy_${crypto.randomUUID()}`;
           const now = new Date();
@@ -1927,8 +1959,8 @@ serve(async (req) => {
                   // Retained while older app builds still query channelName.
                   channelName: channelId,
                   userId,
-                  userName: userName?.trim() || "User",
-                  avatar: metadata.avatar ?? "",
+                  userName: commentUserName,
+                  avatar: commentAvatar,
                   text: cleanText.slice(0, COMMENT_MAX_LENGTH),
                   status: "active",
                   clientRequestId: requestId,
@@ -2396,12 +2428,36 @@ serve(async (req) => {
               );
               return json({ error: "This live stream has ended" }, 410);
             }
+            const currentHostName = String(liveStream.hostName ?? "").trim();
+            const currentHostAvatar = String(liveStream.avatar ?? "").trim();
+            const presenceHostName = String(
+              hostPresence?.userName ?? "",
+            ).trim();
+            const presenceHostAvatar = String(
+              hostPresence?.avatar ?? "",
+            ).trim();
+            const repairedHostIdentity = {
+              ...((!currentHostName || currentHostName === "Necxa Creator") &&
+                  presenceHostName
+                ? {
+                  hostName: presenceHostName,
+                  "metadata.hostName": presenceHostName,
+                }
+                : {}),
+              ...(!currentHostAvatar && presenceHostAvatar
+                ? {
+                  avatar: presenceHostAvatar,
+                  "metadata.avatar": presenceHostAvatar,
+                }
+                : {}),
+            };
             await streams.updateOne(
               { _id: liveStream._id, status: "live" },
               {
                 $set: {
                   lastHeartbeatAt: polledAt,
                   updatedAt: polledAt,
+                  ...repairedHostIdentity,
                 },
               },
             );
@@ -2421,11 +2477,14 @@ serve(async (req) => {
                 active: true,
                 streamId: liveStream.streamId,
                 lastSeenAt: polledAt,
-                userName: String(metadata.name ?? "Viewer"),
-                avatar: String(metadata.avatar ?? ""),
                 role: role === "publisher" ? "cohost" : (role === "host" ? "host" : "viewer"),
               },
-              $setOnInsert: { joinedAt: polledAt, channelId, userId },
+              $setOnInsert: {
+                joinedAt: polledAt,
+                channelId,
+                userId,
+                ...viewerIdentity(metadata),
+              },
               $unset: { leftAt: "" },
             },
             { upsert: true },

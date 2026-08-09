@@ -55,7 +55,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (backendName.isNotEmpty) return backendName;
     final String? candidate;
     if (widget.isHost) {
-      candidate = widget.state.myProfile?['full_name']?.toString();
+      candidate = widget.state.myDisplayName;
     } else {
       candidate = widget.hostName;
     }
@@ -68,10 +68,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (backendAvatar.isNotEmpty) return backendAvatar;
     final String? candidate;
     if (widget.isHost) {
-      candidate =
-          (widget.state.myProfile?['avatar_url'] ??
-                  widget.state.myProfile?['avatar'])
-              ?.toString();
+      candidate = widget.state.myAvatarUrl;
     } else {
       candidate = widget.hostAvatar;
     }
@@ -124,8 +121,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   int _consecutiveViolations = 0;
   bool _isEnforcementActive = false;
   String? _enforcementReason;
-  String? get _hostUserId =>
-      widget.hostId ?? (widget.isHost ? widget.state.user?.id : null);
+  String? get _hostUserId {
+    final backendHostId = _liveSummary['hostId']?.toString().trim() ?? '';
+    if (backendHostId.isNotEmpty) return backendHostId;
+    return widget.hostId ?? (widget.isHost ? widget.state.user?.id : null);
+  }
+
   int get _viewerCount {
     final syncedCount = (_liveSummary['viewerCount'] as num?)?.toInt();
     return syncedCount ?? 0;
@@ -497,10 +498,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     _commentController.clear();
 
     // Optimistic local update
-    final myName =
-        widget.state.myProfile?['full_name'] ??
-        widget.state.user?.email ??
-        'Viewer';
+    final myName = widget.state.myDisplayName ?? 'Viewer';
     setState(() {
       _liveComments.insert(0, {'user': myName, 'text': text});
     });
@@ -643,10 +641,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (text.isEmpty) return;
 
     _commentController.clear();
-    final myName =
-        widget.state.myProfile?['full_name'] ??
-        widget.state.user?.email ??
-        'Viewer';
+    final myName = widget.state.myDisplayName ?? 'Viewer';
     try {
       await widget.state.live.sendLiveComment(_channelName, myName, text);
       await _reloadCachedLiveComments();
@@ -666,6 +661,46 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (age.inMinutes < 60) return '${age.inMinutes}m';
     if (age.inHours < 24) return '${age.inHours}h';
     return '${age.inDays}d';
+  }
+
+  Map<String, dynamic>? _commentOwnerPresence(Map<String, dynamic> comment) {
+    final userId = comment['userId']?.toString();
+    if (userId == null || userId.isEmpty) return null;
+    for (final viewer in _activeViewers) {
+      if (viewer['userId']?.toString() == userId) return viewer;
+    }
+    return null;
+  }
+
+  String _commentOwnerName(Map<String, dynamic> comment) {
+    final userId = comment['userId']?.toString();
+    if (userId != null && userId == widget.state.user?.id) {
+      return widget.state.myDisplayName ??
+          comment['userName']?.toString().trim() ??
+          comment['user']?.toString().trim() ??
+          'User';
+    }
+    if (userId != null && userId == _hostUserId) return _hostDisplayName;
+    final presenceName =
+        _commentOwnerPresence(comment)?['userName']?.toString().trim() ?? '';
+    if (presenceName.isNotEmpty && presenceName != 'Viewer') {
+      return presenceName;
+    }
+    final storedName =
+        (comment['userName'] ?? comment['user'])?.toString().trim() ?? '';
+    return storedName.isEmpty ? 'User' : storedName;
+  }
+
+  String _commentOwnerAvatar(Map<String, dynamic> comment) {
+    final storedAvatar =
+        (comment['avatar'] ?? comment['userAvatar'])?.toString().trim() ?? '';
+    if (storedAvatar.isNotEmpty) return storedAvatar;
+    final userId = comment['userId']?.toString();
+    if (userId != null && userId == widget.state.user?.id) {
+      return widget.state.myAvatarUrl ?? '';
+    }
+    if (userId != null && userId == _hostUserId) return _hostAvatar;
+    return _commentOwnerPresence(comment)?['avatar']?.toString().trim() ?? '';
   }
 
   Future<void> _editComment(Map<String, dynamic> comment) async {
@@ -2279,8 +2314,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               padding: const EdgeInsets.only(bottom: 12),
               itemBuilder: (context, index) {
                 final c = _liveComments[index];
-                final avatar = c['avatar']?.toString() ?? '';
-                final userName = c['user']?.toString().trim() ?? '';
+                final avatar = _commentOwnerAvatar(c);
+                final userName = _commentOwnerName(c);
                 final syncStatus = c['syncStatus']?.toString() ?? 'synced';
                 final edited = c['editedAt'] != null;
                 return Padding(
@@ -2322,11 +2357,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       : null,
                                   child: avatar.isEmpty
                                       ? Text(
-                                          (c['user']?.toString() ?? 'U')
-                                              .trim()
-                                              .padRight(1, 'U')
-                                              .substring(0, 1)
-                                              .toUpperCase(),
+                                          userName[0].toUpperCase(),
                                           style: dm(
                                             sz: 8,
                                             w: FontWeight.bold,
@@ -2341,8 +2372,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                     text: TextSpan(
                                       children: [
                                         TextSpan(
-                                          text:
-                                              '${userName.isEmpty ? 'User' : userName}: ',
+                                          text: '$userName: ',
                                           style: dm(
                                             sz: 11,
                                             w: FontWeight.bold,
@@ -2845,7 +2875,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   Future<void> _shareLive() async {
     try {
       final creator = widget.isHost
-          ? (widget.state.myProfile?['full_name']?.toString())
+          ? widget.state.myDisplayName
           : _hostDisplayName;
       final shareResult = await SharePlus.instance.share(
         ShareParams(
@@ -3133,9 +3163,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               contextType: 'live_stream',
               contextId: _channelName,
               contextNote: 'Live gift: ${gift.name}',
-              senderName:
-                  widget.state.myProfile?['full_name']?.toString() ?? 'Viewer',
-              senderAvatar: widget.state.myProfile?['avatar_url']?.toString(),
+              senderName: widget.state.myDisplayName ?? 'Viewer',
+              senderAvatar: widget.state.myAvatarUrl,
             );
 
             if (!mounted) return;
@@ -3349,12 +3378,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
       try {
         await widget.state.live.sendCoHostRequest(_channelName, userId, {
-          'name':
-              widget.state.myProfile?['full_name'] ??
-              widget.state.user?.email ??
-              'Viewer',
-          'username': widget.state.myProfile?['username'] ?? '',
-          'avatar': widget.state.myProfile?['avatar_url'] ?? '',
+          'name': widget.state.myDisplayName ?? 'Viewer',
+          'username': widget.state.myUsername ?? '',
+          'avatar': widget.state.myAvatarUrl ?? '',
         });
         setState(() => _isRequestPending = true);
         _showToast(
