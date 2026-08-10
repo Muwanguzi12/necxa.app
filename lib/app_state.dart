@@ -2698,6 +2698,9 @@ class AppState extends ChangeNotifier {
         permitUrl: currentDriverProfile!.permitUrl,
         isVerified: currentDriverProfile!.isVerified,
         isAvailable: online,
+        countryCode: currentDriverProfile!.countryCode,
+        verificationStatus: currentDriverProfile!.verificationStatus,
+        verificationReasonCode: currentDriverProfile!.verificationReasonCode,
       );
       notify();
     } catch (e) {
@@ -2873,7 +2876,7 @@ class AppState extends ChangeNotifier {
     try {
       final res = await Supabase.instance.client
           .from('transport_drivers')
-          .select('id,name,number_plate,vehicle_type,is_verified,is_available')
+          .select('id,name,number_plate,vehicle_type,is_verified,is_available,country_code,verification_status,verification_reason_code')
           .eq('id', user!.id)
           .maybeSingle();
       if (res != null) {

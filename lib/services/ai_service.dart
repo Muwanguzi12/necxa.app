@@ -716,7 +716,8 @@ class NecxaAI {
     required File driverSelfie,
     required File permitImage,
     required File vehicleImage,
-    String? userId,
+    required String issuingCountryCode,
+    required bool aiProcessingConsent,
   }) async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null)
@@ -729,16 +730,15 @@ class NecxaAI {
 
       final res = await Supabase.instance.client.functions.invoke(
         'verify-transport',
-        headers: _aiHeaders(
-          extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'},
-        ),
+        headers: _aiHeaders(),
         body: {
           'action': 'verify_transport',
           'payload': {
             'driverImageBase64': driverBase64,
             'permitImageBase64': permitBase64,
             'vehicleImageBase64': vehicleBase64,
-            'userId': userId ?? session.user.id,
+            'issuingCountryCode': issuingCountryCode.trim().toUpperCase(),
+            'aiProcessingConsent': aiProcessingConsent,
           },
         },
       );

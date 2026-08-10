@@ -1,161 +1,280 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-const CLOUDFLARE_ACCOUNT_ID = Deno.env.get("CLOUDFLARE_ACCOUNT_ID") ?? "";
-const CLOUDFLARE_API_TOKEN = Deno.env.get("CLOUDFLARE_API_TOKEN") ?? "";
+const NECXA_AI_URL = Deno.env.get("NECXA_AI_URL") || "https://api.necxa.uk"
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-shield-signature',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-primary-jwt",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   })
 }
 
-function cleanBase64(input: string): string {
-  return input.replace(/^data:image\/\w+;base64,/, '').trim()
-}
-
-function parseVisionJson(raw: string): Record<string, any> {
-  const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim()
-  const match = cleaned.match(/\{[\s\S]*\}/)
-  if (!match) throw new Error(`AI did not return JSON: ${raw}`)
-  return JSON.parse(match[0])
-}
-
-function normalizePlate(plate: string): string {
-  return plate.toUpperCase().replace(/[^A-Z0-9]/g, '')
-}
-
-async function askCloudflareVision(prompt: string, base64Image: string): Promise<string> {
-  if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN) {
-    throw new Error("Cloudflare AI is not configured for transport verification.");
+function imageBytes(input: unknown, label: string): Uint8Array {
+  if (typeof input !== "string" || !input.trim()) {
+    throw new Error(`${label} is required.`)
   }
 
-  const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.2-11b-vision-instruct`;
-  
-  // Format exactly as Cloudflare expects for their Vision models
-  // Convert standard base64 to byte array if needed by CF, but CF accepts base64 array in standard REST payload
-  const body = {
-    prompt: prompt,
-    image: [...atob(cleanBase64(base64Image))].map(c => c.charCodeAt(0))
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${CLOUDFLARE_API_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("Cloudflare AI Error:", errorText);
-    throw new Error(`Cloudflare AI API Error: ${response.statusText}`);
+  const encoded = input.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim()
+  let bytes: Uint8Array
+  try {
+    bytes = decode(encoded)
+  } catch (_) {
+    throw new Error(`${label} is not a valid image.`)
   }
 
-  const result = await response.json();
-  return result.result.response || "";
+  if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {
+    throw new Error(`${label} must be smaller than 5 MB.`)
+  }
+  return bytes
+}
+
+function normalizePlate(value: unknown): string {
+  if (typeof value !== "string") return ""
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "")
+}
+
+function normalizeCountryCode(value: unknown): string {
+  const code = typeof value === "string" ? value.trim().toUpperCase() : ""
+  return /^[A-Z]{2}$/.test(code) ? code : "ZZ"
+}
+
+function normalizeVehicleType(value: unknown): "bike" | "van" | "truck" | null {
+  const type = typeof value === "string" ? value.trim().toLowerCase() : ""
+  if (type === "bike" || type === "motorcycle" || type === "boda") return "bike"
+  if (type === "van" || type === "car") return "van"
+  if (type === "truck" || type === "lorry") return "truck"
+  return null
+}
+
+function verificationMessage(reasonCode: string): string {
+  const messages: Record<string, string> = {
+    biometric_provider_not_configured: "Your application was saved for manual biometric review.",
+    biometric_provider_unavailable: "The biometric service is temporarily unavailable, so your application was saved for review.",
+    biometric_requires_review: "Your selfie needs a closer biometric review.",
+    liveness_below_threshold: "The live selfie was unclear. Retake it in good lighting or wait for review.",
+    face_similarity_below_threshold: "The selfie and permit photo need a closer review.",
+    presentation_attack_detected: "The live selfie did not pass the anti-spoofing check.",
+    country_profile_not_configured: "This country's format is not yet enabled for automatic approval. Your application was saved for review.",
+    country_profile_not_approved: "This country's automatic checks are still being calibrated. Your application was saved for review.",
+    document_type_not_configured_for_country: "This permit format needs a closer review.",
+    issuing_country_unknown: "The permit's issuing country could not be confirmed.",
+    document_unreadable: "The permit image was unclear. Retake a sharp photo with all edges visible.",
+    possible_document_tampering: "The permit requires an authenticity review.",
+    document_expired: "The driving permit appears to be expired.",
+    vehicle_or_plate_unreadable: "The vehicle or registration plate was unclear. Retake a sharp photo.",
+    plate_format_requires_review: "The registration plate needs a closer country-format review.",
+  }
+  return messages[reasonCode] ?? "Your application needs a closer verification review."
+}
+
+async function verifyVehicle(bytes: Uint8Array, jwt: string, countryCode: string) {
+  const form = new FormData()
+  form.append("vehicle", new Blob([bytes], { type: "image/jpeg" }), "vehicle.jpg")
+  form.append("countryCode", countryCode)
+  const response = await fetch(`${NECXA_AI_URL}/api/verify/vehicle`, {
+    method: "POST",
+    headers: { "x-primary-jwt": jwt },
+    body: form,
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data?.success !== true) {
+    console.error("Transport vehicle router failed", response.status, data?.error)
+    throw new Error(typeof data?.error === "string" ? data.error : "Vehicle verification is temporarily unavailable.")
+  }
+  return data.vehicleResult ?? {}
+}
+
+async function verifyPermit(permit: Uint8Array, jwt: string, countryCode: string) {
+  const form = new FormData()
+  form.append("idFront", new Blob([permit], { type: "image/jpeg" }), "driving_permit.jpg")
+  form.append("countryCode", countryCode)
+  form.append("documentType", "driving_permit")
+
+  const response = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
+    method: "POST",
+    headers: { "x-primary-jwt": jwt },
+    body: form,
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data?.success !== true) {
+    console.error("Transport permit AI failed", response.status, data?.error)
+    const reason = typeof data?.error === "string" && data.error.trim()
+      ? data.error.trim()
+      : `verification service returned ${response.status}`
+    throw new Error(`Driving permit verification failed: ${reason}`)
+  }
+  return data.ocrResult ?? {}
+}
+
+async function verifyBiometric(selfie: Uint8Array, permit: Uint8Array, jwt: string) {
+  const form = new FormData()
+  form.append("selfie", new Blob([selfie], { type: "image/jpeg" }), "selfie.jpg")
+  form.append("idReference", new Blob([permit], { type: "image/jpeg" }), "driving_permit.jpg")
+
+  const response = await fetch(`${NECXA_AI_URL}/api/verify/biometric`, {
+    method: "POST",
+    headers: { "x-primary-jwt": jwt },
+    body: form,
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data?.success !== true) {
+    console.error("Transport biometric AI failed", response.status, data?.error)
+    const reason = typeof data?.error === "string" && data.error.trim()
+      ? data.error.trim()
+      : `verification service returned ${response.status}`
+    throw new Error(`Selfie verification failed: ${reason}`)
+  }
+  return data.biometricResult ?? {}
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
+  if (req.method !== "POST") return json({ verified: false, error: "Method not allowed." }, 405)
 
   try {
-    const signature = req.headers.get('x-shield-signature');
-    if (signature !== 'SHIELD_VERIFIED_772') {
-      throw new Error("Unauthorized AI Invocation Request");
-    }
+    const authHeader = req.headers.get("Authorization") ?? ""
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : ""
+    if (!jwt) return json({ verified: false, error: "Sign in before courier verification." }, 401)
 
-    const { action, payload } = await req.json();
-    const { driverImageBase64, permitImageBase64, vehicleImageBase64, userId } = payload;
-
-    if (!driverImageBase64 || !permitImageBase64 || !vehicleImageBase64 || !userId) {
-      throw new Error("Missing required media payloads.");
-    }
-
-    // 1. Vehicle Plate and Type Verification
-    const vehiclePrompt = `Extract the license plate number from this vehicle. Also, classify the vehicle type as one of these exactly: 'bike', 'van', or 'truck'. Return a strict JSON response like {"plate": "ABC 123", "type": "truck"}. Return nothing else.`;
-    const vehicleAnalysis = await askCloudflareVision(vehiclePrompt, vehicleImageBase64);
-    
-    // Parse the JSON from the LLM
-    let extractedPlate = "UNKNOWN";
-    let extractedType = "unknown";
-    try {
-      // Clean up markdown formatting if the LLM wrapped it in ```json
-      const cleanJson = vehicleAnalysis.replace(/```json/g, '').replace(/```/g, '').trim();
-      const vData = JSON.parse(cleanJson);
-      extractedPlate = vData.plate || "UNKNOWN";
-      extractedType = vData.type || "unknown";
-    } catch (e) {
-      console.error("Failed to parse vehicle analysis JSON:", vehicleAnalysis);
-    }
-
-    // 2. Permit Verification (OCR)
-    const permitPrompt = `Read this driving permit/license. Verify if it appears to be a valid official document. Return a strict JSON response like {"valid": true, "name": "John Doe", "classes": ["B", "A"]}. Return nothing else.`;
-    const permitAnalysis = await askCloudflareVision(permitPrompt, permitImageBase64);
-    
-    let permitValid = false;
-    let permitName = "Unknown";
-    try {
-      const cleanJson = permitAnalysis.replace(/```json/g, '').replace(/```/g, '').trim();
-      const pData = JSON.parse(cleanJson);
-      permitValid = pData.valid === true;
-      permitName = pData.name || "Unknown";
-    } catch (e) {
-      console.error("Failed to parse permit analysis JSON:", permitAnalysis);
-    }
-
-    // 3. Face / ID Match (Simplified for edge runtime)
-    // Cloudflare Vision currently compares a single image against a prompt. We ask if the permit photo matches the person.
-    const facePrompt = `Does the person in this selfie appear to be the same person on the driving permit? Return a strict JSON response like {"match": true}. Return nothing else.`;
-    const faceAnalysis = await askCloudflareVision(facePrompt, driverImageBase64); // Ideally we concatenate images or use a specific face-match API, but we approximate here.
-    
-    // Aggregating Result
-    const verified = permitValid && extractedPlate !== "UNKNOWN" && extractedType !== "unknown";
-
-    const finalResult = {
-      verified,
-      number_plate: extractedPlate,
-      vehicle_type: extractedType.toLowerCase(),
-      permit_name: permitName,
-      confidence: 0.95
-    };
-
-    // If verified, automatically insert/update the driver in Supabase
-    if (verified) {
-      const supabaseAdmin = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-      )
-      
-      await supabaseAdmin.from('transport_drivers').upsert({
-        id: userId,
-        name: permitName, // Fallback to user's profile name in a real scenario
-        number_plate: extractedPlate,
-        vehicle_type: extractedType.toLowerCase() === 'bike' ? 'bike' : (extractedType.toLowerCase() === 'van' ? 'van' : 'truck'),
-        is_verified: true,
-        is_available: true,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'id' });
-    }
-
-    return new Response(JSON.stringify(finalResult), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? ""
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? ""
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    const authClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
     })
-    
-  } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message || 'Internal Server Error', verified: false }), { 
-      status: 500, 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    const { data: { user }, error: authError } = await authClient.auth.getUser()
+    if (authError || !user) {
+      return json({ verified: false, error: "Your session expired. Sign in and try again." }, 401)
+    }
+
+    const body = await req.json()
+    if (body?.action !== "verify_transport") {
+      return json({ verified: false, error: "Unknown transport verification action." }, 400)
+    }
+
+    const payload = body?.payload ?? {}
+    if (payload.aiProcessingConsent !== true) {
+      return json({ verified: false, error: "Consent is required before identity images are processed." }, 400)
+    }
+    const countryCode = normalizeCountryCode(payload.issuingCountryCode)
+    if (countryCode === "ZZ") {
+      return json({
+        verified: false,
+        decision: "manual_review",
+        error: "Select the two-letter country code that issued the driving permit.",
+      }, 400)
+    }
+    const selfie = imageBytes(payload.driverImageBase64, "Live selfie")
+    const permit = imageBytes(payload.permitImageBase64, "Driving permit")
+    const vehicle = imageBytes(payload.vehicleImageBase64, "Vehicle plate photo")
+
+    const [vehicleResult, permitResult, biometricResult] = await Promise.all([
+      verifyVehicle(vehicle, jwt, countryCode),
+      verifyPermit(permit, jwt, countryCode),
+      verifyBiometric(selfie, permit, jwt),
+    ])
+
+    const numberPlate = normalizePlate(vehicleResult.plate)
+    const vehicleType = normalizeVehicleType(vehicleResult.vehicleType ?? vehicleResult.type)
+    const permitDecision = String(permitResult?.decision ?? (permitResult?.verified === true ? "pass" : "manual_review"))
+    const biometricDecision = String(biometricResult?.decision ?? (biometricResult?.faceMatch === true ? "pass" : "manual_review"))
+    const vehicleDecision = String(vehicleResult?.decision ?? "manual_review")
+    const vehiclePassed = vehicleDecision === "pass" && numberPlate.length >= 4 && numberPlate.length <= 12 && vehicleType !== null
+    const rejected = permitDecision === "reject" || biometricDecision === "reject" || vehicleDecision === "reject"
+    const needsReview = !rejected && (permitDecision !== "pass" || biometricDecision !== "pass" || !vehiclePassed)
+    const verified = !rejected && !needsReview
+    const extractedName = permitResult?.extractedData?.fullName?.toString().trim()
+    const displayName = extractedName || user.user_metadata?.full_name || user.email?.split("@")[0] || "Courier Applicant"
+    const admin = createClient(supabaseUrl, serviceRoleKey)
+
+    if (!verified) {
+      const decision = rejected ? "reject" : "manual_review"
+      const reasonCode = permitDecision === "reject"
+        ? String(permitResult?.reasonCode ?? "document_rejected")
+        : biometricDecision === "reject"
+        ? String(biometricResult?.reasonCode ?? "biometric_rejected")
+        : vehicleDecision === "reject"
+        ? String(vehicleResult?.reasonCode ?? "vehicle_rejected")
+        : permitDecision !== "pass"
+        ? String(permitResult?.reasonCode ?? "document_requires_review")
+        : biometricDecision !== "pass"
+        ? String(biometricResult?.reasonCode ?? "biometric_requires_review")
+        : String(vehicleResult?.reasonCode ?? "vehicle_requires_review")
+      const reason = verificationMessage(reasonCode)
+      const { error: applicationError } = await admin.from("transport_drivers").upsert({
+        id: user.id,
+        name: displayName,
+        email: user.email ?? null,
+        number_plate: numberPlate.length >= 4 ? numberPlate : null,
+        vehicle_type: vehicleType,
+        country_code: countryCode,
+        is_verified: false,
+        is_available: false,
+        verification_status: decision,
+        verification_reason_code: reasonCode,
+        verification_submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "id" })
+      if (applicationError) {
+        console.error("Transport verification application save failed", applicationError.code, applicationError.message)
+      }
+      return json({
+        verified: false,
+        decision,
+        error: reason,
+        reason_code: reasonCode,
+        country_code: countryCode,
+        permit_decision: permitDecision,
+        biometric_decision: biometricDecision,
+        vehicle_decision: vehicleDecision,
+        vehicle_passed: vehiclePassed,
+        retryable: decision !== "reject",
+        application_saved: applicationError === null,
+      })
+    }
+
+    const { error: upsertError } = await admin.from("transport_drivers").upsert({
+      id: user.id,
+      name: displayName,
+      email: user.email ?? null,
+      number_plate: numberPlate,
+      vehicle_type: vehicleType,
+      is_verified: true,
+      is_available: true,
+      country_code: countryCode,
+      verification_status: "verified",
+      verification_reason_code: null,
+      verification_submitted_at: new Date().toISOString(),
+      verification_reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "id" })
+    if (upsertError) {
+      console.error("Transport driver upsert failed", upsertError.code, upsertError.message)
+      throw new Error("Courier verification passed, but the courier profile could not be saved.")
+    }
+
+    return json({
+      verified: true,
+      number_plate: numberPlate,
+      vehicle_type: vehicleType,
+      permit_name: displayName,
+      country_code: countryCode,
+      decision: "pass",
+      permit_score: Number(permitResult?.score ?? 0),
+      biometric_score: Number(biometricResult?.similarityScore ?? 0),
     })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Transport verification failed."
+    console.error("verify-transport failed", message)
+    return json({ verified: false, error: message, retryable: true })
   }
 })
