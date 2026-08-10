@@ -51,6 +51,7 @@ async function redisCall(command: string[]) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(command),
+  })
   if (!response.ok) {
     const error = await response.text()
     throw new Error(`Upstash Redis request failed: ${response.status} ${error}`)
