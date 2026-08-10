@@ -110,8 +110,9 @@ class AppState extends ChangeNotifier {
 
   /// Verification point for high-risk actions (Withdrawals/Escrow)
   Future<bool> verifySensitiveAction() async {
-    if (!_isBiometricsEnabled && !_is2FAEnabled)
+    if (!_isBiometricsEnabled && !_is2FAEnabled) {
       return true; // No protection enabled
+    }
 
     if (_isBiometricsEnabled) {
       final success = await verifyAppBiometrics(
@@ -1059,8 +1060,9 @@ class AppState extends ChangeNotifier {
     final securityData = await getFullSecurityMetadata();
     if (contextType != null) securityData['purchase_context'] = contextType;
     if (contextId != null) securityData['context_id'] = contextId;
-    if (targetGiftItemId != null)
+    if (targetGiftItemId != null) {
       securityData['target_gift_item_id'] = targetGiftItemId;
+    }
 
     final result = await financeCoinPurchases.purchase(
       packId: packId,
@@ -2664,9 +2666,10 @@ class AppState extends ChangeNotifier {
     try {
       final res = await Supabase.instance.client
           .from('transport_drivers')
-          .select()
+          .select('id,name,number_plate,vehicle_type,is_verified,is_available')
           .eq('is_available', true)
-          .eq('is_verified', true);
+          .eq('is_verified', true)
+          .limit(50);
       availableDrivers = List<TransportDriver>.from(
         res.map((j) => TransportDriver.fromJson(j)),
       );
@@ -2707,9 +2710,12 @@ class AppState extends ChangeNotifier {
     try {
       final res = await Supabase.instance.client
           .from('transport_orders')
-          .select()
+          .select(
+            'id,user_id,driver_id,pickup_location,dropoff_location,status,price,created_at,updated_at,delivery_lat,delivery_lng',
+          )
           .eq('driver_id', user!.id)
-          .order('created_at', ascending: false);
+          .order('updated_at', ascending: false)
+          .limit(100);
       myDriverOrders = List<TransportOrder>.from(
         res.map((j) => TransportOrder.fromJson(j)),
       );
@@ -2862,18 +2868,18 @@ class AppState extends ChangeNotifier {
     notify();
   }
 
-  Future<void> checkDriverStatus() async {
+  Future<void> checkDriverStatus({bool loadOrders = true}) async {
     if (user == null) return;
     try {
       final res = await Supabase.instance.client
           .from('transport_drivers')
-          .select()
+          .select('id,name,number_plate,vehicle_type,is_verified,is_available')
           .eq('id', user!.id)
           .maybeSingle();
       if (res != null) {
         isDriver = true;
         currentDriverProfile = TransportDriver.fromJson(res);
-        await fetchDriverOrders();
+        if (loadOrders) await fetchDriverOrders();
       } else {
         isDriver = false;
         currentDriverProfile = null;
@@ -2993,7 +2999,9 @@ class AppState extends ChangeNotifier {
       final cursor = await localDb.getSyncCursor(cursorKey);
       var query = Supabase.instance.client
           .from('transport_orders')
-          .select()
+          .select(
+            'id,user_id,driver_id,pickup_location,dropoff_location,status,price,created_at,updated_at,delivery_lat,delivery_lng',
+          )
           .eq('user_id', user!.id);
 
       // If we have a cursor, only fetch what's newer
@@ -3001,13 +3009,16 @@ class AppState extends ChangeNotifier {
         query = query.gt('updated_at', cursor);
       }
 
-      final res = await query.order('updated_at', ascending: false);
+      final res = await query
+          .order('updated_at', ascending: cursor != null)
+          .limit(100);
       if ((res as List).isNotEmpty) {
         final list = List<Map<String, dynamic>>.from(res);
         await localDb.saveTransportOrders(list);
         await localDb.setSyncCursor(
           cursorKey,
-          list.first['updated_at'] ?? list.first['created_at'],
+          (cursor == null ? list.first : list.last)['updated_at'] ??
+              (cursor == null ? list.first : list.last)['created_at'],
         );
 
         // Refresh full local list

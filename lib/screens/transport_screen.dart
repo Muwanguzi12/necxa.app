@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
 import '../models/transport_models.dart';
 import '../services/logistics_engine.dart';
 import '../services/commerce_service.dart';
+import '../services/local_db_service.dart';
 
 class TransportScreen extends StatefulWidget {
   final AppState state;
@@ -20,21 +23,137 @@ class _TransportScreenState extends State<TransportScreen> {
   final _pickupCtrl = TextEditingController(text: 'Kampala Central');
   final _dropoffCtrl = TextEditingController(text: 'Nakawa Hub');
   final _commerce = CommerceService();
+  final _localDb = LocalDbService();
   List<CommerceOrder> _availableCommerceDeliveries = const [];
   List<CommerceOrder> _assignedCommerceDeliveries = const [];
+  List<CommerceOrder> _buyerCommerceOrders = const [];
   bool _loadingCommerceDeliveries = false;
+  bool _syncingBuyerCommerce = false;
+  Timer? _buyerTrackingTimer;
 
   @override
   void initState() {
     super.initState();
     widget.state.fetchAvailableDrivers();
     widget.state.fetchMyOrders();
-    widget.state.checkDriverStatus();
-    _loadCommerceDeliveries();
+    widget.state.checkDriverStatus(loadOrders: false);
+    _hydrateBuyerCommerceOrders();
+  }
+
+  @override
+  void dispose() {
+    _buyerTrackingTimer?.cancel();
+    _pickupCtrl.dispose();
+    _dropoffCtrl.dispose();
+    super.dispose();
+  }
+
+  String get _accountId => widget.state.user?.id ?? '';
+
+  Future<void> _hydrateBuyerCommerceOrders() async {
+    if (_accountId.isEmpty) return;
+    final cached = await _localDb.getCachedCommerceOrders(_accountId, 'buyer');
+    if (!mounted || cached.isEmpty) return;
+    setState(() {
+      _buyerCommerceOrders = cached.map(CommerceOrder.fromJson).toList();
+    });
+  }
+
+  Future<void> _syncBuyerCommerceOrders() async {
+    if (_accountId.isEmpty || _syncingBuyerCommerce) return;
+    _syncingBuyerCommerce = true;
+    final startedAt = DateTime.now().toUtc().toIso8601String();
+    if (mounted) setState(() {});
+    try {
+      final cursorKey = 'commerce:$_accountId:buyer';
+      final updatedSince = await _localDb.getSyncCursor(cursorKey);
+      final page = await _commerce.fetchOrders(
+        role: 'buyer',
+        updatedSince: updatedSince,
+        limit: 30,
+      );
+      final merged = _mergeBuyerOrders(_buyerCommerceOrders, page.orders);
+      await Future.wait([
+        _localDb.saveCommerceOrders(
+          _accountId,
+          'buyer',
+          page.orders.map((order) => order.toJson()).toList(),
+        ),
+        _localDb.setSyncCursor(cursorKey, page.syncCursor ?? startedAt),
+      ]);
+      if (mounted) setState(() => _buyerCommerceOrders = merged);
+    } catch (_) {
+      // Keep the last trusted local state visible when offline.
+    } finally {
+      _syncingBuyerCommerce = false;
+      if (mounted) setState(() {});
+      _scheduleBuyerTrackingRefresh();
+    }
+  }
+
+  List<CommerceOrder> _mergeBuyerOrders(
+    List<CommerceOrder> cached,
+    List<CommerceOrder> updates,
+  ) {
+    final byId = {for (final order in cached) order.id: order};
+    for (final order in updates) {
+      byId[order.id] = order;
+    }
+    final result = byId.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return result.take(100).toList();
+  }
+
+  bool get _hasActiveBuyerCommerce => _buyerCommerceOrders.any(
+    (order) => !const {
+      'completed',
+      'cancelled',
+      'refunded',
+      'disputed',
+    }.contains(order.status),
+  );
+
+  int get _activeBuyerCommerceCount => _buyerCommerceOrders
+      .where(
+        (order) => !const {
+          'completed',
+          'cancelled',
+          'refunded',
+          'disputed',
+        }.contains(order.status),
+      )
+      .length;
+
+  void _scheduleBuyerTrackingRefresh() {
+    _buyerTrackingTimer?.cancel();
+    if (_activeTab != 1 || !_hasActiveBuyerCommerce) return;
+    final isMoving = _buyerCommerceOrders.any((order) {
+      final status = order.delivery?['status']?.toString() ?? order.status;
+      return status == 'picked_up' || status == 'out_for_delivery';
+    });
+    _buyerTrackingTimer = Timer(
+      Duration(seconds: isMoving ? 25 : 60),
+      _syncBuyerCommerceOrders,
+    );
+  }
+
+  void _selectTab(int index) {
+    setState(() => _activeTab = index);
+    _buyerTrackingTimer?.cancel();
+    if (index == 0) {
+      widget.state.fetchAvailableDrivers();
+    } else if (index == 1) {
+      widget.state.fetchMyOrders();
+      _syncBuyerCommerceOrders();
+    } else if (index == 2) {
+      widget.state.fetchDriverOrders();
+      _loadCommerceDeliveries();
+    }
   }
 
   Future<void> _loadCommerceDeliveries() async {
     if (_loadingCommerceDeliveries) return;
+    if (widget.state.currentDriverProfile?.isVerified != true) return;
     if (mounted) setState(() => _loadingCommerceDeliveries = true);
     try {
       final results = await Future.wait([
@@ -86,8 +205,9 @@ class _TransportScreenState extends State<TransportScreen> {
                   child: ListenableBuilder(
                     listenable: widget.state,
                     builder: (context, _) {
-                      if (!widget.state.isTransportSyncing)
+                      if (!widget.state.isTransportSyncing) {
                         return const SizedBox.shrink();
+                      }
                       return Center(
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -258,7 +378,8 @@ class _TransportScreenState extends State<TransportScreen> {
                     ),
                     if (t.$1 == 'transport' &&
                         (widget.state.pendingVendorOrders > 0 ||
-                            widget.state.activeBuyerTransportCount > 0))
+                            widget.state.activeBuyerTransportCount > 0 ||
+                            _activeBuyerCommerceCount > 0))
                       Positioned(
                         top: -4,
                         right: -12,
@@ -269,7 +390,7 @@ class _TransportScreenState extends State<TransportScreen> {
                             shape: BoxShape.circle,
                           ),
                           child: Text(
-                            '${widget.state.pendingVendorOrders + widget.state.activeBuyerTransportCount}',
+                            '${widget.state.pendingVendorOrders + widget.state.activeBuyerTransportCount + _activeBuyerCommerceCount}',
                             style: syne(
                               sz: 8,
                               w: FontWeight.bold,
@@ -306,7 +427,8 @@ class _TransportScreenState extends State<TransportScreen> {
             Icons.assignment_outlined,
             hasBadge:
                 widget.state.pendingVendorOrders > 0 ||
-                widget.state.activeBuyerTransportCount > 0,
+                widget.state.activeBuyerTransportCount > 0 ||
+                _activeBuyerCommerceCount > 0,
           ),
           if (widget.state.isDriver)
             _subTabItem(2, 'Control', Icons.dashboard_customize_outlined),
@@ -324,7 +446,7 @@ class _TransportScreenState extends State<TransportScreen> {
     bool active = _activeTab == index;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _activeTab = index),
+        onTap: () => _selectTab(index),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
@@ -500,6 +622,57 @@ class _TransportScreenState extends State<TransportScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Your Purchases',
+                style: syne(sz: 14, w: FontWeight.w800),
+              ),
+            ),
+            if (_activeBuyerCommerceCount > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: C.brand.withAlpha(36),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$_activeBuyerCommerceCount TRACKING',
+                  style: dm(sz: 9, w: FontWeight.bold, c: C.brand),
+                ),
+              ),
+            IconButton(
+              tooltip: 'Refresh purchases',
+              onPressed: _syncingBuyerCommerce
+                  ? null
+                  : _syncBuyerCommerceOrders,
+              icon: _syncingBuyerCommerce
+                  ? const SizedBox.square(
+                      dimension: 15,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded, size: 20),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_buyerCommerceOrders.isEmpty)
+          _buildEmpty(
+            'No Purchases Yet',
+            'Orders placed with Buy Now will appear here for delivery tracking.',
+          )
+        else
+          ..._buyerCommerceOrders.map(
+            (order) => _BuyerCommerceOrderCard(
+              order: order,
+              service: _commerce,
+              appState: widget.state,
+              onChanged: _syncBuyerCommerceOrders,
+            ),
+          ),
+        const SizedBox(height: 28),
+
         // Vendor Sales Queue
         Row(
           children: [
@@ -537,10 +710,10 @@ class _TransportScreenState extends State<TransportScreen> {
         ),
         const SizedBox(height: 32),
 
-        // Active Logistics (Buyer Perspective)
+        // Standalone transport bookings (Buyer Perspective)
         Row(
           children: [
-            Text('Active Logistics', style: syne(sz: 14, w: FontWeight.w800)),
+            Text('Transport Bookings', style: syne(sz: 14, w: FontWeight.w800)),
             if (widget.state.activeBuyerTransportCount > 0) ...[
               const SizedBox(width: 8),
               Container(
@@ -893,6 +1066,371 @@ class _DriverCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _BuyerCommerceOrderCard extends StatefulWidget {
+  const _BuyerCommerceOrderCard({
+    required this.order,
+    required this.service,
+    required this.appState,
+    required this.onChanged,
+  });
+
+  final CommerceOrder order;
+  final CommerceService service;
+  final AppState appState;
+  final Future<void> Function() onChanged;
+
+  @override
+  State<_BuyerCommerceOrderCard> createState() =>
+      _BuyerCommerceOrderCardState();
+}
+
+class _BuyerCommerceOrderCardState extends State<_BuyerCommerceOrderCard> {
+  bool _working = false;
+
+  String get _status {
+    final deliveryStatus = widget.order.delivery?['status']?.toString();
+    if (deliveryStatus == null || deliveryStatus == 'awaiting_seller') {
+      return widget.order.status;
+    }
+    return deliveryStatus;
+  }
+
+  int get _progress => switch (_status) {
+    'confirmed' => 1,
+    'processing' => 2,
+    'ready_for_pickup' => 3,
+    'driver_assigned' => 4,
+    'picked_up' => 5,
+    'out_for_delivery' => 6,
+    'delivered' => 7,
+    'completed' => 8,
+    _ => 0,
+  };
+
+  Color get _statusColor => switch (_status) {
+    'completed' || 'delivered' => C.green,
+    'cancelled' || 'refunded' || 'disputed' => C.red,
+    'out_for_delivery' || 'picked_up' => C.brand,
+    _ => C.orange,
+  };
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: C.card,
+    borderRadius: BorderRadius.circular(14),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: _showTracking,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: C.border),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox.square(
+                dimension: 54,
+                child:
+                    widget.order.productMediaUrl == null ||
+                        widget.order.productMediaUrl!.isEmpty
+                    ? Container(
+                        color: C.cardDk,
+                        child: const Icon(Icons.inventory_2_outlined),
+                      )
+                    : CachedNetworkImage(
+                        imageUrl: widget.order.productMediaUrl!,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 180,
+                        memCacheHeight: 180,
+                        fadeInDuration: Duration.zero,
+                        errorWidget: (_, __, ___) =>
+                            const Icon(Icons.broken_image_outlined),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.order.productTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: syne(sz: 13, w: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(widget.order.orderNumber, style: dm(sz: 10, c: C.dim)),
+                  const SizedBox(height: 7),
+                  Text(
+                    _status.replaceAll('_', ' ').toUpperCase(),
+                    style: dm(sz: 9, c: _statusColor, w: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  ugx(widget.order.totalUgx.toDouble()),
+                  style: syne(sz: 11, w: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text('TRACK', style: dm(sz: 9, c: C.brand)),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      size: 16,
+                      color: C.brand,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _showTracking() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: C.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: C.border,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Track ${widget.order.orderNumber}',
+                  style: syne(sz: 17, w: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Text(widget.order.productTitle, style: dm(c: C.dim)),
+                const SizedBox(height: 20),
+                ...[
+                  ('Payment confirmed', 1),
+                  ('Seller preparing order', 2),
+                  ('Ready for pickup', 3),
+                  ('Picked up by driver', 5),
+                  ('Out for delivery', 6),
+                  ('Delivered', 7),
+                ].map(
+                  (step) => _trackingStep(
+                    step.$1,
+                    complete: _progress >= step.$2,
+                    current:
+                        _progress >= step.$2 &&
+                        (step.$2 == 7
+                            ? _progress == 7
+                            : _progress < _nextThreshold(step.$2)),
+                  ),
+                ),
+                const Divider(height: 28),
+                _detailRow(
+                  Icons.location_on_outlined,
+                  widget.order.deliveryAddress.isEmpty
+                      ? 'Delivery address pending'
+                      : widget.order.deliveryAddress,
+                ),
+                if (widget.order.driver != null) ...[
+                  const SizedBox(height: 10),
+                  _detailRow(
+                    Icons.local_shipping_outlined,
+                    'Driver: ${widget.order.participantName('driver')}',
+                  ),
+                ],
+                if (_status == 'out_for_delivery' &&
+                    widget.order.deliveryCode != null) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: C.brand.withAlpha(20),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: C.brand.withAlpha(60)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'DELIVERY VERIFICATION CODE',
+                          style: dm(sz: 9, c: C.brand, w: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          widget.order.deliveryCode!,
+                          style: syne(sz: 24, w: FontWeight.w900, ls: 4),
+                        ),
+                        Text(
+                          'Share this only when the package is physically with you.',
+                          style: dm(sz: 10, c: C.dim),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (_status == 'delivered') ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _working
+                          ? null
+                          : () => _confirmReceived(sheetContext),
+                      icon: const Icon(Icons.verified_outlined),
+                      label: const Text('CONFIRM PACKAGE RECEIVED'),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openChat(sheetContext, 'seller'),
+                        icon: const Icon(Icons.storefront_outlined),
+                        label: const Text('SELLER'),
+                      ),
+                    ),
+                    if (widget.order.driver != null) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _openChat(sheetContext, 'driver'),
+                          icon: const Icon(Icons.chat_bubble_outline_rounded),
+                          label: const Text('DRIVER'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  int _nextThreshold(int current) => switch (current) {
+    1 => 2,
+    2 => 3,
+    3 => 5,
+    5 => 6,
+    6 => 7,
+    _ => 9,
+  };
+
+  Widget _trackingStep(
+    String label, {
+    required bool complete,
+    required bool current,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 11),
+    child: Row(
+      children: [
+        Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            color: complete ? C.brand : C.cardDk,
+            shape: BoxShape.circle,
+            border: Border.all(color: complete ? C.brand : C.border),
+          ),
+          child: complete
+              ? const Icon(Icons.check_rounded, size: 12, color: Colors.white)
+              : null,
+        ),
+        const SizedBox(width: 10),
+        Text(
+          label,
+          style: dm(
+            sz: 12,
+            c: complete ? Colors.white : C.dim,
+            w: current ? FontWeight.w800 : FontWeight.w500,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _detailRow(IconData icon, String value) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, size: 17, color: C.brand),
+      const SizedBox(width: 9),
+      Expanded(child: Text(value, style: dm(sz: 12))),
+    ],
+  );
+
+  Future<void> _confirmReceived(BuildContext sheetContext) async {
+    if (_working) return;
+    setState(() => _working = true);
+    try {
+      await widget.service.transitionOrder(widget.order.id, 'buyer_confirm');
+      if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+      await widget.onChanged();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _openChat(BuildContext sheetContext, String role) async {
+    final profile = role == 'seller'
+        ? widget.order.seller
+        : widget.order.driver;
+    final participantId = role == 'seller'
+        ? widget.order.sellerId
+        : widget.order.delivery?['driver_id']?.toString();
+    if (profile == null || participantId == null || participantId.isEmpty) {
+      return;
+    }
+    Navigator.of(sheetContext).pop();
+    await widget.appState.openCreatorChat(
+      participantId,
+      widget.order.participantName(role),
+      profile['avatar_url']?.toString(),
+      initialContextText:
+          'Regarding ${widget.order.orderNumber}: ${widget.order.productTitle}',
+      context: 'commerce_order',
     );
   }
 }

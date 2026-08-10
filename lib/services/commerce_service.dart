@@ -13,6 +13,8 @@ class CommerceDashboardData {
     required this.ratingCount,
     required this.listings,
     required this.recentOrders,
+    this.isDelta = false,
+    this.syncCursor,
   });
 
   factory CommerceDashboardData.fromJson(Map<String, dynamic> json) =>
@@ -30,6 +32,8 @@ class CommerceDashboardData {
         recentOrders: _maps(
           json['recentOrders'],
         ).map(CommerceOrder.fromJson).toList(),
+        isDelta: json['isDelta'] == true,
+        syncCursor: json['syncCursor']?.toString(),
       );
 
   final int activeListings;
@@ -43,6 +47,56 @@ class CommerceDashboardData {
   final int ratingCount;
   final List<Map<String, dynamic>> listings;
   final List<CommerceOrder> recentOrders;
+  final bool isDelta;
+  final String? syncCursor;
+
+  CommerceDashboardData mergeDelta(CommerceDashboardData update) {
+    if (!update.isDelta) return update;
+    final listingsById = <String, Map<String, dynamic>>{
+      for (final listing in listings)
+        if (listing['id'] != null) listing['id'].toString(): listing,
+    };
+    for (final listing in update.listings) {
+      final id = listing['id']?.toString();
+      if (id != null && id.isNotEmpty) listingsById[id] = listing;
+    }
+    final ordersById = {for (final order in recentOrders) order.id: order};
+    for (final order in update.recentOrders) {
+      ordersById[order.id] = order;
+    }
+    final mergedOrders = ordersById.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return CommerceDashboardData(
+      activeListings: update.activeListings,
+      lowStockListings: update.lowStockListings,
+      totalOrders: update.totalOrders,
+      openOrders: update.openOrders,
+      grossSalesUgx: update.grossSalesUgx,
+      releasedEarningsUgx: update.releasedEarningsUgx,
+      heldEarningsUgx: update.heldEarningsUgx,
+      ratingAverage: update.ratingAverage,
+      ratingCount: update.ratingCount,
+      listings: listingsById.values.toList(),
+      recentOrders: mergedOrders.take(10).toList(),
+      syncCursor: update.syncCursor,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'activeListings': activeListings,
+    'lowStockListings': lowStockListings,
+    'totalOrders': totalOrders,
+    'openOrders': openOrders,
+    'grossSalesUgx': grossSalesUgx,
+    'releasedEarningsUgx': releasedEarningsUgx,
+    'heldEarningsUgx': heldEarningsUgx,
+    'ratingAverage': ratingAverage,
+    'ratingCount': ratingCount,
+    'listings': listings,
+    'recentOrders': recentOrders.map((order) => order.toJson()).toList(),
+    'isDelta': false,
+    if (syncCursor != null) 'syncCursor': syncCursor,
+  };
 }
 
 class CommerceOrder {
@@ -70,6 +124,7 @@ class CommerceOrder {
     required this.settlements,
     this.pickupCode,
     this.deliveryCode,
+    this.updatedAt,
   });
 
   factory CommerceOrder.fromJson(Map<String, dynamic> json) => CommerceOrder(
@@ -98,6 +153,7 @@ class CommerceOrder {
     settlements: _maps(json['settlements']),
     pickupCode: json['pickupCode']?.toString(),
     deliveryCode: json['deliveryCode']?.toString(),
+    updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? ''),
   );
 
   final String id;
@@ -123,6 +179,32 @@ class CommerceOrder {
   final List<Map<String, dynamic>> settlements;
   final String? pickupCode;
   final String? deliveryCode;
+  final DateTime? updatedAt;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'order_number': orderNumber,
+    'buyer_id': buyerId,
+    'seller_id': sellerId,
+    'listing_id': listingId,
+    'product_title': productTitle,
+    'product_media_url': productMediaUrl,
+    'quantity': quantity,
+    'unit_price_ugx': unitPriceUgx,
+    'delivery_fee_ugx': deliveryFeeUgx,
+    'total_ugx': totalUgx,
+    'status': status,
+    'payment_status': paymentStatus,
+    'settlement_status': settlementStatus,
+    'delivery_address': deliveryAddress,
+    'created_at': createdAt.toUtc().toIso8601String(),
+    if (updatedAt != null) 'updated_at': updatedAt!.toUtc().toIso8601String(),
+    'delivery': _cacheDelivery(delivery),
+    'buyer': _cacheProfile(buyer),
+    'seller': _cacheProfile(seller),
+    'driver': _cacheProfile(driver),
+    'settlements': settlements,
+  };
 
   String participantName(String role) {
     final profile = switch (role) {
@@ -138,10 +220,15 @@ class CommerceOrder {
 }
 
 class CommerceOrderPage {
-  const CommerceOrderPage({required this.orders, this.nextCursor});
+  const CommerceOrderPage({
+    required this.orders,
+    this.nextCursor,
+    this.syncCursor,
+  });
 
   final List<CommerceOrder> orders;
   final String? nextCursor;
+  final String? syncCursor;
 }
 
 class CommerceService {
@@ -150,23 +237,38 @@ class CommerceService {
 
   final FinanceBackend _backend;
 
-  Future<CommerceDashboardData> fetchVendorDashboard() async {
-    final response = await _backend.invoke('commerce_dashboard');
-    return CommerceDashboardData.fromJson(_map(response['dashboard']) ?? {});
+  Future<CommerceDashboardData> fetchVendorDashboard({
+    String? updatedSince,
+  }) async {
+    final response = await _backend.invoke(
+      'commerce_dashboard',
+      body: {if (updatedSince != null) 'updatedSince': updatedSince},
+    );
+    final dashboard = _map(response['dashboard']) ?? {};
+    dashboard['isDelta'] = response['isDelta'] == true;
+    dashboard['syncCursor'] = response['syncCursor'];
+    return CommerceDashboardData.fromJson(dashboard);
   }
 
   Future<CommerceOrderPage> fetchOrders({
     String role = 'buyer',
     String? cursor,
+    String? updatedSince,
     int limit = 20,
   }) async {
     final response = await _backend.invoke(
       'list_commerce_orders',
-      body: {'role': role, 'cursor': cursor, 'limit': limit},
+      body: {
+        'role': role,
+        'cursor': cursor,
+        if (updatedSince != null) 'updatedSince': updatedSince,
+        'limit': limit,
+      },
     );
     return CommerceOrderPage(
       orders: _maps(response['orders']).map(CommerceOrder.fromJson).toList(),
       nextCursor: response['nextCursor']?.toString(),
+      syncCursor: response['syncCursor']?.toString(),
     );
   }
 
@@ -256,10 +358,15 @@ class CommerceService {
 
   Future<Map<String, dynamic>> fetchVendorReviews({
     String? cursor,
+    String? updatedSince,
     int limit = 20,
   }) => _backend.invoke(
     'list_vendor_reviews',
-    body: {'cursor': cursor, 'limit': limit},
+    body: {
+      'cursor': cursor,
+      if (updatedSince != null) 'updatedSince': updatedSince,
+      'limit': limit,
+    },
   );
 }
 
@@ -280,4 +387,38 @@ Map<String, dynamic>? _map(dynamic value) {
 List<Map<String, dynamic>> _maps(dynamic value) {
   if (value is! List) return const [];
   return value.map(_map).whereType<Map<String, dynamic>>().toList();
+}
+
+Map<String, dynamic>? _cacheProfile(Map<String, dynamic>? profile) {
+  if (profile == null) return null;
+  return {
+    for (final key in ['id', 'full_name', 'username', 'avatar_url'])
+      if (profile[key] != null) key: profile[key],
+  };
+}
+
+Map<String, dynamic>? _cacheDelivery(Map<String, dynamic>? delivery) {
+  if (delivery == null) return null;
+  return {
+    for (final key in [
+      'id',
+      'order_id',
+      'driver_id',
+      'status',
+      'delivery_fee_ugx',
+      'delivery_method',
+      'delivery_speed',
+      'pickup_location',
+      'dropoff_location',
+      'dropoff_address',
+      'pickup_ready_at',
+      'assigned_at',
+      'picked_up_at',
+      'delivered_at',
+      'completed_at',
+      'proof',
+      'updated_at',
+    ])
+      if (delivery[key] != null) key: delivery[key],
+  };
 }

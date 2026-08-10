@@ -1,7 +1,9 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../services/commerce_service.dart';
+import '../services/local_db_service.dart';
 import '../theme.dart';
 
 class VendorDashboardScreen extends StatefulWidget {
@@ -16,11 +18,16 @@ class VendorDashboardScreen extends StatefulWidget {
 class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     with SingleTickerProviderStateMixin {
   final CommerceService _commerce = CommerceService();
+  final LocalDbService _localDb = LocalDbService();
   late final TabController _tabs;
   CommerceDashboardData? _dashboard;
   List<CommerceOrder> _orders = const [];
   List<Map<String, dynamic>> _reviews = const [];
   bool _loading = true;
+  bool _ordersRefreshing = false;
+  bool _reviewsRefreshing = false;
+  bool _ordersSyncedThisSession = false;
+  bool _reviewsSyncedThisSession = false;
   String? _error;
   String? _workingId;
 
@@ -28,38 +35,214 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
   void initState() {
     super.initState();
     _tabs = TabController(length: 5, vsync: this);
-    _load();
+    _tabs.addListener(_onTabChanged);
+    _hydrateThenRefresh();
   }
 
   @override
   void dispose() {
+    _tabs.removeListener(_onTabChanged);
     _tabs.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    if (mounted) setState(() => _loading = true);
+  String get _vendorId => widget.state.user?.id ?? '';
+
+  void _onTabChanged() {
+    if (_tabs.index == 1 && !_ordersSyncedThisSession) {
+      _refreshOrders();
+    } else if (_tabs.index == 4 && !_reviewsSyncedThisSession) {
+      _refreshReviews();
+    }
+  }
+
+  Future<void> _hydrateThenRefresh() async {
+    final vendorId = _vendorId;
+    if (vendorId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Sign in again to open your vendor dashboard.';
+        });
+      }
+      return;
+    }
+
     try {
       final results = await Future.wait([
-        _commerce.fetchVendorDashboard(),
-        _commerce.fetchOrders(role: 'seller', limit: 30),
-        _commerce.fetchVendorReviews(limit: 30),
+        _localDb.getCachedVendorDashboard(vendorId),
+        _localDb.getCachedVendorOrders(vendorId),
+        _localDb.getCachedVendorReviews(vendorId),
       ]);
       if (!mounted) return;
       setState(() {
-        _dashboard = results[0] as CommerceDashboardData;
-        _orders = (results[1] as CommerceOrderPage).orders;
-        _reviews = List<Map<String, dynamic>>.from(
-          (results[2] as Map<String, dynamic>)['reviews'] ?? const [],
-        );
+        final cachedDashboard = results[0] as Map<String, dynamic>?;
+        if (cachedDashboard != null) {
+          _dashboard = CommerceDashboardData.fromJson(cachedDashboard);
+        }
+        _orders = (results[1] as List<Map<String, dynamic>>)
+            .map(CommerceOrder.fromJson)
+            .toList();
+        _reviews = results[2] as List<Map<String, dynamic>>;
+        _loading = false;
+      });
+    } catch (_) {
+      // A damaged local row must never prevent a clean network recovery.
+    }
+    await _refreshDashboard();
+  }
+
+  Future<void> _refreshDashboard() async {
+    if (_vendorId.isEmpty) return;
+    final startedAt = DateTime.now().toUtc().toIso8601String();
+    if (mounted) setState(() => _loading = _dashboard == null);
+    try {
+      final updatedSince = _dashboard == null
+          ? null
+          : await _localDb.getSyncCursor('vendor:$_vendorId:dashboard');
+      final incoming = await _commerce.fetchVendorDashboard(
+        updatedSince: updatedSince,
+      );
+      final dashboard = _dashboard?.mergeDelta(incoming) ?? incoming;
+      await Future.wait([
+        _localDb.saveVendorDashboard(_vendorId, dashboard.toJson()),
+        _localDb.saveVendorOrders(
+          _vendorId,
+          dashboard.recentOrders.map((order) => order.toJson()).toList(),
+        ),
+        _localDb.setSyncCursor(
+          'vendor:$_vendorId:dashboard',
+          incoming.syncCursor ?? startedAt,
+        ),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _dashboard = dashboard;
+        _orders = _mergeOrders(_orders, dashboard.recentOrders);
         _error = null;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (!mounted) return;
+      if (_dashboard == null) {
+        setState(() => _error = error.toString());
+      } else {
+        _showError(error);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  Future<void> _refreshOrders() async {
+    if (_vendorId.isEmpty || _ordersRefreshing) return;
+    _ordersRefreshing = true;
+    final startedAt = DateTime.now().toUtc().toIso8601String();
+    try {
+      final updatedSince = await _localDb.getSyncCursor(
+        'vendor:$_vendorId:orders',
+      );
+      final page = await _commerce.fetchOrders(
+        role: 'seller',
+        updatedSince: updatedSince,
+        limit: 30,
+      );
+      final merged = _mergeOrders(_orders, page.orders);
+      await Future.wait([
+        _localDb.saveVendorOrders(
+          _vendorId,
+          page.orders.map((order) => order.toJson()).toList(),
+        ),
+        _localDb.setSyncCursor(
+          'vendor:$_vendorId:orders',
+          page.syncCursor ?? startedAt,
+        ),
+      ]);
+      if (mounted) setState(() => _orders = merged);
+    } catch (error) {
+      _showError(error);
+    } finally {
+      _ordersRefreshing = false;
+      _ordersSyncedThisSession = true;
+    }
+  }
+
+  Future<void> _refreshReviews() async {
+    if (_vendorId.isEmpty || _reviewsRefreshing) return;
+    _reviewsRefreshing = true;
+    final startedAt = DateTime.now().toUtc().toIso8601String();
+    try {
+      final updatedSince = await _localDb.getSyncCursor(
+        'vendor:$_vendorId:reviews',
+      );
+      final response = await _commerce.fetchVendorReviews(
+        updatedSince: updatedSince,
+        limit: 30,
+      );
+      final incoming = List<Map<String, dynamic>>.from(
+        response['reviews'] ?? const [],
+      );
+      final merged = _mergeReviews(_reviews, incoming);
+      await Future.wait([
+        _localDb.saveVendorReviews(_vendorId, incoming),
+        _localDb.setSyncCursor(
+          'vendor:$_vendorId:reviews',
+          response['syncCursor']?.toString() ?? startedAt,
+        ),
+      ]);
+      if (mounted) setState(() => _reviews = merged);
+    } catch (error) {
+      _showError(error);
+    } finally {
+      _reviewsRefreshing = false;
+      _reviewsSyncedThisSession = true;
+    }
+  }
+
+  Future<void> _refreshCurrentTab() async {
+    switch (_tabs.index) {
+      case 1:
+        return _refreshOrders();
+      case 4:
+        return _refreshReviews();
+      default:
+        return _refreshDashboard();
+    }
+  }
+
+  List<CommerceOrder> _mergeOrders(
+    List<CommerceOrder> cached,
+    List<CommerceOrder> updates,
+  ) {
+    final byId = {for (final order in cached) order.id: order};
+    for (final order in updates) {
+      byId[order.id] = order;
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return merged.take(100).toList();
+  }
+
+  List<Map<String, dynamic>> _mergeReviews(
+    List<Map<String, dynamic>> cached,
+    List<Map<String, dynamic>> updates,
+  ) {
+    final byId = <String, Map<String, dynamic>>{};
+    for (final review in [...cached, ...updates]) {
+      final id = review['id']?.toString();
+      if (id != null && id.isNotEmpty) byId[id] = review;
+    }
+    final merged = byId.values.toList()
+      ..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
+    return merged.take(60).toList();
+  }
+
+  DateTime _dateOf(Map<String, dynamic> value) =>
+      DateTime.tryParse(
+        value['updated_at']?.toString() ??
+            value['created_at']?.toString() ??
+            '',
+      ) ??
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   Widget build(BuildContext context) {
@@ -80,7 +263,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: _loading ? null : _load,
+            onPressed: _loading ? null : _refreshCurrentTab,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -115,7 +298,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
         title: 'Dashboard unavailable',
         message: _error!,
         actionLabel: 'Retry',
-        onAction: _load,
+        onAction: _refreshDashboard,
       );
     }
 
@@ -131,8 +314,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     );
   }
 
-  Widget _refreshable(Widget child) =>
-      RefreshIndicator(color: C.brandDk, onRefresh: _load, child: child);
+  Widget _refreshable(Widget child) => RefreshIndicator(
+    color: C.brandDk,
+    onRefresh: _refreshCurrentTab,
+    child: child,
+  );
 
   Widget _overview() {
     final dashboard = _dashboard!;
@@ -305,7 +491,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             color: C.card,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: stock <= 5 ? C.gold2.withOpacity(.6) : C.border,
+              color: stock <= 5 ? C.gold2.withValues(alpha: .6) : C.border,
             ),
           ),
           child: Row(
@@ -554,7 +740,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
         reviewId: review['id'].toString(),
         response: response,
       );
-      await _load();
+      await _refreshReviews();
     } catch (error) {
       _showError(error);
     }
@@ -564,7 +750,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     setState(() => _workingId = listingId);
     try {
       await _commerce.updateInventory(listingId: listingId, stockCount: stock);
-      await _load();
+      await _refreshDashboard();
     } catch (error) {
       _showError(error);
     } finally {
@@ -577,7 +763,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     setState(() => _workingId = order.id);
     try {
       await _commerce.transitionOrder(order.id, transition);
-      await _load();
+      await Future.wait([_refreshOrders(), _refreshDashboard()]);
     } catch (error) {
       _showError(error);
     } finally {
@@ -776,10 +962,14 @@ class _ProductImage extends StatelessWidget {
       color: C.surface,
       child: url == null || url!.isEmpty
           ? Icon(Icons.inventory_2_outlined, color: C.sub)
-          : Image.network(
-              url!,
+          : CachedNetworkImage(
+              imageUrl: url!,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) =>
+              memCacheWidth: 160,
+              memCacheHeight: 160,
+              fadeInDuration: Duration.zero,
+              placeholder: (_, __) => Container(color: C.surface),
+              errorWidget: (_, __, ___) =>
                   Icon(Icons.broken_image_outlined, color: C.sub),
             ),
     ),
