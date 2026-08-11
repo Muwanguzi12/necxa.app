@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4"
 import { create, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts"
 
 const corsHeaders = {
@@ -10,7 +10,11 @@ const corsHeaders = {
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   })
 
 const supportTokenSecret = Deno.env.get("SUPPORT_TOKEN_SECRET") || ""

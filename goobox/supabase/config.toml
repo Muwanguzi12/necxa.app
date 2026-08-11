@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.deliver-necxa-support-reply]
 verify_jwt = false
+
+[functions.relay-necxa-reply]
+verify_jwt = false

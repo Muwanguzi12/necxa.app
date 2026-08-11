@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4"
 import { verifySupportToken, type VerifiedSupportUser } from "../_shared/support-token.ts"
 
 const cors = {
@@ -54,7 +54,6 @@ Deno.serve(async (request) => {
       .from("support_tickets")
       .insert({
         customer_email: email,
-        customer_name: name,
         necxa_user_id: verifiedUser?.user_id || null,
         verified: verifiedUser !== null,
         subject: `[${category.toUpperCase()}] ${subject}`,
@@ -76,14 +75,10 @@ Deno.serve(async (request) => {
       : message
     const { error: messageError } = await admin.from("ticket_messages").insert({
       ticket_id: ticket.id,
-      direction: "inbound",
       sender_type: "customer",
-      from_email: email,
-      from_name: name,
-      to_email: "support@necxa.uk",
-      subject,
-      body_text: fullMessage,
-      received_at: new Date().toISOString(),
+      sender: name && name !== email ? `${name} <${email}>` : email,
+      body: fullMessage,
+      is_internal_note: false,
     })
     if (messageError) {
       await admin.from("support_tickets").delete().eq("id", ticket.id)

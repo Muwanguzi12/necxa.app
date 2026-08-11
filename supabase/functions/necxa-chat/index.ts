@@ -1,5 +1,10 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { redisCall, syncMessageToRedis, triggerChatNotification, normalizeMessages } from "@shared/chat-helpers.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4"
+import {
+  normalizeMessages,
+  redisCall,
+  syncMessageToRedis,
+  triggerChatNotification,
+} from "../_shared/chat-helpers.ts"
 
 
 
@@ -29,12 +34,30 @@ const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE
 const GOOBOX_SHARED_SECRET = Deno.env.get("GOOBOX_SHARED_SECRET") || ""
 const SUPPORT_ACCOUNT_ID = Deno.env.get("SUPPORT_ACCOUNT_ID") || ""
 
-// Enforce database operations execute against the primary backend
-const primaryAdminKey = PRIMARY_SUPABASE_SERVICE_ROLE_KEY || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-const primaryUrl = PRIMARY_SUPABASE_SERVICE_ROLE_KEY ? PRIMARY_SUPABASE_URL : Deno.env.get("SUPABASE_URL")!
+let supabase: ReturnType<typeof createClient>
+let primaryClient: ReturnType<typeof createClient>
 
-const supabase = createClient(primaryUrl, primaryAdminKey)
-const primaryClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY)
+function initializeClients() {
+  if (supabase && primaryClient) return
+
+  // Enforce database operations against the primary backend when its
+  // service-role key is configured; otherwise retain the legacy local-project
+  // fallback for non-production development environments.
+  const localUrl = Deno.env.get("SUPABASE_URL") || ""
+  const localServiceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || ""
+  const primaryAdminKey = PRIMARY_SUPABASE_SERVICE_ROLE_KEY || localServiceRole
+  const primaryUrl = PRIMARY_SUPABASE_SERVICE_ROLE_KEY ? PRIMARY_SUPABASE_URL : localUrl
+  if (!primaryUrl || !primaryAdminKey || !PRIMARY_SUPABASE_ANON_KEY) {
+    throw new Error("Chat database credentials are not configured")
+  }
+
+  supabase = createClient(primaryUrl, primaryAdminKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  primaryClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+}
 
 async function secretsMatch(candidate: string, expected: string): Promise<boolean> {
   if (!candidate || !expected || expected.length < 32) return false
@@ -50,6 +73,18 @@ async function secretsMatch(candidate: string, expected: string): Promise<boolea
     difference |= left[index] ^ right[index]
   }
   return difference === 0
+}
+
+async function stableSupportMessageId(sourceReplyId: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`goobox:${sourceReplyId}`),
+  ))
+  const bytes = digest.slice(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 
@@ -221,14 +256,10 @@ async function handleSendMessage(
   payload: any,
   options: { isSupport?: boolean } = {},
 ) {
-  const { id, to_user_id, room_id, content, media_url, message_type = "text" } = payload
-  const metadata = options.isSupport
-    ? {
-        interaction_context: "support",
-        source: "goobox",
-        ticket_id: payload.ticket_id,
-      }
-    : (payload.metadata ?? {})
+  const { to_user_id, room_id, content, media_url, message_type = "text" } = payload
+  const sourceReplyId = typeof payload.source_reply_id === "string"
+    ? payload.source_reply_id.trim()
+    : ""
   if (!to_user_id && !room_id) return err("Missing recipient or room")
   if (options.isSupport) {
     if (!to_user_id || typeof to_user_id !== "string") return err("Missing support recipient")
@@ -236,7 +267,19 @@ async function handleSendMessage(
     if (typeof content !== "string" || !content.trim()) return err("Missing support reply")
     if (content.length > 5000) return err("Support reply is too long")
     if (typeof payload.ticket_id !== "string" || !payload.ticket_id.trim()) return err("Missing ticket_id")
+    if (!sourceReplyId || sourceReplyId.length > 512) return err("Missing or invalid source_reply_id")
   }
+  const id = options.isSupport
+    ? await stableSupportMessageId(sourceReplyId)
+    : payload.id
+  const metadata = options.isSupport
+    ? {
+        interaction_context: "support",
+        source: "goobox",
+        ticket_id: payload.ticket_id,
+        source_reply_id: sourceReplyId,
+      }
+    : (payload.metadata ?? {})
 
   // 1. Resolve/Create Room
   let finalRoomId = room_id
@@ -250,7 +293,7 @@ async function handleSendMessage(
   }
 
   // 2. Persist to Postgres
-  const { data: message, error: mErr } = await supabase
+  let { data: message, error: mErr } = await supabase
     .from("direct_messages")
     .insert({
       ...(id && { id }), // Only include id if provided
@@ -264,13 +307,62 @@ async function handleSendMessage(
     .select("*, profiles:sender_id(full_name, avatar_url)")
     .single()
 
-  if (mErr) return err(`Insert failed: ${mErr.message}`)
+  let deduplicated = false
+  if (mErr?.code === "23505" && options.isSupport) {
+    const existing = await supabase
+      .from("direct_messages")
+      .select("*, profiles:sender_id(full_name, avatar_url)")
+      .eq("id", id)
+      .single()
+    message = existing.data
+    mErr = existing.error
+    deduplicated = true
+  }
+  if (mErr || !message) return err(`Insert failed: ${mErr?.message || "message was not created"}`)
+  if (deduplicated) {
+    const existingMetadata: Record<string, unknown> =
+      message.metadata && typeof message.metadata === "object"
+      ? message.metadata as Record<string, unknown>
+      : {}
+    const isSameSupportReply = message.room_id === finalRoomId &&
+      message.sender_id === userId &&
+      message.content === content &&
+      existingMetadata.interaction_context === "support" &&
+      existingMetadata.source === "goobox" &&
+      existingMetadata.ticket_id === payload.ticket_id &&
+      existingMetadata.source_reply_id === sourceReplyId
+    if (!isSameSupportReply) {
+      return err("Support reply identifier conflicts with an existing message", 409)
+    }
+  }
 
   // 3. 🚀 Neural Sync: Push to Redis
-  await syncMessageToRedis(message)
+  if (!deduplicated) await syncMessageToRedis(message)
 
   // 4. Update Room List for both users in Redis
-  const { data: roomInfo } = await supabase.from("direct_chat_rooms").select("user_a, user_b").eq("id", finalRoomId).single()
+  const { data: roomInfo } = await supabase
+    .from("direct_chat_rooms")
+    .select("user_a, user_b, metadata")
+    .eq("id", finalRoomId)
+    .single()
+  if (options.isSupport) {
+    const currentRoomMetadata = roomInfo?.metadata && typeof roomInfo.metadata === "object" &&
+        !Array.isArray(roomInfo.metadata)
+      ? roomInfo.metadata
+      : {}
+    const { error: roomMetadataError } = await supabase
+      .from("direct_chat_rooms")
+      .update({
+        metadata: {
+          ...currentRoomMetadata,
+          interaction_context: "support",
+          source: "goobox",
+          ticket_id: payload.ticket_id,
+        },
+      })
+      .eq("id", finalRoomId)
+    if (roomMetadataError) return err(`Support room update failed: ${roomMetadataError.message}`, 500)
+  }
   if (roomInfo) {
     const timestamp = Date.now()
     await redisCall("ZADD", `chat:user:${roomInfo.user_a}:rooms`, timestamp, finalRoomId)
@@ -279,13 +371,10 @@ async function handleSendMessage(
 
   // 5. Trigger Notification in Redis
   const recipientId = to_user_id || (roomInfo?.user_a === userId ? roomInfo?.user_b : roomInfo?.user_a)
-  if (recipientId) {
+  if (recipientId && !deduplicated) {
     await triggerChatNotification(recipientId, userId, finalRoomId, content)
   }
 
-  // Goobox replies also enter the durable notification pipeline used by the
-  // Flutter app. Redis alone is not enough because the app listens to the
-  // primary Postgres notifications table for its visible/system alert.
   if (options.isSupport && recipientId) {
     const preview = content.trim().slice(0, 180)
     const { error: notificationError } = await supabase
@@ -306,15 +395,15 @@ async function handleSendMessage(
           message_id: message.id,
           ticket_id: payload.ticket_id,
         },
-      }, { onConflict: "user_id,dedupe_key" })
+      }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true })
 
     if (notificationError) {
       console.error("Support notification insert failed:", notificationError)
+      return err("Support message saved but inbox notification failed", 500)
     }
   }
 
-
-  return json({ success: true, data: message })
+  return json({ success: true, data: message, deduplicated })
 }
 
 // --- 📥 3. Fetch Messages (Direct) ---
@@ -379,8 +468,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
 
   try {
-    // Federated user JWTs remain the default. Goobox gets one narrowly scoped,
-    // server-to-server path that may only send as the dedicated support account.
+    initializeClients()
+
+    // Federated users remain the default. Goobox gets one narrowly scoped,
+    // server-to-server path that can only send as the dedicated support account.
     const gooboxSecret = req.headers.get("x-goobox-secret") || ""
     const isGoobox = gooboxSecret.length > 0
     let userId: string
@@ -431,6 +522,7 @@ Deno.serve(async (req) => {
     }
   } catch (e) {
     console.error("Router Error:", e)
-    return err(`Internal error: ${e.message}`, 500)
+    const message = e instanceof Error ? e.message : "unknown error"
+    return err(`Internal error: ${message}`, 500)
   }
 })

@@ -36,11 +36,14 @@ code never receives `GOOBOX_SHARED_SECRET` or a service-role key.
    supabase secrets set GOOBOX_SHARED_SECRET=<bridge-secret> SUPPORT_ACCOUNT_ID=<support-user-uuid> --project-ref ayvescksetiuekoyfqar
    ```
 
-6. From this `goobox` directory, deploy the three Goobox functions:
+6. From this `goobox` directory, deploy the Goobox functions. The
+   `relay-necxa-reply` name matches the current Support Hub UI; the legacy
+   `deliver-necxa-support-reply` endpoint remains as a compatible alias:
 
    ```powershell
    supabase functions deploy verify-support-token --project-ref anregykcgolpgxecfxej --no-verify-jwt
    supabase functions deploy create-support-ticket --project-ref anregykcgolpgxecfxej --no-verify-jwt
+   supabase functions deploy relay-necxa-reply --project-ref anregykcgolpgxecfxej --no-verify-jwt
    supabase functions deploy deliver-necxa-support-reply --project-ref anregykcgolpgxecfxej --no-verify-jwt
    supabase secrets set SUPPORT_TOKEN_SECRET=<token-secret> GOOBOX_SHARED_SECRET=<bridge-secret> NECXA_CHAT_URL=https://ayvescksetiuekoyfqar.supabase.co/functions/v1/necxa-chat NECXA_CHAT_ANON_KEY=<chat-project-anon-key> --project-ref anregykcgolpgxecfxej
    ```
@@ -50,3 +53,8 @@ code never receives `GOOBOX_SHARED_SECRET` or a service-role key.
 
 Unverified visitors can still create email-only tickets. Only tickets whose
 signed handoff is re-verified by `create-support-ticket` receive in-app replies.
+Each Goobox reply is assigned a stable source ID, so retries cannot duplicate
+the message or notification in the user's Necxa inbox. The Support Hub should
+save the row in `ticket_replies` first, then pass that row's `id` as
+`source_reply_id` when it invokes `relay-necxa-reply`; the relay verifies that
+the saved reply belongs to the requested ticket.
