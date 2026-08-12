@@ -21,7 +21,7 @@ class LocalDbService {
   static const int _feedMaxRows = 500;
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
-  static const int _dbVersion = 18;
+  static const int _dbVersion = 19;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
@@ -194,6 +194,13 @@ class LocalDbService {
             );
           } catch (_) {}
         }
+        if (oldVersion < 19) {
+          try {
+            await db.execute(
+              "ALTER TABLE chat_rooms ADD COLUMN metadata TEXT DEFAULT '{}'",
+            );
+          } catch (_) {}
+        }
         await _createOrMigrateV5(db, isUpgrade: true);
       },
       onCreate: (db, version) async {
@@ -217,6 +224,7 @@ class LocalDbService {
         last_message_at TEXT,
         unread_count INTEGER DEFAULT 0,
         is_secure INTEGER DEFAULT 0,
+        metadata TEXT DEFAULT '{}',
         created_at TEXT
       )
     ''');
@@ -941,6 +949,7 @@ class LocalDbService {
         'last_message': room.lastMessage,
         'last_message_at': room.lastMessageAt?.toIso8601String(),
         'unread_count': room.myUnread,
+        'metadata': jsonEncode(room.metadata ?? const <String, dynamic>{}),
         'created_at': room.createdAt.toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
@@ -950,23 +959,26 @@ class LocalDbService {
   Future<List<ChatRoom>> getRooms() async {
     final db = await database;
     final rows = await db.query('chat_rooms', orderBy: 'last_message_at DESC');
-    return rows
-        .map(
-          (m) => ChatRoom(
-            id: m['id'] as String,
-            otherName: m['other_name'] as String?,
-            otherAvatar: m['other_avatar'] as String?,
-            lastMessage: m['last_message'] as String?,
-            lastMessageAt: DateTime.tryParse(
-              m['last_message_at'] as String? ?? '',
-            ),
-            myUnread: (m['unread_count'] as int?) ?? 0,
-            createdAt:
-                DateTime.tryParse(m['created_at'] as String? ?? '') ??
-                DateTime.now(),
-          ),
-        )
-        .toList();
+    return rows.map((m) {
+      Map<String, dynamic>? metadata;
+      try {
+        final decoded = jsonDecode(m['metadata']?.toString() ?? '{}');
+        if (decoded is Map) metadata = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+      return ChatRoom(
+        id: m['id'] as String,
+        agentId: m['other_party_id'] as String?,
+        otherName: m['other_name'] as String?,
+        otherAvatar: m['other_avatar'] as String?,
+        lastMessage: m['last_message'] as String?,
+        lastMessageAt: DateTime.tryParse(m['last_message_at'] as String? ?? ''),
+        myUnread: (m['unread_count'] as int?) ?? 0,
+        metadata: metadata,
+        createdAt:
+            DateTime.tryParse(m['created_at'] as String? ?? '') ??
+            DateTime.now(),
+      );
+    }).toList();
   }
 
   // ─── Chat Messages ────────────────────────────────────────────────────────

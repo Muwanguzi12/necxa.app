@@ -23,6 +23,15 @@ class ChatRoom {
 
   // Convenience getter: the "other" party in the conversation
   String get otherPartyId => agentId ?? sellerId ?? buyerId ?? clientId ?? '';
+  bool get isSupport => metadata?['interaction_context'] == 'support';
+  String get displayName {
+    if (isSupport) {
+      final label = metadata?['conversation_label']?.toString().trim();
+      return label == null || label.isEmpty ? 'Necxa Support' : label;
+    }
+    final name = otherName?.trim();
+    return name == null || name.isEmpty ? 'Unknown User' : name;
+  }
 
   ChatRoom({
     required this.id,

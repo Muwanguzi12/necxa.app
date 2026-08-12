@@ -28,13 +28,20 @@ export async function syncMessageToRedis(message: any) {
 }
 
 
-export async function triggerChatNotification(recipientId: string, senderId: string, roomId: string, content: string) {
+export async function triggerChatNotification(
+  recipientId: string,
+  senderId: string,
+  roomId: string,
+  content: string,
+  context?: Record<string, unknown>,
+) {
   const notification = {
     type: 'new_message',
     sender_id: senderId,
     room_id: roomId,
     content: content ? content.substring(0, 50) : "Sent a media file",
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    ...(context ?? {}),
   }
   await redisCall("LPUSH", `notifications:${recipientId}`, JSON.stringify(notification))
   await redisCall("LTRIM", `notifications:${recipientId}`, 0, 49)
@@ -78,6 +85,8 @@ export function toLightweight(message: any) {
       id: message.metadata.id,
       thumbnail: message.metadata.thumbnail,
       interaction_context: message.metadata.interaction_context,
+      conversation_label: message.metadata.conversation_label,
+      initiated_via: message.metadata.initiated_via,
       source: message.metadata.source,
       ticket_id: message.metadata.ticket_id,
       source_reply_id: message.metadata.source_reply_id,

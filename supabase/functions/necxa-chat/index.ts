@@ -275,6 +275,8 @@ async function handleSendMessage(
   const metadata = options.isSupport
     ? {
         interaction_context: "support",
+        conversation_label: "Necxa Support",
+        initiated_via: "necxa_support_link",
         source: "goobox",
         ticket_id: payload.ticket_id,
         source_reply_id: sourceReplyId,
@@ -282,7 +284,9 @@ async function handleSendMessage(
     : (payload.metadata ?? {})
 
   // 1. Resolve/Create Room
-  let finalRoomId = room_id
+  // A Goobox request may never choose an arbitrary room. Always derive the
+  // room from the configured support account and the verified ticket owner.
+  let finalRoomId = options.isSupport ? null : room_id
   if (!finalRoomId) {
     const { data: rId, error: rErr } = await supabase.rpc('get_or_create_direct_room', {
       p_user_a: userId,
@@ -346,6 +350,10 @@ async function handleSendMessage(
     .eq("id", finalRoomId)
     .single()
   if (options.isSupport) {
+    const participants = new Set([roomInfo?.user_a, roomInfo?.user_b])
+    if (!participants.has(userId) || !participants.has(to_user_id)) {
+      return err("Support room recipient mismatch", 409)
+    }
     const currentRoomMetadata = roomInfo?.metadata && typeof roomInfo.metadata === "object" &&
         !Array.isArray(roomInfo.metadata)
       ? roomInfo.metadata
@@ -356,6 +364,8 @@ async function handleSendMessage(
         metadata: {
           ...currentRoomMetadata,
           interaction_context: "support",
+          conversation_label: "Necxa Support",
+          initiated_via: "necxa_support_link",
           source: "goobox",
           ticket_id: payload.ticket_id,
         },
@@ -370,9 +380,19 @@ async function handleSendMessage(
   }
 
   // 5. Trigger Notification in Redis
-  const recipientId = to_user_id || (roomInfo?.user_a === userId ? roomInfo?.user_b : roomInfo?.user_a)
+  const recipientId = options.isSupport
+    ? to_user_id
+    : (to_user_id || (roomInfo?.user_a === userId ? roomInfo?.user_b : roomInfo?.user_a))
   if (recipientId && !deduplicated) {
-    await triggerChatNotification(recipientId, userId, finalRoomId, content)
+    await triggerChatNotification(
+      recipientId,
+      userId,
+      finalRoomId,
+      content,
+      options.isSupport
+        ? { interaction_context: "support", conversation_label: "Necxa Support" }
+        : undefined,
+    )
   }
 
   if (options.isSupport && recipientId) {
@@ -384,13 +404,15 @@ async function handleSendMessage(
         actor_id: userId,
         notification_type: "system",
         type: "system",
-        title: "Necxa Support replied",
+        title: "Necxa Support",
         body: preview,
         target_id: finalRoomId,
         target_type: "system",
         dedupe_key: `support-message:${message.id}`,
         metadata: {
           interaction_context: "support",
+          conversation_label: "Necxa Support",
+          initiated_via: "necxa_support_link",
           room_id: finalRoomId,
           message_id: message.id,
           ticket_id: payload.ticket_id,

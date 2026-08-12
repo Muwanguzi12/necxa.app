@@ -178,23 +178,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           title: Row(
             children: [
               Container(
-                width: 36, height: 36,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: C.brand.withOpacity(.4), width: 1.5),
-                  image: conv.otherAvatar != null ? DecorationImage(image: NetworkImage(conv.otherAvatar!), fit: BoxFit.cover) : null,
+                  border: Border.all(
+                    color: C.brand.withOpacity(.4),
+                    width: 1.5,
+                  ),
+                  image: !conv.isSupport && conv.otherAvatar != null
+                      ? DecorationImage(
+                          image: NetworkImage(conv.otherAvatar!),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
                 ),
-              child: (conv.otherAvatar == null)
-                  ? Center(
-                      child: Text(
-                        (conv.otherName != null && conv.otherName!.isNotEmpty)
-                            ? conv.otherName![0].toUpperCase()
-                            : '?',
-                        style: syne(sz: 14, w: FontWeight.bold, c: C.brand),
-                      ),
-                    )
-                  : null,
-
+                child: conv.isSupport
+                    ? const Icon(
+                        Icons.support_agent_rounded,
+                        color: C.brand,
+                        size: 22,
+                      )
+                    : (conv.otherAvatar == null)
+                    ? Center(
+                        child: Text(
+                          conv.displayName[0].toUpperCase(),
+                          style: syne(sz: 14, w: FontWeight.bold, c: C.brand),
+                        ),
+                      )
+                    : null,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -202,7 +214,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      conv.otherName ?? 'Necxa Agent',
+                      conv.displayName,
                       style: syne(sz: 17, w: FontWeight.w700, c: Colors.white),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -218,7 +230,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Online',
+                          conv.isSupport ? 'NECXA SUPPORT' : 'Online',
                           style: dm(sz: 12, c: C.brand, w: FontWeight.w600),
                         ),
                       ],
@@ -249,18 +261,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
               _MsgInput(
                 controller: _msg,
+                hintText: conv.isSupport
+                    ? 'Message Necxa Support...'
+                    : 'Type a message...',
                 onSend: () {
                   if (_msg.text.trim().isEmpty) return;
                   widget.state.sendChatMessage(_msg.text.trim());
                   _audio.playSentMessage(widget.state);
                   _msg.clear();
-                  Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
+                  Future.delayed(
+                    const Duration(milliseconds: 100),
+                    _scrollToBottom,
+                  );
                 },
                 onAttach: () async {
                   final path = await s.pickMedia();
                   if (path != null) {
                     s.sendChatMessage('Sent an attachment', mediaUrl: path);
-                    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
+                    Future.delayed(
+                      const Duration(milliseconds: 100),
+                      _scrollToBottom,
+                    );
                   }
                 },
                 isRecording: _isRecording,
@@ -801,6 +822,7 @@ class _VoiceBubbleState extends State<_VoiceBubble> with SingleTickerProviderSta
 
 class _MsgInput extends StatelessWidget {
   final TextEditingController controller;
+  final String hintText;
   final VoidCallback onSend;
   final VoidCallback onAttach;
   final bool isRecording;
@@ -808,8 +830,9 @@ class _MsgInput extends StatelessWidget {
   final VoidCallback onStopRecord;
 
   const _MsgInput({
-    required this.controller, 
-    required this.onSend, 
+    required this.controller,
+    required this.hintText,
+    required this.onSend,
     required this.onAttach,
     required this.isRecording,
     required this.onStartRecord,
@@ -845,7 +868,7 @@ class _MsgInput extends StatelessWidget {
                   controller: controller,
                   style: dm(sz: 15, c: Colors.white),
                   decoration: InputDecoration(
-                    hintText: 'Type a message...',
+                    hintText: hintText,
                     hintStyle: dm(sz: 15, c: Colors.white54),
                     border: InputBorder.none,
                   ),

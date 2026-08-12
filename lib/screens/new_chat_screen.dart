@@ -264,72 +264,121 @@ class _NewChatScreenState extends State<NewChatScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('CREATOR SOCIAL', style: syne(sz: 13, w: FontWeight.w900, c: Colors.black)),
-                      Text('Exclusive interaction channel', style: dm(sz: 11, c: Colors.black54)),
+                      Text(
+                        'CREATOR SOCIAL',
+                        style: syne(
+                          sz: 13,
+                          w: FontWeight.w900,
+                          c: Colors.black,
+                        ),
+                      ),
+                      Text(
+                        'Exclusive interaction channel',
+                        style: dm(sz: 11, c: Colors.black54),
+                      ),
                     ],
                   ),
                 ),
-                const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.black45),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  size: 14,
+                  color: Colors.black45,
+                ),
               ],
             ),
           ),
         ),
 
-        if (convos.isEmpty) 
+        if (convos.isEmpty)
           Expanded(
             child: Center(
-              child: Text('No active conversations yet.', style: dm(sz: 14, c: Colors.white30)),
+              child: Text(
+                'No active conversations yet.',
+                style: dm(sz: 14, c: Colors.white30),
+              ),
             ),
           ),
-        
+
         if (convos.isNotEmpty)
           Expanded(
             child: ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: convos.length,
-              separatorBuilder: (_, __) => Divider(color: Colors.white.withOpacity(0.05)),
+              separatorBuilder: (_, __) =>
+                  Divider(color: Colors.white.withOpacity(0.05)),
               itemBuilder: (_, i) {
                 final room = convos[i];
                 final isUnread = room.myUnread > 0;
-                
+
                 return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 8,
+                  ),
                   leading: CircleAvatar(
                     radius: 28,
                     backgroundColor: Colors.white.withOpacity(0.1),
                     // CachedNetworkImage — zero repeat egress after first load
-                    backgroundImage: room.otherAvatar != null
+                    backgroundImage: !room.isSupport && room.otherAvatar != null
                         ? CachedNetworkImageProvider(room.otherAvatar!)
                         : null,
-                    child: room.otherAvatar == null
-                      ? Text(
-                          (room.otherName != null && room.otherName!.isNotEmpty)
-                              ? room.otherName![0].toUpperCase()
-                              : '?',
-                          style: syne(sz: 18, w: FontWeight.bold, c: C.brand),
-                        )
-                      : null,
+                    child: room.isSupport
+                        ? const Icon(
+                            Icons.support_agent_rounded,
+                            color: C.brand,
+                            size: 28,
+                          )
+                        : room.otherAvatar == null
+                        ? Text(
+                            room.displayName[0].toUpperCase(),
+                            style: syne(sz: 18, w: FontWeight.bold, c: C.brand),
+                          )
+                        : null,
                   ),
                   title: Text(
-                    room.otherName ?? 'Unknown User', 
-                    style: syne(sz: 16, w: isUnread ? FontWeight.w900 : FontWeight.w600, c: isUnread ? Colors.white : Colors.white70)
+                    room.displayName,
+                    style: syne(
+                      sz: 16,
+                      w: isUnread ? FontWeight.w900 : FontWeight.w600,
+                      c: isUnread ? Colors.white : Colors.white70,
+                    ),
                   ),
                   subtitle: Padding(
                     padding: const EdgeInsets.only(top: 4.0),
                     child: Text(
-                      room.lastMessage ?? 'Started a conversation',
+                      room.isSupport
+                          ? 'Necxa Support · ${room.lastMessage ?? 'Support conversation'}'
+                          : (room.lastMessage ?? 'Started a conversation'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: dm(sz: 13, w: isUnread ? FontWeight.w600 : FontWeight.w400, c: isUnread ? Colors.white : C.dim),
+                      style: dm(
+                        sz: 13,
+                        w: isUnread ? FontWeight.w600 : FontWeight.w400,
+                        c: isUnread ? Colors.white : C.dim,
+                      ),
                     ),
                   ),
-                  trailing: isUnread 
-                    ? Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: const BoxDecoration(color: C.red, shape: BoxShape.circle),
-                        child: Text(room.myUnread.toString(), style: dm(sz: 11, w: FontWeight.bold, c: Colors.white)),
-                      )
-                    : const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.white24),
+                  trailing: isUnread
+                      ? Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: const BoxDecoration(
+                            color: C.red,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            room.myUnread.toString(),
+                            style: dm(
+                              sz: 11,
+                              w: FontWeight.bold,
+                              c: Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Icon(
+                          Icons.arrow_forward_ios,
+                          size: 14,
+                          color: Colors.white24,
+                        ),
                   onTap: () async {
                     widget.state.activeConversation = room;
                     await widget.state.fetchMessages(room.id);
