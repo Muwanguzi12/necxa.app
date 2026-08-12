@@ -668,25 +668,34 @@ serve(async (req) => {
   }
 
   const syncCommerceListing = async (listingId: string, forceStock = false) => {
-    const fields = "id, title, price, stock_count, status, user_id, lister_id, category, media_url, weight_kg, length_cm, width_cm, height_cm, latitude, longitude, pickup_address";
-    let { data: sourceListing } = await userSupabase
+    // SP1 owns listings. Checkout only requires the columns shared by both
+    // projects. Selecting one optional shipping column that is absent from a
+    // live SP1 schema makes PostgREST reject the whole row and used to be
+    // misreported below as "Listing not found".
+    const commerceListingFields =
+      "id,title,price,stock_count,status,user_id,lister_id,category,media_url";
+    const { data: userListing, error: userListingError } = await userSupabase
       .from("listings")
-      .select(fields)
+      .select(commerceListingFields)
       .eq("id", listingId)
       .maybeSingle();
+    let sourceListing = userListing as Record<string, unknown> | null;
 
     if (!sourceListing) {
       const authAnonClient = createClient(AUTH_PROJECT_URL, AUTH_PROJECT_ANON_KEY);
-      const { data: publicListing } = await authAnonClient
+      const { data: publicListing, error: publicListingError } = await authAnonClient
         .from("listings")
-        .select(fields)
+        .select(commerceListingFields)
         .eq("id", listingId)
         .maybeSingle();
-      sourceListing = publicListing;
+      sourceListing = publicListing as Record<string, unknown> | null;
+      if (!sourceListing && userListingError && publicListingError) {
+        throw new Error(`Could not load listing: ${userListingError.message}`);
+      }
     }
 
     if (!sourceListing) return null;
-    const sellerId = sourceListing.user_id ?? sourceListing.lister_id;
+    const sellerId = (sourceListing.user_id ?? sourceListing.lister_id) as string | null | undefined;
     if (sellerId) {
       await supabase.from("profiles").upsert(
         { id: sellerId, updated_at: new Date().toISOString() },
@@ -698,10 +707,19 @@ serve(async (req) => {
       .select("stock_count")
       .eq("id", listingId)
       .maybeSingle();
+    // SP2 needs a stable minimal projection for checkout. Keeping optional SP1
+    // shipping/display fields out also supports an older SP2 schema safely.
     const financeListing = {
-      ...sourceListing,
+      id: sourceListing.id,
+      title: sourceListing.title ?? null,
+      price: sourceListing.price ?? 0,
+      status: sourceListing.status ?? "active",
+      user_id: sourceListing.user_id ?? null,
+      lister_id: sourceListing.lister_id ?? null,
+      category: sourceListing.category ?? null,
+      media_url: sourceListing.media_url ?? null,
       stock_count: forceStock || !existingFinanceListing
-        ? sourceListing.stock_count
+        ? Number(sourceListing.stock_count ?? 0)
         : existingFinanceListing.stock_count,
     };
     const { error: syncError } = await supabase.from("listings").upsert(financeListing, { onConflict: "id" });
