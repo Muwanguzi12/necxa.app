@@ -2310,7 +2310,7 @@ const FROM_ADDRESS  = 'support@necxa.uk';   // Send As alias (verified in Gmail)
 const GMAIL_ACCOUNT = 'knestars@gmail.com'; // Actual Gmail account receiving mail
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-let currentSession=null,currentTickets=[],activeTicketId=null,filterStatus='all',
+let currentSession=null,currentTickets=[],activeTicketId=null,filterStatus='all',durableGmailConnected=false,
     rtChannel=null,webhookLog=[],lastSyncTime=null,activeTab='convo',mobActiveTab='convo';
 const isMobile = () => window.innerWidth <= 768;
 
@@ -2336,9 +2336,22 @@ function showToast(msg,err=false){const t=document.getElementById('toast');docum
 function logEvent(msg,ok=true){webhookLog.unshift({time:new Date(),msg,ok});if(webhookLog.length>20)webhookLog.pop();renderLog();}
 function renderLog(){['webhookLog','mobWebhookLog'].forEach(id=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=webhookLog.map(e=>`<div class="wl-entry"><span class="wl-time">${e.time.toLocaleTimeString()}</span><span class="wl-msg ${e.ok?'wl-ok':'wl-err'}">${esc(e.msg)}</span></div>`).join('')||'<div class="wl-entry"><span class="wl-msg">No events</span></div>';});}
 
-async function signInWithGoogle(){const btn=document.getElementById('googleBtn');btn.disabled=true;btn.textContent='Redirecting…';const{error}=await db.auth.signInWithOAuth({provider:'google',options:{scopes:'https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events',redirectTo:window.location.href.split('?')[0],queryParams:{access_type:'offline',prompt:'consent'}}});if(error){showToast(error.message,true);btn.disabled=false;btn.textContent='Continue with Google (Gmail)';}}
+async function signInWithGoogle(){const btn=document.getElementById('googleBtn');btn.disabled=true;btn.textContent='Redirecting…';const{error}=await db.auth.signInWithOAuth({provider:'google',options:{scopes:'https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.events',redirectTo:window.location.href.split('?')[0],queryParams:{access_type:'offline',prompt:'consent',include_granted_scopes:'true'}}});if(error){showToast(error.message,true);btn.disabled=false;btn.textContent='Continue with Google (Gmail)';}}
 async function signInWithEmail(){const email=document.getElementById('loginEmail').value.trim(),pw=document.getElementById('loginPassword').value;if(!email||!pw){showToast('Enter email and password',true);return;}const ls=document.getElementById('loginStatus');ls.style.display='block';ls.textContent='Signing in…';ls.style.cssText+='background:rgba(37,99,255,.1);color:#7aadff;border-color:rgba(37,99,255,.2);';const{data,error}=await db.auth.signInWithPassword({email,password:pw});if(error){ls.textContent=error.message;ls.style.background='rgba(244,63,94,.1)';ls.style.color='var(--red)';ls.style.borderColor='rgba(244,63,94,.2)';}else{ls.textContent='✓ Signed in!';await onSession(data.session);}}
 async function signOut(){if(rtChannel)db.removeChannel(rtChannel);await db.auth.signOut();_clearStoredToken();currentSession=null;currentTickets=[];activeTicketId=null;['app','mobApp'].forEach(id=>document.getElementById(id).style.display='none');document.getElementById('loginPage').classList.add('active');showToast('Signed out');}
+
+async function connectGmailInbox(session){
+  if(!session?.access_token)return false;
+  const hasNewGrant=Boolean(session.provider_refresh_token&&session.provider_token);
+  try{
+    const res=await fetch(EDGE_BASE+'/connect-gmail-inbox',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+session.access_token,'apikey':SUPABASE_ANON},body:JSON.stringify(hasNewGrant?{action:'connect',refreshToken:session.provider_refresh_token,accessToken:session.provider_token}:{action:'status'})});
+    const data=await res.json();
+    if(!res.ok)throw new Error(data.error||'HTTP '+res.status);
+    durableGmailConnected=Boolean(data.connected);
+    if(hasNewGrant&&durableGmailConnected)logEvent('Gmail authorization saved for '+data.supportEmail);
+    return durableGmailConnected;
+  }catch(e){durableGmailConnected=false;logEvent('Gmail authorization: '+e.message,false);return false;}
+}
 
 async function onSession(session){if(!session)return;currentSession=session;const name=session.user?.user_metadata?.full_name||session.user?.email||'Agent',ini=initials(name,session.user?.email);
   // Persist Gmail token for this tab/session only — sessionStorage clears
@@ -2346,15 +2359,16 @@ async function onSession(session){if(!session)return;currentSession=session;cons
   // and avoiding indefinite persistence of an OAuth token with mail-send scope.
   if(session.provider_token){try{sessionStorage.setItem('goobox_gmail_token',session.provider_token);}catch(e){}}
   const tok=session.provider_token||_getStoredToken();
+await connectGmailInbox(session);
 document.getElementById('loginPage').classList.remove('active');
 if(isMobile()){document.getElementById('mobApp').style.display='flex';document.getElementById('app').style.display='none';}
 else{document.getElementById('app').style.display='flex';document.getElementById('mobApp').style.display='none';}
 ['topAvatar','sideAvatar'].forEach(id=>set(id,ini));set('agentName',name);set('mobAvatar',ini);set('mob-agentName',name);
-set('mob-gmailStatus',tok?'✓ OAuth token active':'⚠ Re-sign in with Google for Gmail sync');
+set('mob-gmailStatus',durableGmailConnected?'✓ Server Gmail authorization active':(tok?'✓ OAuth token active':'⚠ Re-sign in with Google for Gmail sync'));
 const tf=document.getElementById('GMAIL_TOKEN');if(tf){tf.value=tok||'Email login — no Gmail token';if(tok)tf.classList.add('filled');}
 const uid=document.getElementById('SESSION_UID'),exp=document.getElementById('SESSION_EXP');
 if(uid)uid.value=session.user.id;if(exp)exp.value=session.expires_at?new Date(session.expires_at*1000).toLocaleString():'—';
-const gs=document.getElementById('gmailConnStatus');if(gs)gs.innerHTML=tok?'<span class="pipeline-badge pipeline-ok"><span class="pipeline-dot"></span>OAuth token active</span>':'<span class="pipeline-badge pipeline-warn"><span class="pipeline-dot"></span>Re-sign in with Google for Gmail</span>';
+const gs=document.getElementById('gmailConnStatus');if(gs)gs.innerHTML=durableGmailConnected?'<span class="pipeline-badge pipeline-ok"><span class="pipeline-dot"></span>Server authorization active</span>':(tok?'<span class="pipeline-badge pipeline-ok"><span class="pipeline-dot"></span>OAuth token active</span>':'<span class="pipeline-badge pipeline-warn"><span class="pipeline-dot"></span>Re-sign in with Google for Gmail</span>');
 await refreshAllData();subscribeRealtime();buildPipelineFlow();logEvent('Session: '+(session.user?.email||'unknown'));}
 
 async function loadTickets(){const{data,error}=await db.from('support_tickets').select('*, ticket_messages(*, ticket_attachments(*)), ticket_replies(*), ticket_notes(*)').order('received_at',{ascending:false}).limit(100);if(error){logEvent('DB error: '+error.message,false);return[];}
@@ -3170,7 +3184,7 @@ function renderAnalytics(){updateBadges();const st={open:0,closed:0,pending:0};c
 const PIPE=[{label:'Customer',icon:'👤',desc:'Sends email'},{label:'support@necxa.uk',icon:'✉',desc:'Public address'},{label:'Cloudflare',icon:'☁️',desc:'Email routing'},{label:'knestars@gmail.com',icon:'📬',desc:'Gmail inbox'},{label:'Gmail API',icon:'🔑',desc:'OAuth + pull'},{label:'Edge Function',icon:'⚡',desc:'gmail-sync'},{label:'Supabase DB',icon:'🗄️',desc:'support_tickets'},{label:'GOOBOX',icon:'◈',desc:'Dashboard + RT'}];
 function buildPipelineFlow(){const el=document.getElementById('pipelineFlow');if(el)el.innerHTML=PIPE.map((s,i)=>`<div style="display:flex;align-items:center;gap:4px;"><div style="background:var(--bg-card);border:1px solid var(--border-bright);border-radius:10px;padding:8px 12px;text-align:center;min-width:80px;"><div style="font-size:18px;margin-bottom:3px;">${s.icon}</div><div style="font-size:9.5px;font-weight:700;color:var(--text-1);">${s.label}</div><div style="font-size:8.5px;color:var(--text-3);">${s.desc}</div></div>${i<PIPE.length-1?'<div style="color:var(--text-3);font-size:16px;flex-shrink:0;">→</div>':''}</div>`).join('');const mob=document.getElementById('mobPipelineSteps');if(mob)mob.innerHTML=PIPE.map((s,i)=>`<div class="mob-pipeline-step"><div class="mob-pipeline-icon">${s.icon}</div><div><div class="mob-pipeline-label">${s.label}</div><div class="mob-pipeline-desc">${s.desc}</div></div></div>${i<PIPE.length-1?'<div class="mob-pipeline-line" style="margin-left:29px;"></div>':''}`).join('');}
 
-async function checkPipelineStatus(){const{count,error}=await db.from('support_tickets').select('*',{count:'exact',head:true});const ok=`<span class="pipeline-badge pipeline-ok"><span class="pipeline-dot"></span>Connected · ${count??0} tickets</span>`,er=`<span class="pipeline-badge pipeline-err"><span class="pipeline-dot"></span>Error: ${error?.message}</span>`;const sbs=document.getElementById('supabaseConnStatus');if(sbs)sbs.innerHTML=error?er:ok;const ss=document.getElementById('saveStatus');if(ss)ss.innerHTML=error?`<span style="color:var(--red);">✗ ${error.message}</span>`:`<span style="color:var(--green);">✓ Connected · ${count??0} tickets</span>`;const mos=document.getElementById('mob-supabaseStatus');if(mos)mos.textContent=error?'Error: '+error.message:'Connected · '+(count??0)+' tickets';const gs=document.getElementById('gmailConnStatus');if(gs)gs.innerHTML=currentSession?.provider_token?'<span class="pipeline-badge pipeline-ok"><span class="pipeline-dot"></span>OAuth active</span>':'<span class="pipeline-badge pipeline-warn"><span class="pipeline-dot"></span>Re-sign in with Google</span>';logEvent('Pipeline check: DB '+(error?'error':'OK')+', Gmail '+(currentSession?.provider_token?'OK':'no token'));}
+async function checkPipelineStatus(){const{count,error}=await db.from('support_tickets').select('*',{count:'exact',head:true});if(currentSession)await connectGmailInbox({...currentSession,provider_refresh_token:null});const ok=`<span class="pipeline-badge pipeline-ok"><span class="pipeline-dot"></span>Connected · ${count??0} tickets</span>`,er=`<span class="pipeline-badge pipeline-err"><span class="pipeline-dot"></span>Error: ${error?.message}</span>`;const sbs=document.getElementById('supabaseConnStatus');if(sbs)sbs.innerHTML=error?er:ok;const ss=document.getElementById('saveStatus');if(ss)ss.innerHTML=error?`<span style="color:var(--red);">✗ ${error.message}</span>`:`<span style="color:var(--green);">✓ Connected · ${count??0} tickets</span>`;const mos=document.getElementById('mob-supabaseStatus');if(mos)mos.textContent=error?'Error: '+error.message:'Connected · '+(count??0)+' tickets';const gmailOk=durableGmailConnected||Boolean(currentSession?.provider_token);const gs=document.getElementById('gmailConnStatus');if(gs)gs.innerHTML=gmailOk?'<span class="pipeline-badge pipeline-ok"><span class="pipeline-dot"></span>'+(durableGmailConnected?'Server authorization active':'OAuth active')+'</span>':'<span class="pipeline-badge pipeline-warn"><span class="pipeline-dot"></span>Re-sign in with Google</span>';logEvent('Pipeline check: DB '+(error?'error':'OK')+', Gmail '+(gmailOk?'OK':'not authorized'));}
 
 function subscribeRealtime(){if(rtChannel)db.removeChannel(rtChannel);rtChannel=db.channel('goobox-rt').on('postgres_changes',{event:'*',schema:'public',table:'support_tickets'},async p=>{logEvent('RT: ticket '+p.eventType+' '+(p.new?.id||p.old?.id||'').slice(-8));await refreshAllData();if(activeTicketId)openTicket(activeTicketId);}).on('postgres_changes',{event:'*',schema:'public',table:'ticket_messages'},async p=>{logEvent('RT: msg '+p.eventType+' on '+(p.new?.ticket_id||'').slice(-8));await refreshAllData();if(activeTicketId)openTicket(activeTicketId);}).on('postgres_changes',{event:'*',schema:'public',table:'ticket_notes'},async()=>{await refreshAllData();if(activeTicketId)openTicket(activeTicketId);}).subscribe(s=>logEvent('RT: '+s));}
 

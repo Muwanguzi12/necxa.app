@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.relay-necxa-reply]
 verify_jwt = false
+
+[functions.connect-gmail-inbox]
+verify_jwt = false
