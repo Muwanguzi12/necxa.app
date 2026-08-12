@@ -4036,57 +4036,31 @@ async function cpSubmitTicket() {
       btn.textContent = 'Sending…';
     }
 
-    // Build ticket row
-    const ticketRow = {
-      customer_email   : email,
-      necxa_user_id    : verifiedSupportUser?.user_id || null,
-      verified         : !!verifiedSupportUser,
-      subject          : '[' + cat.toUpperCase() + '] ' + subject,
-      snippet          : message.slice(0, 120),
-      status           : 'open',
-      priority         : prio,
-      source           : 'portal',
-      received_at      : new Date().toISOString(),
-      inbox            : FROM_ADDRESS,
-      gmail_message_id : 'portal-' + Date.now(), // satisfies not-null if constraint exists
-      gmail_thread_id  : 'portal-' + Date.now(), // satisfies not-null if constraint exists
-    };
-
-    let ticket, tErr;
-
-    // Try full row first, then progressively strip columns that don't exist yet
-    const attempts = [
-      { ...ticketRow, customer_name: customerName },           // all columns
-      { ...ticketRow },                                         // without customer_name
-      { customer_email: email, necxa_user_id: verifiedSupportUser?.user_id || null, verified: !!verifiedSupportUser, subject: ticketRow.subject, status: 'open' }, // bare minimum + identity
-      { customer_email: email, subject: ticketRow.subject, status: 'open' }, // absolute fallback if necxa_user_id/verified columns don't exist
-    ];
-
-    for (const row of attempts) {
-      ({ data: ticket, error: tErr } = await db.from('support_tickets').insert(row).select().single());
-      if (!tErr) break;
-      // Only retry if the error is a missing column — otherwise surface it
-      if (!tErr.message?.includes('column') && !tErr.message?.includes('schema cache')) break;
-    }
-
-    if (tErr) throw tErr;
-
-    // Build the message body — include screenshot URL if we got one
-    const fullBody = screenshotUrl
-      ? message + '\n\n---\n📎 Screenshot: ' + screenshotUrl
-      : message;
-
-    const { error: msgErr } = await db.from('ticket_messages').insert({
-      ticket_id          : ticket.id,
-      sender_type        : 'customer',
-      sender              : customerName && customerName !== email ? `${customerName} <${email}>` : email,
-      body               : fullBody,
-      is_internal_note   : false,
+    // Trusted identity fields are assigned only by create-support-ticket after
+    // it re-verifies the signed Necxa handoff token server-side. Visitors who
+    // arrive without a handoff token still create normal email-only tickets.
+    const handoffToken = verifiedSupportUser
+      ? new URLSearchParams(window.location.search).get('token')
+      : null;
+    const res = await fetch(EDGE_BASE + '/create-support-ticket', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
+      body: JSON.stringify({
+        token: handoffToken,
+        name: customerName,
+        email,
+        subject,
+        message,
+        category: cat,
+        priority: prio,
+        screenshot_url: screenshotUrl,
+      }),
     });
-    if (msgErr) {
-      console.error('ticket_messages insert failed:', msgErr.message);
-      logEvent?.('Portal message save failed: ' + msgErr.message, false);
+    const data = await res.json();
+    if (!res.ok || !data.ticket?.id) {
+      throw new Error(data.error || 'Support request could not be created');
     }
+    const ticket = data.ticket;
 
     // Show success
     document.getElementById('cpForm').style.display = 'none';
