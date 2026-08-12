@@ -48,7 +48,7 @@ code never receives `GOOBOX_SHARED_SECRET` or a service-role key.
    supabase secrets set SUPPORT_TOKEN_SECRET=<token-secret> GOOBOX_SHARED_SECRET=<bridge-secret> NECXA_CHAT_URL=https://ayvescksetiuekoyfqar.supabase.co/functions/v1/necxa-chat NECXA_CHAT_ANON_KEY=<chat-project-anon-key> --project-ref anregykcgolpgxecfxej
    ```
 
-7. Publish the updated `index (1).html` to `goobox.necxa.uk`, then ship the
+7. Publish the updated `index.html` to `goobox.necxa.uk`, then ship the
    Flutter app after deploying `create-support-token`.
 
 Unverified visitors can still create email-only tickets. Only tickets whose
