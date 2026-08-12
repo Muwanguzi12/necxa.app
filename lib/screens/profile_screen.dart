@@ -1450,7 +1450,7 @@ class _MoreOptionsSheet extends StatelessWidget {
               GestureDetector(
                 onTap: () async {
                   Navigator.pop(context);
-                  await Supabase.instance.client.auth.signOut();
+                  await state.logout();
                   state.go('login');
                 },
                 child: const _SheetBtn(

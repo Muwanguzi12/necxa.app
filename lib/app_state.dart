@@ -419,6 +419,8 @@ class AppState extends ChangeNotifier {
     final data = NotificationService().tappedNotification.value;
     if (data == null) return;
     NotificationService().tappedNotification.value = null;
+    final notificationUserId = data['user_id']?.toString();
+    if (notificationUserId == null || notificationUserId != user?.id) return;
     final notificationId =
         data['notification_id']?.toString() ?? data['id']?.toString();
     if (notificationId != null) {
@@ -2062,9 +2064,24 @@ class AppState extends ChangeNotifier {
 
   // ── Auth Actions ──
   void onAuthStateChange(AuthState state) {
-    if (state.session?.user != null) {
+    final authenticatedUserId = state.session?.user.id;
+    if (authenticatedUserId != null) {
+      if (_notificationUserId != authenticatedUserId) {
+        appNotifications = [];
+        _notificationUserId = authenticatedUserId;
+        unawaited(NotificationService().clearDisplayedNotifications());
+      }
       _syncVault();
       checkSecurityStatus(); // Syncs 2FA, Forex, and Payment Methods
+    } else {
+      _syncTimer?.cancel();
+      if (_notifChannel != null) {
+        unawaited(Supabase.instance.client.removeChannel(_notifChannel!));
+        _notifChannel = null;
+      }
+      _notificationUserId = null;
+      appNotifications = [];
+      unawaited(NotificationService().clearDisplayedNotifications());
     }
     notifyListeners();
   }
@@ -2144,16 +2161,19 @@ class AppState extends ChangeNotifier {
   // ── Chat & Messaging Actions ──
   RealtimeChannel? _msgChannel;
   RealtimeChannel? _notifChannel;
+  String? _notificationUserId;
 
   void _subscribeToNotifications() {
-    if (user == null) return;
+    final subscribedUserId = user?.id;
+    if (subscribedUserId == null) return;
     if (_notifChannel != null) {
       Supabase.instance.client.removeChannel(_notifChannel!);
       _notifChannel = null;
     }
+    _notificationUserId = subscribedUserId;
 
     _notifChannel = Supabase.instance.client
-        .channel('notifications:${user!.id}')
+        .channel('notifications:$subscribedUserId')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -2161,14 +2181,19 @@ class AppState extends ChangeNotifier {
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'user_id',
-            value: user!.id,
+            value: subscribedUserId,
           ),
           callback: (payload) async {
+            if (user?.id != subscribedUserId) return;
             debugPrint(
               '🔔 Realtime Notification Received: ${payload.newRecord}',
             );
             final notif = AppNotification.fromMap(payload.newRecord);
-            await NotificationService().showNotification(notif);
+            if (notif.userId != subscribedUserId) return;
+            await NotificationService().showNotification(
+              notif,
+              recipientUserId: subscribedUserId,
+            );
             if (notif.metadata['interaction_context'] == 'support') {
               await fetchCreatorConversations(force: true);
             }
@@ -2182,12 +2207,15 @@ class AppState extends ChangeNotifier {
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'user_id',
-            value: user!.id,
+            value: subscribedUserId,
           ),
           callback: (payload) async {
+            if (user?.id != subscribedUserId) return;
             final notif = AppNotification.fromMap(payload.newRecord);
+            if (notif.userId != subscribedUserId) return;
             await NotificationService().showNotification(
               notif,
+              recipientUserId: subscribedUserId,
               showSystem: false,
             );
             await loadNotifications();
@@ -3076,13 +3104,21 @@ class AppState extends ChangeNotifier {
       .length;
 
   Future<void> loadNotifications() async {
-    final list = await localDb.getNotifications();
+    final activeUserId = user?.id;
+    if (activeUserId == null) {
+      appNotifications = [];
+      notify();
+      return;
+    }
+    final list = await localDb.getNotifications(activeUserId);
     appNotifications = list.map((e) => AppNotification.fromMap(e)).toList();
     notify();
   }
 
   Future<void> markNotificationAsRead(String id) async {
-    await localDb.markNotificationAsRead(id);
+    final activeUserId = user?.id;
+    if (activeUserId == null) return;
+    await localDb.markNotificationAsRead(id, activeUserId);
     await loadNotifications();
     try {
       await social.markNotificationRead(id);
@@ -3092,7 +3128,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> markAllNotificationsAsRead() async {
-    await localDb.markAllNotificationsAsRead();
+    final activeUserId = user?.id;
+    if (activeUserId == null) return;
+    await localDb.markAllNotificationsAsRead(activeUserId);
     await loadNotifications();
     try {
       await social.markAllNotificationsRead();
@@ -3102,12 +3140,17 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> refreshNotifications() async {
+    final activeUserId = user?.id;
+    if (activeUserId == null) return;
     final remote = await social.fetchNotifications(limit: 50);
     for (final item in remote) {
       final notification = AppNotification.fromMap(item);
-      if (notification.id.isEmpty) continue;
+      if (notification.id.isEmpty || notification.userId != activeUserId) {
+        continue;
+      }
       await NotificationService().showNotification(
         notification,
+        recipientUserId: activeUserId,
         showSystem: false,
       );
     }

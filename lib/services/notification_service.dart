@@ -52,12 +52,26 @@ class NotificationService {
     await androidImplementation?.requestNotificationsPermission();
   }
 
+  Future<void> clearDisplayedNotifications() async {
+    await flutterLocalNotificationsPlugin.cancelAll();
+  }
+
   Future<void> showNotification(
     AppNotification notification, {
+    required String recipientUserId,
     bool showSystem = true,
   }) async {
-    final alreadySaved = await _localDb.hasNotification(notification.id);
-    await _localDb.saveNotification(notification.toMap());
+    if (notification.userId != recipientUserId) {
+      debugPrint(
+        'Ignored notification ${notification.id}: recipient does not match the active account.',
+      );
+      return;
+    }
+    final alreadySaved = await _localDb.hasNotification(
+      notification.id,
+      recipientUserId,
+    );
+    await _localDb.saveNotification(notification.toMap(), recipientUserId);
     if (!showSystem || alreadySaved) return;
 
     const notificationDetails = NotificationDetails(

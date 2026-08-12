@@ -21,7 +21,7 @@ class LocalDbService {
   static const int _feedMaxRows = 500;
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
-  static const int _dbVersion = 17;
+  static const int _dbVersion = 18;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
@@ -172,6 +172,27 @@ class LocalDbService {
               await db.execute(statement);
             } catch (_) {}
           }
+        }
+        if (oldVersion < 18) {
+          try {
+            await db.execute(
+              'ALTER TABLE app_notifications ADD COLUMN user_id TEXT',
+            );
+          } catch (_) {}
+          // Legacy notification rows cannot be attributed safely. Removing
+          // them prevents one account's cache from appearing in another.
+          try {
+            await db.delete(
+              'app_notifications',
+              where: "user_id IS NULL OR user_id = ''",
+            );
+          } catch (_) {}
+          try {
+            await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_notif_user_time '
+              'ON app_notifications(user_id, created_at DESC)',
+            );
+          } catch (_) {}
         }
         await _createOrMigrateV5(db, isUpgrade: true);
       },
@@ -359,6 +380,7 @@ class LocalDbService {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS app_notifications (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
         type TEXT,
         title TEXT,
         body TEXT,
@@ -374,7 +396,8 @@ class LocalDbService {
       )
     ''');
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_notif_time ON app_notifications(created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_notif_user_time '
+      'ON app_notifications(user_id, created_at DESC)',
     );
 
     // ── 9. Transport Orders ─────────────────────────────────────────────────
@@ -1081,10 +1104,18 @@ class LocalDbService {
 
   // ─── Notifications ────────────────────────────────────────────────────────
 
-  Future<void> saveNotification(Map<String, dynamic> notif) async {
+  Future<void> saveNotification(
+    Map<String, dynamic> notif,
+    String userId,
+  ) async {
+    final notificationUserId = notif['user_id']?.toString() ?? '';
+    if (notificationUserId.isEmpty || notificationUserId != userId) {
+      throw StateError('Notification recipient does not match active account.');
+    }
     final db = await database;
     await db.insert('app_notifications', {
       'id': notif['id'],
+      'user_id': userId,
       'type': notif['type'],
       'title': notif['title'],
       'body': notif['body'],
@@ -1099,28 +1130,32 @@ class LocalDbService {
       'created_at': notif['created_at'],
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     await db.rawDelete('''
-      DELETE FROM app_notifications WHERE id IN (
-        SELECT id FROM app_notifications ORDER BY created_at DESC LIMIT -1 OFFSET $_notifMaxRows
+      DELETE FROM app_notifications WHERE user_id = ? AND id IN (
+        SELECT id FROM app_notifications
+        WHERE user_id = ?
+        ORDER BY created_at DESC LIMIT -1 OFFSET $_notifMaxRows
       )
-    ''');
+    ''', [userId, userId]);
   }
 
-  Future<List<Map<String, dynamic>>> getNotifications() async {
+  Future<List<Map<String, dynamic>>> getNotifications(String userId) async {
     final db = await database;
     return await db.query(
       'app_notifications',
+      where: 'user_id = ?',
+      whereArgs: [userId],
       orderBy: 'created_at DESC',
       limit: _notifMaxRows,
     );
   }
 
-  Future<bool> hasNotification(String id) async {
+  Future<bool> hasNotification(String id, String userId) async {
     final db = await database;
     final rows = await db.query(
       'app_notifications',
       columns: ['id'],
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, userId],
       limit: 1,
     );
     return rows.isNotEmpty;
@@ -1128,26 +1163,32 @@ class LocalDbService {
 
   Future<void> saveNotifications(
     List<Map<String, dynamic>> notifications,
+    String userId,
   ) async {
     if (notifications.isEmpty) return;
     for (final notification in notifications) {
-      await saveNotification(notification);
+      await saveNotification(notification, userId);
     }
   }
 
-  Future<void> markNotificationAsRead(String id) async {
+  Future<void> markNotificationAsRead(String id, String userId) async {
     final db = await database;
     await db.update(
       'app_notifications',
       {'is_read': 1},
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, userId],
     );
   }
 
-  Future<void> markAllNotificationsAsRead() async {
+  Future<void> markAllNotificationsAsRead(String userId) async {
     final db = await database;
-    await db.update('app_notifications', {'is_read': 1}, where: 'is_read = 0');
+    await db.update(
+      'app_notifications',
+      {'is_read': 1},
+      where: 'user_id = ? AND is_read = 0',
+      whereArgs: [userId],
+    );
   }
 
   // ─── Transport Orders persistence ───────────────────────────────────────
