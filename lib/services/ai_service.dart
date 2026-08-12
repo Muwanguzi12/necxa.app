@@ -57,6 +57,8 @@ class NecxaAI {
     required String primaryBase64,
     String? secondaryBase64,
     String? userId,
+    String? countryCode,
+    String? documentType,
   }) {
     final payload = <String, dynamic>{
       'action': action,
@@ -65,6 +67,12 @@ class NecxaAI {
 
     if (secondaryBase64 != null) {
       payload['payload']['idImageBase64'] = secondaryBase64;
+    }
+    if (countryCode != null) {
+      payload['payload']['countryCode'] = countryCode;
+    }
+    if (documentType != null) {
+      payload['payload']['documentType'] = documentType;
     }
 
     return payload;
@@ -466,6 +474,8 @@ class NecxaAI {
           action: action,
           primaryBase64: primaryBase64,
           userId: userId ?? session.user.id,
+          countryCode: 'UG',
+          documentType: 'national_id',
         ),
       );
       final verified = data['verified'] == true;

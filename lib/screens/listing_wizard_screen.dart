@@ -107,7 +107,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         return (widget.state.lastIDResult?.verified ?? false) &&
             (widget.state.lastIDBackResult?.verified ?? false) &&
             (widget.state.lastHoldingResult?.verified ?? false) &&
-            (widget.state.lastSelfieResult?.faceMatch ?? false);
+            (widget.state.lastSelfieResult?.faceMatch ?? false) &&
+            (widget.state.identityShardId?.isNotEmpty ?? false);
       case 3:
         return _umemeCtrl.text.isNotEmpty || _role == 'agent'; // Simplified
       case 4:
@@ -411,11 +412,20 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     );
   }
 
-  String _aiFeedback(Map<String, dynamic> data, String fallback) =>
-      data['feedback']?.toString() ??
-      data['error']?.toString() ??
-      data['reason']?.toString() ??
-      fallback;
+  String _aiFeedback(Map<String, dynamic> data, String fallback) {
+    final feedback = data['feedback']?.toString().trim();
+    final approved = data['verified'] == true || data['faceMatch'] == true;
+    if (!approved &&
+        feedback != null &&
+        feedback.toLowerCase().contains('verified')) {
+      return fallback;
+    }
+    return (feedback != null && feedback.isNotEmpty)
+        ? feedback
+        : data['error']?.toString() ??
+              data['reason']?.toString() ??
+              fallback;
+  }
 
   Future<void> _runIdentityVerification() async {
     setState(() => _loading = true);
@@ -942,6 +952,13 @@ class _Step3Identity extends StatelessWidget {
     ];
 
     final currentInstr = instructions[subStep.clamp(0, 3)];
+    final completedStages = [
+      state.lastIDResult?.verified ?? false,
+      state.lastIDBackResult?.verified ?? false,
+      state.lastHoldingResult?.verified ?? false,
+      state.lastSelfieResult?.faceMatch ?? false,
+    ];
+    final completedCount = completedStages.where((complete) => complete).length;
 
     return Column(
       children: [
@@ -1001,6 +1018,12 @@ class _Step3Identity extends StatelessWidget {
           icon: currentInstr.$3,
         ),
 
+        const SizedBox(height: 14),
+        _IdentityCaptureProgress(
+          completedStages: completedStages,
+          completedCount: completedCount,
+        ),
+
         if (state.shieldFeedback != null) ...[
           const SizedBox(height: 16),
           Container(
@@ -1051,6 +1074,74 @@ class _Step3Identity extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _IdentityCaptureProgress extends StatelessWidget {
+  final List<bool> completedStages;
+  final int completedCount;
+
+  const _IdentityCaptureProgress({
+    required this.completedStages,
+    required this.completedCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['Front', 'Back', 'Holding ID', 'Face match'];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: C.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: C.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$completedCount of 4 secure captures verified',
+            style: syne(sz: 11, w: FontWeight.w700, c: C.dim),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(labels.length, (index) {
+              final complete = completedStages[index];
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                  color: complete
+                      ? C.brand.withOpacity(.12)
+                      : Colors.white.withOpacity(.04),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: complete ? C.brand.withOpacity(.5) : C.border,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      complete ? Icons.check_circle : Icons.radio_button_unchecked,
+                      size: 14,
+                      color: complete ? C.brand : C.dim,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      labels[index],
+                      style: dm(sz: 10, c: complete ? C.brand : C.dim),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
     );
   }
 }
