@@ -28,9 +28,20 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary)
 }
 
-async function verifyDocumentWithAi(file: File, label: string, aiUrl: string, apiKey: string) {
+async function verifyDocumentWithAi(
+  file: File,
+  label: string,
+  captureStage: 'front' | 'back' | 'holding',
+  countryCode: string,
+  documentType: string,
+  aiUrl: string,
+  apiKey: string,
+) {
   const aiFormData = new FormData()
   aiFormData.append('idFront', file, `${label}.jpg`)
+  aiFormData.append('captureStage', captureStage)
+  aiFormData.append('countryCode', countryCode)
+  aiFormData.append('documentType', documentType)
 
   const aiRes = await fetch(`${aiUrl}/api/verify/id`, {
     method: "POST",
@@ -92,10 +103,12 @@ Deno.serve(async (req) => {
     }, { onConflict: 'id' })
     if (profileError) throw profileError
 
+    const countryCode = country.toLowerCase() === 'uganda' ? 'UG' : country
+    const normalizedDocumentType = docType.toLowerCase().replace(/[\s-]+/g, '_')
     const [frontOcr, backOcr, holdingOcr] = await Promise.all([
-      verifyDocumentWithAi(idFront, 'id_front', NECXA_AI_URL, NECXA_AI_API_KEY),
-      verifyDocumentWithAi(idBack, 'id_back', NECXA_AI_URL, NECXA_AI_API_KEY),
-      verifyDocumentWithAi(idHolding, 'id_holding', NECXA_AI_URL, NECXA_AI_API_KEY),
+      verifyDocumentWithAi(idFront, 'id_front', 'front', countryCode, normalizedDocumentType, NECXA_AI_URL, NECXA_AI_API_KEY),
+      verifyDocumentWithAi(idBack, 'id_back', 'back', countryCode, normalizedDocumentType, NECXA_AI_URL, NECXA_AI_API_KEY),
+      verifyDocumentWithAi(idHolding, 'id_holding', 'holding', countryCode, normalizedDocumentType, NECXA_AI_URL, NECXA_AI_API_KEY),
     ])
 
     const documentVerified = [frontOcr, backOcr, holdingOcr].every((result) => result?.verified === true)

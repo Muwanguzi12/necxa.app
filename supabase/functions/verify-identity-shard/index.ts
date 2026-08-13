@@ -104,6 +104,7 @@ serve(async (req) => {
       formData.append('idFront', new Blob([imageBytes], { type: 'image/jpeg' }), `${stage}.jpg`);
       formData.append('countryCode', payload?.countryCode || 'UG');
       formData.append('documentType', payload?.documentType || 'national_id');
+      formData.append('captureStage', stage);
 
       const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
         method: 'POST',
