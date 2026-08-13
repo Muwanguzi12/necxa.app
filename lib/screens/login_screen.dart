@@ -23,6 +23,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   bool _loading = false;
+  // A synchronous guard is kept separately from the rendered loading state.
+  // This prevents two gesture callbacks in the same frame from issuing two
+  // OTP requests before Flutter has rebuilt the disabled button.
+  bool _sendRequestInFlight = false;
   bool _sent = false;
   String? _error;
   DateTime? _nextSendAt;
@@ -36,7 +40,8 @@ class _LoginScreenState extends State<LoginScreen> {
     return (milliseconds / 1000).ceil();
   }
 
-  bool get _sendAvailable => !_loading && _cooldownSeconds == 0;
+  bool get _sendAvailable =>
+      !_loading && !_sendRequestInFlight && _cooldownSeconds == 0;
 
   @override
   void initState() {
@@ -113,7 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleSend() async {
-    if (!_sendAvailable) return;
+    if (!_sendAvailable || _sendRequestInFlight) return;
 
     final email = _emailCtrl.text.trim();
     if (email.isEmpty || !email.contains('@')) {
@@ -121,6 +126,9 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    // Set this before setState/network work so rapid taps are coalesced into
+    // the one request that is already being processed.
+    _sendRequestInFlight = true;
     setState(() {
       _loading = true;
       _error = null;
@@ -151,6 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _error = getUserFriendlyError(e));
       }
     } finally {
+      _sendRequestInFlight = false;
       if (mounted) setState(() => _loading = false);
     }
   }
