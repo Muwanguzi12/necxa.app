@@ -449,7 +449,10 @@ class NecxaAI {
         : Map<String, dynamic>.from(jsonDecode(raw) as Map);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
-        data['error']?.toString() ?? 'Identity verification failed.',
+        data['feedback']?.toString() ??
+            data['message']?.toString() ??
+            data['error']?.toString() ??
+            'Identity verification is temporarily unavailable.',
       );
     }
     return data;

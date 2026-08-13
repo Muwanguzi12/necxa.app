@@ -605,9 +605,11 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         });
       }
     } catch (e) {
-      widget.state.setShieldFeedback(getUserFriendlyError(e));
+      final message = getUserFriendlyError(e);
+      widget.state.setShieldFeedback(message);
       setState(() => _loading = false);
-      _showError(getUserFriendlyError(e));
+      // Identity failures are already rendered persistently inside this step.
+      // Do not duplicate the same message in a full-width SnackBar.
     }
   }
 

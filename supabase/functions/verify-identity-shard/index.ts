@@ -114,7 +114,22 @@ serve(async (req) => {
 
       if (!aiRes.ok) {
         const aiError = await aiRes.json().catch(() => ({}));
-        throw new Error(`AI Engine Error: ${aiError.error || aiRes.statusText || aiRes.status}`);
+        const providerUnavailable = aiRes.status === 503 ||
+          aiError.code === 'document_provider_unavailable';
+        return new Response(JSON.stringify({
+          verified: false,
+          decision: 'deferred',
+          reasonCode: providerUnavailable
+            ? 'document_provider_unavailable'
+            : 'document_analysis_failed',
+          retryable: providerUnavailable,
+          feedback: providerUnavailable
+            ? 'Document verification is temporarily unavailable. Your photo was not rejected; please retry shortly.'
+            : 'The document could not be analyzed. Please retake it with the whole card inside the frame.'
+        }), {
+          status: providerUnavailable ? 503 : 422,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
       const aiData = await aiRes.json();
       if (!aiData.success) throw new Error(`Verification Failed: ${aiData.error}`);
