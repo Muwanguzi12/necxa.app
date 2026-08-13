@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:share_plus/share_plus.dart';
@@ -72,6 +74,12 @@ String? _primaryListingImageUrl(Map<String, dynamic> listing) {
 int communityDestinationTabIndex(String? destination) =>
     destination == 'shop' ? 1 : 0;
 
+bool useCommunityDesktopLayout(double width, {bool isWeb = kIsWeb}) =>
+    isWeb && width >= 980;
+
+double communityModalMaxWidth(double width, {bool isWeb = kIsWeb}) =>
+    isWeb && width >= 720 ? 680 : width;
+
 class CommunityScreen extends StatefulWidget {
   final AppState state;
   const CommunityScreen({super.key, required this.state});
@@ -82,6 +90,9 @@ class CommunityScreen extends StatefulWidget {
 
 class _CommunityScreenState extends State<CommunityScreen> {
   late PageController _pageController;
+  final FocusNode _keyboardFocusNode = FocusNode(
+    debugLabel: 'community-web-shortcuts',
+  );
   int _selectedTab = 0; // 0: Feed, 1: Shop
   int _currentPageIndex = 0;
   List<Map<String, dynamic>> _currentItems = [];
@@ -176,7 +187,66 @@ class _CommunityScreenState extends State<CommunityScreen> {
     _liveRefreshTimer?.cancel();
     widget.state.removeListener(_onStateUpdate);
     _pageController.dispose();
+    _keyboardFocusNode.dispose();
     super.dispose();
+  }
+
+  void _selectTab(int tabIndex) {
+    if (tabIndex == _selectedTab) return;
+    setState(() {
+      _selectedTab = tabIndex;
+      _currentItems = [];
+      _currentPageIndex = _selectedTab == 0
+          ? widget.state.communityFeedIndex
+          : widget.state.communityShopIndex;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_currentPageIndex);
+      }
+      _refreshFuture(force: true);
+    });
+  }
+
+  void _movePage(int delta) {
+    if (_currentItems.isEmpty || !_pageController.hasClients) return;
+    final target = (_currentPageIndex + delta).clamp(
+      0,
+      _currentItems.length - 1,
+    );
+    if (target == _currentPageIndex) return;
+    _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  KeyEventResult _handleWebKeyEvent(FocusNode node, KeyEvent event) {
+    if (!kIsWeb || event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (FocusManager.instance.primaryFocus?.context?.widget is EditableText) {
+      return KeyEventResult.ignored;
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+        event.logicalKey == LogicalKeyboardKey.pageDown ||
+        event.logicalKey == LogicalKeyboardKey.space) {
+      _movePage(1);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
+        event.logicalKey == LogicalKeyboardKey.pageUp) {
+      _movePage(-1);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      if (_showLiveOverlay) {
+        setState(() => _showLiveOverlay = false);
+        _liveRefreshTimer?.cancel();
+      } else {
+        widget.state.go('home');
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   void _handleHorizontalSwipe(DragEndDetails details) {
@@ -215,232 +285,482 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.black, // Pure black primary background
-      child: GestureDetector(
-        onHorizontalDragEnd: _handleHorizontalSwipe,
-        child: PopScope(
-          canPop: !widget.state.showGiftFloat,
-          onPopInvokedWithResult: (didPop, result) {
-            if (didPop) return;
-            if (widget.state.showGiftFloat) {
-              widget.state.showGiftFloat = false;
-              widget.state.notify();
-            }
-          },
-          child: ListenableBuilder(
-            listenable: widget.state,
-            builder: (context, _) {
-              // 🧪 NEURAL HANDOFF DETECTION
-              if (widget.state.pendingCheckoutListing != null) {
-                SchedulerBinding.instance.addPostFrameCallback(
-                  (_) => _handlePendingHandoff(),
-                );
-              }
+      child: Focus(
+        focusNode: _keyboardFocusNode,
+        autofocus: kIsWeb,
+        onKeyEvent: _handleWebKeyEvent,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final canvas = GestureDetector(
+              onHorizontalDragEnd: _handleHorizontalSwipe,
+              child: PopScope(
+                canPop: !widget.state.showGiftFloat,
+                onPopInvokedWithResult: (didPop, result) {
+                  if (didPop) return;
+                  if (widget.state.showGiftFloat) {
+                    widget.state.showGiftFloat = false;
+                    widget.state.notify();
+                  }
+                },
+                child: ListenableBuilder(
+                  listenable: widget.state,
+                  builder: (context, _) {
+                    // 🧪 NEURAL HANDOFF DETECTION
+                    if (widget.state.pendingCheckoutListing != null) {
+                      SchedulerBinding.instance.addPostFrameCallback(
+                        (_) => _handlePendingHandoff(),
+                      );
+                    }
 
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  Positioned.fill(
-                    child: FutureBuilder<List<Map<String, dynamic>>>(
-                      future: _itemsFuture,
-                      builder: (context, snapshot) {
-                        // 1. SMART CACHE BINDING
-                        // Prioritize the synchronous in-memory cache directly from SocialService.
-                        // This prevents UI flickering and bypasses the infinite loading spinner issue.
-                        final items = _selectedTab == 0
-                            ? widget.state.social.feedPosts
-                            : widget.state.social.shopListings;
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Positioned.fill(
+                          child: FutureBuilder<List<Map<String, dynamic>>>(
+                            future: _itemsFuture,
+                            builder: (context, snapshot) {
+                              // 1. SMART CACHE BINDING
+                              // Prioritize the synchronous in-memory cache directly from SocialService.
+                              // This prevents UI flickering and bypasses the infinite loading spinner issue.
+                              final items = _selectedTab == 0
+                                  ? widget.state.social.feedPosts
+                                  : widget.state.social.shopListings;
 
-                        if (items.isEmpty &&
-                            snapshot.connectionState ==
-                                ConnectionState.waiting) {
-                          return const Center(
-                            child: CircularProgressIndicator(color: C.brand),
-                          );
-                        }
-
-                        _currentItems = items; // Update local tracker
-
-                        if (items.isEmpty) {
-                          return _buildEmptyState(hasError: snapshot.hasError);
-                        }
-
-                        SchedulerBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted || items.isEmpty) return;
-                          final visibleIndex = _currentPageIndex < 0
-                              ? 0
-                              : (_currentPageIndex >= items.length
-                                    ? items.length - 1
-                                    : _currentPageIndex);
-                          widget.state.social.smartLoadEngagement(
-                            items,
-                            visibleIndex,
-                            isShop: _selectedTab == 1,
-                          );
-                        });
-
-                        // Check for deep-link handover from Profile
-                        if (widget.state.communityPostId != null &&
-                            items.isNotEmpty) {
-                          final targetId = widget.state.communityPostId;
-                          final idx = items.indexWhere(
-                            (it) => it['id'] == targetId,
-                          );
-                          if (idx != -1) {
-                            // Clear before jump to avoid loops
-                            widget.state.communityPostId = null;
-                            SchedulerBinding.instance.addPostFrameCallback((_) {
-                              if (_pageController.hasClients) {
-                                _pageController.jumpToPage(idx);
+                              if (items.isEmpty &&
+                                  snapshot.connectionState ==
+                                      ConnectionState.waiting) {
+                                return const Center(
+                                  child: CircularProgressIndicator(
+                                    color: C.brand,
+                                  ),
+                                );
                               }
-                            });
-                          }
-                        }
 
-                        return RefreshIndicator(
-                          onRefresh: () async {
-                            _refreshFuture(force: true);
-                            await _itemsFuture;
-                          },
-                          color: C.brand,
-                          backgroundColor: Colors.black,
-                          child: NotificationListener<ScrollNotification>(
-                            onNotification: (notification) {
-                              if (notification is ScrollUpdateNotification) {
-                                final velocity =
-                                    notification.scrollDelta?.abs() ?? 0;
-                                if (velocity > 50 && _selectedTab == 0) {
-                                  // 🚀 NEURAL SYNC: Fast scrolling triggers prefetch
-                                  widget.state.social.triggerPrefetch();
-                                }
+                              _currentItems = items; // Update local tracker
+
+                              if (items.isEmpty) {
+                                return _buildEmptyState(
+                                  hasError: snapshot.hasError,
+                                );
                               }
-                              return false;
-                            },
-                            child: PageView.builder(
-                              key: ValueKey(_selectedTab),
-                              controller: _pageController,
-                              scrollDirection: Axis.vertical,
-                              physics: const BouncingScrollPhysics(),
-                              itemCount: items.length,
-                              onPageChanged: (index) {
-                                _currentPageIndex = index;
+
+                              SchedulerBinding.instance.addPostFrameCallback((
+                                _,
+                              ) {
+                                if (!mounted || items.isEmpty) return;
+                                final visibleIndex = _currentPageIndex < 0
+                                    ? 0
+                                    : (_currentPageIndex >= items.length
+                                          ? items.length - 1
+                                          : _currentPageIndex);
                                 widget.state.social.smartLoadEngagement(
                                   items,
-                                  index,
+                                  visibleIndex,
                                   isShop: _selectedTab == 1,
                                 );
-                                if (_selectedTab == 0) {
-                                  widget.state.communityFeedIndex = index;
+                              });
 
-                                  // 🚀 INFINITE PAGINATION TRIGGER (Near the end of Feed)
-                                  if (index >= items.length - 2 &&
-                                      items.isNotEmpty &&
-                                      !widget.state.social.isSyncing('feed')) {
-                                    final oldestTime = items.last['created_at'];
-                                    if (oldestTime != null) {
-                                      _currentFeedLimit += 10;
-                                      widget.state.social
-                                          .fetchOlderFeed(oldestTime)
-                                          .then((_) {
-                                            if (mounted) _refreshFuture();
-                                          });
+                              // Check for deep-link handover from Profile
+                              if (widget.state.communityPostId != null &&
+                                  items.isNotEmpty) {
+                                final targetId = widget.state.communityPostId;
+                                final idx = items.indexWhere(
+                                  (it) => it['id'] == targetId,
+                                );
+                                if (idx != -1) {
+                                  // Clear before jump to avoid loops
+                                  widget.state.communityPostId = null;
+                                  SchedulerBinding.instance
+                                      .addPostFrameCallback((_) {
+                                        if (_pageController.hasClients) {
+                                          _pageController.jumpToPage(idx);
+                                        }
+                                      });
+                                }
+                              }
+
+                              return RefreshIndicator(
+                                onRefresh: () async {
+                                  _refreshFuture(force: true);
+                                  await _itemsFuture;
+                                },
+                                color: C.brand,
+                                backgroundColor: Colors.black,
+                                child: NotificationListener<ScrollNotification>(
+                                  onNotification: (notification) {
+                                    if (notification
+                                        is ScrollUpdateNotification) {
+                                      final velocity =
+                                          notification.scrollDelta?.abs() ?? 0;
+                                      if (velocity > 50 && _selectedTab == 0) {
+                                        // 🚀 NEURAL SYNC: Fast scrolling triggers prefetch
+                                        widget.state.social.triggerPrefetch();
+                                      }
                                     }
-                                  }
-                                } else {
-                                  widget.state.communityShopIndex = index;
+                                    return false;
+                                  },
+                                  child: PageView.builder(
+                                    key: ValueKey(_selectedTab),
+                                    controller: _pageController,
+                                    scrollDirection: Axis.vertical,
+                                    physics: const BouncingScrollPhysics(),
+                                    itemCount: items.length,
+                                    onPageChanged: (index) {
+                                      _currentPageIndex = index;
+                                      widget.state.social.smartLoadEngagement(
+                                        items,
+                                        index,
+                                        isShop: _selectedTab == 1,
+                                      );
+                                      if (_selectedTab == 0) {
+                                        widget.state.communityFeedIndex = index;
 
-                                  // 🚀 INFINITE PAGINATION TRIGGER (Near the end of Shop)
-                                  if (index >= items.length - 2 &&
-                                      items.isNotEmpty &&
-                                      !widget.state.social.isSyncing('shop')) {
-                                    final oldestTime = items.last['created_at'];
-                                    if (oldestTime != null) {
-                                      _currentShopLimit += 10;
-                                      widget.state.social
-                                          .fetchOlderListings(oldestTime)
-                                          .then((_) {
-                                            if (mounted) _refreshFuture();
-                                          });
-                                    }
-                                  }
-                                }
-                              },
-                              itemBuilder: (context, index) {
-                                if (index >= items.length) {
-                                  return const SizedBox.shrink();
-                                }
-                                final item = items[index];
+                                        // 🚀 INFINITE PAGINATION TRIGGER (Near the end of Feed)
+                                        if (index >= items.length - 2 &&
+                                            items.isNotEmpty &&
+                                            !widget.state.social.isSyncing(
+                                              'feed',
+                                            )) {
+                                          final oldestTime =
+                                              items.last['created_at'];
+                                          if (oldestTime != null) {
+                                            _currentFeedLimit += 10;
+                                            widget.state.social
+                                                .fetchOlderFeed(oldestTime)
+                                                .then((_) {
+                                                  if (mounted) _refreshFuture();
+                                                });
+                                          }
+                                        }
+                                      } else {
+                                        widget.state.communityShopIndex = index;
 
-                                if (_selectedTab == 0) {
-                                  return _ReelItem(
-                                    post: item,
-                                    state: widget.state,
-                                  );
-                                } else {
-                                  return _ShopReelItem(
-                                    listing: item,
-                                    state: widget.state,
-                                  );
-                                }
-                              },
+                                        // 🚀 INFINITE PAGINATION TRIGGER (Near the end of Shop)
+                                        if (index >= items.length - 2 &&
+                                            items.isNotEmpty &&
+                                            !widget.state.social.isSyncing(
+                                              'shop',
+                                            )) {
+                                          final oldestTime =
+                                              items.last['created_at'];
+                                          if (oldestTime != null) {
+                                            _currentShopLimit += 10;
+                                            widget.state.social
+                                                .fetchOlderListings(oldestTime)
+                                                .then((_) {
+                                                  if (mounted) _refreshFuture();
+                                                });
+                                          }
+                                        }
+                                      }
+                                    },
+                                    itemBuilder: (context, index) {
+                                      if (index >= items.length) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      final item = items[index];
+
+                                      if (_selectedTab == 0) {
+                                        return _ReelItem(
+                                          post: item,
+                                          state: widget.state,
+                                        );
+                                      } else {
+                                        return _ShopReelItem(
+                                          listing: item,
+                                          state: widget.state,
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        // Top HUD Layer
+                        Positioned(
+                          top: MediaQuery.of(context).padding.top + 10,
+                          left: 16,
+                          right: 16,
+                          child: AnimatedOpacity(
+                            opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
+                            duration: const Duration(milliseconds: 300),
+                            child: IgnorePointer(
+                              ignoring: widget.state.isFeedCleanMode,
+                              child: _buildTopHUDContent(),
                             ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  // Top HUD Layer
-                  Positioned(
-                    top: MediaQuery.of(context).padding.top + 10,
-                    left: 16,
-                    right: 16,
-                    child: AnimatedOpacity(
-                      opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
-                      duration: const Duration(milliseconds: 300),
-                      child: IgnorePointer(
-                        ignoring: widget.state.isFeedCleanMode,
-                        child: _buildTopHUDContent(),
-                      ),
-                    ),
-                  ),
-                  // Checkout Overlay
-                  if (widget.state.showCheckoutOverlay)
-                    CheckoutOverlay(state: widget.state),
+                        ),
+                        // Checkout Overlay
+                        if (widget.state.showCheckoutOverlay)
+                          CheckoutOverlay(state: widget.state),
 
-                  // ── Smart Live Pipeline (Active Streams) ──
-                  if (!widget.state.isFeedCleanMode &&
-                      !widget.state.showCheckoutOverlay)
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: MediaQuery.of(context).padding.bottom + 92,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 240),
-                        reverseDuration: const Duration(milliseconds: 180),
-                        transitionBuilder: (child, animation) {
-                          return FadeTransition(
-                            opacity: animation,
-                            child: ScaleTransition(
-                              scale: Tween<double>(
-                                begin: 0.96,
-                                end: 1,
-                              ).animate(animation),
-                              alignment: Alignment.bottomCenter,
-                              child: child,
-                            ),
-                          );
-                        },
-                        child: _showLiveOverlay
-                            ? _buildLivePipeline()
-                            : const SizedBox.shrink(
-                                key: ValueKey('live-overlay-hidden'),
+                        // ── Smart Live Pipeline (Active Streams) ──
+                        if (!widget.state.isFeedCleanMode &&
+                            !widget.state.showCheckoutOverlay)
+                          Positioned(
+                            left: 16,
+                            right: 16,
+                            bottom: MediaQuery.of(context).padding.bottom + 92,
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 240),
+                              reverseDuration: const Duration(
+                                milliseconds: 180,
                               ),
+                              transitionBuilder: (child, animation) {
+                                return FadeTransition(
+                                  opacity: animation,
+                                  child: ScaleTransition(
+                                    scale: Tween<double>(
+                                      begin: 0.96,
+                                      end: 1,
+                                    ).animate(animation),
+                                    alignment: Alignment.bottomCenter,
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              child: _showLiveOverlay
+                                  ? _buildLivePipeline()
+                                  : const SizedBox.shrink(
+                                      key: ValueKey('live-overlay-hidden'),
+                                    ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            );
+
+            if (!useCommunityDesktopLayout(constraints.maxWidth)) {
+              return canvas;
+            }
+            return _buildDesktopShell(canvas, constraints.maxWidth);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopShell(Widget canvas, double width) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: RadialGradient(
+          center: Alignment(0.15, -0.2),
+          radius: 1.15,
+          colors: [Color(0xFF0B2030), Color(0xFF03070D), Colors.black],
+        ),
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            SizedBox(width: 220, child: _buildDesktopNavigation()),
+            Expanded(
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  margin: const EdgeInsets.symmetric(vertical: 16),
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: Colors.white12),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black87,
+                        blurRadius: 34,
+                        offset: Offset(0, 14),
                       ),
-                    ),
-                ],
-              );
-            },
+                    ],
+                  ),
+                  child: canvas,
+                ),
+              ),
+            ),
+            if (width >= 1220)
+              SizedBox(width: 240, child: _buildDesktopGuide()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopNavigation() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 24, 14, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const NecxaLogo(size: 48),
+          const SizedBox(height: 18),
+          Text(
+            'COMMUNITY',
+            style: syne(sz: 17, w: FontWeight.w900, c: Colors.white, ls: 1.4),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Create, discover and shop.',
+            style: dm(sz: 11, c: Colors.white38),
+          ),
+          const SizedBox(height: 30),
+          _desktopNavButton(
+            icon: Icons.home_outlined,
+            label: 'Home',
+            onTap: () => widget.state.go('home'),
+          ),
+          _desktopNavButton(
+            icon: Icons.play_circle_outline_rounded,
+            label: 'Feed',
+            selected: _selectedTab == 0,
+            onTap: () => _selectTab(0),
+          ),
+          _desktopNavButton(
+            icon: Icons.storefront_outlined,
+            label: 'Shop',
+            selected: _selectedTab == 1,
+            onTap: () => _selectTab(1),
+          ),
+          _desktopNavButton(
+            icon: Icons.search_rounded,
+            label: 'Discover',
+            onTap: () => _showSearchSheet(context),
+          ),
+          _desktopNavButton(
+            icon: Icons.sensors_rounded,
+            label: 'Live now',
+            accent: const Color(0xFFFF5267),
+            onTap: _toggleLiveOverlay,
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _showUploadOptions(context),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Create'),
+              style: FilledButton.styleFrom(
+                backgroundColor: C.brand,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _desktopNavButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool selected = false,
+    Color? accent,
+  }) {
+    final color = accent ?? (selected ? C.brand : Colors.white70);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? C.brand.withValues(alpha: 0.12) : null,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? C.brand.withValues(alpha: 0.35)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: dm(sz: 13, w: FontWeight.w700, c: color),
+              ),
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDesktopGuide() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 28, 24, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'QUICK CONTROLS',
+            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white54, ls: 1.3),
+          ),
+          const SizedBox(height: 16),
+          _keyboardHint('↑  ↓', 'Previous / next'),
+          _keyboardHint('Space', 'Next item'),
+          _keyboardHint('Esc', 'Close / go home'),
+          const SizedBox(height: 28),
+          Text(
+            _selectedTab == 0 ? 'Community feed' : 'Community shop',
+            style: syne(sz: 16, w: FontWeight.w800, c: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _selectedTab == 0
+                ? 'Watch creator posts, react, comment, share, gift and connect.'
+                : 'Explore verified listings, reviews and secure checkout.',
+            style: dm(sz: 12, c: Colors.white38),
+          ),
+          const Spacer(),
+          OutlinedButton.icon(
+            onPressed: () => _refreshFuture(force: true),
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Refresh'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white70,
+              side: const BorderSide(color: Colors.white12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _keyboardHint(String keyLabel, String action) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Container(
+            constraints: const BoxConstraints(minWidth: 42),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Text(
+              keyLabel,
+              textAlign: TextAlign.center,
+              style: dm(sz: 10, w: FontWeight.w700, c: Colors.white70),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(action, style: dm(sz: 11, c: Colors.white38)),
+          ),
+        ],
       ),
     );
   }
@@ -1125,66 +1445,84 @@ class _CommunityScreenState extends State<CommunityScreen> {
   void _showUploadOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: kIsWeb,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF0D121B),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          border: Border.all(color: Colors.white10),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white10,
-                borderRadius: BorderRadius.circular(2),
+      builder: (context) => SafeArea(
+        child: Align(
+          alignment: kIsWeb ? Alignment.center : Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: communityModalMaxWidth(
+                MediaQuery.sizeOf(context).width,
               ),
             ),
-            const SizedBox(height: 24),
-            Text(
-              'CREATE CONTENT',
-              style: syne(sz: 18, w: FontWeight.w900, c: Colors.white, ls: 1),
-            ),
-            const SizedBox(height: 32),
-            _uploadOption(
-              icon: Icons.post_add_rounded,
-              title: 'New Post',
-              sub: 'Upload music, art, or videos',
-              onTap: () {
-                Navigator.pop(context);
-                widget.state.go('upload');
-              },
-            ),
-            const SizedBox(height: 16),
-            _uploadOption(
-              icon: Icons.live_tv_rounded,
-              title: 'Go Live',
-              sub: 'Start a superior live shop session',
-              color: Colors.red,
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => LiveStudioScreen(
-                      state: widget.state,
-                      channelName:
-                          '${widget.state.myDisplayName ?? 'User'}_Live',
-                      isHost: true,
-                      hostId: widget.state.user?.id,
-                      hostName: widget.state.myDisplayName,
-                      hostAvatar: widget.state.myAvatarUrl,
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF0D121B),
+                borderRadius: BorderRadius.circular(kIsWeb ? 24 : 28),
+                border: Border.all(color: Colors.white10),
+              ),
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white10,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                );
-              },
+                  const SizedBox(height: 24),
+                  Text(
+                    'CREATE CONTENT',
+                    style: syne(
+                      sz: 18,
+                      w: FontWeight.w900,
+                      c: Colors.white,
+                      ls: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  _uploadOption(
+                    icon: Icons.post_add_rounded,
+                    title: 'New Post',
+                    sub: 'Upload music, art, or videos',
+                    onTap: () {
+                      Navigator.pop(context);
+                      widget.state.go('upload');
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  _uploadOption(
+                    icon: Icons.live_tv_rounded,
+                    title: 'Go Live',
+                    sub: 'Start a superior live shop session',
+                    color: Colors.red,
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => LiveStudioScreen(
+                            state: widget.state,
+                            channelName:
+                                '${widget.state.myDisplayName ?? 'User'}_Live',
+                            isHost: true,
+                            hostId: widget.state.user?.id,
+                            hostName: widget.state.myDisplayName,
+                            hostAvatar: widget.state.myAvatarUrl,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
-          ],
+          ),
         ),
       ),
     );
@@ -1245,8 +1583,18 @@ class _CommunityScreenState extends State<CommunityScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) =>
-          _CommunitySearchSheet(state: widget.state, initialTab: _selectedTab),
+      builder: (_) => Align(
+        alignment: kIsWeb ? Alignment.center : Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: communityModalMaxWidth(MediaQuery.sizeOf(context).width),
+          ),
+          child: _CommunitySearchSheet(
+            state: widget.state,
+            initialTab: _selectedTab,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1803,9 +2151,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       final String urlToShare = mediaUrl ?? 'https://necxa.app';
                       final String shareText =
                           'Check out this amazing post on Necxa!\n\n${description.isNotEmpty ? '"$description"\n\n' : ''}$urlToShare';
-                      await Share.share(
-                        shareText,
-                        subject: 'Necxa Post by @$username',
+                      await SharePlus.instance.share(
+                        ShareParams(
+                          text: shareText,
+                          subject: 'Necxa Post by @$username',
+                        ),
                       );
 
                       // 🚀 REDIS NOTIFICATION
@@ -1832,6 +2182,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
   void _showPostOptions() {
     final bool isOwner = widget.state.user?.id == widget.post['author_id'];
+    final postId = widget.post['id']?.toString();
+    final isSaved = postId != null && widget.state.saved.contains(postId);
 
     showModalBottomSheet(
       context: context,
@@ -1856,20 +2208,139 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(height: 24),
-              ListTile(
-                leading: const Icon(
-                  Icons.report_problem_outlined,
-                  color: Colors.white,
+              if (postId != null)
+                ListTile(
+                  leading: Icon(
+                    isSaved ? Icons.bookmark : Icons.bookmark_border_rounded,
+                    color: C.brand,
+                  ),
+                  title: Text(
+                    isSaved ? 'Remove from Saved' : 'Save Post',
+                    style: dm(sz: 16, c: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.state.toggleSavePost(postId);
+                  },
                 ),
-                title: Text(
-                  'Report Content',
-                  style: dm(sz: 16, c: Colors.white),
+              if (!isOwner && postId != null)
+                ListTile(
+                  leading: const Icon(
+                    Icons.visibility_off_outlined,
+                    color: Colors.white70,
+                  ),
+                  title: Text(
+                    'Not Interested',
+                    style: dm(sz: 16, c: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    widget.state.notInterested(postId, 'post');
+                  },
                 ),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Implement report
-                },
-              ),
+              if (isOwner && postId != null)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.redAccent,
+                  ),
+                  title: Text(
+                    'Delete Post',
+                    style: dm(sz: 16, c: Colors.redAccent),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        backgroundColor: const Color(0xFF0D121B),
+                        title: Text(
+                          'Delete this post?',
+                          style: syne(c: Colors.white, w: FontWeight.w800),
+                        ),
+                        content: Text(
+                          'This removes the post from Community and cannot be undone.',
+                          style: dm(c: Colors.white60),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                            ),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true || !mounted) return;
+                    final messenger = ScaffoldMessenger.of(this.context);
+                    try {
+                      await widget.state.social.deletePost(postId);
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('Post deleted')),
+                        );
+                      }
+                    } catch (_) {
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Could not delete this post. Try again.',
+                            ),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+              if (!isOwner && postId != null)
+                ListTile(
+                  leading: const Icon(
+                    Icons.report_problem_outlined,
+                    color: Colors.white,
+                  ),
+                  title: Text(
+                    'Report Content',
+                    style: dm(sz: 16, c: Colors.white),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final messenger = ScaffoldMessenger.of(this.context);
+                    try {
+                      await widget.state.reportContent(
+                        postId,
+                        'post',
+                        'Inappropriate content',
+                      );
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Post reported for review'),
+                          ),
+                        );
+                      }
+                    } catch (_) {
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Could not submit the report. Try again.',
+                            ),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
               const SizedBox(height: 20),
             ],
           ),
@@ -2873,15 +3344,18 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   _shopAction(
                     icon: Icons.share_outlined,
                     label: 'Share',
-                    onTap: () {
+                    onTap: () async {
                       final title = widget.listing['title'] ?? 'Luxury Product';
                       final sku = widget.listing['sku'] ?? 'sku';
                       final url =
-                          "https://necxa.app/listing/${widget.listing['id']}?sku=$sku";
+                          "https://app.necxa.uk/listing/${widget.listing['id']}?sku=$sku";
                       // External Share Linkage
                       debugPrint('🔗 Sharing linkage: $url');
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Link copied: $url')),
+                      await SharePlus.instance.share(
+                        ShareParams(
+                          text: 'View $title on NECXA\n$url',
+                          subject: title.toString(),
+                        ),
                       );
                     },
                   ),
@@ -3811,6 +4285,8 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
   final TextEditingController _ctrl = TextEditingController();
   List<Map<String, dynamic>> _results = [];
   bool _loading = false;
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
   late int _searchMode; // 0 = Feed, 1 = Shop
 
   // Shop filters
@@ -3826,11 +4302,21 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
 
+  void _scheduleSearch(String query) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 320),
+      () => _search(query),
+    );
+  }
+
   Future<void> _search(String query) async {
+    final generation = ++_searchGeneration;
     if (query.trim().isEmpty && _searchMode == 0) {
       setState(() => _results = []);
       return;
@@ -3849,6 +4335,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
             .or('title.ilike.%$query%,content.ilike.%$query%')
             .order('created_at', ascending: false)
             .limit(20);
+        if (!mounted || generation != _searchGeneration) return;
         setState(() => _results = List<Map<String, dynamic>>.from(res));
       } else {
         // SHOP SEARCH
@@ -3861,12 +4348,17 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
           minPrice: _minPrice > 0 ? _minPrice : null,
           maxPrice: _maxPrice < 1000000 ? _maxPrice : null,
         );
+        if (!mounted || generation != _searchGeneration) return;
         setState(() => _results = res);
       }
     } catch (_) {
-      setState(() => _results = []);
+      if (mounted && generation == _searchGeneration) {
+        setState(() => _results = []);
+      }
     } finally {
-      setState(() => _loading = false);
+      if (mounted && generation == _searchGeneration) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -3918,7 +4410,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                     child: TextField(
                       controller: _ctrl,
                       autofocus: true,
-                      onChanged: _search,
+                      onChanged: _scheduleSearch,
                       onSubmitted: _search,
                       style: dm(sz: 15, c: Colors.white),
                       decoration: InputDecoration(
@@ -3979,7 +4471,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           child: TextField(
                             onChanged: (v) {
                               _tagInput = v;
-                              _search(_ctrl.text);
+                              _scheduleSearch(_ctrl.text);
                             },
                             style: dm(sz: 13, c: Colors.white),
                             decoration: InputDecoration(
