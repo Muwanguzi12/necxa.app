@@ -554,22 +554,45 @@ async function syncPrimaryIdentityToFinance(
   financeClient: ReturnType<typeof createClient>,
   user: PrimaryAuthUser,
 ) {
+  // Auth is the identity authority. The public profile is optional enrichment:
+  // a missing profile row or a temporarily stale profile schema must never
+  // make an authenticated user's canonical finance wallet unavailable.
   const { data: primaryProfile, error: profileError } = await primaryClient
     .from("profiles")
     .select("id, email, phone, full_name, avatar_url")
     .eq("id", user.id)
     .maybeSingle();
   if (profileError) {
-    throw new Error(`Primary profile sync failed: ${profileError.message}`);
+    console.error("Deferred primary profile enrichment:", profileError.message);
   }
 
   const metadata = user.user_metadata ?? {};
   const syncedAt = new Date().toISOString();
+  const email = primaryProfile?.email ?? user.email ?? null;
+  const displayName = primaryProfile?.full_name ?? metadata.full_name ?? metadata.name ?? null;
+
+  // This SECURITY DEFINER function performs an idempotent finance-user and
+  // wallet upsert in one short transaction. It preserves every existing
+  // balance and closes the first-login race between simultaneous clients.
+  const { error: walletProvisionError } = await financeClient.rpc(
+    "ensure_finance_wallet",
+    {
+      p_user_id: user.id,
+      p_email: email,
+      p_display_name: displayName,
+    },
+  );
+  if (walletProvisionError) {
+    throw new Error(`Finance wallet provisioning failed: ${walletProvisionError.message}`);
+  }
+
+  // Some commerce tables still use the legacy profile projection. Keep it in
+  // sync when available, but do not couple a wallet read to this projection.
   const financeProfile = {
     id: user.id,
-    email: primaryProfile?.email ?? user.email ?? null,
+    email,
     phone: primaryProfile?.phone ?? user.phone ?? null,
-    full_name: primaryProfile?.full_name ?? metadata.full_name ?? metadata.name ?? null,
+    full_name: displayName,
     avatar_url: primaryProfile?.avatar_url ?? metadata.avatar_url ?? null,
     updated_at: syncedAt,
   };
@@ -577,7 +600,7 @@ async function syncPrimaryIdentityToFinance(
     .from("profiles")
     .upsert(financeProfile, { onConflict: "id" });
   if (financeProfileError) {
-    throw new Error(`Finance profile sync failed: ${financeProfileError.message}`);
+    console.error("Deferred legacy finance profile projection:", financeProfileError.message);
   }
 
   return {
@@ -585,6 +608,8 @@ async function syncPrimaryIdentityToFinance(
     target: "supabase2",
     userId: user.id,
     syncedAt,
+    profileEnriched: !profileError,
+    legacyProfileProjected: !financeProfileError,
   };
 }
 
@@ -2296,13 +2321,15 @@ serve(async (req) => {
     // Called by Flutter _syncVault() every time the UI needs to refresh balances.
     if (action === "get_wallet") {
       // Recover delayed IPNs and payments completed while the app was closed.
-      const reconciliation = await reconcileUserPesapalPayments(supabase, user.id);
-
-      // Ensure wallet row exists (0 balance if first request)
-      await supabase.from("wallets").upsert(
-        { user_id: user.id, fiat_balance: 0, coin_balance: 0, escrow_balance: 0 },
-        { onConflict: "user_id", ignoreDuplicates: true }
-      );
+      // Reconciliation is a recovery enhancement. Provider or legacy-schema
+      // trouble must not suppress a valid locally committed wallet balance.
+      let reconciliation: Record<string, unknown>;
+      try {
+        reconciliation = await reconcileUserPesapalPayments(supabase, user.id);
+      } catch (reconciliationError) {
+        console.error("Deferred wallet payment reconciliation:", reconciliationError);
+        reconciliation = { checked: 0, settled: 0, deferred: true };
+      }
 
       const { data: wallet, error: walletErr } = await supabase
         .from("wallets")
@@ -2332,6 +2359,9 @@ serve(async (req) => {
 
       return json({
         success: true,
+        authoritative: true,
+        source: "necxa-finance-ledger",
+        syncedAt: new Date().toISOString(),
         wallet: {
           id: wallet.id,
           user_id: wallet.user_id,
