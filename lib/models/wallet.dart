@@ -42,19 +42,35 @@ class Wallet {
     return DateTime.now();
   }
 
+  static double _parseAmount(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  static int _parseLimit(dynamic value, int fallback) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
   factory Wallet.fromJson(Map<String, dynamic> json, {String? docId}) {
     return Wallet(
       id: docId ?? json['id'] ?? json['user_id'] ?? 'unknown',
       userId: json['user_id'] ?? 'unknown',
-      fiatBalance: (json['fiat_balance'] as num?)?.toDouble() ?? 0.0,
-      escrowBalance: (json['escrow_balance'] as num?)?.toDouble() ?? 0.0,
-      coinBalance: (json['coin_balance'] as num?)?.toDouble() ?? 0.0,
-      stakedBalance: (json['staked_balance'] as num?)?.toDouble() ?? 0.0,
-      totalEarned: (json['total_earned'] as num?)?.toDouble() ?? 0.0,
-      totalSpent: (json['total_spent'] as num?)?.toDouble() ?? 0.0,
-      totalCommissionEarned: (json['total_commission_earned'] as num?)?.toDouble() ?? 0.0,
-      dailyWithdrawalLimit: json['daily_withdrawal_limit'] ?? 5000000,
-      monthlyWithdrawalLimit: json['monthly_withdrawal_limit'] ?? 50000000,
+      fiatBalance: _parseAmount(json['fiat_balance']),
+      escrowBalance: _parseAmount(json['escrow_balance']),
+      coinBalance: _parseAmount(json['coin_balance']),
+      stakedBalance: _parseAmount(json['staked_balance']),
+      totalEarned: _parseAmount(json['total_earned']),
+      totalSpent: _parseAmount(json['total_spent']),
+      totalCommissionEarned: _parseAmount(json['total_commission_earned']),
+      dailyWithdrawalLimit: _parseLimit(
+        json['daily_withdrawal_limit'],
+        5000000,
+      ),
+      monthlyWithdrawalLimit: _parseLimit(
+        json['monthly_withdrawal_limit'],
+        50000000,
+      ),
       isFrozen: json['is_frozen'] ?? false,
       freezeReason: json['freeze_reason'],
       frozenAt: json['frozen_at'] != null ? _parseDate(json['frozen_at']) : null,

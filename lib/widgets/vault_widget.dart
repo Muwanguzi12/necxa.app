@@ -51,6 +51,7 @@ class _VaultWidgetState extends State<VaultWidget> {
           _WalletSyncHeader(
             isSyncing: widget.state.isWalletSyncing,
             error: widget.state.walletSyncError,
+            lastSyncedAt: widget.state.walletLastSyncedAt,
             onRefresh: widget.state.syncVault,
           ),
           const SizedBox(height: 12),
@@ -59,6 +60,8 @@ class _VaultWidgetState extends State<VaultWidget> {
             sub: 'Available to spend',
             value: _fiatMasked
                 ? 'UGX ******'
+                : !widget.state.hasVerifiedWallet
+                ? 'UGX —'
                 : 'UGX ${_formatNumber(widget.state.fiatBalance)}',
             color: const Color(0xFF3b82f6),
             masked: _fiatMasked,
@@ -89,6 +92,8 @@ class _VaultWidgetState extends State<VaultWidget> {
             sub: 'Digital tokens',
             value: _coinsMasked
                 ? '****** NCX'
+                : !widget.state.hasVerifiedWallet
+                ? '— NCX'
                 : '${_formatNumber(widget.state.coinBalance)} NCX',
             color: const Color(0xFFeab308),
             masked: _coinsMasked,
@@ -119,6 +124,8 @@ class _VaultWidgetState extends State<VaultWidget> {
             sub: 'Held in escrow',
             value: _escrowMasked
                 ? 'UGX ******'
+                : !widget.state.hasVerifiedWallet
+                ? 'UGX —'
                 : 'UGX ${_formatNumber(widget.state.escrowBalance)}',
             color: const Color(0xFF10b981),
             masked: _escrowMasked,
@@ -197,11 +204,13 @@ class _WalletSyncHeader extends StatelessWidget {
   const _WalletSyncHeader({
     required this.isSyncing,
     required this.error,
+    required this.lastSyncedAt,
     required this.onRefresh,
   });
 
   final bool isSyncing;
   final String? error;
+  final DateTime? lastSyncedAt;
   final Future<void> Function() onRefresh;
 
   @override
@@ -210,7 +219,12 @@ class _WalletSyncHeader extends StatelessWidget {
       children: [
         Expanded(
           child: Text(
-            error ?? (isSyncing ? 'Refreshing wallet' : 'FINANCES'),
+            error ??
+                (isSyncing
+                    ? 'Refreshing wallet'
+                    : lastSyncedAt == null
+                    ? 'FINANCES'
+                    : 'VERIFIED ${DateFormat('d MMM, HH:mm').format(lastSyncedAt!.toLocal())}'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: dm(

@@ -837,6 +837,8 @@ class AppState extends ChangeNotifier {
   double get fiatBalance => userWallet?.fiatBalance.toDouble() ?? 0.0;
   double get coinBalance => userWallet?.coinBalance.toDouble() ?? 0.0;
   double get escrowBalance => userWallet?.escrowBalance.toDouble() ?? 0.0;
+  bool get hasVerifiedWallet =>
+      userWallet != null && user != null && _walletOwnerId == user!.id;
 
   // ── Legacy Aliases for UI Widgets ──
   double get cashBalance => fiatBalance;
@@ -895,16 +897,24 @@ class AppState extends ChangeNotifier {
           message: 'The finance backend did not return a wallet.',
         );
       }
+      if (wallet['user_id']?.toString() != walletUser.id) {
+        throw const FinanceBackendException(
+          code: 'wallet_identity_mismatch',
+          message: 'The finance service returned an invalid wallet identity.',
+        );
+      }
 
       if (user?.id != walletUser.id) return;
       userWallet = Wallet.fromJson(wallet);
       _walletOwnerId = walletUser.id;
-      walletLastSyncedAt = DateTime.now();
+      walletLastSyncedAt = DateTime.tryParse(
+        result['syncedAt']?.toString() ?? '',
+      ) ?? DateTime.now();
       myProfile = {...?myProfile, 'finance': wallet};
     } on FinanceBackendException catch (e) {
       final restored = await _restoreWalletFromPrimarySnapshot(walletUser);
       walletSyncError = restored
-          ? 'Showing your last profile-synced wallet balance.'
+          ? 'Live sync delayed — showing your last verified balance.'
           : switch (e.statusCode) {
               401 =>
                 'Your finance session could not be verified. Please sign in again.',
@@ -922,7 +932,7 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       final restored = await _restoreWalletFromPrimarySnapshot(walletUser);
       walletSyncError = restored
-          ? 'Showing your last profile-synced wallet balance.'
+          ? 'Live sync delayed — showing your last verified balance.'
           : 'Wallet balances could not be refreshed. Please retry.';
       debugPrint('Vault Sync Error: $e');
     } finally {

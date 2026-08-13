@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 import 'finance_backend.dart';
 import 'finance_initializer.dart';
 
@@ -15,13 +13,17 @@ class WalletService {
   }
 
   Future<Map<String, dynamic>> getWalletDetails() async {
-    try {
-      final result = await _invoke('get_wallet');
-      return Map<String, dynamic>.from(result['wallet'] as Map? ?? const {});
-    } catch (error) {
-      debugPrint('Finance wallet read failed: $error');
-      return {'fiat_balance': 0, 'coin_balance': 0, 'escrow_balance': 0};
+    final result = await _invoke('get_wallet');
+    final wallet = Map<String, dynamic>.from(
+      result['wallet'] as Map? ?? const {},
+    );
+    if (wallet.isEmpty) {
+      throw const FinanceBackendException(
+        code: 'wallet_missing',
+        message: 'The finance service did not return a wallet.',
+      );
     }
+    return wallet;
   }
 
   Future<PurchaseResult> purchaseCoins({
