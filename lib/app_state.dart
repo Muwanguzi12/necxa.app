@@ -403,6 +403,9 @@ class AppState extends ChangeNotifier {
       ContactDiscoveryService(); // Restored Member
 
   AppState() {
+    if (!kIsWeb) {
+      recorderController = RecorderController();
+    }
     social = SocialService(this);
     live = LiveStreamingService(this);
     NotificationService().tappedNotification.addListener(
@@ -981,7 +984,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> paymentMethods = [];
 
   // Multimedia State
-  final RecorderController recorderController = RecorderController();
+  RecorderController? recorderController;
   Duration recordDuration = Duration.zero;
 
   Future<void> syncForexRates() async {

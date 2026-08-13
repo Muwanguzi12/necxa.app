@@ -19,6 +19,8 @@ class NotificationService {
   );
 
   Future<void> init() async {
+    if (kIsWeb) return;
+
     const initializationSettings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       iOS: DarwinInitializationSettings(),
@@ -45,6 +47,8 @@ class NotificationService {
   }
 
   Future<void> requestPermissions() async {
+    if (kIsWeb) return;
+
     final androidImplementation = flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -53,6 +57,7 @@ class NotificationService {
   }
 
   Future<void> clearDisplayedNotifications() async {
+    if (kIsWeb) return;
     await flutterLocalNotificationsPlugin.cancelAll();
   }
 
@@ -72,7 +77,7 @@ class NotificationService {
       recipientUserId,
     );
     await _localDb.saveNotification(notification.toMap(), recipientUserId);
-    if (!showSystem || alreadySaved) return;
+    if (kIsWeb || !showSystem || alreadySaved) return;
 
     const notificationDetails = NotificationDetails(
       android: AndroidNotificationDetails(

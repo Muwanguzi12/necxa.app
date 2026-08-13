@@ -14,6 +14,7 @@ class VoiceNoteRecorder extends StatefulWidget {
 class _VoiceNoteRecorderState extends State<VoiceNoteRecorder> {
   @override
   Widget build(BuildContext context) {
+    final recorderController = widget.state.recorderController;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
@@ -39,18 +40,21 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder> {
               style: syne(sz: 14, w: FontWeight.w700, c: C.red),
             ),
             const SizedBox(width: 16),
-            Expanded(
-              child: AudioWaveforms(
-                size: const Size(double.infinity, 40),
-                recorderController: widget.state.recorderController,
-                enableGesture: false,
-                waveStyle: const WaveStyle(
-                  waveColor: C.brand,
-                  showMiddleLine: false,
-                  spacing: 4,
+            if (recorderController != null)
+              Expanded(
+                child: AudioWaveforms(
+                  size: const Size(double.infinity, 40),
+                  recorderController: recorderController,
+                  enableGesture: false,
+                  waveStyle: const WaveStyle(
+                    waveColor: C.brand,
+                    showMiddleLine: false,
+                    spacing: 4,
+                  ),
                 ),
-              ),
-            ),
+              )
+            else
+              const Expanded(child: Divider(color: C.brand, thickness: 2)),
             const SizedBox(width: 16),
             Text(
               'Slide to cancel',
