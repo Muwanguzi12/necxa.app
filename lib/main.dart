@@ -44,6 +44,14 @@ void main() async {
   await Supabase.initialize(
     url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
     anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
+    authOptions: const FlutterAuthClientOptions(
+      // Email clients frequently open web magic links in a fresh tab or
+      // browser context where a PKCE verifier is unavailable. The implicit
+      // web callback carries the one-time session in the URL fragment, while
+      // native apps retain PKCE and the custom deep link.
+      authFlowType: kIsWeb ? AuthFlowType.implicit : AuthFlowType.pkce,
+      detectSessionInUri: true,
+    ),
   );
 
   // ── CUSTOM ERROR TELEMETRY ────────────────────────────────────────────────

@@ -54,6 +54,13 @@
     window.addEventListener('flutter-first-frame', function() {
       var loading = document.getElementById('loading');
       if (loading) loading.remove();
+
+      // Supabase implicit web auth returns the session in the URL fragment.
+      // Flutter has consumed and persisted it before the first frame, so
+      // remove credentials from the address bar and browser history.
+      if (window.location.hash.indexOf('access_token=') !== -1) {
+        window.history.replaceState(null, document.title, window.location.pathname);
+      }
     });
   </script>
   <script src="flutter_bootstrap.js" async></script>
