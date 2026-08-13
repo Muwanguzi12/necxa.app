@@ -92,10 +92,7 @@ class NecxaAI {
   static const Duration _videoVerificationTimeout = Duration(seconds: 90);
   static const Duration _audioVerificationTimeout = Duration(seconds: 90);
 
-  static String _verificationRequestError(
-    Object error,
-    String mediaLabel,
-  ) {
+  static String _verificationRequestError(Object error, String mediaLabel) {
     if (error is TimeoutException) {
       return '$mediaLabel verification took longer than expected. Check your connection and try again.';
     }
@@ -172,10 +169,7 @@ class NecxaAI {
       );
     } catch (e) {
       debugPrint('⚡ Worker photo verify failed: $e');
-      return {
-        'success': false,
-        'error': _verificationRequestError(e, 'Photo'),
-      };
+      return {'success': false, 'error': _verificationRequestError(e, 'Photo')};
     }
   }
 
@@ -208,10 +202,7 @@ class NecxaAI {
       return normalizeModerationResponse(decoded);
     } catch (e) {
       debugPrint('⚡ Worker video verify failed: $e');
-      return {
-        'success': false,
-        'error': _verificationRequestError(e, 'Video'),
-      };
+      return {'success': false, 'error': _verificationRequestError(e, 'Video')};
     }
   }
 
@@ -302,10 +293,7 @@ class NecxaAI {
       );
     } catch (e) {
       debugPrint('⚡ Worker audio verify failed: $e');
-      return {
-        'success': false,
-        'error': _verificationRequestError(e, 'Audio'),
-      };
+      return {'success': false, 'error': _verificationRequestError(e, 'Audio')};
     }
   }
 
@@ -315,6 +303,8 @@ class NecxaAI {
   static Future<Map<String, dynamic>> verifyListingPhotoWorker({
     required File photo,
     String title = 'Property',
+    String? category,
+    String? idempotencyKey,
   }) async {
     try {
       final req =
@@ -325,6 +315,12 @@ class NecxaAI {
             ..headers.addAll(_workerHeaders())
             ..fields['title'] = title
             ..files.add(await http.MultipartFile.fromPath('photo', photo.path));
+      if (category != null && category.trim().isNotEmpty) {
+        req.fields['category'] = category.trim();
+      }
+      if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty) {
+        req.headers['Idempotency-Key'] = idempotencyKey.trim();
+      }
       final streamed = await req.send().timeout(_imageVerificationTimeout);
       final body = await streamed.stream.bytesToString();
       return _decodeWorkerResponse(
@@ -452,7 +448,9 @@ class NecxaAI {
         ? <String, dynamic>{}
         : Map<String, dynamic>.from(jsonDecode(raw) as Map);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(data['error']?.toString() ?? 'Identity verification failed.');
+      throw Exception(
+        data['error']?.toString() ?? 'Identity verification failed.',
+      );
     }
     return data;
   }
@@ -496,11 +494,7 @@ class NecxaAI {
     } catch (e) {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {
-        'verified': false,
-        'feedback': msg,
-        'score': 0,
-      };
+      return {'verified': false, 'feedback': msg, 'score': 0};
     }
   }
 
@@ -541,11 +535,7 @@ class NecxaAI {
     } catch (e) {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {
-        'faceMatch': false,
-        'feedback': msg,
-        'score': 0,
-      };
+      return {'faceMatch': false, 'feedback': msg, 'score': 0};
     }
   }
 
@@ -625,11 +615,7 @@ class NecxaAI {
     } catch (e) {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {
-        'faceMatch': false,
-        'feedback': msg,
-        'score': 0,
-      };
+      return {'faceMatch': false, 'feedback': msg, 'score': 0};
     }
   }
 

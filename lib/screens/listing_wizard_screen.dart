@@ -25,6 +25,7 @@ class ListingWizardScreen extends StatefulWidget {
 class _ListingWizardState extends State<ListingWizardScreen> {
   int _step = 0;
   bool _loading = false;
+  late final String _submissionIdempotencyKey;
 
   // ── Step 1: Basics ────────────────────────────────────────────────────────
   final _titleCtrl = TextEditingController();
@@ -52,6 +53,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   final _landBlockCtrl = TextEditingController();
   final _landPlotCtrl = TextEditingController();
   final _lc1OfficerCtrl = TextEditingController();
+  File? _utilityBillPhoto;
   File? _lc1StampPhoto;
   File? _landTitlePhoto;
   File? _brsLicensePhoto; // Extra slot for agents
@@ -73,7 +75,37 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   final GlobalKey<_NeuralScannerOverlayState> _scannerKey = GlobalKey();
 
   @override
+  void initState() {
+    super.initState();
+    _identityShardId = widget.state.identityShardId;
+    _utilityShardId = widget.state.utilityShardId;
+    final userId = widget.state.user?.id ?? 'anonymous';
+    _submissionIdempotencyKey =
+        'listing-$userId-${DateTime.now().microsecondsSinceEpoch}';
+    for (final controller in [
+      _titleCtrl,
+      _districtCtrl,
+      _cityCtrl,
+      _priceCtrl,
+    ]) {
+      controller.addListener(_refreshNavigationGate);
+    }
+  }
+
+  void _refreshNavigationGate() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    for (final controller in [
+      _titleCtrl,
+      _districtCtrl,
+      _cityCtrl,
+      _priceCtrl,
+    ]) {
+      controller.removeListener(_refreshNavigationGate);
+    }
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _districtCtrl.dispose();
@@ -100,9 +132,12 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   bool get _canGoNext {
     switch (_step) {
       case 0:
-        return _titleCtrl.text.isNotEmpty && _districtCtrl.text.isNotEmpty;
+        return _titleCtrl.text.trim().isNotEmpty &&
+            _districtCtrl.text.trim().isNotEmpty &&
+            _cityCtrl.text.trim().isNotEmpty;
       case 1:
-        return _priceCtrl.text.isNotEmpty;
+        return (int.tryParse(_priceCtrl.text.replaceAll(',', '').trim()) ?? 0) >
+            0;
       case 2:
         return (widget.state.lastIDResult?.verified ?? false) &&
             (widget.state.lastIDBackResult?.verified ?? false) &&
@@ -110,13 +145,15 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             (widget.state.lastSelfieResult?.faceMatch ?? false) &&
             (widget.state.identityShardId?.isNotEmpty ?? false);
       case 3:
-        return _umemeCtrl.text.isNotEmpty || _role == 'agent'; // Simplified
+        return _utilityShardId?.isNotEmpty ?? false;
       case 4:
-        return _gpsLocked;
+        return _gpsLocked && (_gpsNodeId?.isNotEmpty ?? false);
       case 5:
-        return _exteriorPhotos.isNotEmpty;
+        return _exteriorPhotos.isNotEmpty &&
+            _interiorPhotos.isNotEmpty &&
+            _bathroomPhotos.isNotEmpty;
       case 6:
-        return true;
+        return false;
       default:
         return false;
     }
@@ -157,7 +194,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
               ),
             ),
           ),
-          if (!_submitted) _buildBottomNav(),
+          if (!_submitted && _step < _steps.length - 1) _buildBottomNav(),
         ],
       ),
     );
@@ -257,10 +294,12 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           landBlockCtrl: _landBlockCtrl,
           landPlotCtrl: _landPlotCtrl,
           lc1OfficerCtrl: _lc1OfficerCtrl,
+          utilityBillPhoto: _utilityBillPhoto,
           lc1StampPhoto: _lc1StampPhoto,
           landTitlePhoto: _landTitlePhoto,
           brsLicensePhoto: _brsLicensePhoto,
           loading: _loading,
+          onPickUtilityBill: (f) => setState(() => _utilityBillPhoto = f),
           onPickLc1: (f) => setState(() => _lc1StampPhoto = f),
           onPickTitle: (f) => setState(() => _landTitlePhoto = f),
           onPickBrs: (f) => setState(() => _brsLicensePhoto = f),
@@ -279,14 +318,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           exterior: _exteriorPhotos,
           interior: _interiorPhotos,
           bathrooms: _bathroomPhotos,
-          onAdd: (cat, f) => setState(() {
-            if (cat == 'EXTERIOR') {
-              _exteriorPhotos.add(f);
-            } else if (cat == 'INTERIOR')
-              _interiorPhotos.add(f);
-            else
-              _bathroomPhotos.add(f);
-          }),
+          loading: _loading,
+          onAdd: _addPropertyPhoto,
           onRemove: (cat, i) => setState(() {
             if (cat == 'EXTERIOR') {
               _exteriorPhotos.removeAt(i);
@@ -422,9 +455,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     }
     return (feedback != null && feedback.isNotEmpty)
         ? feedback
-        : data['error']?.toString() ??
-              data['reason']?.toString() ??
-              fallback;
+        : data['error']?.toString() ?? data['reason']?.toString() ?? fallback;
   }
 
   Future<void> _runIdentityVerification() async {
@@ -535,10 +566,13 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           idBack: state.idBackImage!,
           idHolding: state.idHoldingImage!,
           facePhoto: state.faceImage!,
+          idempotencyKey: '$_submissionIdempotencyKey:identity',
         );
 
         final identityShardId = res['identity_shard_id']?.toString();
-        if (res['verified'] != true || identityShardId == null || identityShardId.isEmpty) {
+        if (res['verified'] != true ||
+            identityShardId == null ||
+            identityShardId.isEmpty) {
           throw UserMessageException(
             res['message']?.toString() ??
                 'Identity shard verification was not approved. Please retake the scans.',
@@ -586,11 +620,27 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         nwscAccount: _nwscCtrl.text.trim(),
         landBlock: _landBlockCtrl.text.trim(),
         landPlot: _landPlotCtrl.text.trim(),
+        lc1Officer: _lc1OfficerCtrl.text.trim(),
+        utilityBillPhoto: _utilityBillPhoto,
         lc1StampPhoto: _lc1StampPhoto,
         landTitlePhoto: _landTitlePhoto,
+        businessLicensePhoto: _brsLicensePhoto,
+        role: _role,
+        idempotencyKey: '$_submissionIdempotencyKey:utility',
       );
+      final utilityShardId = res['utility_shard_id']?.toString();
+      if (res['verified'] != true ||
+          utilityShardId == null ||
+          utilityShardId.isEmpty) {
+        throw UserMessageException(
+          res['message']?.toString() ??
+              'The utility or authority documents were not approved.',
+        );
+      }
+      if (!mounted) return;
       setState(() {
-        _utilityShardId = res['utility_shard_id'];
+        _utilityShardId = utilityShardId;
+        widget.state.utilityShardId = utilityShardId;
         _loading = false;
       });
     } catch (e) {
@@ -611,12 +661,26 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         accuracy: pos.accuracy,
         reportedAddress: _districtCtrl.text,
         reportedDistrict: _districtCtrl.text,
+        idempotencyKey: '$_submissionIdempotencyKey:gps',
       );
+      final gpsNodeId =
+          result['gps_node_id']?.toString() ?? result['id']?.toString();
+      if (gpsNodeId == null || gpsNodeId.isEmpty) {
+        throw UserMessageException(
+          'The GPS node could not be confirmed. Please move outdoors and retry.',
+        );
+      }
+      if (result['risk_flag'] == true) {
+        throw UserMessageException(
+          result['message']?.toString() ??
+              'GPS accuracy is too low. Move outdoors and lock the location again.',
+        );
+      }
+      if (!mounted) return;
       setState(() {
         _gpsPosition = pos;
         _gpsLocked = true;
-        _gpsNodeId =
-            result['gps_node_id']?.toString() ?? result['id']?.toString();
+        _gpsNodeId = gpsNodeId;
         _loading = false;
       });
     } catch (e) {
@@ -628,9 +692,25 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   Future<void> _submitListing() async {
     setState(() => _loading = true);
     try {
+      final identityShardId = _identityShardId ?? widget.state.identityShardId;
+      if (identityShardId == null || identityShardId.isEmpty) {
+        throw UserMessageException(
+          'Your verified identity shard is missing. Return to the identity step and verify again.',
+        );
+      }
+      if (_utilityShardId == null || _utilityShardId!.isEmpty) {
+        throw UserMessageException(
+          'Your verified utility shard is missing. Return to the utility step.',
+        );
+      }
+      if (_gpsNodeId == null || _gpsNodeId!.isEmpty) {
+        throw UserMessageException(
+          'Your GPS node is missing. Return to the GPS step and lock the property.',
+        );
+      }
       final result = await ListingSyncService.submitNeuralSynthesis(
-        identityShardId: _identityShardId!,
-        utilityShardId: _utilityShardId ?? "LEGACY",
+        identityShardId: identityShardId,
+        utilityShardId: _utilityShardId!,
         gpsNodeId: _gpsNodeId!,
         title: _titleCtrl.text,
         description: _descCtrl.text,
@@ -650,18 +730,65 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         livePingLat: widget.state.livePingGps?.latitude,
         livePingLng: widget.state.livePingGps?.longitude,
         securityMetadata: await widget.state.getFullSecurityMetadata(),
+        idempotencyKey: _submissionIdempotencyKey,
       );
 
-      final mintEventId =
-          result['mint_event_id']?.toString() ??
-          result['event_id']?.toString() ??
-          'NECXA-MINT-${DateTime.now().millisecondsSinceEpoch}';
+      final listingId = result['listing_id']?.toString();
+      final mintEventId = result['mint_event_id']?.toString();
+      if (result['success'] != true ||
+          listingId == null ||
+          listingId.isEmpty ||
+          mintEventId == null ||
+          mintEventId.isEmpty) {
+        throw UserMessageException(
+          result['message']?.toString() ??
+              'The listing was not confirmed by the server. Please retry.',
+        );
+      }
+      if (!mounted) return;
       setState(() {
         _submitted = true;
         _mintEventId = mintEventId;
         _loading = false;
       });
     } catch (e) {
+      setState(() => _loading = false);
+      _showError(getUserFriendlyError(e));
+    }
+  }
+
+  Future<void> _addPropertyPhoto(String category, File file) async {
+    setState(() => _loading = true);
+    try {
+      final assessment = await NecxaAI.verifyListingPhotoWorker(
+        photo: file,
+        title: _titleCtrl.text.trim().isEmpty
+            ? 'Property listing'
+            : _titleCtrl.text.trim(),
+        category: category.toLowerCase(),
+        idempotencyKey:
+            '$_submissionIdempotencyKey:photo:${category.toLowerCase()}:${_exteriorPhotos.length + _interiorPhotos.length + _bathroomPhotos.length}',
+      );
+      if (assessment['success'] != true || assessment['verified'] != true) {
+        throw UserMessageException(
+          assessment['description']?.toString() ??
+              assessment['error']?.toString() ??
+              'This photo could not be approved. Use a clear, original property photo.',
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        if (category == 'EXTERIOR') {
+          _exteriorPhotos.add(file);
+        } else if (category == 'INTERIOR') {
+          _interiorPhotos.add(file);
+        } else {
+          _bathroomPhotos.add(file);
+        }
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
       _showError(getUserFriendlyError(e));
     }
@@ -964,10 +1091,7 @@ class _Step3Identity extends StatelessWidget {
       children: [
         Stack(
           children: [
-            _NeuralScannerOverlay(
-              key: scannerKey,
-              documentMode: subStep < 3,
-            ),
+            _NeuralScannerOverlay(key: scannerKey, documentMode: subStep < 3),
             if (loading)
               Positioned(
                 left: 18,
@@ -1126,7 +1250,9 @@ class _IdentityCaptureProgress extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      complete ? Icons.check_circle : Icons.radio_button_unchecked,
+                      complete
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
                       size: 14,
                       color: complete ? C.brand : C.dim,
                     ),
@@ -1307,19 +1433,22 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   builder: (context, constraints) {
                     // The camera plugin exposes a portrait preview. Scale it to
                     // to cover the viewport rather than leaving black bars.
-                    final viewportAspect = constraints.maxWidth / constraints.maxHeight;
+                    final viewportAspect =
+                        constraints.maxWidth / constraints.maxHeight;
                     double previewAspect = cameraCtrl!.value.aspectRatio;
-                    
+
                     // Correct for camera's native aspect ratio inversion on portrait devices.
                     // If the device is in portrait but the preview aspect ratio is landscape (> 1),
                     // the CameraPreview widget will rotate it internally. We must use the inverted ratio.
-                    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+                    final isPortrait =
+                        MediaQuery.of(context).orientation ==
+                        Orientation.portrait;
                     if (isPortrait && previewAspect > 1.0) {
                       previewAspect = 1.0 / previewAspect;
                     } else if (!isPortrait && previewAspect < 1.0) {
                       previewAspect = 1.0 / previewAspect;
                     }
-                    
+
                     double scale;
                     if (viewportAspect > previewAspect) {
                       scale = viewportAspect / previewAspect;
@@ -1470,10 +1599,10 @@ class _Step4Utility extends StatelessWidget {
       landBlockCtrl,
       landPlotCtrl,
       lc1OfficerCtrl;
-  final File? lc1StampPhoto, landTitlePhoto, brsLicensePhoto;
+  final File? utilityBillPhoto, lc1StampPhoto, landTitlePhoto, brsLicensePhoto;
   final bool loading;
   final String? utilityShardId;
-  final ValueChanged<File> onPickLc1, onPickTitle, onPickBrs;
+  final ValueChanged<File> onPickUtilityBill, onPickLc1, onPickTitle, onPickBrs;
   final VoidCallback onSave;
 
   const _Step4Utility({
@@ -1483,11 +1612,13 @@ class _Step4Utility extends StatelessWidget {
     required this.landBlockCtrl,
     required this.landPlotCtrl,
     required this.lc1OfficerCtrl,
+    this.utilityBillPhoto,
     this.lc1StampPhoto,
     this.landTitlePhoto,
     this.brsLicensePhoto,
     required this.loading,
     this.utilityShardId,
+    required this.onPickUtilityBill,
     required this.onPickLc1,
     required this.onPickTitle,
     required this.onPickBrs,
@@ -1504,6 +1635,24 @@ class _Step4Utility extends StatelessWidget {
         const SizedBox(height: 16),
         _label('NWSC Account'),
         _input(nwscCtrl, 'e.g. NW-9876'),
+        const SizedBox(height: 16),
+        _filePick(
+          'Utility Bill (UMEME / NWSC)',
+          utilityBillPhoto,
+          onPickUtilityBill,
+        ),
+        const SizedBox(height: 20),
+        _label('Land Title Reference'),
+        Row(
+          children: [
+            Expanded(child: _input(landBlockCtrl, 'Block number')),
+            const SizedBox(width: 10),
+            Expanded(child: _input(landPlotCtrl, 'Plot number')),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _label('LC1 Authorising Officer'),
+        _input(lc1OfficerCtrl, 'Officer name shown on the stamp'),
         const SizedBox(height: 16),
         _label('Authority Docs'),
         _filePick('LC1 Authority Stamp', lc1StampPhoto, onPickLc1),
@@ -1614,12 +1763,14 @@ class _Step5GPS extends StatelessWidget {
 
 class _Step6Photos extends StatelessWidget {
   final List<File> exterior, interior, bathrooms;
-  final Function(String, File) onAdd;
+  final bool loading;
+  final Future<void> Function(String, File) onAdd;
   final Function(String, int) onRemove;
   const _Step6Photos({
     required this.exterior,
     required this.interior,
     required this.bathrooms,
+    required this.loading,
     required this.onAdd,
     required this.onRemove,
   });
@@ -1649,12 +1800,14 @@ class _Step6Photos extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             children: [
               GestureDetector(
-                onTap: () async {
-                  final f = await ImagePicker().pickImage(
-                    source: ImageSource.gallery,
-                  );
-                  if (f != null) onAdd(cat, File(f.path));
-                },
+                onTap: loading
+                    ? null
+                    : () async {
+                        final f = await ImagePicker().pickImage(
+                          source: ImageSource.gallery,
+                        );
+                        if (f != null) await onAdd(cat, File(f.path));
+                      },
                 child: Container(
                   width: 100,
                   decoration: BoxDecoration(
@@ -1662,7 +1815,12 @@ class _Step6Photos extends StatelessWidget {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: C.border),
                   ),
-                  child: Icon(Icons.add_a_photo, color: C.dim),
+                  child: loading
+                      ? const Padding(
+                          padding: EdgeInsets.all(34),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(Icons.add_a_photo, color: C.dim),
                 ),
               ),
               ...files.map(
@@ -1834,16 +1992,14 @@ class _ScannerOverlayPainter extends CustomPainter {
   final bool documentMode;
   final double progress;
 
-  _ScannerOverlayPainter({
-    required this.documentMode,
-    required this.progress,
-  });
+  _ScannerOverlayPainter({required this.documentMode, required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
     final bgPaint = Paint()..color = Colors.black.withOpacity(0.65);
-    final bgPath = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-    
+    final bgPath = Path()
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
     Path cutoutPath;
     Rect cutoutRect;
 
@@ -1855,7 +2011,10 @@ class _ScannerOverlayPainter extends CustomPainter {
         width: w,
         height: h,
       );
-      cutoutPath = Path()..addRRect(RRect.fromRectAndRadius(cutoutRect, const Radius.circular(22)));
+      cutoutPath = Path()
+        ..addRRect(
+          RRect.fromRectAndRadius(cutoutRect, const Radius.circular(22)),
+        );
     } else {
       final h = size.height * 0.85;
       final w = h * 0.72;
@@ -1890,10 +2049,17 @@ class _ScannerOverlayPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 3);
 
-      final startAngle = (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
+      final startAngle =
+          (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
       final sweepAngle = 3.141592653589793 * 0.45;
       canvas.drawArc(cutoutRect, startAngle, sweepAngle, false, sweepPaint);
-      canvas.drawArc(cutoutRect, startAngle + 3.141592653589793, sweepAngle, false, sweepPaint);
+      canvas.drawArc(
+        cutoutRect,
+        startAngle + 3.141592653589793,
+        sweepAngle,
+        false,
+        sweepPaint,
+      );
 
       final cx = size.width / 2;
       final cy = size.height / 2;
@@ -1901,22 +2067,47 @@ class _ScannerOverlayPainter extends CustomPainter {
       final hw = cutoutRect.width / 2 + padding;
       final hh = cutoutRect.height / 2 + padding;
       final len = 22.0;
-      
+
       final cornerPaint = Paint()
         ..color = Colors.white.withOpacity(0.9)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5
         ..strokeCap = StrokeCap.round;
 
-      canvas.drawPath(Path()..moveTo(cx - hw, cy - hh + len)..lineTo(cx - hw, cy - hh)..lineTo(cx - hw + len, cy - hh), cornerPaint);
-      canvas.drawPath(Path()..moveTo(cx + hw - len, cy - hh)..lineTo(cx + hw, cy - hh)..lineTo(cx + hw, cy - hh + len), cornerPaint);
-      canvas.drawPath(Path()..moveTo(cx - hw, cy + hh - len)..lineTo(cx - hw, cy + hh)..lineTo(cx - hw + len, cy + hh), cornerPaint);
-      canvas.drawPath(Path()..moveTo(cx + hw, cy + hh - len)..lineTo(cx + hw, cy + hh)..lineTo(cx + hw - len, cy + hh), cornerPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(cx - hw, cy - hh + len)
+          ..lineTo(cx - hw, cy - hh)
+          ..lineTo(cx - hw + len, cy - hh),
+        cornerPaint,
+      );
+      canvas.drawPath(
+        Path()
+          ..moveTo(cx + hw - len, cy - hh)
+          ..lineTo(cx + hw, cy - hh)
+          ..lineTo(cx + hw, cy - hh + len),
+        cornerPaint,
+      );
+      canvas.drawPath(
+        Path()
+          ..moveTo(cx - hw, cy + hh - len)
+          ..lineTo(cx - hw, cy + hh)
+          ..lineTo(cx - hw + len, cy + hh),
+        cornerPaint,
+      );
+      canvas.drawPath(
+        Path()
+          ..moveTo(cx + hw, cy + hh - len)
+          ..lineTo(cx + hw, cy + hh)
+          ..lineTo(cx + hw - len, cy + hh),
+        cornerPaint,
+      );
     }
   }
 
   @override
   bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) {
-    return oldDelegate.documentMode != documentMode || oldDelegate.progress != progress;
+    return oldDelegate.documentMode != documentMode ||
+        oldDelegate.progress != progress;
   }
 }
