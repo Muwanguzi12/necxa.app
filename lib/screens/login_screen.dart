@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../utils/error_handler.dart';
+import '../utils/auth_retry.dart';
 
 class LoginScreen extends StatefulWidget {
   final AppState state;
@@ -14,11 +18,87 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const _cooldownPreferenceKey = 'necxa_auth_magic_link_next_send_at';
+
   final _emailCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
   bool _loading = false;
   bool _sent = false;
   String? _error;
+  DateTime? _nextSendAt;
+  Timer? _cooldownTimer;
+
+  int get _cooldownSeconds {
+    final nextSendAt = _nextSendAt;
+    if (nextSendAt == null) return 0;
+    final milliseconds = nextSendAt.difference(DateTime.now()).inMilliseconds;
+    if (milliseconds <= 0) return 0;
+    return (milliseconds / 1000).ceil();
+  }
+
+  bool get _sendAvailable => !_loading && _cooldownSeconds == 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restoreCooldown());
+  }
+
+  @override
+  void dispose() {
+    _cooldownTimer?.cancel();
+    _emailCtrl.dispose();
+    _codeCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _restoreCooldown() async {
+    final preferences = await SharedPreferences.getInstance();
+    final nextSendMilliseconds = preferences.getInt(_cooldownPreferenceKey);
+    if (nextSendMilliseconds == null || !mounted) return;
+
+    final nextSendAt = DateTime.fromMillisecondsSinceEpoch(
+      nextSendMilliseconds,
+    );
+    if (!nextSendAt.isAfter(DateTime.now())) {
+      await preferences.remove(_cooldownPreferenceKey);
+      return;
+    }
+
+    setState(() => _nextSendAt = nextSendAt);
+    _startCooldownTimer();
+  }
+
+  Future<void> _beginCooldown(Duration duration) async {
+    final nextSendAt = DateTime.now().add(duration);
+    if (mounted) setState(() => _nextSendAt = nextSendAt);
+    _startCooldownTimer();
+
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setInt(
+      _cooldownPreferenceKey,
+      nextSendAt.millisecondsSinceEpoch,
+    );
+  }
+
+  void _startCooldownTimer() {
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_cooldownSeconds > 0) {
+        setState(() {});
+        return;
+      }
+
+      timer.cancel();
+      setState(() => _nextSendAt = null);
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.remove(_cooldownPreferenceKey);
+    });
+  }
 
   String get _emailRedirectUrl {
     if (!kIsWeb) return 'io.supabase.necxa://login-callback';
@@ -33,8 +113,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleSend() async {
-    if (_emailCtrl.text.trim().isEmpty) {
-      setState(() => _error = 'Please enter your email address');
+    if (!_sendAvailable) return;
+
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = 'Please enter a valid email address');
       return;
     }
 
@@ -48,13 +131,25 @@ class _LoginScreenState extends State<LoginScreen> {
       // This sends a magic link or a code depending on Supabase config.
       // Usually, it's a 6-digit code or a clickable link.
       await supabase.auth.signInWithOtp(
-        email: _emailCtrl.text.trim(),
+        email: email,
         shouldCreateUser: true, // Handles registration
         emailRedirectTo: _emailRedirectUrl,
       );
-      setState(() => _sent = true);
+      await _beginCooldown(defaultMagicLinkCooldown);
+      if (mounted) setState(() => _sent = true);
     } catch (e) {
-      setState(() => _error = getUserFriendlyError(e));
+      if (isAuthRateLimitError(e)) {
+        final delay = magicLinkRetryDelay(e);
+        await _beginCooldown(delay);
+        if (mounted) {
+          setState(() {
+            _error =
+                'A sign-in email was requested recently. Try again in ${formatRetryCountdown(delay.inSeconds)} or use the link already in your inbox.';
+          });
+        }
+      } else if (mounted) {
+        setState(() => _error = getUserFriendlyError(e));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -160,14 +255,50 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
                   Center(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _sent = false),
-                      child: Text(
-                        'Wrong email? Change Address',
-                        style: dm(sz: 12, c: C.brand, w: FontWeight.w600),
-                      ),
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 20,
+                      runSpacing: 12,
+                      children: [
+                        TextButton(
+                          onPressed: _loading
+                              ? null
+                              : () => setState(() {
+                                  _sent = false;
+                                  _error = null;
+                                  _codeCtrl.clear();
+                                }),
+                          child: Text(
+                            'Change email',
+                            style: dm(sz: 12, c: C.brand, w: FontWeight.w600),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _sendAvailable ? _handleSend : null,
+                          child: Text(
+                            _cooldownSeconds > 0
+                                ? 'Resend in ${formatRetryCountdown(_cooldownSeconds)}'
+                                : 'Resend magic link',
+                            style: dm(
+                              sz: 12,
+                              c: _sendAvailable ? C.brand : C.dim,
+                              w: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  if (_cooldownSeconds > 0) ...[
+                    const SizedBox(height: 4),
+                    Center(
+                      child: Text(
+                        'You can still use the most recent email while you wait.',
+                        textAlign: TextAlign.center,
+                        style: dm(sz: 11, c: C.dim),
+                      ),
+                    ),
+                  ],
                 ],
 
                 if (_error != null) ...[
@@ -176,7 +307,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.redAccent.withOpacity(0.1),
+                      color: Colors.redAccent.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -190,7 +321,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // Button
                 GestureDetector(
-                  onTap: _loading
+                  onTap: _loading || (!_sent && !_sendAvailable)
                       ? null
                       : (_sent ? _handleVerify : _handleSend),
                   child: AnimatedContainer(
@@ -198,12 +329,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     width: double.infinity,
                     height: 58,
                     decoration: BoxDecoration(
-                      gradient: brandGrad,
+                      gradient: _loading || (!_sent && !_sendAvailable)
+                          ? null
+                          : brandGrad,
+                      color: _loading || (!_sent && !_sendAvailable)
+                          ? C.dim.withValues(alpha: 0.25)
+                          : null,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
-                        if (!_loading)
+                        if (!_loading && (_sent || _sendAvailable))
                           BoxShadow(
-                            color: C.brand.withOpacity(0.25),
+                            color: C.brand.withValues(alpha: 0.25),
                             blurRadius: 20,
                             offset: const Offset(0, 6),
                           ),
@@ -220,7 +356,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             )
                           : Text(
-                              _sent ? 'Verify & Sign In' : 'Send Magic Link',
+                              _sent
+                                  ? 'Verify & Sign In'
+                                  : _cooldownSeconds > 0
+                                  ? 'Try again in ${formatRetryCountdown(_cooldownSeconds)}'
+                                  : 'Send Magic Link',
                               style: syne(sz: 16, w: FontWeight.w700, c: C.bg),
                             ),
                     ),

@@ -2,6 +2,7 @@ import 'package:universal_io/io.dart';
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
+import 'auth_retry.dart';
 
 /// Converts raw backend exceptions and network errors into clean, user-friendly messages.
 String getUserFriendlyError(dynamic error) {
@@ -10,7 +11,9 @@ String getUserFriendlyError(dynamic error) {
   final errorStr = error.toString().toLowerCase();
 
   // Network / Socket Exceptions
-  if (error is SocketException || errorStr.contains('socketexception') || errorStr.contains('failed host lookup')) {
+  if (error is SocketException ||
+      errorStr.contains('socketexception') ||
+      errorStr.contains('failed host lookup')) {
     return "No internet connection. Please check your network and try again.";
   }
 
@@ -23,13 +26,15 @@ String getUserFriendlyError(dynamic error) {
     if (error.message.toLowerCase().contains('invalid login credentials')) {
       return "Invalid email or verification code. Please check and try again.";
     }
-    if (error.message.toLowerCase().contains('rate limit')) {
-      return "Too many requests. Please wait a moment before trying again.";
+    if (isAuthRateLimitError(error)) {
+      final delay = magicLinkRetryDelay(error);
+      return "A sign-in email was requested recently. Try again in ${formatRetryCountdown(delay.inSeconds)} or use the link already in your inbox.";
     }
     if (error.message.toLowerCase().contains('expired')) {
       return "The magic link or code has expired. Please request a new one.";
     }
-    return error.message; // AuthException messages are usually somewhat clean, but fallback if needed.
+    return error
+        .message; // AuthException messages are usually somewhat clean, but fallback if needed.
   }
 
   // Platform Exceptions (e.g., Camera, Biometrics)
@@ -48,17 +53,23 @@ String getUserFriendlyError(dynamic error) {
     return "Camera or microphone access was denied. Please allow permissions and try again.";
   }
 
-  if (errorStr.contains('token') || errorStr.contains('authentication failed') || errorStr.contains('identity verification required')) {
+  if (errorStr.contains('token') ||
+      errorStr.contains('authentication failed') ||
+      errorStr.contains('identity verification required')) {
     return "Live streaming authentication failed. Please try again in a moment.";
   }
 
-  if (errorStr.contains('channel') || errorStr.contains('joinchannel') || errorStr.contains('join channel')) {
+  if (errorStr.contains('channel') ||
+      errorStr.contains('joinchannel') ||
+      errorStr.contains('join channel')) {
     return "Unable to connect to the live channel. Please try again.";
   }
 
   // Fallback Catch-All
   // If the error contains raw backend URLs or keys, we MUST mask it.
-  if (errorStr.contains('supabase.co') || errorStr.contains('apikey') || errorStr.contains('http')) {
+  if (errorStr.contains('supabase.co') ||
+      errorStr.contains('apikey') ||
+      errorStr.contains('http')) {
     return "Loading unsuccessful. Please check your connection and try again.";
   }
 
