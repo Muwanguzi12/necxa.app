@@ -19,6 +19,24 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 
 const err = (message: string, status = 400) => json({ error: message }, status)
 
+const VERIFICATION_PROJECT_URL = Deno.env.get("VERIFICATION_PROJECT_URL") || "https://ayvescksetiuekoyfqar.supabase.co"
+const VERIFICATION_PROJECT_ANON_KEY = Deno.env.get("VERIFICATION_PROJECT_ANON_KEY") || "sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT"
+
+async function verifySp2IdentityShard(primaryJwt: string, identityShardId: string) {
+  const response = await fetch(`${VERIFICATION_PROJECT_URL}/functions/v1/identity-verify`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${primaryJwt}`,
+      "x-primary-jwt": primaryJwt,
+      apikey: VERIFICATION_PROJECT_ANON_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action: "status", identity_shard_id: identityShardId }),
+  })
+  const payload = await response.json().catch(() => ({}))
+  return response.ok && payload?.verified === true
+}
+
 async function deterministicListingId(userId: string, idempotencyKey: string) {
   const digest = new Uint8Array(await crypto.subtle.digest(
     "SHA-256",
@@ -195,7 +213,7 @@ Deno.serve(async (req) => {
            formData.append('photo', new Blob([mediaBytes], { type: 'image/jpeg' }), 'photo.jpg');
            formData.append('title', title);
 
-           const aiRes = await fetch('https://api.necxa.uk/api/verify/listing', { method: 'POST', body: formData });
+           const aiRes = await fetch('https://necxa-ai-engine.knestars.workers.dev/api/verify/listing', { method: 'POST', body: formData });
            if (aiRes.ok) {
              const result = await aiRes.json();
              score = result.score || score;
@@ -388,6 +406,14 @@ Deno.serve(async (req) => {
         return err("Bathroom photos are mandatory - please upload at least one", 400)
       }
 
+      const primaryJwt = authHeader?.replace(/^Bearer\s+/i, "").trim() || ""
+      if (!primaryJwt) {
+        return err("A valid SP1 session is required to validate the SP2 identity shard", 401)
+      }
+      if (!await verifySp2IdentityShard(primaryJwt, identityShardId)) {
+        return err("The identity shard is missing, belongs to another user, or is not verified in SP2", 422)
+      }
+
       const { data: utilityShard, error: utilityError } = await supabaseAdmin
         .from("utility_shards")
         .select("id, verified")
@@ -473,8 +499,7 @@ Deno.serve(async (req) => {
       aiFormData.append('title', title);
       aiFormData.append('category', 'exterior');
       aiFormData.append('countryCode', country.toLowerCase().startsWith('uganda') ? 'UG' : 'ZZ');
-      const primaryJwt = authHeader?.replace(/^Bearer\s+/i, '') || ''
-      const aiRes = await fetch('https://api.necxa.uk/api/verify/listing', {
+      const aiRes = await fetch('https://necxa-ai-engine.knestars.workers.dev/api/verify/listing', {
         method: 'POST',
         headers: {
           'x-primary-jwt': primaryJwt,

@@ -25,6 +25,7 @@ class ListingWizardScreen extends StatefulWidget {
 class _ListingWizardState extends State<ListingWizardScreen> {
   int _step = 0;
   bool _loading = false;
+  bool _identityAdvanceScheduled = false;
   late final String _submissionIdempotencyKey;
 
   // ── Step 1: Basics ────────────────────────────────────────────────────────
@@ -414,15 +415,17 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   IDResult _idResultFrom(Map<String, dynamic> data) {
-    // A score is diagnostic information, not an approval. Only the identity
-    // verification service can approve a document capture.
-    final verified = data['verified'] == true;
+    final sessionId =
+        data['verificationSessionId']?.toString() ??
+        data['sessionId']?.toString() ??
+        '';
+    final verified =
+        data['verified'] == true &&
+        data['decision'] == 'pass' &&
+        sessionId.isNotEmpty;
     return IDResult(
       verified: verified,
-      sessionId:
-          data['sessionLink']?.toString() ??
-          data['sessionId']?.toString() ??
-          'ID-${DateTime.now().millisecondsSinceEpoch}',
+      sessionId: sessionId,
     );
   }
 
@@ -438,9 +441,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     return SelfieResult(
       faceMatch: faceMatch,
       sessionId:
-          data['sessionLink']?.toString() ??
+          data['verificationSessionId']?.toString() ??
           data['sessionId']?.toString() ??
-          'BIO-${DateTime.now().millisecondsSinceEpoch}',
+          '',
       score: score,
     );
   }
@@ -459,6 +462,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   Future<void> _runIdentityVerification() async {
+    if (_loading) return;
     setState(() => _loading = true);
     try {
       final state = widget.state;
@@ -548,7 +552,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           userId: state.user?.id,
         );
         final biometric = _selfieResultFrom(selfieResult);
-        if (!biometric.faceMatch) {
+        if (!biometric.faceMatch || biometric.sessionId.isEmpty) {
           throw UserMessageException(
             _aiFeedback(
               selfieResult,
@@ -561,11 +565,15 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         final res = await ListingSyncService.submitIdentityShard(
           country: 'Uganda',
           docType: 'National ID',
-          docNumber: 'UNKNOWN',
+          docNumber: '',
           idFront: state.idImage!,
           idBack: state.idBackImage!,
           idHolding: state.idHoldingImage!,
           facePhoto: state.faceImage!,
+          frontVerificationId: state.lastIDResult!.sessionId,
+          backVerificationId: state.lastIDBackResult!.sessionId,
+          holdingVerificationId: state.lastHoldingResult!.sessionId,
+          biometricVerificationId: biometric.sessionId,
           idempotencyKey: '$_submissionIdempotencyKey:identity',
         );
 
@@ -600,8 +608,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       setState(() => _loading = false);
 
       if (state.verificationSubStep >= 4) {
+        if (_identityAdvanceScheduled) return;
+        _identityAdvanceScheduled = true;
         Future.delayed(const Duration(milliseconds: 800), () {
-          if (mounted) _next();
+          if (mounted && _step == 2) _next();
         });
       }
     } catch (e) {

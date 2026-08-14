@@ -83,7 +83,7 @@ serve(async (req) => {
           status: 400, headers: corsHeaders
         })
       }
-      const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk';
+      const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev';
       
       const base64Data = mediaBase64.replace(/^data:\w+\/\w+;base64,/, "");
       const mediaBytes = decode(base64Data);
@@ -93,7 +93,11 @@ serve(async (req) => {
       let scanResult = { safe: true, flags: {}, severity: "none", reason: null, confidence: 0 };
       
       try {
-        const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/live-frame`, { method: 'POST', body: formData });
+        const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/live-frame`, {
+          method: 'POST',
+          headers: { 'x-primary-jwt': primaryJwt },
+          body: formData,
+        });
         if (aiRes.ok) scanResult = await aiRes.json();
       } catch (e) {
         console.error("Cloudflare Live Safety Error:", e);
@@ -148,9 +152,7 @@ serve(async (req) => {
     }
 
     // ─── AI ENGINE CONTENT VERIFICATION ───────────────────────────────────────
-    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk';
-    const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY') || '';
-
+    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev';
     const formData = new FormData();
     let endpoint = '';
     
@@ -187,7 +189,7 @@ serve(async (req) => {
 
     const aiRes = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'X-API-Key': NECXA_AI_API_KEY },
+      headers: { 'x-primary-jwt': primaryJwt },
       body: formData
     });
 

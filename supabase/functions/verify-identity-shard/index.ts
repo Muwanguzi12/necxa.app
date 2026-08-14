@@ -10,7 +10,7 @@ const corsHeaders = {
 
 const documentFailureFeedback: Record<string, string> = {
   document_unreadable:
-    'The document is too blurred or incomplete. Hold it steady, fill the frame, and retake it in brighter light.',
+    'The model could not read the required fields from this capture. Keep the whole card inside the frame, avoid glare, and retake it once.',
   document_expired: 'This identity document appears to be expired.',
   possible_document_tampering:
     'This document could not be approved automatically and requires review.',
@@ -26,9 +26,9 @@ const documentFailureFeedback: Record<string, string> = {
 
 const biometricFailureFeedback: Record<string, string> = {
   biometric_provider_not_configured:
-    'Biometric verification is temporarily unavailable. Please try again later.',
+    'Face-match service is not configured yet. Your approved ID captures remain on this step; do not retake them. Try face verification later.',
   biometric_provider_unavailable:
-    'Biometric verification is temporarily unavailable. Please try again later.',
+    'Face-match service is temporarily offline. Keep this screen open and retry only the selfie later; do not retake the ID images.',
   identity_reference_required:
     'The National ID reference image is missing. Restart the identity scan.',
   presentation_attack_detected:
@@ -91,7 +91,7 @@ serve(async (req) => {
     const sessionId = `SES-${Date.now()}`
     const sessionLink = `https://dashboard.necxa.com/audit/sessions/${sessionId}`
 
-    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk'
+    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
     if (action === 'verify-id' || action === 'verify-id-front' || action === 'verify-id-back' || action === 'verify-id-holding') {
       const { imageBase64 } = payload || {}
       if (!imageBase64) throw new Error("Missing imageBase64 payload")
@@ -108,7 +108,10 @@ serve(async (req) => {
 
       const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
         method: 'POST',
-        headers: { 'x-primary-jwt': primaryJwt },
+        headers: {
+          'x-primary-jwt': primaryJwt,
+          'Idempotency-Key': `${secureUserId}:${stage}:${crypto.randomUUID()}`,
+        },
         body: formData
       });
 
@@ -135,15 +138,16 @@ serve(async (req) => {
       if (!aiData.success) throw new Error(`Verification Failed: ${aiData.error}`);
 
       const ocrResult = aiData.ocrResult || {}
-      const verified = ocrResult.verified === true && ocrResult.decision === 'pass'
       const reasonCode = String(ocrResult.reasonCode || 'document_requires_review')
-      const feedback = verified
-        ? `National ID ${stage} scan verified. Continue to the next capture.`
+      const automaticallyVerified = ocrResult.verified === true && ocrResult.decision === 'pass'
+      const feedback = automaticallyVerified
+        ? `National ID ${stage} scan verified by ${ocrResult.model || 'the vision model'}. Continue to the next capture.`
         : documentFailureFeedback[reasonCode] ||
-          'This document scan was not approved. Retake a clear photo with the whole card inside the frame.'
+          'This document scan could not be accepted.'
 
       return new Response(JSON.stringify({
-        verified,
+        verified: automaticallyVerified,
+        automaticallyVerified,
         decision: ocrResult.decision || 'manual_review',
         reasonCode,
         requiresManualReview: ocrResult.decision === 'manual_review',
@@ -156,6 +160,7 @@ serve(async (req) => {
         ocrLogs: ocrResult.ocrLogs,
         stage,
         feedback,
+        verificationSessionId: aiData.sessionId,
         sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
@@ -221,6 +226,7 @@ serve(async (req) => {
           : biometricFailureFeedback[reasonCode] ||
             'Biometric verification was not approved. Please retry with your face clearly visible.',
         biometricLogs: biometricResult.biometricLogs,
+        verificationSessionId: aiData.sessionId,
         sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }

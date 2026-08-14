@@ -221,7 +221,10 @@ function buildReply(message: string): string {
 
 // --- 🤖 1. AI Assistant ---
 async function handleAI(_userId: string, payload: any) {
-  const message = payload.message || (payload.messages && payload.messages[0]?.content)
+  const messages = Array.isArray(payload.messages)
+    ? payload.messages.filter((item: any) => item && typeof item.content === "string")
+    : []
+  const message = payload.message || [...messages].reverse().find((item: any) => item.role === "user")?.content
   if (!message) return err("Missing message for AI")
 
   const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
@@ -231,7 +234,12 @@ async function handleAI(_userId: string, payload: any) {
     const aiRes = await fetch(`${NECXA_AI_URL}/api/assistant/chat/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, context: payload.context }),
+      body: JSON.stringify({
+        message,
+        messages,
+        context: payload.context,
+        language: payload.language,
+      }),
     })
     if (aiRes.ok) {
       const aiData = await aiRes.json()

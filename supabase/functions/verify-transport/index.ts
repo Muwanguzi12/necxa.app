@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-const NECXA_AI_URL = Deno.env.get("NECXA_AI_URL") || "https://api.necxa.uk"
+const NECXA_AI_URL = Deno.env.get("NECXA_AI_URL") || "https://necxa-ai-engine.knestars.workers.dev"
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 const corsHeaders = {

@@ -16,7 +16,7 @@ const REDIS_URL = Deno.env.get('UPSTASH_REDIS_REST_URL')?.trim() || ''
 const REDIS_TOKEN = Deno.env.get('UPSTASH_REDIS_REST_TOKEN')?.trim() || ''
 const FACE_CACHE_TTL = Number(Deno.env.get('FACE_CACHE_TTL_SECONDS') || '1800')
 const BUCKET_NAME = Deno.env.get('IDENTITY_SHARDS_BUCKET')?.trim() || 'identity-shards'
-const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL')?.trim() || 'https://api.necxa.uk'
+const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL')?.trim() || 'https://necxa-ai-engine.knestars.workers.dev'
 const NECXA_AI_API_KEY = Deno.env.get('NECXA_AI_API_KEY')?.trim() || ''
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')?.trim() || ''

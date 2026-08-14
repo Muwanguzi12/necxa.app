@@ -1962,14 +1962,33 @@ class AppState extends ChangeNotifier {
       if (identityShardId != null) {
         finalIdentityShardId = identityShardId!;
       } else {
+        final frontVerificationId = lastIDResult?.sessionId ?? '';
+        final backVerificationId = lastIDBackResult?.sessionId ?? '';
+        final holdingVerificationId = lastHoldingResult?.sessionId ?? '';
+        final biometricVerificationId = lastSelfieResult?.sessionId ?? '';
+        if ([
+          frontVerificationId,
+          backVerificationId,
+          holdingVerificationId,
+          biometricVerificationId,
+        ].any((value) => value.isEmpty)) {
+          throw Exception(
+            'Identity verification receipts are missing. Complete the identity capture once before submitting.',
+          );
+        }
         final identityRes = await ListingSyncService.submitIdentityShard(
           country: payload['ea_country'] ?? 'Uganda',
           docType: payload['ea_id_type'] ?? 'National ID',
-          docNumber: payload['id_number'] ?? '0000000000',
+          docNumber: payload['id_number'] ?? '',
           idFront: idImage!,
           idBack: idBackImage!,
           idHolding: idHoldingImage!,
           facePhoto: faceImage!,
+          frontVerificationId: frontVerificationId,
+          backVerificationId: backVerificationId,
+          holdingVerificationId: holdingVerificationId,
+          biometricVerificationId: biometricVerificationId,
+          idempotencyKey: 'identity-${user!.id}-$biometricVerificationId',
         );
         finalIdentityShardId = identityRes['identity_shard_id'];
       }
@@ -2682,9 +2701,23 @@ class AppState extends ChangeNotifier {
       chatLog.add(userMsg);
       await localDb.saveMessages([userMsg]);
 
-      // Prefer the Cloudflare Worker (Llama 3.1 — zero-cost edge inference).
+      // Prefer the isolated Cloudflare assistant and retain the latest context.
       // Falls back to Supabase necxa-chat automatically if the worker is down.
-      final res = await NecxaAI.askNecxaWorker(query);
+      final conversation = chatLog
+          .skip(chatLog.length > 20 ? chatLog.length - 20 : 0)
+          .map(
+            (message) => {
+              'role': message.senderId == 'necxa-ai' ? 'assistant' : 'user',
+              'content': message.content,
+            },
+          )
+          .toList();
+      final res = await NecxaAI.askNecxaWorker(
+        query,
+        language: language,
+        conversation: conversation,
+        context: {'screen': 'necxa_ai_chat'},
+      );
 
       final aiMsg = ChatMessage(
         id: 'a-${DateTime.now().millisecondsSinceEpoch}',

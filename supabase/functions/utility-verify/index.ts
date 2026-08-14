@@ -14,7 +14,7 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 const PRIMARY_SUPABASE_URL = Deno.env.get("PRIMARY_SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
 const PRIMARY_SUPABASE_ANON_KEY = Deno.env.get("PRIMARY_SUPABASE_ANON_KEY") || "sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR"
 const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE_ROLE_KEY")
-const NECXA_AI_URL = Deno.env.get("NECXA_AI_URL") || "https://api.necxa.uk"
+const NECXA_AI_URL = Deno.env.get("NECXA_AI_URL") || "https://necxa-ai-engine.knestars.workers.dev"
 
 // Enforce database client pointing to primary database for operations
 const primaryAdminKey = PRIMARY_SUPABASE_SERVICE_ROLE_KEY || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!

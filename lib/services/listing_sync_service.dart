@@ -83,6 +83,10 @@ class ListingSyncService {
     required File idBack,
     required File idHolding,
     required File facePhoto,
+    required String frontVerificationId,
+    required String backVerificationId,
+    required String holdingVerificationId,
+    required String biometricVerificationId,
     String? idempotencyKey,
   }) async {
     final req = http.MultipartRequest('POST', Uri.parse(_identityFuncUrl));
@@ -96,6 +100,10 @@ class ListingSyncService {
     req.fields['country'] = country;
     req.fields['doc_type'] = docType;
     req.fields['doc_number'] = docNumber;
+    req.fields['front_verification_id'] = frontVerificationId;
+    req.fields['back_verification_id'] = backVerificationId;
+    req.fields['holding_verification_id'] = holdingVerificationId;
+    req.fields['biometric_verification_id'] = biometricVerificationId;
 
     req.files.add(await http.MultipartFile.fromPath('id_front', idFront.path));
     req.files.add(await http.MultipartFile.fromPath('id_back', idBack.path));

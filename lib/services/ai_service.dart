@@ -79,11 +79,13 @@ class NecxaAI {
   }
 
   // ── CLOUDFLARE WORKER DIRECT REST CLIENT ──
-  // necxa-ai v2: Runs on Cloudflare Workers at api.necxa.uk
+  // Canonical Worker URL. The api.necxa.uk DNS record is not currently
+  // resolvable, so production requests must not depend on that custom route.
   // Endpoints: /api/verify/photo, /api/verify/video, /api/verify/audio,
   //            /api/verify/listing, /api/verify/live-frame,
   //            /api/assistant/chat/sync
-  static const String _workerBase = 'https://api.necxa.uk';
+  static const String _workerBase =
+      'https://necxa-ai-engine.knestars.workers.dev';
   static const String _identityVerificationUrl =
       'https://ayvescksetiuekoyfqar.supabase.co/functions/v1/verify-identity-shard';
   static const String _identityVerificationPublishableKey =
@@ -379,13 +381,20 @@ class NecxaAI {
   static Future<String> askNecxaWorker(
     String userPrompt, {
     String language = 'English',
+    List<Map<String, String>> conversation = const [],
+    Map<String, dynamic>? context,
   }) async {
     try {
       final res = await http
           .post(
             Uri.parse('$_workerBase/api/assistant/chat/sync'),
             headers: {"Content-Type": "application/json", ..._workerHeaders()},
-            body: jsonEncode({'message': userPrompt, 'language': language}),
+            body: jsonEncode({
+              'message': userPrompt,
+              'language': language,
+              'messages': conversation,
+              'context': context,
+            }),
           )
           .timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
@@ -395,8 +404,12 @@ class NecxaAI {
       throw Exception('Worker returned ${res.statusCode}');
     } catch (e) {
       debugPrint('⚡ Worker chat failed, falling back to Supabase: $e');
-      // Fallback to existing Supabase necxa-chat function
-      return askNexca(userPrompt);
+      return askNexca(
+        userPrompt,
+        context: context,
+        conversation: conversation,
+        language: language,
+      );
     }
   }
 
@@ -656,25 +669,41 @@ class NecxaAI {
   static Future<String> askNexca(
     String userPrompt, {
     Map<String, dynamic>? context,
+    List<Map<String, String>> conversation = const [],
+    String language = 'English',
   }) async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) return 'Login required for Necxa Chat';
 
     try {
-      final res = await Supabase.instance.client.functions.invoke(
-        'necxa-chat',
-        headers: _aiHeaders(
-          extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'},
-        ),
-        body: {
-          'messages': [
-            {'role': 'user', 'content': userPrompt},
-          ],
-          'context': context,
-          'userId': session.user.id,
-        },
-      );
-      final data = Map<String, dynamic>.from(res.data);
+      final res = await http
+          .post(
+            Uri.parse(
+              'https://ayvescksetiuekoyfqar.supabase.co/functions/v1/necxa-chat',
+            ),
+            headers: {
+              'Authorization': 'Bearer ${session.accessToken}',
+              'x-primary-jwt': session.accessToken,
+              'apikey': _identityVerificationPublishableKey,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'message': userPrompt,
+              'messages': conversation.isEmpty
+                  ? [
+                      {'role': 'user', 'content': userPrompt},
+                    ]
+                  : conversation,
+              'context': context,
+              'language': language,
+              'userId': session.user.id,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('SP2 chat returned ${res.statusCode}');
+      }
+      final data = Map<String, dynamic>.from(jsonDecode(res.body) as Map);
       return data['content'] ?? 'No response';
     } catch (e) {
       return 'Error connecting to Necxa AI: $e';
