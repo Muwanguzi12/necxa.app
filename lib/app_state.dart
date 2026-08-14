@@ -2708,7 +2708,7 @@ class AppState extends ChangeNotifier {
           .map(
             (message) => {
               'role': message.senderId == 'necxa-ai' ? 'assistant' : 'user',
-              'content': message.content,
+              'content': message.content ?? '',
             },
           )
           .toList();
