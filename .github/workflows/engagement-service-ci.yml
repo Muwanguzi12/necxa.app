@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v4
@@ -44,6 +47,9 @@ jobs:
       MONGO_DB_NAME: ${{ secrets.MONGO_ENGAGEMENT_DB }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v4
