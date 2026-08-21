@@ -17,6 +17,65 @@ const PESAPAL_BASE = PESAPAL_ENV === "production"
   ? "https://pay.pesapal.com/v3"
   : "https://cybqa.pesapal.com/pesapalv3";
 
+// MTN Disbursement config
+const MTN_DISBURSEMENT_ENV = Deno.env.get("MTN_DISBURSEMENT_ENV")?.trim() || "sandbox";
+const MTN_BASE = MTN_DISBURSEMENT_ENV === "production"
+  ? "https://momodeveloper.mtn.com/disbursement"
+  : "https://sandbox.momodeveloper.mtn.com/disbursement";
+const MTN_CLIENT_ID = Deno.env.get("MTN_DISBURSEMENT_CLIENT_ID")?.trim() || "";
+const MTN_CLIENT_SECRET = Deno.env.get("MTN_DISBURSEMENT_CLIENT_SECRET")?.trim() || "";
+const MTN_SUBSCRIPTION_KEY = Deno.env.get("MTN_DISBURSEMENT_SUBSCRIPTION_KEY")?.trim() || "";
+const MTN_TARGET_ENV = Deno.env.get("MTN_DISBURSEMENT_TARGET_ENV")?.trim() || (MTN_DISBURSEMENT_ENV === 'production' ? 'production' : 'sandbox');
+
+async function getMtnAccessToken(): Promise<string> {
+  if (!MTN_CLIENT_ID || !MTN_CLIENT_SECRET) throw new Error('MTN client credentials not configured');
+  const tokenUrl = `${MTN_BASE}/token/`;
+  const body = new URLSearchParams({ grant_type: 'client_credentials' });
+  const basic = btoa(`${MTN_CLIENT_ID}:${MTN_CLIENT_SECRET}`);
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${basic}`,
+      'Ocp-Apim-Subscription-Key': MTN_SUBSCRIPTION_KEY,
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`MTN token fetch failed: ${res.status} ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!data.access_token) throw new Error('MTN token response missing access_token');
+  return String(data.access_token);
+}
+
+async function makeMtnDeposit(token: string, withdrawal: Record<string, any>, amount: number, msisdn: string) {
+  const url = `${MTN_BASE}/v2_0/deposit`;
+  const externalId = withdrawal.id ?? `wd-${Date.now()}`;
+  const payload = {
+    amount: String(amount),
+    currency: 'UGX',
+    externalId,
+    payee: { partyIdType: 'MSISDN', partyId: msisdn },
+    payerMessage: 'Necxa withdrawal',
+    payeeNote: 'Necxa payout',
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Ocp-Apim-Subscription-Key': MTN_SUBSCRIPTION_KEY,
+      'X-Target-Environment': MTN_TARGET_ENV,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(async () => ({ status: res.status, text: await res.text().catch(() => '') }));
+  if (!res.ok) throw new Error(`MTN deposit failed: ${res.status} ${JSON.stringify(data)}`);
+  return data;
+}
+
 // Redirect URL after payment — deep links back to the app
 const CALLBACK_URL = "https://www.necxa.uk/payment-callback";
 
@@ -472,6 +531,18 @@ async function commerceVerificationCode(orderId: string, purpose: "pickup" | "de
   ));
   const number = signature.slice(0, 4).reduce((value, byte) => (value * 256 + byte) >>> 0, 0);
   return String(number % 1000000).padStart(6, "0");
+}
+
+async function hmacSha256Hex(message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(COMMERCE_OTP_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message)));
+  return Array.from(signature).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function mirrorFinanceInventoryToPrimary(
@@ -1992,20 +2063,39 @@ serve(async (req) => {
     }
 
     if (action === "list_coin_packs") {
-      return json({
-        success: true,
-        coinPacks: [
-          { id: "starter", ncx_amount: 50, fiat_price: 5000, color_hex: "#00E5FF", description: "Starter Pack" },
-          { id: "pro", ncx_amount: 150, fiat_price: 15000, color_hex: "#2979FF", description: "Pro Pack" },
-          { id: "elite", ncx_amount: 500, fiat_price: 50000, color_hex: "#D500F9", description: "Elite Pack" },
-          { id: "whale", ncx_amount: 1200, fiat_price: 100000, color_hex: "#FFC400", description: "Whale Pack" },
-        ],
-      });
+      const { data: coinPacks, error } = await supabase
+        .from("coin_packs")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) {
+        // Fallback to hardcoded list if table doesn't exist yet
+        return json({
+          success: true,
+          coinPacks: [
+            { id: "spark",   ncx_amount: 10,   fiat_price: 1000,   fiat_currency: "UGX", color_hex: "#64FFDA", emoji: "⚡", name: "Spark Pack",   tagline: "Try it out" },
+            { id: "starter", ncx_amount: 50,   fiat_price: 5000,   fiat_currency: "UGX", color_hex: "#00E5FF", emoji: "🌟", name: "Starter Pack", tagline: "Get started" },
+            { id: "pro",     ncx_amount: 150,  fiat_price: 15000,  fiat_currency: "UGX", color_hex: "#2979FF", emoji: "🔵", name: "Pro Pack",     tagline: "Most popular" },
+            { id: "elite",   ncx_amount: 500,  fiat_price: 50000,  fiat_currency: "UGX", color_hex: "#D500F9", emoji: "💜", name: "Elite Pack",   tagline: "Power user" },
+            { id: "whale",   ncx_amount: 1200, fiat_price: 100000, fiat_currency: "UGX", color_hex: "#FFC400", emoji: "🐋", name: "Whale Pack",   tagline: "Go all in" },
+          ],
+        });
+      }
+      return json({ success: true, coinPacks });
     }
 
     // ── Action: purchase_coins ──────────────────────────────────────────────
     if (action === "purchase_coins") {
       const packId = body.packId as string;
+      const { data: packRecord, error: packError } = await supabase
+        .from("coin_packs")
+        .select("ncx_amount, fiat_price")
+        .eq("id", packId)
+        .single();
+      if (packError || !packRecord) {
+        return json({ success: false, message: "Invalid pack ID." }, 400);
+      }
+      const pack = { ncx: Number(packRecord.ncx_amount), fiat: Number(packRecord.fiat_price) };
       const method = body.method as string;
       const idempotencyKey = (body.idempotencyKey as string) || `coin-purchase-${user.id}-${Date.now()}`;
 
@@ -2020,52 +2110,54 @@ serve(async (req) => {
         return json({ success: false, message: "Purchase already processed." }, 409);
       }
 
-      // Hardcoded mapping matching list_coin_packs
-      const packDetails: Record<string, { ncx: number, fiat: number }> = {
-        starter: { ncx: 50, fiat: 5000 },
-        pro: { ncx: 150, fiat: 15000 },
-        elite: { ncx: 500, fiat: 50000 },
-        whale: { ncx: 1200, fiat: 100000 },
-      };
-
-      const pack = packDetails[packId];
       if (!pack) return json({ success: false, message: "Invalid pack selected." }, 400);
 
       // If fiat_balance, atomically deduct and credit NCX
       if (method === "fiat_balance") {
-        const { error } = await supabase.rpc("buy_coins_with_fiat_balance", {
-          p_user_auth_id: user.id,
-          p_fiat_amount_to_spend: pack.fiat,
-          p_ncx_to_receive: pack.ncx,
-          p_fiat_currency: "UGX",
+        const { data: rpcResult, error } = await supabase.rpc("buy_coins_with_fiat_balance", {
+          p_user_auth_id:    user.id,
+          p_fiat_amount:     pack.fiat,
+          p_ncx_to_receive:  pack.ncx,
+          p_fiat_currency:   "UGX",
+          p_idempotency_key: idempotencyKey,
+          p_payment_id:      null,
+          p_issuance_type:   "WALLET_PURCHASE",
+          p_metadata:        { pack_id: packId, method },
         });
 
         if (error) {
           const isInsufficient = error.message?.toLowerCase().includes("insufficient");
           return json(
-            { success: false, code: isInsufficient ? "payment_initialization_failed" : "failed", message: error.message },
+            { success: false, code: isInsufficient ? "insufficient_balance" : "failed", message: error.message },
             isInsufficient ? 402 : 500
           );
         }
 
         // Record a completed payment for idempotency tracking
         const { error: paymentRecordError } = await supabase.from("payments").upsert({
-          user_id: user.id,
-          provider: "wallet_balance",
+          user_id:            user.id,
+          provider:           "wallet_balance",
           provider_reference: idempotencyKey,
-          idempotency_key: idempotencyKey,
-          purpose: "coin_purchase",
-          amount: pack.fiat,
-          currency: "UGX",
-          status: "completed",
-          request: { type: "coin_purchase", packId, method },
-          response: { success: true },
+          idempotency_key:    idempotencyKey,
+          purpose:            "coin_purchase",
+          amount:             pack.fiat,
+          currency:           "UGX",
+          status:             "completed",
+          settled_at:         new Date().toISOString(),
+          request:            { type: "coin_purchase", packId, method },
+          response:           rpcResult ?? { success: true },
         }, { onConflict: "idempotency_key" });
         if (paymentRecordError) {
           throw new Error(`Wallet coin payment record failed: ${paymentRecordError.message}`);
         }
 
-        return json({ success: true });
+        return json({
+          success:          true,
+          issuanceId:       rpcResult?.issuance_id        ?? null,
+          originHash:       rpcResult?.origin_hash        ?? null,
+          coinBalanceAfter: rpcResult?.coin_balance_after ?? null,
+          fiatBalanceAfter: rpcResult?.fiat_balance_after ?? null,
+        });
       }
 
       // If pesapal (momo/card)
@@ -2153,17 +2245,13 @@ serve(async (req) => {
 
     // ── Action: list_gift_items ──────────────────────────────────────────────
     if (action === "list_gift_items") {
-      return json({
-        success: true,
-        giftItems: [
-          { id: "rose", name: "Rose", emoji: "🌹", ncx_value: 1, ugx_value: 100, category: "standard", sort_order: 1, is_active: true },
-          { id: "coffee", name: "Coffee", emoji: "☕", ncx_value: 5, ugx_value: 500, category: "standard", sort_order: 2, is_active: true },
-          { id: "heart", name: "Heart", emoji: "💖", ncx_value: 10, ugx_value: 1000, category: "standard", sort_order: 3, is_active: true },
-          { id: "diamond", name: "Diamond", emoji: "💎", ncx_value: 50, ugx_value: 5000, category: "premium", sort_order: 4, is_active: true },
-          { id: "crown", name: "Crown", emoji: "👑", ncx_value: 100, ugx_value: 10000, category: "premium", sort_order: 5, is_active: true },
-          { id: "rocket", name: "Rocket", emoji: "🚀", ncx_value: 500, ugx_value: 50000, category: "epic", sort_order: 6, is_active: true },
-        ],
-      });
+      const { data: giftItems, error } = await supabase
+        .from("gift_items")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) throw new Error(error.message);
+      return json({ success: true, giftItems });
     }
 
     // ── Action: send_gift ────────────────────────────────────────────────────
@@ -2461,6 +2549,171 @@ serve(async (req) => {
       }
 
       return json({ success: true, status: "pending", message: "Payment is still processing. Please wait." });
+    }
+
+    // ── Action: send_withdrawal_otp ───────────────────────────────────────
+    if (action === "send_withdrawal_otp") {
+      // Generate a 6-digit OTP and store its HMAC hash in withdrawal_otps
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const email = profile?.email || user.email || null;
+      if (!email) return json({ success: false, message: "No email available for OTP delivery." }, 400);
+
+      const otp = String(Math.floor(Math.random() * 1000000)).padStart(6, "0");
+      const codeHash = await hmacSha256Hex(otp);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+      const { error: upsertErr } = await supabase.from("withdrawal_otps").upsert({
+        user_id: user.id,
+        code_hash: codeHash,
+        expires_at: expiresAt,
+        attempts: 0,
+        consumed_at: null,
+      }, { onConflict: "user_id" });
+      if (upsertErr) throw new Error(upsertErr.message);
+
+      // NOTE: Real delivery (email/SMS) should be performed here. Do NOT return
+      // OTP values in production responses.
+      return json({ success: true, sent: true, expiresAt });
+    }
+
+    // ── Action: request_withdrawal ────────────────────────────────────────
+    if (action === "request_withdrawal") {
+      const amount = Number(body.amount ?? 0);
+      const method = String(body.method ?? "mtn");
+      const accountNumber = String(body.accountNumber ?? "");
+      const recipientName = String(body.recipientName ?? "");
+      const idempotencyKey = String(body.idempotencyKey ?? `withdraw-${user.id}-${Date.now()}`);
+      const securityMetadata = body.securityMetadata ?? {};
+      const emailOtp = String(body.emailOtp ?? "");
+
+      if (!amount || amount <= 0) return json({ success: false, message: "Invalid amount." }, 400);
+      if (!["mtn", "airtel", "bank"].includes(method)) return json({ success: false, message: "Unsupported withdrawal method." }, 400);
+
+      const otpHash = await hmacSha256Hex(emailOtp);
+      const destinationCiphertext = JSON.stringify({ accountNumber, recipientName });
+
+      // If MTN method, run conservative device/fraud reservation guard first.
+      if (method === 'mtn') {
+        const deviceFingerprint = securityMetadata?.device_fingerprint ?? null;
+        const riskScore = securityMetadata && securityMetadata.risk_score != null ? Number(securityMetadata.risk_score) : null;
+        const isDeviceTrusted = securityMetadata && securityMetadata.is_device_trusted != null ? Boolean(securityMetadata.is_device_trusted) : null;
+
+        const { data: reserveData, error: reserveErr } = await supabase.rpc('reserve_mtn_withdrawal', {
+          p_user_id: user.id,
+          p_amount: amount,
+          p_device_fingerprint: deviceFingerprint,
+          p_risk_score: riskScore,
+          p_is_device_trusted: isDeviceTrusted,
+          p_idempotency_key: idempotencyKey,
+        });
+        if (reserveErr) {
+          // Forward reservation failure (e.g., blocked by risk rules)
+          return json({ success: false, message: reserveErr.message }, 403);
+        }
+      }
+
+      const { data, error: rpcErr } = await supabase.rpc("create_withdrawal_request", {
+        p_user_id: user.id,
+        p_amount: amount,
+        p_method: method,
+        p_destination_ciphertext: destinationCiphertext,
+        p_recipient_name: recipientName,
+        p_otp_hash: otpHash,
+        p_idempotency_key: idempotencyKey,
+        p_metadata: securityMetadata,
+      });
+      if (rpcErr) return json({ success: false, message: rpcErr.message }, 400);
+
+      const withdrawal = Array.isArray(data) ? data[0] ?? data : data; // handle rpc single/maybeSingle shapes
+
+      // If MTN, attempt external disbursement and update workflow status accordingly.
+      if (method === 'mtn') {
+        try {
+          // mark processing
+          await supabase.rpc('transition_withdrawal_status', {
+            p_withdrawal_id: withdrawal.id,
+            p_new_status: 'processing',
+            p_operator_id: 'system-disbursement',
+          });
+
+          const token = await getMtnAccessToken();
+          const msisdn = accountNumber;
+          const depositResult = await makeMtnDeposit(token, withdrawal, amount, msisdn);
+
+          // Persist provider response into withdrawals.metadata for audit/debugging
+          try {
+            const existingMeta = (withdrawal && (withdrawal.metadata ?? {})) || {};
+            const newMeta = { ...existingMeta, provider_response: depositResult };
+            const { error: metaErr } = await supabase
+              .from('withdrawals')
+              .update({ metadata: newMeta })
+              .eq('id', withdrawal.id)
+              .select()
+              .single();
+            if (metaErr) console.error('Failed to persist withdrawal metadata:', metaErr.message || metaErr);
+          } catch (mErr) {
+            console.error('Exception while persisting metadata:', mErr);
+          }
+
+          const providerRef = depositResult.requestId ?? depositResult.transactionReference ?? depositResult.referenceId ?? JSON.stringify(depositResult);
+          await supabase.rpc('transition_withdrawal_status', {
+            p_withdrawal_id: withdrawal.id,
+            p_new_status: 'paid',
+            p_operator_id: 'mtn-disbursement',
+            p_provider_reference: providerRef,
+          });
+
+          return json({ success: true, withdrawal: withdrawal, providerResponse: depositResult });
+        } catch (err) {
+          const errMsg = (err as Error).message || String(err);
+          try {
+            await supabase.rpc('transition_withdrawal_status', {
+              p_withdrawal_id: withdrawal.id,
+              p_new_status: 'failed',
+              p_operator_id: 'mtn-disbursement',
+              p_note: errMsg,
+            });
+          } catch (tErr) {
+            console.error('Failed to mark withdrawal failed:', tErr);
+          }
+          try {
+            // Save provider error into metadata for later inspection
+            const existingMeta = (withdrawal && (withdrawal.metadata ?? {})) || {};
+            const newMeta = { ...existingMeta, provider_response: { error: errMsg } };
+            const { error: metaErr } = await supabase
+              .from('withdrawals')
+              .update({ metadata: newMeta })
+              .eq('id', withdrawal.id)
+              .select()
+              .single();
+            if (metaErr) console.error('Failed to persist failure metadata:', metaErr.message || metaErr);
+          } catch (mErr) {
+            console.error('Exception while persisting failure metadata:', mErr);
+          }
+          try {
+            await supabase.rpc('refund_failed_withdrawal', { p_withdrawal_id: withdrawal.id, p_reason: errMsg });
+          } catch (rErr) {
+            console.error('Refund failed after MTN error:', rErr);
+          }
+          return json({ success: false, message: 'Disbursement failed: ' + errMsg }, 500);
+        }
+      }
+
+      return json({ success: true, withdrawal: withdrawal });
+    }
+
+    // ── Action: withdrawal_status ─────────────────────────────────────────
+    if (action === "withdrawal_status") {
+      const withdrawalId = String(body.withdrawalId ?? "");
+      if (!withdrawalId) return json({ success: false, message: "withdrawalId required." }, 400);
+      const { data, error } = await supabase.from("withdrawals").select("*").eq("id", withdrawalId).maybeSingle();
+      if (error) throw new Error(error.message);
+      return json({ success: true, withdrawal: data });
     }
 
     return json({ success: false, message: `Unknown action: ${action}` }, 400);
