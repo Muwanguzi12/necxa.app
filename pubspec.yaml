@@ -90,5 +90,3 @@ flutter:
 dependency_overrides:
   ffmpeg_kit_flutter_min_gpl:
     path: plugins/ffmpeg_kit_flutter_min_gpl
-  record_platform_interface: 1.5.0
-  record_linux: 0.7.2
