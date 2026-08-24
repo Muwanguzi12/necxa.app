@@ -2,6 +2,14 @@ import 'finance_backend.dart';
 import 'finance_initializer.dart';
 
 class FinanceWithdrawalService {
+  Future<Map<String, dynamic>> eligibility(int amountUgx) async {
+    await FinanceInitializer.instance.ensureInitialized();
+    return FinanceBackend.instance.invoke(
+      'check_withdrawal_eligibility',
+      body: {'amount': amountUgx},
+    );
+  }
+
   Future<Map<String, dynamic>> sendOtp() async {
     await FinanceInitializer.instance.ensureInitialized();
     return FinanceBackend.instance.invoke('send_withdrawal_otp');

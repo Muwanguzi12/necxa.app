@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models/chat_models.dart';
@@ -88,7 +88,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Future<void> _startRecording() async {
     if (await _requestMicPermission()) {
       final dir = await getTemporaryDirectory();
-      _recordPath = '${dir.path}/vn_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      _recordPath =
+          '${dir.path}/vn_${DateTime.now().millisecondsSinceEpoch}.m4a';
       // Use compressed config: 16kHz mono 32kbps ≈ 120KB per 30s
       await _record.start(VoiceNoteService.recordConfig, path: _recordPath!);
       setState(() => _isRecording = true);
@@ -250,7 +251,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               Expanded(
                 child: ListView.builder(
                   controller: _scroll,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 20,
+                  ),
                   itemCount: s.currentMessages.length,
                   itemBuilder: (context, i) {
                     final m = s.currentMessages[i];
@@ -359,13 +363,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   scrollDirection: Axis.horizontal,
                   children: [
                     _WpOpt(s, 'solid_black', 'Black', color: Colors.black),
-                    _WpOpt(s, 'dark_blue', 'Navy Base', color: const Color(0xFF0A1324)),
+                    _WpOpt(
+                      s,
+                      'dark_blue',
+                      'Navy Base',
+                      color: const Color(0xFF0A1324),
+                    ),
                     _WpOpt(s, 'cyan_brand', 'Brand', grad: brandGrad),
-                    _WpOpt(s, 'cyber_map', 'Cyber Map', img: 'assets/images/cyber_map_wp.png'),
-                    _WpOpt(s, 'cyber_vehicle', 'Neon Run', img: 'assets/images/cyber_vehicle_wp.png'),
-                    _WpOpt(s, 'friends_bubble', 'Friends', img: 'assets/images/friends_bubble_wp.png'),
-                    _WpOpt(s, 'nature', 'Nature', img: 'assets/images/nature_wp.png'),
-                    _WpOpt(s, 'necxa_logo', 'Necxa Logo', img: 'assets/images/app_icon_padded.png'),
+                    _WpOpt(
+                      s,
+                      'cyber_map',
+                      'Cyber Map',
+                      img: 'assets/images/cyber_map_wp.png',
+                    ),
+                    _WpOpt(
+                      s,
+                      'cyber_vehicle',
+                      'Neon Run',
+                      img: 'assets/images/cyber_vehicle_wp.png',
+                    ),
+                    _WpOpt(
+                      s,
+                      'friends_bubble',
+                      'Friends',
+                      img: 'assets/images/friends_bubble_wp.png',
+                    ),
+                    _WpOpt(
+                      s,
+                      'nature',
+                      'Nature',
+                      img: 'assets/images/nature_wp.png',
+                    ),
+                    _WpOpt(
+                      s,
+                      'necxa_logo',
+                      'Necxa Logo',
+                      img: 'assets/images/app_icon_padded.png',
+                    ),
                   ],
                 ),
               ),
@@ -378,9 +412,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   scrollDirection: Axis.horizontal,
                   children: [
                     _BubbleOpt(s, 'default', 'Default', color: C.brand),
-                    _BubbleOpt(s, 'neon_cyan_green', 'Neon Pulse', grad: neonCyanGreen),
-                    _BubbleOpt(s, 'orange_neon_purple', 'Cyber Dusk', grad: neonOrangePurple),
-                    _BubbleOpt(s, 'yellow_neon_pink', 'Synth Wave', grad: neonYellowPink),
+                    _BubbleOpt(
+                      s,
+                      'neon_cyan_green',
+                      'Neon Pulse',
+                      grad: neonCyanGreen,
+                    ),
+                    _BubbleOpt(
+                      s,
+                      'orange_neon_purple',
+                      'Cyber Dusk',
+                      grad: neonOrangePurple,
+                    ),
+                    _BubbleOpt(
+                      s,
+                      'yellow_neon_pink',
+                      'Synth Wave',
+                      grad: neonYellowPink,
+                    ),
                   ],
                 ),
               ),
@@ -392,7 +441,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 onTap: () {
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Not implemented in prototype')),
+                    const SnackBar(
+                      content: Text('Not implemented in prototype'),
+                    ),
                   );
                 },
               ),
@@ -412,7 +463,14 @@ class _WpOpt extends StatelessWidget {
   final Gradient? grad;
   final String? img;
 
-  const _WpOpt(this.s, this.keyName, this.label, {this.color, this.grad, this.img});
+  const _WpOpt(
+    this.s,
+    this.keyName,
+    this.label, {
+    this.color,
+    this.grad,
+    this.img,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -431,7 +489,10 @@ class _WpOpt extends StatelessWidget {
                 color: color ?? Colors.grey[800],
                 gradient: grad,
                 image: img != null
-                    ? DecorationImage(image: AssetImage(img!), fit: BoxFit.cover)
+                    ? DecorationImage(
+                        image: AssetImage(img!),
+                        fit: BoxFit.cover,
+                      )
                     : null,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
@@ -460,7 +521,12 @@ class _MsgBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = (context.findAncestorStateOfType<_ChatDetailScreenState>()?.widget.state) ?? AppState(); // Simplified for bubble access
+    final s =
+        (context
+            .findAncestorStateOfType<_ChatDetailScreenState>()
+            ?.widget
+            .state) ??
+        AppState(); // Simplified for bubble access
     final isSystem = msg.messageType.startsWith('system_');
     final theme = s.chatBubbleTheme;
 
@@ -468,37 +534,57 @@ class _MsgBubble extends StatelessWidget {
     if (isMe && !isSystem) {
       if (theme == 'neon_cyan_green') {
         bubbleGrad = neonCyanGreen;
-      } else if (theme == 'orange_neon_purple') bubbleGrad = neonOrangePurple;
-      else if (theme == 'yellow_neon_pink') bubbleGrad = neonYellowPink;
-      else bubbleGrad = LinearGradient(colors: [C.brand, C.brand.withOpacity(.8)]);
+      } else if (theme == 'orange_neon_purple')
+        bubbleGrad = neonOrangePurple;
+      else if (theme == 'yellow_neon_pink')
+        bubbleGrad = neonYellowPink;
+      else
+        bubbleGrad = LinearGradient(colors: [C.brand, C.brand.withOpacity(.8)]);
     }
 
     return GestureDetector(
       onLongPress: () => _showReactionPicker(context, s, msg.id),
       child: Align(
-        alignment: isSystem ? Alignment.center : (isMe ? Alignment.centerRight : Alignment.centerLeft),
+        alignment: isSystem
+            ? Alignment.center
+            : (isMe ? Alignment.centerRight : Alignment.centerLeft),
         child: Column(
-          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Container(
               margin: const EdgeInsets.only(bottom: 4),
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.75,
+              ),
               decoration: BoxDecoration(
                 gradient: bubbleGrad,
-                color: (isMe && !isSystem) ? null : Colors.white.withOpacity(.05),
-                border: (isMe && !isSystem) ? null : Border.all(color: Colors.white.withOpacity(.1)),
+                color: (isMe && !isSystem)
+                    ? null
+                    : Colors.white.withOpacity(.05),
+                border: (isMe && !isSystem)
+                    ? null
+                    : Border.all(color: Colors.white.withOpacity(.1)),
                 boxShadow: (isMe && !isSystem)
-                    ? [BoxShadow(color: (bubbleGrad?.colors.first ?? C.brand).withOpacity(.3), blurRadius: 10, offset: const Offset(0, 4))]
+                    ? [
+                        BoxShadow(
+                          color: (bubbleGrad?.colors.first ?? C.brand)
+                              .withOpacity(.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
                     : [],
-                borderRadius: isSystem 
-                  ? BorderRadius.circular(20)
-                  : BorderRadius.only(
-                      topLeft: const Radius.circular(20),
-                      topRight: const Radius.circular(20),
-                      bottomLeft: Radius.circular(isMe ? 20 : 4),
-                      bottomRight: Radius.circular(isMe ? 4 : 20),
-                    ),
+                borderRadius: isSystem
+                    ? BorderRadius.circular(20)
+                    : BorderRadius.only(
+                        topLeft: const Radius.circular(20),
+                        topRight: const Radius.circular(20),
+                        bottomLeft: Radius.circular(isMe ? 20 : 4),
+                        bottomRight: Radius.circular(isMe ? 4 : 20),
+                      ),
               ),
               child: isSystem
                   ? _buildSystemMsg()
@@ -510,14 +596,21 @@ class _MsgBubble extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Wrap(
                   spacing: 4,
-                  children: msg.reactions!.map((r) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(r, style: const TextStyle(fontSize: 10)),
-                  )).toList(),
+                  children: msg.reactions!
+                      .map(
+                        (r) => Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(r, style: const TextStyle(fontSize: 10)),
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
           ],
@@ -535,7 +628,12 @@ class _MsgBubble extends StatelessWidget {
         Flexible(
           child: Text(
             msg.content ?? '',
-            style: dm(sz: 14, c: C.brand, w: FontWeight.w500, fs: FontStyle.italic),
+            style: dm(
+              sz: 14,
+              c: C.brand,
+              w: FontWeight.w500,
+              fs: FontStyle.italic,
+            ),
           ),
         ),
       ],
@@ -544,35 +642,56 @@ class _MsgBubble extends StatelessWidget {
 
   Widget _buildNormalMsg(BuildContext context, bool isMe) {
     return Column(
-      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-       children: [
-        if ((msg.messageType == 'image' || msg.messageType == 'video') && (msg.mediaUrl != null || msg.localMediaPath != null)) ...[
+      crossAxisAlignment: isMe
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        if ((msg.messageType == 'image' || msg.messageType == 'video') &&
+            (msg.mediaUrl != null || msg.localMediaPath != null)) ...[
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: msg.messageType == 'video'
-                ? SizedBox(height: 250, width: 200, child: NecxaVideoPlayer(url: msg.localMediaPath ?? msg.mediaUrl!))
-                : (msg.localMediaPath != null && File(msg.localMediaPath!).existsSync()
-                    ? Image.file(File(msg.localMediaPath!), fit: BoxFit.cover)
-                    : (msg.mediaUrl != null && msg.mediaUrl!.startsWith('http') 
-                        ? Image.network(msg.mediaUrl!, fit: BoxFit.cover)
-                        : const SizedBox(height: 100, child: Center(child: CircularProgressIndicator())))),
+                ? SizedBox(
+                    height: 250,
+                    width: 200,
+                    child: NecxaVideoPlayer(
+                      url: msg.localMediaPath ?? msg.mediaUrl!,
+                    ),
+                  )
+                : (msg.localMediaPath != null &&
+                          File(msg.localMediaPath!).existsSync()
+                      ? Image.file(File(msg.localMediaPath!), fit: BoxFit.cover)
+                      : (msg.mediaUrl != null &&
+                                msg.mediaUrl!.startsWith('http')
+                            ? Image.network(msg.mediaUrl!, fit: BoxFit.cover)
+                            : const SizedBox(
+                                height: 100,
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ))),
           ),
           const SizedBox(height: 8),
         ],
         // Voice Note Support
-        if (msg.messageType == 'voice' && (msg.mediaUrl != null || msg.localMediaPath != null)) ...[
-           _VoiceBubble(
-             url: msg.localMediaPath ?? msg.mediaUrl ?? '',
-             messageId: msg.id,
-             isMe: isMe,
-             durationSeconds: 0,
-           ),
-           const SizedBox(height: 8),
+        if (msg.messageType == 'voice' &&
+            (msg.mediaUrl != null || msg.localMediaPath != null)) ...[
+          _VoiceBubble(
+            url: msg.localMediaPath ?? msg.mediaUrl ?? '',
+            messageId: msg.id,
+            isMe: isMe,
+            durationSeconds: 0,
+          ),
+          const SizedBox(height: 8),
         ],
         if (msg.content != null && msg.content!.isNotEmpty)
           Text(
             msg.content!,
-            style: dm(sz: 15, c: isMe ? Colors.black : Colors.white, w: FontWeight.w500),
+            style: dm(
+              sz: 15,
+              c: isMe ? Colors.black : Colors.white,
+              w: FontWeight.w500,
+            ),
           ),
         const SizedBox(height: 4),
         Row(
@@ -584,7 +703,11 @@ class _MsgBubble extends StatelessWidget {
             ),
             if (isMe) ...[
               const SizedBox(width: 4),
-              Icon(Icons.done_all, size: 14, color: msg.isRead ? C.brand : Colors.black38),
+              Icon(
+                Icons.done_all,
+                size: 14,
+                color: msg.isRead ? C.brand : Colors.black38,
+              ),
             ],
           ],
         ),
@@ -604,13 +727,17 @@ class _MsgBubble extends StatelessWidget {
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: ['❤️', '😂', '😮', '😢', '🔥', '👍'].map((emoji) => GestureDetector(
-            onTap: () {
-              s.addReaction(msgId, emoji);
-              Navigator.pop(ctx);
-            },
-            child: Text(emoji, style: const TextStyle(fontSize: 28)),
-          )).toList(),
+          children: ['❤️', '😂', '😮', '😢', '🔥', '👍']
+              .map(
+                (emoji) => GestureDetector(
+                  onTap: () {
+                    s.addReaction(msgId, emoji);
+                    Navigator.pop(ctx);
+                  },
+                  child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                ),
+              )
+              .toList(),
         ),
       ),
     );
@@ -636,12 +763,16 @@ class _BubbleOpt extends StatelessWidget {
         child: Column(
           children: [
             Container(
-              height: 30, width: 60,
+              height: 30,
+              width: 60,
               decoration: BoxDecoration(
                 color: color,
                 gradient: grad,
                 borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: sel ? Colors.white : Colors.transparent, width: 2),
+                border: Border.all(
+                  color: sel ? Colors.white : Colors.transparent,
+                  width: 2,
+                ),
               ),
             ),
             const SizedBox(height: 4),
@@ -668,7 +799,8 @@ class _VoiceBubble extends StatefulWidget {
   State<_VoiceBubble> createState() => _VoiceBubbleState();
 }
 
-class _VoiceBubbleState extends State<_VoiceBubble> with SingleTickerProviderStateMixin {
+class _VoiceBubbleState extends State<_VoiceBubble>
+    with SingleTickerProviderStateMixin {
   final _player = AudioPlayer();
   bool _isPlaying = false;
   Duration _position = Duration.zero;
@@ -767,15 +899,24 @@ class _VoiceBubbleState extends State<_VoiceBubble> with SingleTickerProviderSta
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: accent.withOpacity(0.15 + _pulseCtrl.value * 0.1),
-                  border: Border.all(color: accent.withOpacity(0.5), width: 1.5),
+                  border: Border.all(
+                    color: accent.withOpacity(0.5),
+                    width: 1.5,
+                  ),
                 ),
                 child: _isLoading
                     ? SizedBox(
-                        width: 16, height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: accent),
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: accent,
+                        ),
                       )
                     : Icon(
-                        _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                        _isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
                         color: accent,
                         size: 22,
                       ),
@@ -792,8 +933,26 @@ class _VoiceBubbleState extends State<_VoiceBubble> with SingleTickerProviderSta
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: List.generate(18, (i) {
-                    final heights = [3.0, 6.0, 10.0, 14.0, 8.0, 12.0, 5.0, 16.0, 9.0,
-                                     13.0, 7.0, 11.0, 4.0, 15.0, 8.0, 6.0, 12.0, 3.0];
+                    final heights = [
+                      3.0,
+                      6.0,
+                      10.0,
+                      14.0,
+                      8.0,
+                      12.0,
+                      5.0,
+                      16.0,
+                      9.0,
+                      13.0,
+                      7.0,
+                      11.0,
+                      4.0,
+                      15.0,
+                      8.0,
+                      6.0,
+                      12.0,
+                      3.0,
+                    ];
                     final filled = progress > (i / 18);
                     return Container(
                       width: 3,
@@ -808,8 +967,13 @@ class _VoiceBubbleState extends State<_VoiceBubble> with SingleTickerProviderSta
                 const SizedBox(height: 4),
                 // Duration
                 Text(
-                  VoiceNoteService.formatDuration(_isPlaying || _position.inSeconds > 0 ? _position : _total),
-                  style: TextStyle(fontSize: 10, color: accent.withOpacity(0.7)),
+                  VoiceNoteService.formatDuration(
+                    _isPlaying || _position.inSeconds > 0 ? _position : _total,
+                  ),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: accent.withOpacity(0.7),
+                  ),
                 ),
               ],
             ),
@@ -858,7 +1022,10 @@ class _MsgInput extends StatelessWidget {
             const SizedBox(width: 4),
             Expanded(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(.05),
                   borderRadius: BorderRadius.circular(30),
@@ -885,13 +1052,17 @@ class _MsgInput extends StatelessWidget {
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isRecording ? Colors.red.withOpacity(0.2) : Colors.white.withOpacity(.05),
+                  color: isRecording
+                      ? Colors.red.withOpacity(0.2)
+                      : Colors.white.withOpacity(.05),
                   shape: BoxShape.circle,
-                  border: isRecording ? Border.all(color: Colors.redAccent, width: 2) : null,
+                  border: isRecording
+                      ? Border.all(color: Colors.redAccent, width: 2)
+                      : null,
                 ),
                 child: Icon(
-                  isRecording ? Icons.mic_rounded : Icons.mic_none_rounded, 
-                  color: isRecording ? Colors.redAccent : C.dim, 
+                  isRecording ? Icons.mic_rounded : Icons.mic_none_rounded,
+                  color: isRecording ? Colors.redAccent : C.dim,
                   size: 24,
                 ),
               ),
@@ -902,11 +1073,19 @@ class _MsgInput extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [C.brand, C.brand.withOpacity(.8)]),
+                  gradient: LinearGradient(
+                    colors: [C.brand, C.brand.withOpacity(.8)],
+                  ),
                   shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(color: C.brand.withOpacity(.4), blurRadius: 8)],
+                  boxShadow: [
+                    BoxShadow(color: C.brand.withOpacity(.4), blurRadius: 8),
+                  ],
                 ),
-                child: const Icon(Icons.send_rounded, color: Colors.black, size: 22),
+                child: const Icon(
+                  Icons.send_rounded,
+                  color: Colors.black,
+                  size: 22,
+                ),
               ),
             ),
           ],

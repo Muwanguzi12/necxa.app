@@ -1141,13 +1141,16 @@ class LocalDbService {
       'is_read': notif['is_read'] ?? 0,
       'created_at': notif['created_at'],
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    await db.rawDelete('''
+    await db.rawDelete(
+      '''
       DELETE FROM app_notifications WHERE user_id = ? AND id IN (
         SELECT id FROM app_notifications
         WHERE user_id = ?
         ORDER BY created_at DESC LIMIT -1 OFFSET $_notifMaxRows
       )
-    ''', [userId, userId]);
+    ''',
+      [userId, userId],
+    );
   }
 
   Future<List<Map<String, dynamic>>> getNotifications(String userId) async {

@@ -36,6 +36,12 @@ class _ProfileScreenState extends State<ProfileScreen>
     super.initState();
     _vendorDashboard = CommerceService().fetchVendorDashboard();
   }
+
+  void _refreshVendorDashboard() {
+    setState(() {
+      _vendorDashboard = CommerceService().fetchVendorDashboard();
+    });
+  }
   // High-Tech Colors
 
   @override
@@ -413,15 +419,14 @@ class _ProfileScreenState extends State<ProfileScreen>
     return FutureBuilder<CommerceDashboardData>(
       future: _vendorDashboard,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting &&
-            !snapshot.hasData) {
-          return const SizedBox();
-        }
         final dashboard = snapshot.data;
-        if (dashboard == null ||
-            (dashboard.listings.isEmpty && dashboard.totalOrders == 0)) {
-          return const SizedBox();
-        }
+        final isLoading =
+            snapshot.connectionState == ConnectionState.waiting &&
+            dashboard == null;
+        final hasError = snapshot.hasError && dashboard == null;
+        final hasActivity =
+            dashboard != null &&
+            (dashboard.listings.isNotEmpty || dashboard.totalOrders > 0);
 
         return Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
@@ -469,24 +474,56 @@ class _ProfileScreenState extends State<ProfileScreen>
                       children: [
                         _MetricItem(
                           label: 'Listings',
-                          value: '${dashboard.activeListings}',
+                          value: isLoading || hasError
+                              ? '—'
+                              : '${dashboard?.activeListings ?? 0}',
                           color: C.brandDk,
                         ),
                         _MetricSeparator(),
                         _MetricItem(
                           label: 'Orders',
-                          value: '${dashboard.totalOrders}',
+                          value: isLoading || hasError
+                              ? '—'
+                              : '${dashboard?.totalOrders ?? 0}',
                           color: C.blue,
                         ),
                         _MetricSeparator(),
                         _MetricItem(
                           label: 'Sales',
-                          value: '${dashboard.grossSalesUgx ~/ 1000}K',
+                          value: isLoading || hasError
+                              ? '—'
+                              : '${(dashboard?.grossSalesUgx ?? 0) ~/ 1000}K',
                           color: C.green,
                         ),
                       ],
                     ),
-                    if (dashboard.openOrders > 0 ||
+                    if (isLoading) ...[
+                      const SizedBox(height: 18),
+                      const LinearProgressIndicator(minHeight: 2),
+                    ] else if (hasError) ...[
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Live statistics are unavailable. The dashboard is still accessible.',
+                              style: dm(sz: 12, c: C.sub),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Retry vendor statistics',
+                            onPressed: _refreshVendorDashboard,
+                            icon: const Icon(Icons.refresh_rounded, size: 19),
+                          ),
+                        ],
+                      ),
+                    ] else if (!hasActivity) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        'Manage listings, orders, inventory and delivery handoffs.',
+                        style: dm(sz: 12, c: C.sub),
+                      ),
+                    ] else if (dashboard.openOrders > 0 ||
                         dashboard.lowStockListings > 0) ...[
                       const SizedBox(height: 18),
                       Text(

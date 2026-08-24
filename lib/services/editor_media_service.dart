@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 
 import 'package:image_picker/image_picker.dart';
 
@@ -18,7 +18,7 @@ class EditorMediaAsset {
   });
 
   String get path => file.path;
-  String get name => path.split(Platform.pathSeparator).last;
+  String get name => path.split(RegExp(r'[/\\]')).last;
 
   String get extension => name.contains('.') ? name.split('.').last.toLowerCase() : '';
   bool get isVideo => const {'mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v'}.contains(extension);

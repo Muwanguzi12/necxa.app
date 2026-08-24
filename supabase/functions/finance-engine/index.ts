@@ -1716,10 +1716,11 @@ serve(async (req) => {
       return json({
         success: true,
         coinPacks: [
-          { id: "starter", ncx_amount: 50, fiat_price: 5000, color_hex: "#00E5FF", description: "Starter Pack" },
-          { id: "pro", ncx_amount: 150, fiat_price: 15000, color_hex: "#2979FF", description: "Pro Pack" },
-          { id: "elite", ncx_amount: 500, fiat_price: 50000, color_hex: "#D500F9", description: "Elite Pack" },
-          { id: "whale", ncx_amount: 1200, fiat_price: 100000, color_hex: "#FFC400", description: "Whale Pack" },
+          { id: "spark",   ncx_amount: 10,   fiat_price: 1000,   fiat_currency: "UGX", color_hex: "#64FFDA", emoji: "⚡", name: "Spark Pack",   tagline: "Try it out" },
+          { id: "starter", ncx_amount: 50,   fiat_price: 5000,   fiat_currency: "UGX", color_hex: "#00E5FF", emoji: "🌟", name: "Starter Pack", tagline: "Get started" },
+          { id: "pro",     ncx_amount: 150,  fiat_price: 15000,  fiat_currency: "UGX", color_hex: "#2979FF", emoji: "🔵", name: "Pro Pack",     tagline: "Most popular" },
+          { id: "elite",   ncx_amount: 500,  fiat_price: 50000,  fiat_currency: "UGX", color_hex: "#D500F9", emoji: "💜", name: "Elite Pack",   tagline: "Power user" },
+          { id: "whale",   ncx_amount: 1200, fiat_price: 100000, fiat_currency: "UGX", color_hex: "#FFC400", emoji: "🐋", name: "Whale Pack",   tagline: "Go all in" },
         ],
       });
     }
@@ -1754,39 +1755,50 @@ serve(async (req) => {
 
       // If fiat_balance, atomically deduct and credit NCX
       if (method === "fiat_balance") {
-        const { error } = await supabase.rpc("buy_coins_with_fiat_balance", {
-          p_user_auth_id: user.id,
-          p_fiat_amount_to_spend: pack.fiat,
-          p_ncx_to_receive: pack.ncx,
-          p_fiat_currency: "UGX",
+        const { data: rpcResult, error } = await supabase.rpc("buy_coins_with_fiat_balance", {
+          p_user_auth_id:    user.id,
+          p_fiat_amount:     pack.fiat,
+          p_ncx_to_receive:  pack.ncx,
+          p_fiat_currency:   "UGX",
+          p_idempotency_key: idempotencyKey,
+          p_payment_id:      null,                   // wallet purchase — no external payment
+          p_issuance_type:   "WALLET_PURCHASE",
+          p_metadata:        { pack_id: packId, method },
         });
 
         if (error) {
           const isInsufficient = error.message?.toLowerCase().includes("insufficient");
           return json(
-            { success: false, code: isInsufficient ? "payment_initialization_failed" : "failed", message: error.message },
+            { success: false, code: isInsufficient ? "insufficient_balance" : "failed", message: error.message },
             isInsufficient ? 402 : 500
           );
         }
 
         // Record a completed payment for idempotency tracking
         const { error: paymentRecordError } = await supabase.from("payments").upsert({
-          user_id: user.id,
-          provider: "wallet_balance",
+          user_id:            user.id,
+          provider:           "wallet_balance",
           provider_reference: idempotencyKey,
-          idempotency_key: idempotencyKey,
-          purpose: "coin_purchase",
-          amount: pack.fiat,
-          currency: "UGX",
-          status: "completed",
-          request: { type: "coin_purchase", packId, method },
-          response: { success: true },
+          idempotency_key:    idempotencyKey,
+          purpose:            "coin_purchase",
+          amount:             pack.fiat,
+          currency:           "UGX",
+          status:             "completed",
+          settled_at:         new Date().toISOString(),
+          request:            { type: "coin_purchase", packId, method },
+          response:           rpcResult ?? { success: true },
         }, { onConflict: "idempotency_key" });
         if (paymentRecordError) {
           throw new Error(`Wallet coin payment record failed: ${paymentRecordError.message}`);
         }
 
-        return json({ success: true });
+        return json({
+          success:           true,
+          issuanceId:        rpcResult?.issuance_id   ?? null,
+          originHash:        rpcResult?.origin_hash   ?? null,
+          coinBalanceAfter:  rpcResult?.coin_balance_after ?? null,
+          fiatBalanceAfter:  rpcResult?.fiat_balance_after ?? null,
+        });
       }
 
       // If pesapal (momo/card)

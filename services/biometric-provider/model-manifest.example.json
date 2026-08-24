@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "models": [
+    { "role": "detector", "name": "SELECT_AFTER_LICENSE_REVIEW", "path": "/models/detector.onnx", "sha256": "REQUIRED", "approved_for_production": false },
+    { "role": "embedder_primary", "name": "SELECT_AFTER_LICENSE_REVIEW", "path": "/models/embedder-a.onnx", "sha256": "REQUIRED", "approved_for_production": false },
+    { "role": "embedder_secondary", "name": "SELECT_AFTER_LICENSE_REVIEW", "path": "/models/embedder-b.onnx", "sha256": "REQUIRED", "approved_for_production": false },
+    { "role": "presentation_attack_detection", "name": "SELECT_AFTER_LICENSE_REVIEW", "path": "/models/pad.onnx", "sha256": "REQUIRED", "approved_for_production": false }
+  ]
+}

@@ -3250,9 +3250,21 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              gift.emoji,
-                              style: const TextStyle(fontSize: 32),
+                            SizedBox(
+                              width: 40,
+                              height: 40,
+                              child: () {
+                                final url = gift.imageUrl ?? 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/${gift.id}.jpeg';
+                                return ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: CachedNetworkImage(
+                                    imageUrl: url,
+                                    fit: BoxFit.cover,
+                                    placeholder: (_, __) => Center(child: Text(gift.emoji, style: const TextStyle(fontSize: 32))),
+                                    errorWidget: (_, __, ___) => Center(child: Text(gift.emoji, style: const TextStyle(fontSize: 32))),
+                                  ),
+                                );
+                              }(),
                             ),
                             const SizedBox(height: 8),
                             Text(

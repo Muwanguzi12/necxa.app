@@ -92,7 +92,7 @@ class WalletService {
     }
     try {
       final result = await _invoke(
-        'liquidate',
+        'liquidate_ncx',
         body: {
           'ncxAmount': ncxAmount,
           'securityMetadata': securityMetadata,

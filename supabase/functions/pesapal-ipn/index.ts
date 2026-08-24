@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const FINANCE_ENGINE_URL = Deno.env.get("FINANCE_ENGINE_URL")?.trim() ||
+  "https://ayvescksetiuekoyfqar.supabase.co/functions/v1/finance-engine";
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -36,9 +36,11 @@ serve(async (req) => {
       }, 400);
     }
 
-    // The finance engine is the only settlement authority. It independently
-    // verifies the transaction with PesaPal and applies one atomic ledger effect.
-    const financeUrl = new URL(`${supabaseUrl}/functions/v1/finance-engine`);
+    // The finance project is the only settlement authority. It independently
+    // verifies the transaction with PesaPal, then applies an idempotent order,
+    // reservation and payment update. The primary project never mutates its
+    // own shadow payment tables from a provider callback.
+    const financeUrl = new URL(FINANCE_ENGINE_URL);
     financeUrl.searchParams.set("OrderTrackingId", orderTrackingId);
     if (orderMerchantReference) {
       financeUrl.searchParams.set("OrderMerchantReference", orderMerchantReference);
@@ -47,11 +49,7 @@ serve(async (req) => {
 
     const response = await fetch(financeUrl, {
       method: "GET",
-      headers: {
-        apikey: supabaseServiceKey,
-        Authorization: `Bearer ${supabaseServiceKey}`,
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json" },
     });
     const responseBody = await response.text();
     return new Response(responseBody, {

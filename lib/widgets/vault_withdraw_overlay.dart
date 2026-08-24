@@ -315,6 +315,8 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
               // Request Email OTP when moving to verification
               setState(() => _sendingEmail = true);
               try {
+                final amount = double.parse(_selectedAmount.replaceAll(',', '')).round();
+                await widget.state.financeWithdrawals.eligibility(amount);
                 await widget.state.financeWithdrawals.sendOtp();
                 if (!mounted) return;
                 setState(() => _stage = 5);
@@ -339,7 +341,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
         children: [
           Text('Security Verification', style: syne(sz: 18, w: FontWeight.w700, c: Colors.white)),
           const SizedBox(height: 8),
-          Text('Enter the codes sent to your devices to authorize this extraction.', style: dm(sz: 12, c: Colors.white38)),
+          Text('We sent a six-digit verification code to your email address.', style: dm(sz: 12, c: Colors.white38)),
           
           const SizedBox(height: 32),
           
@@ -348,17 +350,24 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
           const SizedBox(height: 12),
           _SecureInput(
             controller: _emailOtpController,
-            hint: '6-digit email code',
+            hint: 'Enter 6-digit code',
             icon: Icons.email,
           ),
           const SizedBox(height: 8),
           TextButton(
             onPressed: _sendingEmail ? null : () async {
               setState(() => _sendingEmail = true);
-              await widget.state.financeWithdrawals.sendOtp();
-              if (!mounted) return;
-              setState(() => _sendingEmail = false);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code resent to your email.')));
+              try {
+                await widget.state.financeWithdrawals.sendOtp();
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('A new verification code was sent.')),
+                );
+              } catch (error) {
+                if (mounted) _showError('Could not send a new code: $error');
+              } finally {
+                if (mounted) setState(() => _sendingEmail = false);
+              }
             },
             child: Text(_sendingEmail ? 'Sending...' : 'Resend Code', style: dm(sz: 12, c: Colors.redAccent)),
           ),
@@ -423,8 +432,13 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
         method: _selectedMethod,
         idempotencyKey: _idempotencyKey!,
       );
-      _withdrawalId = result['withdrawalId']?.toString();
-      _withdrawalStatus = result['status']?.toString() ?? 'initiated';
+      final withdrawal = result['withdrawal'];
+      final withdrawalData = withdrawal is Map ? withdrawal : const <String, dynamic>{};
+      _withdrawalId = result['withdrawalId']?.toString() ?? withdrawalData['id']?.toString();
+      _withdrawalStatus = result['status']?.toString() ??
+          withdrawalData['workflow_status']?.toString() ??
+          withdrawalData['status']?.toString() ??
+          'initiated';
       if (mounted) setState(() => _stage = 7);
       _startStatusPolling();
     } catch (e) {
@@ -441,9 +455,13 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     _statusTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
       try {
         final result = await widget.state.financeWithdrawals.status(_withdrawalId!);
-        final status = result['status']?.toString();
+        final withdrawal = result['withdrawal'];
+        final withdrawalData = withdrawal is Map ? withdrawal : const <String, dynamic>{};
+        final status = result['status']?.toString() ??
+            withdrawalData['workflow_status']?.toString() ??
+            withdrawalData['status']?.toString();
         if (status != null && mounted) setState(() => _withdrawalStatus = status);
-        if (status == 'paid' || status == 'failed' || status == 'refunded') _statusTimer?.cancel();
+        if (status == 'paid' || status == 'failed' || status == 'refunded' || status == 'reversed' || status == 'sandbox_completed') _statusTimer?.cancel();
       } catch (_) {
         // A temporary network failure must not change the last verified status.
       }

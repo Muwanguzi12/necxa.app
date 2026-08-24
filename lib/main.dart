@@ -30,16 +30,25 @@ import 'services/notification_service.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:camera/camera.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 List<CameraDescription> cameras = [];
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  try {
-    cameras = await availableCameras();
-  } catch (e) {
-    debugPrint('Camera error: $e');
+  // Initialize sqflite for web (no-op on mobile)
+  if (kIsWeb) {
+    databaseFactory = databaseFactoryFfiWebNoWebWorker;
+  }
+
+  if (!kIsWeb) {
+    try {
+      cameras = await availableCameras();
+    } catch (e) {
+      debugPrint('Camera error: $e');
+    }
   }
   await Supabase.initialize(
     url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
@@ -67,14 +76,17 @@ void main() async {
 
   // Catch Background / Silent asynchronous errors (e.g., failed AI scans, unhandled Future errors)
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('Uncaught platform error: $error\n$stack');
     TelemetryService().logCrash(error, stack, context: 'PlatformDispatcher');
     return true;
   };
   // ──────────────────────────────────────────────────────────────────────────
 
-  final notifService = NotificationService();
-  await notifService.init();
-  await notifService.requestPermissions();
+  if (!kIsWeb) {
+    final notifService = NotificationService();
+    await notifService.init();
+    await notifService.requestPermissions();
+  }
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

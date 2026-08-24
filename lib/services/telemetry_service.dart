@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 
 class TelemetryService {
   static final TelemetryService _instance = TelemetryService._internal();
@@ -21,8 +21,8 @@ class TelemetryService {
         'stack_trace': stackTrace.toString(),
         'context': context ?? 'global',
         'user_id': session?.user.id,
-        'os': Platform.operatingSystem,
-        'os_version': Platform.operatingSystemVersion,
+        'os': kIsWeb ? 'web' : Platform.operatingSystem,
+        'os_version': kIsWeb ? 'browser' : Platform.operatingSystemVersion,
         'app_version': '1.0.0+1', // In a real app, use package_info_plus
         'created_at': DateTime.now().toIso8601String(),
       });

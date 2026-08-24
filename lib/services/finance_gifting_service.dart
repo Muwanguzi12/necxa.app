@@ -11,10 +11,12 @@ class GiftItem {
     required this.category,
     required this.sortOrder,
     this.isActive = true,
+    this.imageUrl,
   });
   final String id, name, emoji, category;
   final int ncxValue, ugxValue, sortOrder;
   final bool isActive;
+  final String? imageUrl;
   factory GiftItem.fromJson(Map<String, dynamic> json) => GiftItem(
     id: json['id']?.toString() ?? '',
     name: json['name']?.toString() ?? '',
@@ -24,6 +26,7 @@ class GiftItem {
     category: json['category']?.toString() ?? 'standard',
     sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
     isActive: json['is_active'] as bool? ?? true,
+    imageUrl: json['image_url']?.toString(),
   );
 }
 

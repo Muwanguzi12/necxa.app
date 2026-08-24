@@ -177,7 +177,7 @@ class AppState extends ChangeNotifier {
         localizedReason: reason,
         options: const AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: true,
+          biometricOnly: false,
           useErrorDialogs: true,
         ),
       );
@@ -907,9 +907,9 @@ class AppState extends ChangeNotifier {
       if (user?.id != walletUser.id) return;
       userWallet = Wallet.fromJson(wallet);
       _walletOwnerId = walletUser.id;
-      walletLastSyncedAt = DateTime.tryParse(
-        result['syncedAt']?.toString() ?? '',
-      ) ?? DateTime.now();
+      walletLastSyncedAt =
+          DateTime.tryParse(result['syncedAt']?.toString() ?? '') ??
+          DateTime.now();
       myProfile = {...?myProfile, 'finance': wallet};
     } on FinanceBackendException catch (e) {
       final restored = await _restoreWalletFromPrimarySnapshot(walletUser);
@@ -1120,6 +1120,7 @@ class AppState extends ChangeNotifier {
         isEmulated = !info.isPhysicalDevice;
       }
     }
+    final withdrawalDeviceFingerprint = await _withdrawalDeviceFingerprint();
 
     return {
       'lat': pos.latitude,
@@ -1128,9 +1129,24 @@ class AppState extends ChangeNotifier {
       'device_model': model,
       'os_version': os,
       'is_emulated': isEmulated,
+      // Opaque, per-install identifier used only for withdrawal risk limits.
+      // It avoids sending a hardware identifier to the finance backend.
+      'device_fingerprint': withdrawalDeviceFingerprint,
       'timestamp': DateTime.now().toIso8601String(),
       'ip_address': 'detected_at_edge', // Backend handles real IP
     };
+  }
+
+  Future<String> _withdrawalDeviceFingerprint() async {
+    const key = 'withdrawal_device_fingerprint_v1';
+    final preferences = await SharedPreferences.getInstance();
+    final existing = preferences.getString(key);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = math.Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+    final fingerprint = base64UrlEncode(bytes);
+    await preferences.setString(key, fingerprint);
+    return fingerprint;
   }
 
   Future<void> sellShards(double shards) async {
@@ -2950,7 +2966,9 @@ class AppState extends ChangeNotifier {
     try {
       final res = await Supabase.instance.client
           .from('transport_drivers')
-          .select('id,name,number_plate,vehicle_type,is_verified,is_available,country_code,verification_status,verification_reason_code')
+          .select(
+            'id,name,number_plate,vehicle_type,is_verified,is_available,country_code,verification_status,verification_reason_code',
+          )
           .eq('id', user!.id)
           .maybeSingle();
       if (res != null) {

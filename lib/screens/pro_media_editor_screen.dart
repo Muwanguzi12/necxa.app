@@ -1,9 +1,11 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:ui' as ui;
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../services/finance_backend.dart';
-import 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
+import '../services/ffmpeg_stub.dart'
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
 import 'package:video_player/video_player.dart';
 import '../services/video_enhancement_service.dart';
 import '../services/image_enhancement_service.dart';
