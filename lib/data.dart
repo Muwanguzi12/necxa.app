@@ -87,12 +87,14 @@ class Profile {
 class Gift {
   final String id, emoji, name;
   final int price, fee;
+  final String? imageUrl;
   const Gift({
     required this.id,
     required this.emoji,
     required this.name,
     required this.price,
     required this.fee,
+    this.imageUrl,
   });
 }
 
@@ -138,15 +140,25 @@ class PaymentMethod {
 
 // ── Helpers ───────────────────────────────────────────────────
 
+const String _giftCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
+
 const List<Gift> gifts = [
-  Gift(id: 'g1', emoji: '🌹', name: 'Rose', price: 2000, fee: 400),
-  Gift(id: 'g2', emoji: '🎵', name: 'Note', price: 5000, fee: 1000),
-  Gift(id: 'g3', emoji: '🏆', name: 'Trophy', price: 10000, fee: 2000),
-  Gift(id: 'g4', emoji: '💎', name: 'Diamond', price: 50000, fee: 10000),
-  Gift(id: 'g5', emoji: '🚗', name: 'Benz', price: 100000, fee: 20000),
-  Gift(id: 'g6', emoji: '✈️', name: 'Jet', price: 500000, fee: 100000),
-  Gift(id: 'g7', emoji: '🏠', name: 'House', price: 1000000, fee: 200000),
-  Gift(id: 'g8', emoji: '🌍', name: 'Universe', price: 5000000, fee: 1000000),
+  Gift(id: 'rose',       emoji: '🌹', name: 'Rose',       price: 1,     fee: 0,    imageUrl: '$_giftCdn/rose.jpeg'),
+  Gift(id: 'clap',       emoji: '👏', name: 'Clap',       price: 2,     fee: 0,    imageUrl: '$_giftCdn/clap.jpeg'),
+  Gift(id: 'heart',      emoji: '❤️', name: 'Heart',      price: 3,     fee: 0,    imageUrl: '$_giftCdn/heart.jpeg'),
+  Gift(id: 'star',       emoji: '⭐', name: 'Star',       price: 5,     fee: 1,    imageUrl: '$_giftCdn/star.jpeg'),
+  Gift(id: 'coffee',     emoji: '☕', name: 'Coffee',     price: 5,     fee: 1,    imageUrl: '$_giftCdn/coffee.jpeg'),
+  Gift(id: 'fire',       emoji: '🔥', name: 'Fire',       price: 10,    fee: 1,    imageUrl: '$_giftCdn/fire.jpeg'),
+  Gift(id: 'rocket',     emoji: '🚀', name: 'Rocket',     price: 20,    fee: 2,    imageUrl: '$_giftCdn/rocket.jpeg'),
+  Gift(id: 'crown',      emoji: '👑', name: 'Crown',      price: 25,    fee: 3,    imageUrl: '$_giftCdn/crown.jpeg'),
+  Gift(id: 'trophy',     emoji: '🏆', name: 'Trophy',     price: 50,    fee: 6,    imageUrl: '$_giftCdn/trophy.jpeg'),
+  Gift(id: 'diamond',    emoji: '💎', name: 'Diamond',    price: 50,    fee: 6,    imageUrl: '$_giftCdn/diamond.jpeg'),
+  Gift(id: 'money_bag',  emoji: '💰', name: 'Money Bag',  price: 100,   fee: 11,   imageUrl: '$_giftCdn/money_bag.jpeg'),
+  Gift(id: 'sports_car', emoji: '🏎️', name: 'Sports Car', price: 200,   fee: 22,   imageUrl: '$_giftCdn/sports_car.jpeg'),
+  Gift(id: 'yacht',      emoji: '🛥️', name: 'Yacht',      price: 500,   fee: 55,   imageUrl: '$_giftCdn/yacht.jpeg'),
+  Gift(id: 'mansion',    emoji: '🏰', name: 'Mansion',    price: 1000,  fee: 110,  imageUrl: '$_giftCdn/mansion.jpeg'),
+  Gift(id: 'globe',      emoji: '🌍', name: 'Globe',      price: 5000,  fee: 550,  imageUrl: '$_giftCdn/globe.jpeg'),
+  Gift(id: 'stadium',    emoji: '🏟️', name: 'Stadium',    price: 10000, fee: 1100, imageUrl: '$_giftCdn/stadium.jpeg'),
 ];
 
 const List<Post> posts = [

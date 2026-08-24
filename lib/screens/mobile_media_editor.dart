@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;

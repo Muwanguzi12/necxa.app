@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 
 /// Live gifting overlay driven only by verified Supabase 2 gift records.
@@ -36,6 +37,7 @@ class _LiveGiftingOverlayState extends State<LiveGiftingOverlay> with TickerProv
     final anim = _GiftAnimation(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       emoji: giftData['emoji'] ?? '🎁',
+      imageUrl: giftData['imageUrl'],
       userName: giftData['userName'] ?? 'User',
       controller: controller,
       x: 0.2 + math.Random().nextDouble() * 0.6, // Random horizontal position
@@ -75,7 +77,22 @@ class _LiveGiftingOverlayState extends State<LiveGiftingOverlay> with TickerProv
                 opacity: opacity.clamp(0, 1),
                 child: Column(
                   children: [
-                    Text(gift.emoji, style: const TextStyle(fontSize: 40)),
+                    if (gift.imageUrl != null)
+                      SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: CachedNetworkImage(
+                            imageUrl: gift.imageUrl!,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => Text(gift.emoji, style: const TextStyle(fontSize: 40)),
+                            errorWidget: (_, __, ___) => Text(gift.emoji, style: const TextStyle(fontSize: 40)),
+                          ),
+                        ),
+                      )
+                    else
+                      Text(gift.emoji, style: const TextStyle(fontSize: 40)),
                     const SizedBox(height: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -101,9 +118,10 @@ class _LiveGiftingOverlayState extends State<LiveGiftingOverlay> with TickerProv
 
 class _GiftAnimation {
   final String id, emoji, userName;
+  final String? imageUrl;
   final AnimationController controller;
   final double x;
-  _GiftAnimation({required this.id, required this.emoji, required this.userName, required this.controller, required this.x});
+  _GiftAnimation({required this.id, required this.emoji, this.imageUrl, required this.userName, required this.controller, required this.x});
 }
 
 /// 🛍️ Live Shop Overlay

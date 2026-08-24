@@ -5,10 +5,8 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   audioplayers_windows
-  cloud_firestore
   connectivity_plus
   file_selector_windows
-  firebase_auth
   firebase_core
   flutter_webrtc
   geolocator_windows

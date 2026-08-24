@@ -13,6 +13,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: false
+        fetch-depth: 0
 
     # ── Free up disk space (~10GB) before heavy Flutter/FFmpeg build ──
     - name: Free disk space
@@ -32,7 +35,7 @@ jobs:
         df -h
 
     - name: Setup Java
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
         java-version: '17'

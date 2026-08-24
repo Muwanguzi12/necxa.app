@@ -957,6 +957,8 @@ class SocialService {
       final localDb = LocalDbService();
       final db = await localDb.database;
       await db.delete('community_posts', where: 'id = ?', whereArgs: [postId]);
+      _feedCache.removeWhere((post) => post['id']?.toString() == postId);
+      state.notify();
       debugPrint('🎬 SocialService: Post $postId deleted from all nodes.');
     } catch (e) {
       debugPrint('Post Deletion Error: $e');

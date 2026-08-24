@@ -25,6 +25,54 @@ class _LiveBackendException implements Exception {
   String toString() => message;
 }
 
+@immutable
+class LiveSessionCredentials {
+  final String token;
+  final String url;
+  final String streamId;
+  final String channelId;
+
+  const LiveSessionCredentials({
+    required this.token,
+    required this.url,
+    required this.streamId,
+    required this.channelId,
+  });
+
+  factory LiveSessionCredentials.fromBackend(
+    Map<String, dynamic> data, {
+    required String requestedChannelId,
+    required bool requireServerChannel,
+  }) {
+    final token = (data['token'] ?? '').toString().trim();
+    final url = (data['url'] ?? LiveStreamingService.liveKitUrl)
+        .toString()
+        .trim();
+    final streamId = (data['streamId'] ?? '').toString().trim();
+    final serverChannelId = (data['channelId'] ?? data['roomName'] ?? '')
+        .toString()
+        .trim();
+    final channelId = serverChannelId.isNotEmpty
+        ? serverChannelId
+        : (requireServerChannel ? '' : requestedChannelId.trim());
+
+    if (token.isEmpty) {
+      throw const FormatException('Live token was not returned by the server.');
+    }
+    if (channelId.isEmpty) {
+      throw const FormatException(
+        'The live server did not allocate a session room.',
+      );
+    }
+    return LiveSessionCredentials(
+      token: token,
+      url: url,
+      streamId: streamId,
+      channelId: channelId,
+    );
+  }
+}
+
 /// Necxa Live Studio: Core Streaming Engine
 /// Handles video/audio via LiveKit and real-time metadata via MongoDB.
 class LiveStreamingService {
@@ -32,6 +80,7 @@ class LiveStreamingService {
   Room? _room;
   EventsListener<RoomEvent>? _roomEventsListener;
   String? _activeChannelName;
+  String? _activeStreamId;
   bool _hostingActiveChannel = false;
   String _currentRole = 'viewer';
   final Set<String> _commentSyncChannels = <String>{};
@@ -58,7 +107,16 @@ class LiveStreamingService {
   LiveStreamingService(this.state);
 
   Room? get room => _room;
+  String? get activeStreamId => _activeStreamId;
   bool get isCoHostPublishing => _currentRole == 'publisher';
+
+  Map<String, dynamic> _identityMetadata({String fallbackName = 'Viewer'}) {
+    return {
+      'name': state.myDisplayName ?? fallbackName,
+      'username': state.myUsername ?? '',
+      'avatar': state.myAvatarUrl ?? '',
+    };
+  }
 
   Stream<Map<String, dynamic>> controlEventsForChannel(String channelId) {
     return _controlEvents.stream.where(
@@ -85,20 +143,23 @@ class LiveStreamingService {
     }
   }
 
-  Future<Map<String, String>> _fetchCredentials({
+  Future<LiveSessionCredentials> _fetchCredentials({
     required String action,
     required String channelName,
     String? role,
   }) async {
+    final identity = _identityMetadata(
+      fallbackName: action == 'start' ? 'Necxa Creator' : 'Viewer',
+    );
     final response = await _invokeLiveBackend({
       'action': action,
       'channelId': channelName,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
       if (role != null) 'role': role,
       'metadata': {
-        'name': state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
-        'hostName': state.myProfile?['full_name'] ?? 'Necxa Creator',
-        'avatar': state.myProfile?['avatar_url'] ?? '',
+        ...identity,
+        'hostName': identity['name'],
         if (action == 'start') 'title': 'Live Studio Session',
       },
       if (action == 'start')
@@ -109,12 +170,15 @@ class LiveStreamingService {
     });
 
     final data = Map<String, dynamic>.from(response as Map? ?? const {});
-    final token = (data['token'] ?? '').toString();
-    final url = (data['url'] ?? liveKitUrl).toString();
-    if (token.isEmpty) {
-      throw 'Live token was not returned by the server.';
+    try {
+      return LiveSessionCredentials.fromBackend(
+        data,
+        requestedChannelId: channelName,
+        requireServerChannel: action == 'start',
+      );
+    } on FormatException catch (error) {
+      throw error.message;
     }
-    return {'token': token, 'url': url};
   }
 
   Future<dynamic> _invokeLiveBackend(Map<String, dynamic> body) async {
@@ -294,16 +358,35 @@ class LiveStreamingService {
     }
   }
 
+  Future<void> _invokeLifecycleBackend(
+    Map<String, dynamic> body, {
+    int attempts = 3,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        await _invokeLiveBackend(body);
+        return;
+      } catch (error) {
+        lastError = error;
+        final permanent = error is _LiveBackendException && error.isPermanent;
+        if (permanent || attempt == attempts) break;
+        await Future<void>.delayed(
+          Duration(milliseconds: attempt == 1 ? 350 : 900),
+        );
+      }
+    }
+    throw lastError ?? 'Live lifecycle synchronization failed.';
+  }
+
   Future<void> _confirmJoin(String channelName, {required String role}) async {
-    await _invokeLiveBackend({
+    await _invokeLifecycleBackend({
       'action': 'confirm_join',
       'channelId': channelName,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
       'role': role,
-      'metadata': {
-        'name': state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
-        'avatar': state.myProfile?['avatar_url'] ?? '',
-      },
+      'metadata': _identityMetadata(),
     });
   }
 
@@ -313,6 +396,7 @@ class LiveStreamingService {
     final listener = _roomEventsListener;
     _roomEventsListener = null;
     _activeChannelName = null;
+    _activeStreamId = null;
     _hostingActiveChannel = false;
     _currentRole = 'viewer';
     if (listener != null) await listener.dispose();
@@ -324,37 +408,39 @@ class LiveStreamingService {
     }
   }
 
-  Future<void> startStreaming(String channelName) async {
+  Future<String> startStreaming(String channelName) async {
     await _ensurePublishingPermissions();
     final creds = await _fetchCredentials(
       action: 'start',
       channelName: channelName,
     );
+    final canonicalChannelId = creds.channelId;
+    _activeStreamId = creds.streamId.isEmpty ? null : creds.streamId;
     try {
       await _connect(
-        channelName: channelName,
-        url: creds['url']!,
-        token: creds['token']!,
+        channelName: canonicalChannelId,
+        url: creds.url,
+        token: creds.token,
         publish: true,
       );
-      await _invokeLiveBackend({
+      await _invokeLifecycleBackend({
         'action': 'confirm_start',
-        'channelId': channelName,
+        'channelId': canonicalChannelId,
         'userId': state.user?.id,
-        'metadata': {
-          'name': state.myProfile?['full_name'] ?? 'Necxa Creator',
-          'avatar': state.myProfile?['avatar_url'] ?? '',
-        },
+        if (creds.streamId.isNotEmpty) 'streamId': creds.streamId,
+        'metadata': _identityMetadata(fallbackName: 'Necxa Creator'),
       });
       _hostingActiveChannel = true;
       _currentRole = 'host';
+      return canonicalChannelId;
     } catch (error) {
       try {
-        await _invokeLiveBackend({
+        await _invokeLifecycleBackend({
           'action': 'abort_start',
-          'channelId': channelName,
+          'channelId': canonicalChannelId,
           'userId': state.user?.id,
-        });
+          if (creds.streamId.isNotEmpty) 'streamId': creds.streamId,
+        }, attempts: 2);
       } catch (abortError) {
         debugPrint(
           'Necxa Live: Start rollback will expire automatically: $abortError',
@@ -381,17 +467,32 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'audience',
     );
+    final canonicalChannelId = creds.channelId;
+    _activeStreamId = creds.streamId.isEmpty ? null : creds.streamId;
     try {
       await _connect(
-        channelName: channelName,
-        url: creds['url']!,
-        token: creds['token']!,
+        channelName: canonicalChannelId,
+        url: creds.url,
+        token: creds.token,
         publish: false,
       );
-      await _confirmJoin(channelName, role: 'audience');
+      await _confirmJoin(canonicalChannelId, role: 'audience');
       _hostingActiveChannel = false;
       _currentRole = 'viewer';
     } catch (_) {
+      try {
+        await _invokeLifecycleBackend({
+          'action': 'leave',
+          'channelId': canonicalChannelId,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
+          'userId': state.user?.id,
+        }, attempts: 2);
+      } catch (leaveError) {
+        debugPrint(
+          'Necxa Live: Failed join presence will expire automatically: '
+          '$leaveError',
+        );
+      }
       await _disconnectRoom();
       rethrow;
     }
@@ -405,9 +506,10 @@ class LiveStreamingService {
       if (shouldStop) {
         await stopStreaming(channelName);
       } else if (channelName != null) {
-        await _invokeLiveBackend({
+        await _invokeLifecycleBackend({
           'action': 'leave',
           'channelId': channelName,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
           'userId': state.user?.id,
         });
       }
@@ -420,9 +522,10 @@ class LiveStreamingService {
   }
 
   Future<void> stopStreaming(String channelName) async {
-    await _invokeLiveBackend({
+    await _invokeLifecycleBackend({
       'action': 'stop',
       'channelId': channelName,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
     });
   }
@@ -437,22 +540,25 @@ class LiveStreamingService {
       channelName: channelName,
       role: 'publisher',
     );
+    final canonicalChannelId = creds.channelId;
+    _activeStreamId = creds.streamId.isEmpty ? null : creds.streamId;
     try {
       await _connect(
-        channelName: channelName,
-        url: creds['url']!,
-        token: creds['token']!,
+        channelName: canonicalChannelId,
+        url: creds.url,
+        token: creds.token,
         publish: true,
       );
-      await _confirmJoin(channelName, role: 'publisher');
+      await _confirmJoin(canonicalChannelId, role: 'publisher');
       _currentRole = 'publisher';
     } catch (_) {
       try {
-        await _invokeLiveBackend({
+        await _invokeLifecycleBackend({
           'action': 'leave',
-          'channelId': channelName,
+          'channelId': canonicalChannelId,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
           'userId': state.user?.id,
-        });
+        }, attempts: 2);
       } catch (_) {
         // Presence expires automatically if cleanup cannot reach the backend.
       }
@@ -508,6 +614,7 @@ class LiveStreamingService {
     final response = await _invokeLiveBackend({
       'action': 'fetch_stream_state',
       'channelId': channelId,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
     });
     final data = response is Map ? response['data'] : null;
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
@@ -694,7 +801,7 @@ class LiveStreamingService {
       channelId: channelName,
       userId: userId,
       userName: userName,
-      userAvatar: state.myProfile?['avatar_url']?.toString() ?? '',
+      userAvatar: state.myAvatarUrl ?? '',
       text: text,
       clientRequestId: requestId,
     );
@@ -897,11 +1004,12 @@ class LiveStreamingService {
     final response = await _invokeLiveBackend({
       'action': 'send_reaction',
       'channelId': channelId,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
       'userId': state.user?.id,
-      'userName':
-          state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
+      'userName': state.myDisplayName ?? 'Viewer',
       'reactionType': reactionType,
-      'metadata': {'avatar': state.myProfile?['avatar_url'] ?? ''},
+      'clientRequestId': _newCommentRequestId('live_reaction'),
+      'metadata': {'avatar': state.myAvatarUrl ?? ''},
     });
     final data = response is Map ? response['data'] : null;
     return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
@@ -928,13 +1036,9 @@ class LiveStreamingService {
         final response = await _invokeLiveBackend({
           'action': 'poll_event',
           'channelId': channelId,
+          if (_activeStreamId != null) 'streamId': _activeStreamId,
           'role': _currentRole,
           if (cursor != null) 'eventCursor': cursor,
-          'metadata': {
-            'name':
-                state.myProfile?['full_name'] ?? state.user?.email ?? 'Viewer',
-            'avatar': state.myProfile?['avatar_url'] ?? '',
-          },
         });
         final data = response is Map ? response['data'] : null;
         if (data is! Map) {
@@ -964,6 +1068,20 @@ class LiveStreamingService {
         }
       } catch (e) {
         debugPrint('Necxa Live: Failed to poll events: $e');
+        if (e is _LiveBackendException && e.statusCode == 410) {
+          yield <String, dynamic>{
+            'streamEnded': true,
+            'summary': <String, dynamic>{
+              'streamId': _activeStreamId ?? '',
+              'viewerCount': 0,
+              'likes': 0,
+              'shares': 0,
+              'reactionCounts': <String, int>{},
+              'viewers': <Map<String, dynamic>>[],
+            },
+          };
+          break;
+        }
         yield <String, dynamic>{};
       }
     }

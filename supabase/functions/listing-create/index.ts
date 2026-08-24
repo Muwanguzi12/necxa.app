@@ -8,7 +8,7 @@ import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, idempotency-key, x-primary-jwt",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
 }
 
@@ -19,7 +19,36 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 
 const err = (message: string, status = 400) => json({ error: message }, status)
 
+const VERIFICATION_PROJECT_URL = Deno.env.get("VERIFICATION_PROJECT_URL") || "https://ayvescksetiuekoyfqar.supabase.co"
+const VERIFICATION_PROJECT_ANON_KEY = Deno.env.get("VERIFICATION_PROJECT_ANON_KEY") || "sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT"
 
+async function verifySp2IdentityShard(primaryJwt: string, identityShardId: string) {
+  const response = await fetch(`${VERIFICATION_PROJECT_URL}/functions/v1/identity-verify`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${primaryJwt}`,
+      "x-primary-jwt": primaryJwt,
+      apikey: VERIFICATION_PROJECT_ANON_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action: "status", identity_shard_id: identityShardId }),
+  })
+  const payload = await response.json().catch(() => ({}))
+  return response.ok && payload?.verified === true
+}
+
+async function deterministicListingId(userId: string, idempotencyKey: string) {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${userId}:${idempotencyKey}`),
+  ))
+  // RFC 4122 variant plus a version-5 marker. The content hash, not random
+  // process state, makes retries converge on the same primary key.
+  digest[6] = (digest[6] & 0x0f) | 0x50
+  digest[8] = (digest[8] & 0x3f) | 0x80
+  const hex = Array.from(digest.slice(0, 16), byte => byte.toString(16).padStart(2, "0")).join("")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
 
 // ============================================
 // MAIN EDGE FUNCTION
@@ -184,7 +213,7 @@ Deno.serve(async (req) => {
            formData.append('photo', new Blob([mediaBytes], { type: 'image/jpeg' }), 'photo.jpg');
            formData.append('title', title);
 
-           const aiRes = await fetch('https://api.necxa.uk/api/verify/listing', { method: 'POST', body: formData });
+           const aiRes = await fetch('https://necxa-ai-engine.knestars.workers.dev/api/verify/listing', { method: 'POST', body: formData });
            if (aiRes.ok) {
              const result = await aiRes.json();
              score = result.score || score;
@@ -312,6 +341,7 @@ Deno.serve(async (req) => {
       const identityShardId = formData.get("identity_shard_id") as string
       const utilityShardId = formData.get("utility_shard_id") as string
       const gpsNodeId = formData.get("gps_node_id") as string
+      const idempotencyKey = (formData.get("idempotency_key") as string || req.headers.get("Idempotency-Key") || "").trim()
 
       // Property details
       const title = formData.get("title") as string
@@ -360,20 +390,77 @@ Deno.serve(async (req) => {
         if (key.startsWith("video_") && val instanceof File) videoFiles.push(val)
       }
 
-      if (!title || !propertyType || !purpose || !district || !priceUgx) {
+      if (!title || !propertyType || !purpose || !district || !priceUgx || priceUgx <= 0) {
         return err("Missing required fields: title, property_type, purpose, district, price", 400)
+      }
+      if (!identityShardId || !utilityShardId || !gpsNodeId) {
+        return err("Verified identity, utility, and GPS shard IDs are required", 400)
+      }
+      if (idempotencyKey.length < 12 || idempotencyKey.length > 180) {
+        return err("A valid listing idempotency key is required", 400)
+      }
+      if (photoFiles.length === 0) {
+        return err("At least one exterior or interior property photo is required", 400)
       }
       if (bathroomFiles.length === 0) {
         return err("Bathroom photos are mandatory - please upload at least one", 400)
       }
 
+      const primaryJwt = authHeader?.replace(/^Bearer\s+/i, "").trim() || ""
+      if (!primaryJwt) {
+        return err("A valid SP1 session is required to validate the SP2 identity shard", 401)
+      }
+      if (!await verifySp2IdentityShard(primaryJwt, identityShardId)) {
+        return err("The identity shard is missing, belongs to another user, or is not verified in SP2", 422)
+      }
+
+      const { data: utilityShard, error: utilityError } = await supabaseAdmin
+        .from("utility_shards")
+        .select("id, verified")
+        .eq("id", utilityShardId)
+        .eq("user_id", userId)
+        .eq("verified", true)
+        .maybeSingle()
+      if (utilityError || !utilityShard) {
+        return err("The utility shard is missing, belongs to another user, or is not verified", 422)
+      }
+
       // Get GPS node for coordinates
-      const { data: gpsNode } = await supabaseAdmin
+      const { data: gpsNode, error: gpsError } = await supabaseAdmin
         .from("gps_nodes")
         .select("*")
         .eq("id", gpsNodeId)
         .eq("agent_id", profile.id)
         .single()
+      if (gpsError || !gpsNode) {
+        return err("The GPS node is missing or does not belong to this account", 422)
+      }
+      if (gpsNode.risk_flag === true || Number(gpsNode.accuracy_meters || 9999) > 500) {
+        return err("The GPS node accuracy is too low. Lock the property location again.", 422)
+      }
+
+      const deterministicId = await deterministicListingId(userId, idempotencyKey)
+      const { data: existingListing } = await supabaseAdmin
+        .from("listings")
+        .select("id")
+        .eq("id", deterministicId)
+        .eq("user_id", userId)
+        .maybeSingle()
+      if (existingListing) {
+        const { data: existingMint } = await supabaseAdmin
+          .from("mint_events")
+          .select("mint_event_id")
+          .eq("listing_id", deterministicId)
+          .maybeSingle()
+        return json({
+          success: true,
+          listing_id: deterministicId,
+          mint_event_id: existingMint?.mint_event_id || `MINT_${deterministicId.replaceAll("-", "").slice(0, 20)}`,
+          status: "ACTIVE",
+          stage: "complete",
+          idempotent_replay: true,
+        })
+      }
 
       // Upload photos
       const timestamp = Date.now()
@@ -382,53 +469,65 @@ Deno.serve(async (req) => {
 
       for (let i = 0; i < photoFiles.length; i++) {
         const path = `${userId}/${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, photoFiles[i], { upsert: true, contentType: photoFiles[i].type || 'image/jpeg' })
-        if (!error) photoPaths.push(path)
+        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, photoFiles[i], { upsert: false, contentType: photoFiles[i].type || 'image/jpeg' })
+        if (error) throw new Error(`Property photo upload failed: ${error.message}`)
+        photoPaths.push(path)
       }
 
       const videoPaths: string[] = []
       for (let i = 0; i < videoFiles.length; i++) {
         const ext = videoFiles[i].name.split('.').pop() || 'mp4'
         const path = `${userId}/reel_${timestamp}_${i}.${ext}`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, videoFiles[i], { upsert: true, contentType: videoFiles[i].type || 'video/mp4' })
-        if (!error) videoPaths.push(path)
+        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, videoFiles[i], { upsert: false, contentType: videoFiles[i].type || 'video/mp4' })
+        if (error) throw new Error(`Property video upload failed: ${error.message}`)
+        videoPaths.push(path)
       }
 
       for (let i = 0; i < bathroomFiles.length; i++) {
         const path = `${userId}/bath_${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, bathroomFiles[i], { upsert: true, contentType: bathroomFiles[i].type || 'image/jpeg' })
-        if (!error) bathroomPaths.push(path)
+        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, bathroomFiles[i], { upsert: false, contentType: bathroomFiles[i].type || 'image/jpeg' })
+        if (error) throw new Error(`Bathroom photo upload failed: ${error.message}`)
+        bathroomPaths.push(path)
       }
 
       // Calculate broker fee (5% for agent, 2% for Necxa = 7% total)
       const brokerFee = Math.floor(priceUgx * 0.07)
 
       // === Cloudflare Workers AI Listing Verifier ===
-      let aiScore = 0.85;
-      let aiLevel = "VERIFIED";
-      let aiDescription = "Listing verified.";
-      
-      if (photoFiles.length > 0) {
-         try {
-           const aiFormData = new FormData();
-           aiFormData.append('photo', photoFiles[0]);
-           aiFormData.append('title', title);
-           const aiRes = await fetch('https://api.necxa.uk/api/verify/listing', { method: 'POST', body: aiFormData });
-           if (aiRes.ok) {
-             const result = await aiRes.json();
-             aiScore = (result.score || 85) / 100.0; // Normalize 0-100 to 0.0-1.0
-             aiLevel = result.verified ? "VERIFIED" : "FLAGGED";
-             aiDescription = result.description || aiDescription;
-           }
-         } catch (e) {
-           console.error("Cloudflare Listing Verification Error:", e);
-         }
+      const aiFormData = new FormData();
+      aiFormData.append('photo', photoFiles[0]);
+      aiFormData.append('title', title);
+      aiFormData.append('category', 'exterior');
+      aiFormData.append('countryCode', country.toLowerCase().startsWith('uganda') ? 'UG' : 'ZZ');
+      const aiRes = await fetch('https://necxa-ai-engine.knestars.workers.dev/api/verify/listing', {
+        method: 'POST',
+        headers: {
+          'x-primary-jwt': primaryJwt,
+          'Idempotency-Key': `${idempotencyKey}:property-ai`,
+        },
+        body: aiFormData,
+      });
+      const aiResult = await aiRes.json().catch(() => ({}));
+      if (!aiRes.ok) {
+        throw new Error(aiResult?.error || 'Property image verification is temporarily unavailable.')
       }
+      if (aiResult?.verified !== true) {
+        return json({
+          success: false,
+          error: aiResult?.description || 'The property photo requires review or a clearer original capture.',
+          decision: aiResult?.decision || 'manual_review',
+          reason_code: aiResult?.reasonCode || 'property_photo_requires_review',
+        }, 422)
+      }
+      const aiScore = Math.max(0, Math.min(1, Number(aiResult.score || 0) / 100.0));
+      const aiLevel = "VERIFIED";
+      const aiDescription = aiResult.description || "Property image checks passed.";
 
       // Create listing
       const { data: listing, error: listErr } = await supabaseAdmin
         .from("listings")
         .insert({
+          id: deterministicId,
           user_id: userId,
           lister_id: userId, // Standardized
           title,
@@ -471,6 +570,24 @@ Deno.serve(async (req) => {
 
       if (listErr) {
         console.error("Listing creation error:", listErr)
+        if (listErr.code === "23505") {
+          const { data: racedListing } = await supabaseAdmin
+            .from("listings")
+            .select("id")
+            .eq("id", deterministicId)
+            .eq("user_id", userId)
+            .maybeSingle()
+          if (racedListing) {
+            return json({
+              success: true,
+              listing_id: deterministicId,
+              mint_event_id: `MINT_${deterministicId.replaceAll("-", "").slice(0, 20)}`,
+              status: "ACTIVE",
+              stage: "complete",
+              idempotent_replay: true,
+            })
+          }
+        }
         return err(`Listing creation failed: ${listErr.message}`, 500)
       }
 
@@ -599,7 +716,7 @@ Deno.serve(async (req) => {
       }
 
       // Create mint event
-      const mintEventId = `MINT_${timestamp}_${listing.id.slice(0, 8)}`
+      const mintEventId = `MINT_${listing.id.replaceAll("-", "").slice(0, 20)}`
       await supabaseAdmin.from("mint_events").insert({
         listing_id: listing.id,
         agent_id: profile.id,

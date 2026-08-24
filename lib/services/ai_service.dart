@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -57,6 +57,8 @@ class NecxaAI {
     required String primaryBase64,
     String? secondaryBase64,
     String? userId,
+    String? countryCode,
+    String? documentType,
   }) {
     final payload = <String, dynamic>{
       'action': action,
@@ -66,24 +68,33 @@ class NecxaAI {
     if (secondaryBase64 != null) {
       payload['payload']['idImageBase64'] = secondaryBase64;
     }
+    if (countryCode != null) {
+      payload['payload']['countryCode'] = countryCode;
+    }
+    if (documentType != null) {
+      payload['payload']['documentType'] = documentType;
+    }
 
     return payload;
   }
 
   // ── CLOUDFLARE WORKER DIRECT REST CLIENT ──
-  // necxa-ai v2: Runs on Cloudflare Workers at api.necxa.uk
+  // Canonical Worker URL. The api.necxa.uk DNS record is not currently
+  // resolvable, so production requests must not depend on that custom route.
   // Endpoints: /api/verify/photo, /api/verify/video, /api/verify/audio,
   //            /api/verify/listing, /api/verify/live-frame,
   //            /api/assistant/chat/sync
-  static const String _workerBase = 'https://api.necxa.uk';
+  static const String _workerBase =
+      'https://necxa-ai-engine.knestars.workers.dev';
+  static const String _identityVerificationUrl =
+      'https://ayvescksetiuekoyfqar.supabase.co/functions/v1/verify-identity-shard';
+  static const String _identityVerificationPublishableKey =
+      'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
   static const Duration _imageVerificationTimeout = Duration(seconds: 45);
   static const Duration _videoVerificationTimeout = Duration(seconds: 90);
   static const Duration _audioVerificationTimeout = Duration(seconds: 90);
 
-  static String _verificationRequestError(
-    Object error,
-    String mediaLabel,
-  ) {
+  static String _verificationRequestError(Object error, String mediaLabel) {
     if (error is TimeoutException) {
       return '$mediaLabel verification took longer than expected. Check your connection and try again.';
     }
@@ -160,10 +171,7 @@ class NecxaAI {
       );
     } catch (e) {
       debugPrint('⚡ Worker photo verify failed: $e');
-      return {
-        'success': false,
-        'error': _verificationRequestError(e, 'Photo'),
-      };
+      return {'success': false, 'error': _verificationRequestError(e, 'Photo')};
     }
   }
 
@@ -196,10 +204,7 @@ class NecxaAI {
       return normalizeModerationResponse(decoded);
     } catch (e) {
       debugPrint('⚡ Worker video verify failed: $e');
-      return {
-        'success': false,
-        'error': _verificationRequestError(e, 'Video'),
-      };
+      return {'success': false, 'error': _verificationRequestError(e, 'Video')};
     }
   }
 
@@ -290,10 +295,7 @@ class NecxaAI {
       );
     } catch (e) {
       debugPrint('⚡ Worker audio verify failed: $e');
-      return {
-        'success': false,
-        'error': _verificationRequestError(e, 'Audio'),
-      };
+      return {'success': false, 'error': _verificationRequestError(e, 'Audio')};
     }
   }
 
@@ -303,6 +305,8 @@ class NecxaAI {
   static Future<Map<String, dynamic>> verifyListingPhotoWorker({
     required File photo,
     String title = 'Property',
+    String? category,
+    String? idempotencyKey,
   }) async {
     try {
       final req =
@@ -313,6 +317,12 @@ class NecxaAI {
             ..headers.addAll(_workerHeaders())
             ..fields['title'] = title
             ..files.add(await http.MultipartFile.fromPath('photo', photo.path));
+      if (category != null && category.trim().isNotEmpty) {
+        req.fields['category'] = category.trim();
+      }
+      if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty) {
+        req.headers['Idempotency-Key'] = idempotencyKey.trim();
+      }
       final streamed = await req.send().timeout(_imageVerificationTimeout);
       final body = await streamed.stream.bytesToString();
       return _decodeWorkerResponse(
@@ -371,13 +381,20 @@ class NecxaAI {
   static Future<String> askNecxaWorker(
     String userPrompt, {
     String language = 'English',
+    List<Map<String, String>> conversation = const [],
+    Map<String, dynamic>? context,
   }) async {
     try {
       final res = await http
           .post(
             Uri.parse('$_workerBase/api/assistant/chat/sync'),
             headers: {"Content-Type": "application/json", ..._workerHeaders()},
-            body: jsonEncode({'message': userPrompt, 'language': language}),
+            body: jsonEncode({
+              'message': userPrompt,
+              'language': language,
+              'messages': conversation,
+              'context': context,
+            }),
           )
           .timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
@@ -387,8 +404,12 @@ class NecxaAI {
       throw Exception('Worker returned ${res.statusCode}');
     } catch (e) {
       debugPrint('⚡ Worker chat failed, falling back to Supabase: $e');
-      // Fallback to existing Supabase necxa-chat function
-      return askNexca(userPrompt);
+      return askNexca(
+        userPrompt,
+        context: context,
+        conversation: conversation,
+        language: language,
+      );
     }
   }
 
@@ -413,6 +434,43 @@ class NecxaAI {
     return headers;
   }
 
+  /// The app authenticates on SP1, while SP2 is the authoritative home for
+  /// verification processing. SP2 validates this forwarded SP1 JWT itself.
+  static Future<Map<String, dynamic>> _invokeIdentityVerification(
+    Map<String, dynamic> payload,
+  ) async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      throw Exception('User must be signed in to verify identity.');
+    }
+
+    final response = await http
+        .post(
+          Uri.parse(_identityVerificationUrl),
+          headers: {
+            'Authorization': 'Bearer ${session.accessToken}',
+            'x-primary-jwt': session.accessToken,
+            'apikey': _identityVerificationPublishableKey,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(payload),
+        )
+        .timeout(const Duration(seconds: 45));
+    final raw = response.body.trim();
+    final data = raw.isEmpty
+        ? <String, dynamic>{}
+        : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        data['feedback']?.toString() ??
+            data['message']?.toString() ??
+            data['error']?.toString() ??
+            'Identity verification is temporarily unavailable.',
+      );
+    }
+    return data;
+  }
+
   // ── IDENTITY VERIFICATION ──
   static Future<Map<String, dynamic>> verifyID(
     File imageFile, {
@@ -425,17 +483,15 @@ class NecxaAI {
         throw Exception("User must be logged in to verify ID natively.");
 
       final primaryBase64 = await fileToBase64(imageFile);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-identity-shard',
-        headers: _aiHeaders(),
-        body: buildIdentityShardPayload(
+      final data = await _invokeIdentityVerification(
+        buildIdentityShardPayload(
           action: action,
           primaryBase64: primaryBase64,
           userId: userId ?? session.user.id,
+          countryCode: 'UG',
+          documentType: 'national_id',
         ),
       );
-
-      final data = Map<String, dynamic>.from(res.data ?? {});
       final verified = data['verified'] == true;
       final feedback =
           data['feedback']?.toString() ??
@@ -452,11 +508,9 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
-      return {
-        'verified': false,
-        'feedback': 'Verification failed: $e',
-        'score': 0,
-      };
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
+      return {'verified': false, 'feedback': msg, 'score': 0};
     }
   }
 
@@ -472,17 +526,13 @@ class NecxaAI {
         );
 
       final primaryBase64 = await fileToBase64(selfieFile);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-identity-shard',
-        headers: _aiHeaders(),
-        body: buildIdentityShardPayload(
+      final data = await _invokeIdentityVerification(
+        buildIdentityShardPayload(
           action: 'verify-face-only',
           primaryBase64: primaryBase64,
           userId: userId ?? session.user.id,
         ),
       );
-
-      final data = Map<String, dynamic>.from(res.data ?? {});
       final faceMatch = data['faceMatch'] == true || data['verified'] == true;
       final feedback =
           data['feedback']?.toString() ??
@@ -499,11 +549,9 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
-      return {
-        'faceMatch': false,
-        'feedback': 'Verification failed: $e',
-        'score': 0,
-      };
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
+      return {'faceMatch': false, 'feedback': msg, 'score': 0};
     }
   }
 
@@ -557,18 +605,14 @@ class NecxaAI {
 
       final primaryBase64 = await fileToBase64(selfieFile);
       final secondaryBase64 = await fileToBase64(idReferenceFile);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-identity-shard',
-        headers: _aiHeaders(),
-        body: buildIdentityShardPayload(
+      final data = await _invokeIdentityVerification(
+        buildIdentityShardPayload(
           action: 'verify-selfie',
           primaryBase64: primaryBase64,
           secondaryBase64: secondaryBase64,
           userId: userId ?? session.user.id,
         ),
       );
-
-      final data = Map<String, dynamic>.from(res.data ?? {});
       final faceMatch = data['faceMatch'] == true || data['verified'] == true;
       final feedback =
           data['feedback']?.toString() ??
@@ -585,11 +629,9 @@ class NecxaAI {
         'score': score ?? 0,
       };
     } catch (e) {
-      return {
-        'faceMatch': false,
-        'feedback': 'Verification failed: $e',
-        'score': 0,
-      };
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
+      return {'faceMatch': false, 'feedback': msg, 'score': 0};
     }
   }
 
@@ -627,25 +669,41 @@ class NecxaAI {
   static Future<String> askNexca(
     String userPrompt, {
     Map<String, dynamic>? context,
+    List<Map<String, String>> conversation = const [],
+    String language = 'English',
   }) async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) return 'Login required for Necxa Chat';
 
     try {
-      final res = await Supabase.instance.client.functions.invoke(
-        'necxa-chat',
-        headers: _aiHeaders(
-          extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'},
-        ),
-        body: {
-          'messages': [
-            {'role': 'user', 'content': userPrompt},
-          ],
-          'context': context,
-          'userId': session.user.id,
-        },
-      );
-      final data = Map<String, dynamic>.from(res.data);
+      final res = await http
+          .post(
+            Uri.parse(
+              'https://ayvescksetiuekoyfqar.supabase.co/functions/v1/necxa-chat',
+            ),
+            headers: {
+              'Authorization': 'Bearer ${session.accessToken}',
+              'x-primary-jwt': session.accessToken,
+              'apikey': _identityVerificationPublishableKey,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'message': userPrompt,
+              'messages': conversation.isEmpty
+                  ? [
+                      {'role': 'user', 'content': userPrompt},
+                    ]
+                  : conversation,
+              'context': context,
+              'language': language,
+              'userId': session.user.id,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw Exception('SP2 chat returned ${res.statusCode}');
+      }
+      final data = Map<String, dynamic>.from(jsonDecode(res.body) as Map);
       return data['content'] ?? 'No response';
     } catch (e) {
       return 'Error connecting to Necxa AI: $e';
@@ -686,7 +744,8 @@ class NecxaAI {
     required File driverSelfie,
     required File permitImage,
     required File vehicleImage,
-    String? userId,
+    required String issuingCountryCode,
+    required bool aiProcessingConsent,
   }) async {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null)
@@ -699,16 +758,15 @@ class NecxaAI {
 
       final res = await Supabase.instance.client.functions.invoke(
         'verify-transport',
-        headers: _aiHeaders(
-          extra: {'X-Shield-Signature': 'SHIELD_VERIFIED_772'},
-        ),
+        headers: _aiHeaders(),
         body: {
           'action': 'verify_transport',
           'payload': {
             'driverImageBase64': driverBase64,
             'permitImageBase64': permitBase64,
             'vehicleImageBase64': vehicleBase64,
-            'userId': userId ?? session.user.id,
+            'issuingCountryCode': issuingCountryCode.trim().toUpperCase(),
+            'aiProcessingConsent': aiProcessingConsent,
           },
         },
       );

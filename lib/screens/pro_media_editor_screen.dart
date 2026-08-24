@@ -1,9 +1,11 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:ui' as ui;
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
+import 'package:flutter/foundation.dart';
+import '../services/finance_backend.dart';
+import '../services/ffmpeg_stub.dart'
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
 import 'package:video_player/video_player.dart';
 import '../services/video_enhancement_service.dart';
 import '../services/image_enhancement_service.dart';
@@ -3740,22 +3742,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               Navigator.pop(dialogContext);
               setState(() => _isProcessing = true);
               try {
-                final unlockFunction = FirebaseFunctions.instanceFor(
-                  region: 'us-central1',
-                ).httpsCallable('unlockFeature');
-                final result = await unlockFunction.call({
-                  'featureId': 'pro_transitions',
-                  'ncxCost': 50,
-                });
-                if (result.data['success'] == true) {
+                final result = await FinanceBackend.instance.invoke(
+                  'unlock_feature',
+                  body: {
+                    'featureId': 'pro_transitions',
+                    'costNcx': 50,
+                    'idempotencyKey':
+                        'feature-pro_transitions-${widget.state.user?.id}',
+                  },
+                );
+                if (result['success'] == true) {
                   setState(() => _transitionsUnlocked = true);
                   _feedback('Pro Transitions Unlocked! 🚀');
                   _showTransitionSheet();
                 }
-              } on FirebaseFunctionsException catch (e) {
-                _feedback(
-                  "Error: ${e.message ?? 'Could not complete purchase.'}",
-                );
+              } catch (e) {
+                _feedback('Error: $e');
               } finally {
                 if (mounted) setState(() => _isProcessing = false);
               }

@@ -8,6 +8,43 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-primary-jwt',
 }
 
+const documentFailureFeedback: Record<string, string> = {
+  document_unreadable:
+    'The model could not read the required fields from this capture. Keep the whole card inside the frame, avoid glare, and retake it once.',
+  document_expired: 'This identity document appears to be expired.',
+  possible_document_tampering:
+    'This document could not be approved automatically and requires review.',
+  issuing_country_unknown:
+    'The issuing country could not be confirmed. Retake the full document in clear light.',
+  document_type_not_configured_for_country:
+    'This document type is not enabled for automatic verification in its issuing country.',
+  country_profile_not_approved:
+    'This document requires manual review and cannot be approved automatically yet.',
+  country_profile_not_configured:
+    'Automatic verification is not configured for this document country yet.',
+}
+
+const biometricFailureFeedback: Record<string, string> = {
+  biometric_provider_not_configured:
+    'Face-match service is not configured yet. Your approved ID captures remain on this step; do not retake them. Try face verification later.',
+  biometric_provider_unavailable:
+    'Face-match service is temporarily offline. Keep this screen open and retry only the selfie later; do not retake the ID images.',
+  identity_reference_required:
+    'The National ID reference image is missing. Restart the identity scan.',
+  presentation_attack_detected:
+    'Liveness verification could not approve this capture. Please retry with your face clearly visible.',
+  liveness_below_threshold:
+    'Liveness could not be confirmed. Face the camera directly in brighter light and retry.',
+  face_similarity_below_threshold:
+    'Your selfie could not be matched to the National ID photo. Please retry in better light.',
+}
+
+function percentage(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  return parsed <= 1 ? parsed * 100 : parsed
+}
+
 serve(async (req) => {
   // 1. Handle CORS Preflight perfectly
   if (req.method === 'OPTIONS') {
@@ -54,7 +91,7 @@ serve(async (req) => {
     const sessionId = `SES-${Date.now()}`
     const sessionLink = `https://dashboard.necxa.com/audit/sessions/${sessionId}`
 
-    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://api.necxa.uk'
+    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
     if (action === 'verify-id' || action === 'verify-id-front' || action === 'verify-id-back' || action === 'verify-id-holding') {
       const { imageBase64 } = payload || {}
       if (!imageBase64) throw new Error("Missing imageBase64 payload")
@@ -65,29 +102,65 @@ serve(async (req) => {
       
       const formData = new FormData();
       formData.append('idFront', new Blob([imageBytes], { type: 'image/jpeg' }), `${stage}.jpg`);
+      formData.append('countryCode', payload?.countryCode || 'UG');
+      formData.append('documentType', payload?.documentType || 'national_id');
+      formData.append('captureStage', stage);
 
       const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
         method: 'POST',
-        headers: { 'x-primary-jwt': primaryJwt },
+        headers: {
+          'x-primary-jwt': primaryJwt,
+          'Idempotency-Key': `${secureUserId}:${stage}:${crypto.randomUUID()}`,
+        },
         body: formData
       });
 
       if (!aiRes.ok) {
         const aiError = await aiRes.json().catch(() => ({}));
-        throw new Error(`AI Engine Error: ${aiError.error || aiRes.statusText || aiRes.status}`);
+        const providerUnavailable = aiRes.status === 503 ||
+          aiError.code === 'document_provider_unavailable';
+        return new Response(JSON.stringify({
+          verified: false,
+          decision: 'deferred',
+          reasonCode: providerUnavailable
+            ? 'document_provider_unavailable'
+            : 'document_analysis_failed',
+          retryable: providerUnavailable,
+          feedback: providerUnavailable
+            ? 'Document verification is temporarily unavailable. Your photo was not rejected; please retry shortly.'
+            : 'The document could not be analyzed. Please retake it with the whole card inside the frame.'
+        }), {
+          status: providerUnavailable ? 503 : 422,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
       const aiData = await aiRes.json();
       if (!aiData.success) throw new Error(`Verification Failed: ${aiData.error}`);
 
+      const ocrResult = aiData.ocrResult || {}
+      const reasonCode = String(ocrResult.reasonCode || 'document_requires_review')
+      const automaticallyVerified = ocrResult.verified === true && ocrResult.decision === 'pass'
+      const feedback = automaticallyVerified
+        ? `National ID ${stage} scan verified by ${ocrResult.model || 'the vision model'}. Continue to the next capture.`
+        : documentFailureFeedback[reasonCode] ||
+          'This document scan could not be accepted.'
+
       return new Response(JSON.stringify({
-        verified: aiData.ocrResult.verified,
-        score: aiData.ocrResult.score * 100,
-        docType: aiData.ocrResult.docType,
-        country: aiData.ocrResult.country,
-        extractedData: aiData.ocrResult.extractedData,
-        ocrLogs: aiData.ocrResult.ocrLogs,
+        verified: automaticallyVerified,
+        automaticallyVerified,
+        decision: ocrResult.decision || 'manual_review',
+        reasonCode,
+        requiresManualReview: ocrResult.decision === 'manual_review',
+        score: percentage(ocrResult.score),
+        qualityScore: percentage(ocrResult.qualityScore),
+        docType: ocrResult.docType,
+        country: ocrResult.country,
+        extractedData: ocrResult.extractedData,
+        warnings: ocrResult.warnings,
+        ocrLogs: ocrResult.ocrLogs,
         stage,
-        feedback: `Document scan (${stage}) verified via AI.`,
+        feedback,
+        verificationSessionId: aiData.sessionId,
         sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
@@ -119,7 +192,13 @@ serve(async (req) => {
       const aiData = await aiRes.json();
       if (!aiData.success) throw new Error(`Biometric Failed: ${aiData.error}`);
 
-      if (action === 'verify-selfie' && aiData.biometricResult.faceMatch) {
+      const biometricResult = aiData.biometricResult || {}
+      const verified = biometricResult.verified === true &&
+        biometricResult.faceMatch === true &&
+        biometricResult.livenessPassed === true
+      const reasonCode = String(biometricResult.reasonCode || 'biometric_requires_review')
+
+      if (action === 'verify-selfie' && verified) {
         const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
         const primaryAdminClient = PRIMARY_SUPABASE_SERVICE_ROLE_KEY 
           ? createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY)
@@ -132,12 +211,22 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({
-        faceMatch: aiData.biometricResult.faceMatch,
-        score: aiData.biometricResult.similarityScore * 100,
-        feedback: action === 'verify-face-only'
-          ? 'Face-only liveness verification completed successfully.'
-          : 'Volumetric physical liveness validated and matching completed successfully.',
-        biometricLogs: aiData.biometricResult.biometricLogs,
+        verified,
+        faceMatch: verified,
+        livenessPassed: biometricResult.livenessPassed === true,
+        decision: biometricResult.decision || 'manual_review',
+        reasonCode,
+        requiresManualReview: biometricResult.decision === 'manual_review',
+        score: percentage(biometricResult.similarityScore),
+        livenessScore: percentage(biometricResult.livenessScore),
+        feedback: verified
+          ? (action === 'verify-face-only'
+            ? 'Face-only liveness verification completed successfully.'
+            : 'Liveness and National ID face matching completed successfully.')
+          : biometricFailureFeedback[reasonCode] ||
+            'Biometric verification was not approved. Please retry with your face clearly visible.',
+        biometricLogs: biometricResult.biometricLogs,
+        verificationSessionId: aiData.sessionId,
         sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }

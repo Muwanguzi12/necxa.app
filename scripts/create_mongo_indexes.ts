@@ -69,6 +69,10 @@ try {
     // Compound: unique viewer per stream
     [{ channelId: 1, userId: 1 }, { unique: true, name: "idx_viewers_channel_user" }],
     [{ channelId: 1, active: 1, lastSeenAt: -1 }, { name: "idx_viewers_active"    }],
+    [
+      { channelId: 1, active: 1, normalizedUsername: 1, lastSeenAt: -1 },
+      { name: "idx_viewers_online_username" },
+    ],
     // TTL: remove viewer records 7 days after they left
     [{ leftAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7, sparse: true, name: "idx_viewers_ttl" }],
   ]);
@@ -132,10 +136,36 @@ try {
   console.log("\n📁  reactions");
   await ensureIndexes(db, "stream_reactions", [
     [{ channelId:  1  }, { name: "idx_reactions_channel"                         }],
+    [{ streamId: 1, timestamp: -1 }, { name: "idx_reactions_session_time" }],
+    [
+      { streamId: 1, userId: 1, clientRequestId: 1 },
+      {
+        unique: true,
+        name: "idx_reactions_session_request",
+        partialFilterExpression: {
+          streamId: { $type: "string" },
+          clientRequestId: { $type: "string" },
+        },
+      },
+    ],
     [{ timestamp: -1 }, { name: "idx_reactions_timestamp"                        }],
     [{ channelId: 1, timestamp: -1 }, { name: "idx_reactions_channel_time"       }],
     // TTL: auto-delete reactions after 7 days
     [{ timestamp: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7, name: "idx_reactions_ttl" }],
+  ]);
+  await ensureIndexes(db, "stream_session_analytics", [
+    [{ streamId: 1 }, { unique: true, name: "idx_session_analytics_stream" }],
+    [
+      { hostId: 1, endedAt: -1 },
+      { name: "idx_session_analytics_host_history" },
+    ],
+    [
+      { endedAt: 1 },
+      {
+        expireAfterSeconds: 60 * 60 * 24 * 90,
+        name: "idx_session_analytics_ttl",
+      },
+    ],
   ]);
 
   // ── gifts ────────────────────────────────────────────────────────────────────

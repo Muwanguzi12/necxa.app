@@ -1,5 +1,10 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { redisCall, syncMessageToRedis, triggerChatNotification, normalizeMessages } from "@shared/chat-helpers.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4"
+import {
+  normalizeMessages,
+  redisCall,
+  syncMessageToRedis,
+  triggerChatNotification,
+} from "../_shared/chat-helpers.ts"
 
 
 
@@ -10,7 +15,7 @@ import { redisCall, syncMessageToRedis, triggerChatNotification, normalizeMessag
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-primary-jwt",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-primary-jwt, x-goobox-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
@@ -26,13 +31,61 @@ const err = (message: string, status = 400) => json({ error: message }, status)
 const PRIMARY_SUPABASE_URL = Deno.env.get("PRIMARY_SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
 const PRIMARY_SUPABASE_ANON_KEY = Deno.env.get("PRIMARY_SUPABASE_ANON_KEY") || "sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR"
 const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE_ROLE_KEY")
+const GOOBOX_SHARED_SECRET = Deno.env.get("GOOBOX_SHARED_SECRET") || ""
+const SUPPORT_ACCOUNT_ID = Deno.env.get("SUPPORT_ACCOUNT_ID") || ""
 
-// Enforce database operations execute against the primary backend
-const primaryAdminKey = PRIMARY_SUPABASE_SERVICE_ROLE_KEY || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-const primaryUrl = PRIMARY_SUPABASE_SERVICE_ROLE_KEY ? PRIMARY_SUPABASE_URL : Deno.env.get("SUPABASE_URL")!
+let supabase: ReturnType<typeof createClient>
+let primaryClient: ReturnType<typeof createClient>
 
-const supabase = createClient(primaryUrl, primaryAdminKey)
-const primaryClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY)
+function initializeClients() {
+  if (supabase && primaryClient) return
+
+  // Enforce database operations against the primary backend when its
+  // service-role key is configured; otherwise retain the legacy local-project
+  // fallback for non-production development environments.
+  const localUrl = Deno.env.get("SUPABASE_URL") || ""
+  const localServiceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || ""
+  const primaryAdminKey = PRIMARY_SUPABASE_SERVICE_ROLE_KEY || localServiceRole
+  const primaryUrl = PRIMARY_SUPABASE_SERVICE_ROLE_KEY ? PRIMARY_SUPABASE_URL : localUrl
+  if (!primaryUrl || !primaryAdminKey || !PRIMARY_SUPABASE_ANON_KEY) {
+    throw new Error("Chat database credentials are not configured")
+  }
+
+  supabase = createClient(primaryUrl, primaryAdminKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  primaryClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+}
+
+async function secretsMatch(candidate: string, expected: string): Promise<boolean> {
+  if (!candidate || !expected || expected.length < 32) return false
+  const encoder = new TextEncoder()
+  const [candidateHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(candidate)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ])
+  const left = new Uint8Array(candidateHash)
+  const right = new Uint8Array(expectedHash)
+  let difference = left.length ^ right.length
+  for (let index = 0; index < Math.min(left.length, right.length); index++) {
+    difference |= left[index] ^ right[index]
+  }
+  return difference === 0
+}
+
+async function stableSupportMessageId(sourceReplyId: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`goobox:${sourceReplyId}`),
+  ))
+  const bytes = digest.slice(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
 
 
 // ============================================
@@ -168,7 +221,10 @@ function buildReply(message: string): string {
 
 // --- 🤖 1. AI Assistant ---
 async function handleAI(_userId: string, payload: any) {
-  const message = payload.message || (payload.messages && payload.messages[0]?.content)
+  const messages = Array.isArray(payload.messages)
+    ? payload.messages.filter((item: any) => item && typeof item.content === "string")
+    : []
+  const message = payload.message || [...messages].reverse().find((item: any) => item.role === "user")?.content
   if (!message) return err("Missing message for AI")
 
   const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
@@ -178,7 +234,12 @@ async function handleAI(_userId: string, payload: any) {
     const aiRes = await fetch(`${NECXA_AI_URL}/api/assistant/chat/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, context: payload.context }),
+      body: JSON.stringify({
+        message,
+        messages,
+        context: payload.context,
+        language: payload.language,
+      }),
     })
     if (aiRes.ok) {
       const aiData = await aiRes.json()
@@ -198,12 +259,42 @@ async function handleAI(_userId: string, payload: any) {
 
 
 // --- 💬 2. Send Message (Direct) ---
-async function handleSendMessage(userId: string, payload: any) {
-  const { id, to_user_id, room_id, content, media_url, message_type = "text", metadata = {} } = payload
+async function handleSendMessage(
+  userId: string,
+  payload: any,
+  options: { isSupport?: boolean } = {},
+) {
+  const { to_user_id, room_id, content, media_url, message_type = "text" } = payload
+  const sourceReplyId = typeof payload.source_reply_id === "string"
+    ? payload.source_reply_id.trim()
+    : ""
   if (!to_user_id && !room_id) return err("Missing recipient or room")
+  if (options.isSupport) {
+    if (!to_user_id || typeof to_user_id !== "string") return err("Missing support recipient")
+    if (to_user_id === userId) return err("Support recipient cannot be the support account")
+    if (typeof content !== "string" || !content.trim()) return err("Missing support reply")
+    if (content.length > 5000) return err("Support reply is too long")
+    if (typeof payload.ticket_id !== "string" || !payload.ticket_id.trim()) return err("Missing ticket_id")
+    if (!sourceReplyId || sourceReplyId.length > 512) return err("Missing or invalid source_reply_id")
+  }
+  const id = options.isSupport
+    ? await stableSupportMessageId(sourceReplyId)
+    : payload.id
+  const metadata = options.isSupport
+    ? {
+        interaction_context: "support",
+        conversation_label: "Necxa Support",
+        initiated_via: "necxa_support_link",
+        source: "goobox",
+        ticket_id: payload.ticket_id,
+        source_reply_id: sourceReplyId,
+      }
+    : (payload.metadata ?? {})
 
   // 1. Resolve/Create Room
-  let finalRoomId = room_id
+  // A Goobox request may never choose an arbitrary room. Always derive the
+  // room from the configured support account and the verified ticket owner.
+  let finalRoomId = options.isSupport ? null : room_id
   if (!finalRoomId) {
     const { data: rId, error: rErr } = await supabase.rpc('get_or_create_direct_room', {
       p_user_a: userId,
@@ -214,7 +305,7 @@ async function handleSendMessage(userId: string, payload: any) {
   }
 
   // 2. Persist to Postgres
-  const { data: message, error: mErr } = await supabase
+  let { data: message, error: mErr } = await supabase
     .from("direct_messages")
     .insert({
       ...(id && { id }), // Only include id if provided
@@ -228,13 +319,68 @@ async function handleSendMessage(userId: string, payload: any) {
     .select("*, profiles:sender_id(full_name, avatar_url)")
     .single()
 
-  if (mErr) return err(`Insert failed: ${mErr.message}`)
+  let deduplicated = false
+  if (mErr?.code === "23505" && options.isSupport) {
+    const existing = await supabase
+      .from("direct_messages")
+      .select("*, profiles:sender_id(full_name, avatar_url)")
+      .eq("id", id)
+      .single()
+    message = existing.data
+    mErr = existing.error
+    deduplicated = true
+  }
+  if (mErr || !message) return err(`Insert failed: ${mErr?.message || "message was not created"}`)
+  if (deduplicated) {
+    const existingMetadata: Record<string, unknown> =
+      message.metadata && typeof message.metadata === "object"
+      ? message.metadata as Record<string, unknown>
+      : {}
+    const isSameSupportReply = message.room_id === finalRoomId &&
+      message.sender_id === userId &&
+      message.content === content &&
+      existingMetadata.interaction_context === "support" &&
+      existingMetadata.source === "goobox" &&
+      existingMetadata.ticket_id === payload.ticket_id &&
+      existingMetadata.source_reply_id === sourceReplyId
+    if (!isSameSupportReply) {
+      return err("Support reply identifier conflicts with an existing message", 409)
+    }
+  }
 
   // 3. 🚀 Neural Sync: Push to Redis
-  await syncMessageToRedis(message)
+  if (!deduplicated) await syncMessageToRedis(message)
 
   // 4. Update Room List for both users in Redis
-  const { data: roomInfo } = await supabase.from("direct_chat_rooms").select("user_a, user_b").eq("id", finalRoomId).single()
+  const { data: roomInfo } = await supabase
+    .from("direct_chat_rooms")
+    .select("user_a, user_b, metadata")
+    .eq("id", finalRoomId)
+    .single()
+  if (options.isSupport) {
+    const participants = new Set([roomInfo?.user_a, roomInfo?.user_b])
+    if (!participants.has(userId) || !participants.has(to_user_id)) {
+      return err("Support room recipient mismatch", 409)
+    }
+    const currentRoomMetadata = roomInfo?.metadata && typeof roomInfo.metadata === "object" &&
+        !Array.isArray(roomInfo.metadata)
+      ? roomInfo.metadata
+      : {}
+    const { error: roomMetadataError } = await supabase
+      .from("direct_chat_rooms")
+      .update({
+        metadata: {
+          ...currentRoomMetadata,
+          interaction_context: "support",
+          conversation_label: "Necxa Support",
+          initiated_via: "necxa_support_link",
+          source: "goobox",
+          ticket_id: payload.ticket_id,
+        },
+      })
+      .eq("id", finalRoomId)
+    if (roomMetadataError) return err(`Support room update failed: ${roomMetadataError.message}`, 500)
+  }
   if (roomInfo) {
     const timestamp = Date.now()
     await redisCall("ZADD", `chat:user:${roomInfo.user_a}:rooms`, timestamp, finalRoomId)
@@ -242,13 +388,52 @@ async function handleSendMessage(userId: string, payload: any) {
   }
 
   // 5. Trigger Notification in Redis
-  const recipientId = to_user_id || (roomInfo?.user_a === userId ? roomInfo?.user_b : roomInfo?.user_a)
-  if (recipientId) {
-    await triggerChatNotification(recipientId, userId, finalRoomId, content)
+  const recipientId = options.isSupport
+    ? to_user_id
+    : (to_user_id || (roomInfo?.user_a === userId ? roomInfo?.user_b : roomInfo?.user_a))
+  if (recipientId && !deduplicated) {
+    await triggerChatNotification(
+      recipientId,
+      userId,
+      finalRoomId,
+      content,
+      options.isSupport
+        ? { interaction_context: "support", conversation_label: "Necxa Support" }
+        : undefined,
+    )
   }
 
+  if (options.isSupport && recipientId) {
+    const preview = content.trim().slice(0, 180)
+    const { error: notificationError } = await supabase
+      .from("notifications")
+      .upsert({
+        user_id: recipientId,
+        actor_id: userId,
+        notification_type: "system",
+        type: "system",
+        title: "Necxa Support",
+        body: preview,
+        target_id: finalRoomId,
+        target_type: "system",
+        dedupe_key: `support-message:${message.id}`,
+        metadata: {
+          interaction_context: "support",
+          conversation_label: "Necxa Support",
+          initiated_via: "necxa_support_link",
+          room_id: finalRoomId,
+          message_id: message.id,
+          ticket_id: payload.ticket_id,
+        },
+      }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true })
 
-  return json({ success: true, data: message })
+    if (notificationError) {
+      console.error("Support notification insert failed:", notificationError)
+      return err("Support message saved but inbox notification failed", 500)
+    }
+  }
+
+  return json({ success: true, data: message, deduplicated })
 }
 
 // --- 📥 3. Fetch Messages (Direct) ---
@@ -313,30 +498,47 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
 
   try {
-    // Auth Check using primary auth server - Strict Federated Auth Bridge
-    const primaryJwt = req.headers.get("x-primary-jwt")
-    if (!primaryJwt) return err("Unauthorized: missing x-primary-jwt", 401)
+    initializeClients()
 
-    const primaryUserClient = createClient(
-      PRIMARY_SUPABASE_URL,
-      PRIMARY_SUPABASE_ANON_KEY,
-      { global: { headers: { Authorization: `Bearer ${primaryJwt}` } } }
-    )
+    // Federated users remain the default. Goobox gets one narrowly scoped,
+    // server-to-server path that can only send as the dedicated support account.
+    const gooboxSecret = req.headers.get("x-goobox-secret") || ""
+    const isGoobox = gooboxSecret.length > 0
+    let userId: string
 
-    const { data: { user }, error: userError } = await primaryUserClient.auth.getUser()
-    if (userError || !user) return err("Unauthorized: invalid primary JWT", 401)
+    if (isGoobox) {
+      if (!SUPPORT_ACCOUNT_ID || !(await secretsMatch(gooboxSecret, GOOBOX_SHARED_SECRET))) {
+        return err("Unauthorized: invalid Goobox credentials", 401)
+      }
+      userId = SUPPORT_ACCOUNT_ID
+    } else {
+      const primaryJwt = req.headers.get("x-primary-jwt")
+      if (!primaryJwt) return err("Unauthorized: missing x-primary-jwt", 401)
 
-    const userId = user.id
+      const primaryUserClient = createClient(
+        PRIMARY_SUPABASE_URL,
+        PRIMARY_SUPABASE_ANON_KEY,
+        { global: { headers: { Authorization: `Bearer ${primaryJwt}` } } }
+      )
+
+      const { data: { user }, error: userError } = await primaryUserClient.auth.getUser()
+      if (userError || !user) return err("Unauthorized: invalid primary JWT", 401)
+      userId = user.id
+    }
 
     const body = await req.json()
     const { action, payload = {} } = body
+
+    if (isGoobox && action !== "SEND_MESSAGE") {
+      return err("Goobox may only send support messages", 403)
+    }
 
     // Route Actions
     switch (action) {
       case "AI_ASSISTANT":
         return handleAI(userId, body) // Body passed for legacy 'messages' field
       case "SEND_MESSAGE":
-        return handleSendMessage(userId, payload)
+        return handleSendMessage(userId, payload, { isSupport: isGoobox })
       case "FETCH_MESSAGES":
         return handleFetchMessages(userId, payload)
       case "FETCH_ROOMS":
@@ -350,6 +552,7 @@ Deno.serve(async (req) => {
     }
   } catch (e) {
     console.error("Router Error:", e)
-    return err(`Internal error: ${e.message}`, 500)
+    const message = e instanceof Error ? e.message : "unknown error"
+    return err(`Internal error: ${message}`, 500)
   }
 })

@@ -20,7 +20,6 @@ const COMMENT_PAGE_LIMIT = 50;
 const COMMENT_MAX_PAGE_LIMIT = 100;
 const COMMENT_MAX_LENGTH = 2_000;
 const GUEST_REQUEST_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-const GUEST_REQUEST_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 let cachedMongoClient: MongoClient | null = null;
 let cachedMongoDatabase: Db | null = null;
@@ -132,32 +131,56 @@ function normalizedViewerHandle(value: unknown): string {
     .toLowerCase();
 }
 
-function serializeGuestRequest(request: Record<string, unknown> | null) {
-  if (!request) return null;
-  const { _id, ...data } = request;
-  return {
-    id: String(data.requestId ?? (_id as ObjectId | undefined)?.toString() ?? ""),
-    ...data,
-  };
-}
-
-function streamEventPayload(
-  event: Record<string, unknown>,
-  result: { insertedId: ObjectId; sequence: number },
+function viewerIdentity(
+  metadata: Record<string, unknown>,
+  fallbackName: unknown = "Viewer",
+  fallbackAvatar: unknown = "",
 ) {
+  const username = String(metadata.username ?? "")
+    .trim()
+    .replace(/^@+/, "");
   return {
-    id: result.insertedId.toString(),
-    ...event,
-    cursor: String(result.sequence),
+    userName: String(metadata.name ?? fallbackName ?? "Viewer"),
+    avatar: String(metadata.avatar ?? fallbackAvatar ?? ""),
+    ...(username
+      ? {
+        username,
+        normalizedUsername: normalizedViewerHandle(username),
+      }
+      : {}),
   };
 }
 
-function normalizedViewerHandle(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .replace(/^@+/, "")
-    .replace(/[_\s]+/g, "")
-    .toLowerCase();
+async function verifiedViewerIdentity(
+  userId: string,
+  metadata: Record<string, unknown>,
+  fallbackName: unknown = "Viewer",
+  fallbackAvatar: unknown = "",
+) {
+  const fallback = viewerIdentity(metadata, fallbackName, fallbackAvatar);
+  if (!supabaseAdmin) return fallback;
+
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, username, avatar_url")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) {
+    console.warn("Viewer profile lookup failed:", error.message);
+    return fallback;
+  }
+  if (!data || typeof data !== "object") return fallback;
+
+  const profile = data as Record<string, unknown>;
+  return viewerIdentity(
+    {
+      name: profile.full_name ?? fallback.userName,
+      username: profile.username ?? metadata.username,
+      avatar: profile.avatar_url ?? fallback.avatar,
+    },
+    fallback.userName,
+    fallback.avatar,
+  );
 }
 
 function productPhotos(value: unknown): string[] {
@@ -184,6 +207,11 @@ function productPhotos(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function finiteNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 async function ownedListingProduct(
   listingId: string,
   userId: string,
@@ -199,7 +227,7 @@ async function ownedListingProduct(
   }
   const { data, error } = await supabaseAdmin
     .from("listings")
-    .select("*, profiles:user_id(full_name, avatar_url)")
+    .select("*")
     .eq("id", listingId)
     .maybeSingle();
   if (error) {
@@ -212,7 +240,19 @@ async function ownedListingProduct(
   if (!data) return { error: "Product listing was not found", status: 404 };
 
   const listing = data as Record<string, unknown>;
-  const ownerId = String(listing.user_id ?? listing.lister_id ?? "");
+  const userOwnerId = String(listing.user_id ?? "").trim();
+  const listerOwnerId = String(listing.lister_id ?? "").trim();
+  if (
+    userOwnerId &&
+    listerOwnerId &&
+    userOwnerId !== listerOwnerId
+  ) {
+    return {
+      error: "This listing has inconsistent ownership and cannot be pinned",
+      status: 409,
+    };
+  }
+  const ownerId = userOwnerId || listerOwnerId;
   if (!ownerId || ownerId !== userId) {
     return {
       error: "You can only pin products owned by your hosting account",
@@ -220,11 +260,22 @@ async function ownedListingProduct(
     };
   }
   const status = String(listing.status ?? "active").toLowerCase();
-  if (!["active", "verified", "published"].includes(status)) {
+  if (status !== "active") {
     return { error: "This product is not available for sale", status: 409 };
   }
 
-  const photos = productPhotos(listing.photos);
+  const price = finiteNumber(listing.price ?? listing.price_ugx);
+  if (price <= 0) {
+    return { error: "This product does not have a valid sale price", status: 409 };
+  }
+  const stockCount = finiteNumber(listing.stock_count);
+  if (stockCount <= 0) {
+    return { error: "This product is out of stock", status: 409 };
+  }
+
+  const photos = productPhotos(
+    listing.miniature_photos ?? listing.photos ?? listing.listing_photos,
+  );
   const thumbnail = String(
     listing.thumbnail_url ??
       listing.image_url ??
@@ -239,10 +290,20 @@ async function ownedListingProduct(
       listing.film_hub_content ??
       thumbnail,
   );
-  const profile = listing.profiles && typeof listing.profiles === "object"
-    ? listing.profiles as Record<string, unknown>
+  const { data: ownerProfile, error: ownerProfileError } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name, avatar_url")
+    .eq("id", ownerId)
+    .maybeSingle();
+  if (ownerProfileError) {
+    console.warn(
+      "Listing owner profile lookup failed:",
+      ownerProfileError.message,
+    );
+  }
+  const profile = ownerProfile && typeof ownerProfile === "object"
+    ? ownerProfile as Record<string, unknown>
     : {};
-  const price = Number(listing.price ?? listing.price_ugx ?? 0);
 
   return {
     product: {
@@ -253,18 +314,30 @@ async function ownedListingProduct(
       ownerId,
       title: String(listing.title ?? "Product"),
       description: String(listing.description ?? ""),
-      price: Number.isFinite(price) ? price : 0,
-      price_ugx: Number.isFinite(price) ? price : 0,
+      price,
+      price_ugx: finiteNumber(listing.price_ugx, price),
+      currency: String(listing.currency ?? "UGX"),
       sku: String(listing.sku ?? ""),
-      stock_count:
-        listing.stock_count == null ? null : Number(listing.stock_count),
+      stock_count: stockCount,
       category: String(listing.category ?? "General"),
       photos,
+      miniature_photos: photos,
+      listing_photos: photos,
       thumbnail_url: thumbnail,
       image_url: thumbnail,
       image: thumbnail,
       media_url: mediaUrl,
+      media_type: String(listing.media_type ?? "image"),
       film_hub_content: String(listing.film_hub_content ?? mediaUrl),
+      weight_kg: finiteNumber(listing.weight_kg),
+      length_cm: finiteNumber(listing.length_cm),
+      width_cm: finiteNumber(listing.width_cm),
+      height_cm: finiteNumber(listing.height_cm),
+      latitude:
+        listing.latitude == null ? null : finiteNumber(listing.latitude),
+      longitude:
+        listing.longitude == null ? null : finiteNumber(listing.longitude),
+      pickup_address: String(listing.pickup_address ?? ""),
       lister_name: String(
         listing.lister_name ?? profile.full_name ?? "Vendor",
       ),
@@ -381,6 +454,79 @@ function liveHeartbeatFilter(now = new Date()) {
   };
 }
 
+async function archiveSessionEngagement(
+  db: Db,
+  sessions: Array<Record<string, unknown>>,
+  endedAt: Date,
+  endedReason: string,
+): Promise<void> {
+  if (sessions.length === 0) return;
+  try {
+    const sessionScopes = sessions.map((session) => {
+      const streamId = String(session.streamId ?? "").trim();
+      const channelId = String(session.channelId ?? "").trim();
+      return streamId
+        ? {
+          $or: [
+            { streamId },
+            { channelId, streamId: { $exists: false } },
+          ],
+        }
+        : { channelId };
+    });
+    const analyticsWrites = sessions
+      .filter((session) => String(session.streamId ?? "").trim())
+      .map((session) => {
+        const counts = session.reactionCounts &&
+            typeof session.reactionCounts === "object"
+          ? session.reactionCounts as Record<string, unknown>
+          : {};
+        const totalReactions = Object.values(counts).reduce(
+          (total, value) => total + finiteNumber(value),
+          0,
+        );
+        return {
+          updateOne: {
+            filter: { streamId: String(session.streamId) },
+            update: {
+              $set: {
+                streamId: String(session.streamId),
+                channelId: String(session.channelId ?? ""),
+                hostId: String(session.hostId ?? ""),
+                likes: finiteNumber(session.likes),
+                reactionCounts: counts,
+                totalReactions,
+                startedAt: session.startedAt ?? null,
+                endedAt,
+                endedReason,
+              },
+              $setOnInsert: { createdAt: endedAt },
+            },
+            upsert: true,
+          },
+        };
+      });
+
+    await Promise.all([
+      analyticsWrites.length > 0
+        ? db.collection("stream_session_analytics").bulkWrite(analyticsWrites)
+        : Promise.resolve(),
+      db.collection("stream_reactions").deleteMany(
+        sessionScopes.length === 1 ? sessionScopes[0] : { $or: sessionScopes },
+      ),
+      db.collection("stream_events").deleteMany({
+        type: "live_reaction",
+        ...(sessionScopes.length === 1 ? sessionScopes[0] : { $or: sessionScopes }),
+      }),
+    ]);
+  } catch (error) {
+    console.error(
+      "Live session engagement cleanup failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 async function expireStaleStreams(db: Db): Promise<void> {
   const now = new Date();
   const activeSince = new Date(now.getTime() - HOST_ACTIVE_WINDOW_MS);
@@ -395,7 +541,8 @@ async function expireStaleStreams(db: Db): Promise<void> {
       },
     ],
   };
-  const staleChannels = await streams.distinct("channelId", staleLiveFilter);
+  const staleSessions = await streams.find(staleLiveFilter).toArray();
+  const staleChannels = staleSessions.map((stream) => stream.channelId);
   await Promise.all([
     streams.updateMany(
       staleLiveFilter,
@@ -405,6 +552,8 @@ async function expireStaleStreams(db: Db): Promise<void> {
           endedAt: now,
           endedReason: "host_heartbeat_timeout",
           viewerCount: 0,
+          likes: 0,
+          reactionCounts: {},
         },
       },
     ),
@@ -416,6 +565,8 @@ async function expireStaleStreams(db: Db): Promise<void> {
           endedAt: now,
           endedReason: "start_confirmation_timeout",
           viewerCount: 0,
+          likes: 0,
+          reactionCounts: {},
         },
       },
     ),
@@ -426,6 +577,12 @@ async function expireStaleStreams(db: Db): Promise<void> {
           { $set: { active: false, leftAt: now } },
         ),
   ]);
+  await archiveSessionEngagement(
+    db,
+    staleSessions,
+    now,
+    "host_heartbeat_timeout",
+  );
 }
 
 async function liveSummary(
@@ -445,6 +602,12 @@ async function liveSummary(
       {
         projection: {
           _id: 0,
+          streamId: 1,
+          hostId: 1,
+          hostName: 1,
+          avatar: 1,
+          metadata: 1,
+          startedAt: 1,
           likes: 1,
           shares: 1,
           reactionCounts: 1,
@@ -464,6 +627,7 @@ async function liveSummary(
             _id: 0,
             userId: 1,
             userName: 1,
+            username: 1,
             avatar: 1,
             role: 1,
           },
@@ -489,6 +653,15 @@ async function liveSummary(
   );
 
   return {
+    streamId: String(stream?.streamId ?? ""),
+    hostId: String(stream?.hostId ?? ""),
+    hostName: String(
+      stream?.hostName ?? stream?.metadata?.hostName ?? "Necxa Creator",
+    ),
+    hostAvatar: String(
+      stream?.avatar ?? stream?.metadata?.avatar ?? "",
+    ),
+    sessionStartedAt: stream?.startedAt ?? null,
     viewerCount,
     likes: Number(stream?.likes ?? 0),
     shares: Number(stream?.shares ?? 0),
@@ -560,7 +733,8 @@ serve(async (req) => {
     const body = await req.json();
     const {
       action,
-      channelId,
+      channelId: requestedChannelId,
+      streamId,
       userId: requestedUserId,
       role,
       metadata = {},
@@ -582,6 +756,7 @@ serve(async (req) => {
     } = body as {
       action: string;
       channelId?: string;
+      streamId?: string;
       userId?: string;
       role?: string;
       metadata?: Record<string, unknown>;
@@ -602,6 +777,10 @@ serve(async (req) => {
       eventCursor?: string;
     };
     const usesConfirmedLifecycle = Number(protocolVersion) >= 2;
+    // `start` never trusts a client-selected media room. The server replaces the
+    // optional value with a session-scoped room name below. Other actions must
+    // address the canonical channel returned by start/list_active.
+    let channelId = requestedChannelId?.trim();
 
     const userId = jwtSubject(req);
     if (!userId) {
@@ -617,7 +796,7 @@ serve(async (req) => {
     }
 
     // ── 1. Validate required fields per action ────────────────────────────────
-    if (action !== "list_active" && !channelId?.trim()) {
+    if (!["start", "list_active"].includes(action) && !channelId) {
       return json({ error: "channelId is required" }, 400);
     }
     if (action === "start" && !userId?.trim()) {
@@ -696,27 +875,25 @@ serve(async (req) => {
         if (action === "start") {
           await expireStaleStreams(db);
           const preparedAt = new Date();
+          const requestedHostName =
+            String(metadata.hostName ?? metadata.name ?? "Necxa Creator")
+              .trim() || "Necxa Creator";
+          const requestedAvatar = String(metadata.avatar ?? "").trim();
           let existing = await streams.findOne({
             hostId: userId,
             status: { $in: ["starting", "live"] },
           });
-          if (existing && existing.channelId !== channelId) {
-            return json(
-              { error: "You already have an active stream. End it before starting another." },
-              409,
-            );
-          }
 
           if (!existing) {
-            newStreamId = crypto.randomUUID();
+            const sessionSuffix = crypto.randomUUID().replaceAll("-", "");
+            newStreamId = `live_${sessionSuffix}`;
+            channelId = `necxa_live_${sessionSuffix}`;
             const {
               title = "Live Session",
               description = "",
               thumbnail = "",
               category = "",
               tags = [],
-              hostName = "Necxa Creator",
-              avatar = "",
             } = metadata as Record<string, unknown>;
 
             await Promise.all([
@@ -725,10 +902,12 @@ serve(async (req) => {
               db.collection("stream_event_counters").deleteOne({ channelId }),
               db.collection("stream_viewers").deleteMany({ channelId }),
               db.collection("stream_guest_requests").deleteMany({ channelId }),
+              db.collection("stream_reactions").deleteMany({ channelId }),
             ]);
             await streams.insertOne({
               streamId: newStreamId,
               channelId,
+              roomName: channelId,
               hostId: userId,
               status: "starting",
               title,
@@ -736,9 +915,12 @@ serve(async (req) => {
               thumbnail,
               category,
               tags,
-              hostName,
-              avatar,
-              metadata: { hostName, avatar },
+              hostName: requestedHostName,
+              avatar: requestedAvatar,
+              metadata: {
+                hostName: requestedHostName,
+                avatar: requestedAvatar,
+              },
               location,
               viewerCount: 0,
               peakViewers: 0,
@@ -760,7 +942,31 @@ serve(async (req) => {
               createdAt: preparedAt,
             });
           } else {
+            channelId = String(existing.channelId ?? "").trim();
+            if (!channelId) {
+              return json(
+                { error: "Your active live session has no media room. End it and start again." },
+                409,
+              );
+            }
             newStreamId = existing.streamId?.toString() ?? null;
+            await streams.updateOne(
+              { _id: existing._id },
+              {
+                $set: {
+                  hostName: requestedHostName,
+                  avatar: requestedAvatar,
+                  "metadata.hostName": requestedHostName,
+                  "metadata.avatar": requestedAvatar,
+                  updatedAt: preparedAt,
+                },
+              },
+            );
+            existing = {
+              ...existing,
+              hostName: requestedHostName,
+              avatar: requestedAvatar,
+            };
           }
 
           // Keep already-installed clients working while protocol v2 rolls out.
@@ -797,10 +1003,14 @@ serve(async (req) => {
               {
                 $set: {
                   channelId,
+                  streamId: legacyStream?.streamId ?? newStreamId,
                   userId,
-                  userName:
-                    legacyStream?.hostName ?? metadata.name ?? "Necxa Creator",
-                  avatar: legacyStream?.avatar ?? metadata.avatar ?? "",
+                  ...await verifiedViewerIdentity(
+                    userId,
+                    metadata,
+                    legacyStream?.hostName ?? "Necxa Creator",
+                    legacyStream?.avatar ?? "",
+                  ),
                   role: "host",
                   active: true,
                   lastSeenAt: preparedAt,
@@ -819,6 +1029,7 @@ serve(async (req) => {
             channelId,
             hostId: userId,
             status: { $in: ["starting", "live"] },
+            ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
           });
           if (
             !prepared ||
@@ -831,6 +1042,18 @@ serve(async (req) => {
               409,
             );
           }
+          const hostIdentity = await verifiedViewerIdentity(
+            userId,
+            metadata,
+            prepared.hostName ?? "Necxa Creator",
+            prepared.avatar ?? "",
+          );
+          const canonicalHostName = String(
+            hostIdentity.userName || prepared.hostName || "Necxa Creator",
+          );
+          const canonicalHostAvatar = String(
+            hostIdentity.avatar || prepared.avatar || "",
+          );
           if (prepared.status === "starting") {
             await streams.updateOne(
               { _id: prepared._id, status: "starting" },
@@ -839,6 +1062,10 @@ serve(async (req) => {
                   status: "live",
                   startedAt: confirmedAt,
                   lastHeartbeatAt: confirmedAt,
+                  hostName: canonicalHostName,
+                  avatar: canonicalHostAvatar,
+                  "metadata.hostName": canonicalHostName,
+                  "metadata.avatar": canonicalHostAvatar,
                   updatedAt: confirmedAt,
                 },
                 $unset: { prepareExpiresAt: "" },
@@ -850,6 +1077,10 @@ serve(async (req) => {
               {
                 $set: {
                   lastHeartbeatAt: confirmedAt,
+                  hostName: canonicalHostName,
+                  avatar: canonicalHostAvatar,
+                  "metadata.hostName": canonicalHostName,
+                  "metadata.avatar": canonicalHostAvatar,
                   updatedAt: confirmedAt,
                 },
               },
@@ -860,9 +1091,9 @@ serve(async (req) => {
             {
               $set: {
                 channelId,
+                streamId: prepared.streamId,
                 userId,
-                userName: prepared.hostName ?? metadata.name ?? "Necxa Creator",
-                avatar: prepared.avatar ?? metadata.avatar ?? "",
+                ...hostIdentity,
                 role: "host",
                 active: true,
                 lastSeenAt: confirmedAt,
@@ -882,19 +1113,52 @@ serve(async (req) => {
 
         } else if (action === "abort_start") {
           const abortedAt = new Date();
-          const aborted = await streams.updateOne(
-            { channelId, hostId: userId, status: "starting" },
-            {
-              $set: {
-                status: "failed",
-                endedAt: abortedAt,
-                endedReason: "livekit_connection_failed",
-                viewerCount: 0,
+          const hasAttemptId = Boolean(streamId?.trim());
+          const prepared = await streams.findOne({
+            channelId,
+            hostId: userId,
+            status: hasAttemptId ? { $in: ["starting", "live"] } : "starting",
+            ...(hasAttemptId ? { streamId: streamId!.trim() } : {}),
+          });
+          let aborted = false;
+          if (prepared) {
+            const wasLive = prepared.status === "live";
+            const result = await streams.updateOne(
+              { _id: prepared._id, status: prepared.status },
+              {
+                $set: {
+                  status: wasLive ? "ended" : "failed",
+                  endedAt: abortedAt,
+                  endedReason: wasLive
+                    ? "start_confirmation_aborted"
+                    : "livekit_connection_failed",
+                  viewerCount: 0,
+                  likes: 0,
+                  reactionCounts: {},
+                  updatedAt: abortedAt,
+                },
+                $unset: { prepareExpiresAt: "" },
               },
-              $unset: { prepareExpiresAt: "" },
-            },
-          );
-          actionResult = { aborted: aborted.modifiedCount > 0 };
+            );
+            aborted = result.modifiedCount > 0;
+            if (aborted && wasLive) {
+              await db.collection("stream_viewers").updateMany(
+                { channelId, active: true },
+                { $set: { active: false, leftAt: abortedAt } },
+              );
+            }
+            if (aborted) {
+              await archiveSessionEngagement(
+                db,
+                [prepared],
+                abortedAt,
+                wasLive
+                  ? "start_confirmation_aborted"
+                  : "livekit_connection_failed",
+              );
+            }
+          }
+          actionResult = { aborted };
           mongoSuccess = true;
 
         } else if (action === "join") {
@@ -930,9 +1194,9 @@ serve(async (req) => {
               {
                 $set: {
                   channelId,
+                  streamId: liveStream.streamId,
                   userId,
-                  userName: metadata.name ?? "Viewer",
-                  avatar: metadata.avatar ?? "",
+                  ...await verifiedViewerIdentity(userId, metadata),
                   role: role === "publisher" ? "cohost" : "viewer",
                   active: true,
                   lastSeenAt: joinedAt,
@@ -943,6 +1207,7 @@ serve(async (req) => {
               { upsert: true },
             );
           }
+          newStreamId = liveStream.streamId?.toString() ?? null;
           actionResult = {
             ready: true,
             summary: usesConfirmedLifecycle
@@ -956,6 +1221,7 @@ serve(async (req) => {
           const liveStream = await streams.findOne({
             channelId,
             status: "live",
+            ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
             ...liveHeartbeatFilter(joinedAt),
           });
           if (!liveStream) {
@@ -991,9 +1257,9 @@ serve(async (req) => {
             {
               $set: {
                 channelId,
+                streamId: liveStream.streamId,
                 userId,
-                userName: metadata.name ?? "Viewer",
-                avatar: metadata.avatar ?? "",
+                ...await verifiedViewerIdentity(userId, metadata),
                 role: role === "publisher" ? "cohost" : "viewer",
                 active: true,
                 lastSeenAt: joinedAt,
@@ -1008,7 +1274,11 @@ serve(async (req) => {
 
         } else if (action === "leave") {
           await db.collection("stream_viewers").updateOne(
-            { channelId, userId },
+            {
+              channelId,
+              userId,
+              ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
+            },
             { $set: { active: false, leftAt: new Date(), lastSeenAt: new Date() } },
           );
           actionResult = await liveSummary(db, channelId!);
@@ -1016,25 +1286,42 @@ serve(async (req) => {
 
         } else if (action === "stop") {
           const stoppedAt = new Date();
+          const endingFilter = {
+            channelId,
+            hostId: userId,
+            status: { $in: ["starting", "live"] },
+            ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
+          };
+          const endingSessions = await streams.find(endingFilter).toArray();
+          if (endingSessions.length === 0) {
+            return json({ error: "This live session is already closed" }, 410);
+          }
+          const endingStreamIds = endingSessions
+            .map((session) => String(session.streamId ?? "").trim())
+            .filter(Boolean);
           const [stopped] = await Promise.all([
             streams.updateMany(
-              {
-                channelId,
-                hostId: userId,
-                status: { $in: ["starting", "live"] },
-              },
+              endingFilter,
               {
                 $set: {
                   status: "ended",
                   endedAt: stoppedAt,
                   endedReason: "host_stopped",
                   viewerCount: 0,
+                  likes: 0,
+                  reactionCounts: {},
                 },
                 $unset: { prepareExpiresAt: "" },
               },
             ),
             db.collection("stream_viewers").updateMany(
-              { channelId, active: true },
+              {
+                channelId,
+                active: true,
+                ...(endingStreamIds.length > 0
+                  ? { streamId: { $in: endingStreamIds } }
+                  : {}),
+              },
               { $set: { active: false, leftAt: stoppedAt } },
             ),
             db.collection("stream_guest_requests").updateMany(
@@ -1051,15 +1338,39 @@ serve(async (req) => {
               },
             ),
           ]);
+          await archiveSessionEngagement(
+            db,
+            endingSessions,
+            stoppedAt,
+            "host_stopped",
+          );
           actionResult = { stopped: stopped.modifiedCount > 0 };
           mongoSuccess = true;
 
         } else if (action === "list_active") {
           await expireStaleStreams(db);
-          activeStreams = await streams
+          const liveStreams = await streams
             .find({ status: "live" })
             .sort({ startedAt: -1 })
             .toArray();
+          activeStreams = liveStreams.map((stream) => {
+            const storedMetadata =
+              stream.metadata && typeof stream.metadata === "object"
+                ? stream.metadata as Record<string, unknown>
+                : {};
+            const hostName = String(
+              stream.hostName ?? storedMetadata.hostName ?? "Necxa Creator",
+            );
+            const avatar = String(
+              stream.avatar ?? storedMetadata.avatar ?? "",
+            );
+            return {
+              ...stream,
+              hostName,
+              avatar,
+              metadata: { ...storedMetadata, hostName, avatar },
+            };
+          });
           mongoSuccess = true;
         } else if (action === "pin_product") {
           const ownedStream = await streams.findOne({
@@ -1081,9 +1392,23 @@ serve(async (req) => {
             );
           }
           const pinnedAt = new Date();
+          const previousState = await db.collection("stream_metadata").findOne(
+            { channelId },
+            { projection: { _id: 0, pinnedProduct: 1 } },
+          );
+          const previousProduct =
+            previousState?.pinnedProduct &&
+              typeof previousState.pinnedProduct === "object"
+              ? previousState.pinnedProduct as Record<string, unknown>
+              : null;
+          const sameProduct =
+            String(previousProduct?.id ?? "") ===
+              String(listingResult.product.id ?? "");
           const canonicalProduct = {
             ...listingResult.product,
-            pinnedAt,
+            pinnedAt: sameProduct
+              ? previousProduct?.pinnedAt ?? pinnedAt
+              : pinnedAt,
             pinnedBy: userId,
           };
           await db.collection("stream_metadata").updateOne(
@@ -1097,18 +1422,28 @@ serve(async (req) => {
             },
             { upsert: true },
           );
-          const eventResult = await insertStreamEvent(db, {
-            channelId,
-            userId,
-            type: "product_pinned",
-            data: { product: canonicalProduct },
-            timestamp: pinnedAt,
-          });
-          actionResult = {
-            pinned: true,
-            eventId: eventResult.insertedId.toString(),
-            product: canonicalProduct,
-          };
+          if (sameProduct) {
+            actionResult = {
+              pinned: true,
+              unchanged: true,
+              eventId: null,
+              product: canonicalProduct,
+            };
+          } else {
+            const eventResult = await insertStreamEvent(db, {
+              channelId,
+              userId,
+              type: "product_pinned",
+              data: { product: canonicalProduct },
+              timestamp: pinnedAt,
+            });
+            actionResult = {
+              pinned: true,
+              unchanged: false,
+              eventId: eventResult.insertedId.toString(),
+              product: canonicalProduct,
+            };
+          }
           mongoSuccess = true;
         } else if (action === "unpin_product") {
           const ownedStream = await streams.findOne({
@@ -1133,40 +1468,58 @@ serve(async (req) => {
               { upsert: true, returnDocument: "before" },
             );
           const previousProduct = previousState?.pinnedProduct ?? null;
-          const eventResult = await insertStreamEvent(db, {
-            channelId,
-            userId,
-            type: "product_unpinned",
-            data: {
-              productId:
-                previousProduct && typeof previousProduct === "object"
-                  ? (previousProduct as Record<string, unknown>).id ?? null
-                  : null,
-            },
-            timestamp: unpinnedAt,
-          });
-          actionResult = {
-            pinned: false,
-            eventId: eventResult.insertedId.toString(),
-            product: null,
-          };
+          if (!previousProduct) {
+            actionResult = {
+              pinned: false,
+              unchanged: true,
+              eventId: null,
+              product: null,
+            };
+          } else {
+            const eventResult = await insertStreamEvent(db, {
+              channelId,
+              userId,
+              type: "product_unpinned",
+              data: {
+                productId:
+                  typeof previousProduct === "object"
+                    ? (previousProduct as Record<string, unknown>).id ?? null
+                    : null,
+              },
+              timestamp: unpinnedAt,
+            });
+            actionResult = {
+              pinned: false,
+              unchanged: false,
+              eventId: eventResult.insertedId.toString(),
+              product: null,
+            };
+          }
           mongoSuccess = true;
         } else if (action === "fetch_stream_state") {
           const liveStream = await streams.findOne(
-            { channelId, status: "live" },
+            {
+              channelId,
+              status: "live",
+              ...(streamId?.trim() ? { streamId: streamId.trim() } : {}),
+            },
             { projection: { _id: 0, hostId: 1 } },
           );
           if (!liveStream) {
             return json({ error: "This live stream has ended" }, 410);
           }
           const isHost = liveStream.hostId === userId;
-          const [streamState, summary, eventCounter, guestRequestState] = await Promise.all([
+          // Capture the recovery cursor first. Any state change after this read
+          // receives a larger sequence and is replayed by poll_event.
+          const eventCounter = await db.collection("stream_event_counters")
+            .findOne({ channelId });
+          const stateCursor = String(eventCounter?.sequence ?? 0);
+          const [streamState, summary, guestRequestState] = await Promise.all([
             db.collection("stream_metadata").findOne(
               { channelId },
               { projection: { _id: 0, pinnedProduct: 1, updatedAt: 1 } },
             ),
             liveSummary(db, channelId!),
-            db.collection("stream_event_counters").findOne({ channelId }),
             isHost
               ? db.collection("stream_guest_requests")
                 .find({
@@ -1185,7 +1538,7 @@ serve(async (req) => {
           actionResult = {
             pinnedProduct: streamState?.pinnedProduct ?? null,
             updatedAt: streamState?.updatedAt ?? null,
-            eventCursor: String(eventCounter?.sequence ?? 0),
+            eventCursor: stateCursor,
             summary,
             guestRequests: isHost && Array.isArray(guestRequestState)
               ? guestRequestState.map((request) => serializeGuestRequest(request))
@@ -1243,6 +1596,9 @@ serve(async (req) => {
                 hostId: liveStream.hostId,
                 guestId: userId,
                 guestName: String(metadata.name ?? activeViewer.userName ?? "Viewer"),
+                guestUsername: String(
+                  activeViewer.username ?? metadata.username ?? "",
+                ),
                 avatar: String(metadata.avatar ?? activeViewer.avatar ?? ""),
                 direction: "viewer_request",
                 status: "pending",
@@ -1267,6 +1623,7 @@ serve(async (req) => {
             data: {
               requestId,
               name: request?.guestName ?? "Viewer",
+              username: request?.guestUsername ?? "",
               avatar: request?.avatar ?? "",
               status: "pending",
             },
@@ -1372,35 +1729,46 @@ serve(async (req) => {
             return json({ error: "Only the live host can invite a guest" }, 403);
           }
           const activeSince = new Date(Date.now() - VIEWER_ACTIVE_WINDOW_MS);
-          const onlineViewers = await db.collection("stream_viewers")
-            .find({
-              channelId,
-              active: true,
-              userId: { $ne: userId },
-              lastSeenAt: { $gte: activeSince },
-            })
-            .limit(100)
-            .toArray();
+          const viewers = db.collection("stream_viewers");
+          const onlineViewerFilter = {
+            channelId,
+            active: true,
+            userId: { $ne: userId },
+            lastSeenAt: { $gte: activeSince },
+          };
           let invitedViewer = guestId?.trim()
-            ? onlineViewers.find((viewer) => viewer.userId === guestId.trim())
+            ? await viewers.findOne({
+              ...onlineViewerFilter,
+              userId: guestId.trim(),
+            })
             : null;
           if (!invitedViewer) {
             const handle = normalizedViewerHandle(userName);
-            const exactMatches = onlineViewers.filter((viewer) =>
-              normalizedViewerHandle(viewer.userName) === handle
-            );
-            const partialMatches = exactMatches.length > 0
+            if (!handle) {
+              return json({ error: "Enter the viewer's full username" }, 400);
+            }
+            const exactMatches = await viewers.find({
+              ...onlineViewerFilter,
+              normalizedUsername: handle,
+            }).limit(2).toArray();
+
+            // Records created before username presence was added are matched
+            // exactly by their stored handle during the migration window.
+            const legacyMatches = exactMatches.length > 0
               ? exactMatches
-              : onlineViewers.filter((viewer) =>
-                normalizedViewerHandle(viewer.userName).includes(handle)
+              : (await viewers.find({
+                ...onlineViewerFilter,
+                normalizedUsername: { $exists: false },
+              }).limit(200).toArray()).filter((viewer) =>
+                normalizedViewerHandle(viewer.username ?? viewer.userName) === handle
               );
-            if (partialMatches.length > 1) {
+            if (legacyMatches.length > 1) {
               return json(
-                { error: "More than one online viewer matches that name. Enter the full username." },
+                { error: "More than one online viewer matches that username" },
                 409,
               );
             }
-            invitedViewer = partialMatches[0];
+            invitedViewer = legacyMatches[0];
           }
           if (!invitedViewer) {
             return json({ error: "That viewer is not currently online in this live" }, 404);
@@ -1436,6 +1804,7 @@ serve(async (req) => {
                 hostId: userId,
                 guestId: invitedViewer.userId,
                 guestName: String(invitedViewer.userName ?? "Viewer"),
+                guestUsername: String(invitedViewer.username ?? ""),
                 avatar: String(invitedViewer.avatar ?? ""),
                 direction: "host_invite",
                 status: "invited",
@@ -1460,6 +1829,7 @@ serve(async (req) => {
             data: {
               requestId,
               hostId: userId,
+              username: request?.guestUsername ?? "",
               status: "invited",
             },
             timestamp: invitedAt,
@@ -1559,6 +1929,23 @@ serve(async (req) => {
           if (!liveStream) {
             return json({ error: "This live stream has ended" }, 410);
           }
+          const commenterPresence = await db.collection("stream_viewers")
+            .findOne(
+              { channelId, userId },
+              { projection: { _id: 0, userName: 1, avatar: 1 } },
+            );
+          const fallbackCommentIdentity = viewerIdentity(
+            metadata,
+            userName?.trim() || "User",
+          );
+          const commentUserName = String(
+            commenterPresence?.userName ||
+              fallbackCommentIdentity.userName ||
+              "User",
+          );
+          const commentAvatar = String(
+            commenterPresence?.avatar || fallbackCommentIdentity.avatar || "",
+          );
           const requestId = clientRequestId?.trim() ||
             `legacy_${crypto.randomUUID()}`;
           const now = new Date();
@@ -1572,8 +1959,8 @@ serve(async (req) => {
                   // Retained while older app builds still query channelName.
                   channelName: channelId,
                   userId,
-                  userName: userName?.trim() || "User",
-                  avatar: metadata.avatar ?? "",
+                  userName: commentUserName,
+                  avatar: commentAvatar,
                   text: cleanText.slice(0, COMMENT_MAX_LENGTH),
                   status: "active",
                   clientRequestId: requestId,
@@ -1902,36 +2289,84 @@ serve(async (req) => {
           );
           mongoSuccess = true;
         } else if (action === "send_reaction") {
-          const liveStream = await streams.findOne({ channelId, status: "live" });
+          const requestedSessionId = streamId?.trim();
+          const liveStream = await streams.findOne({
+            channelId,
+            status: "live",
+            ...(requestedSessionId ? { streamId: requestedSessionId } : {}),
+          });
           if (!liveStream) {
             return json({ error: "This live stream has ended" }, 410);
           }
+          const activeStreamId = String(liveStream.streamId ?? "").trim();
+          if (!activeStreamId) {
+            return json({ error: "This live session has no valid identity" }, 409);
+          }
           const reactedAt = new Date();
+          const reactionRequestId = clientRequestId?.trim() || crypto.randomUUID();
           const reaction = {
+            streamId: activeStreamId,
             channelId,
             userId,
+            clientRequestId: reactionRequestId,
             userName: userName?.trim() || "Viewer",
             avatar: metadata.avatar ?? "",
             type: reactionType,
             timestamp: reactedAt,
           };
-          const reactionResult = await db.collection("stream_reactions").insertOne(reaction);
+          const reactions = db.collection("stream_reactions");
+          const previousReaction = await reactions.findOneAndUpdate(
+            { streamId: activeStreamId, userId, clientRequestId: reactionRequestId },
+            { $setOnInsert: reaction },
+            { upsert: true, returnDocument: "before" },
+          );
+          if (previousReaction) {
+            actionResult = {
+              id: previousReaction._id.toString(),
+              reactionType: previousReaction.type,
+              duplicate: true,
+              streamId: activeStreamId,
+              summary: await liveSummary(db, channelId!),
+            };
+            mongoSuccess = true;
+            return json({ success: true, data: actionResult });
+          }
           const increments: Record<string, number> = {
             [`reactionCounts.${reactionType}`]: 1,
           };
           if (reactionType === "like") increments.likes = 1;
-          await streams.updateOne(
-            { channelId, status: "live" },
+          const incremented = await streams.updateOne(
+            { _id: liveStream._id, streamId: activeStreamId, status: "live" },
             { $inc: increments, $set: { updatedAt: reactedAt } },
           );
+          if (incremented.matchedCount === 0) {
+            await reactions.deleteOne({
+              streamId: activeStreamId,
+              userId,
+              clientRequestId: reactionRequestId,
+            });
+            return json({ error: "This live stream has ended" }, 410);
+          }
           await insertStreamEvent(db, {
             ...reaction,
             type: "live_reaction",
-            data: { reactionType, userName: reaction.userName, avatar: reaction.avatar },
+            data: {
+              streamId: activeStreamId,
+              reactionType,
+              userName: reaction.userName,
+              avatar: reaction.avatar,
+            },
+          });
+          const savedReaction = await reactions.findOne({
+            streamId: activeStreamId,
+            userId,
+            clientRequestId: reactionRequestId,
           });
           actionResult = {
-            id: reactionResult.insertedId.toString(),
+            id: savedReaction?._id.toString() ?? reactionRequestId,
             reactionType,
+            duplicate: false,
+            streamId: activeStreamId,
             summary: await liveSummary(db, channelId!),
           };
           mongoSuccess = true;
@@ -1948,7 +2383,12 @@ serve(async (req) => {
           mongoSuccess = true;
         } else if (action === "poll_event") {
           const polledAt = new Date();
-          const liveStream = await streams.findOne({ channelId, status: "live" });
+          const requestedSessionId = streamId?.trim();
+          const liveStream = await streams.findOne({
+            channelId,
+            status: "live",
+            ...(requestedSessionId ? { streamId: requestedSessionId } : {}),
+          });
           if (!liveStream) {
             return json({ error: "This live stream has ended" }, 410);
           }
@@ -1975,17 +2415,49 @@ serve(async (req) => {
                     endedAt: polledAt,
                     endedReason: "host_heartbeat_timeout",
                     viewerCount: 0,
+                    likes: 0,
+                    reactionCounts: {},
                   },
                 },
               );
+              await archiveSessionEngagement(
+                db,
+                [liveStream],
+                polledAt,
+                "host_heartbeat_timeout",
+              );
               return json({ error: "This live stream has ended" }, 410);
             }
+            const currentHostName = String(liveStream.hostName ?? "").trim();
+            const currentHostAvatar = String(liveStream.avatar ?? "").trim();
+            const presenceHostName = String(
+              hostPresence?.userName ?? "",
+            ).trim();
+            const presenceHostAvatar = String(
+              hostPresence?.avatar ?? "",
+            ).trim();
+            const repairedHostIdentity = {
+              ...((!currentHostName || currentHostName === "Necxa Creator") &&
+                  presenceHostName
+                ? {
+                  hostName: presenceHostName,
+                  "metadata.hostName": presenceHostName,
+                }
+                : {}),
+              ...(!currentHostAvatar && presenceHostAvatar
+                ? {
+                  avatar: presenceHostAvatar,
+                  "metadata.avatar": presenceHostAvatar,
+                }
+                : {}),
+            };
             await streams.updateOne(
               { _id: liveStream._id, status: "live" },
               {
                 $set: {
                   lastHeartbeatAt: polledAt,
                   updatedAt: polledAt,
+                  ...repairedHostIdentity,
                 },
               },
             );
@@ -2003,12 +2475,16 @@ serve(async (req) => {
             {
               $set: {
                 active: true,
+                streamId: liveStream.streamId,
                 lastSeenAt: polledAt,
-                userName: metadata.name ?? "Viewer",
-                avatar: metadata.avatar ?? "",
                 role: role === "publisher" ? "cohost" : (role === "host" ? "host" : "viewer"),
               },
-              $setOnInsert: { joinedAt: polledAt, channelId, userId },
+              $setOnInsert: {
+                joinedAt: polledAt,
+                channelId,
+                userId,
+                ...viewerIdentity(metadata),
+              },
               $unset: { leftAt: "" },
             },
             { upsert: true },
@@ -2092,6 +2568,8 @@ serve(async (req) => {
         token,
         url:          LIVEKIT_URL,
         streamId:     newStreamId,
+        channelId,
+        roomName:     channelId,
         status:       usesConfirmedLifecycle ? "prepared" : "live",
       });
     }
@@ -2109,6 +2587,9 @@ serve(async (req) => {
       return json({
         token,
         url:          LIVEKIT_URL,
+        streamId:     newStreamId,
+        channelId,
+        roomName:     channelId,
         status:       "ready",
       });
     }

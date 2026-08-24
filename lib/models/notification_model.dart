@@ -2,6 +2,7 @@ import 'dart:convert';
 
 class AppNotification {
   final String id;
+  final String userId;
   final String type;
   final String title;
   final String body;
@@ -16,6 +17,7 @@ class AppNotification {
 
   AppNotification({
     required this.id,
+    required this.userId,
     required this.type,
     required this.title,
     required this.body,
@@ -31,6 +33,7 @@ class AppNotification {
 
   String get payload => jsonEncode({
     'notification_id': id,
+    'user_id': userId,
     'type': type,
     'target_id': targetId,
     'target_type': targetType,
@@ -39,6 +42,7 @@ class AppNotification {
   AppNotification copyWith({bool? isRead}) {
     return AppNotification(
       id: id,
+      userId: userId,
       type: type,
       title: title,
       body: body,
@@ -56,6 +60,7 @@ class AppNotification {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'user_id': userId,
       'type': type,
       'title': title,
       'body': body,
@@ -79,6 +84,7 @@ class AppNotification {
 
     return AppNotification(
       id: map['id']?.toString() ?? '',
+      userId: map['user_id']?.toString() ?? '',
       type:
           map['type']?.toString() ??
           map['notification_type']?.toString() ??

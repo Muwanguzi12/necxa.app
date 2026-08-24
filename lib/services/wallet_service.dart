@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 import 'finance_backend.dart';
 import 'finance_initializer.dart';
 
@@ -15,13 +13,17 @@ class WalletService {
   }
 
   Future<Map<String, dynamic>> getWalletDetails() async {
-    try {
-      final result = await _invoke('get_wallet');
-      return Map<String, dynamic>.from(result['wallet'] as Map? ?? const {});
-    } catch (error) {
-      debugPrint('Finance wallet read failed: $error');
-      return {'fiat_balance': 0, 'coin_balance': 0, 'escrow_balance': 0};
+    final result = await _invoke('get_wallet');
+    final wallet = Map<String, dynamic>.from(
+      result['wallet'] as Map? ?? const {},
+    );
+    if (wallet.isEmpty) {
+      throw const FinanceBackendException(
+        code: 'wallet_missing',
+        message: 'The finance service did not return a wallet.',
+      );
     }
+    return wallet;
   }
 
   Future<PurchaseResult> purchaseCoins({
@@ -90,7 +92,7 @@ class WalletService {
     }
     try {
       final result = await _invoke(
-        'liquidate',
+        'liquidate_ncx',
         body: {
           'ncxAmount': ncxAmount,
           'securityMetadata': securityMetadata,
@@ -161,8 +163,8 @@ class ShopPurchaseResult {
   final String? orderId;
   final String? orderNumber;
   final double? deliveryFeeUgx;
-  final String? redirectUrl;  // Pesapal checkout URL (momo/card path)
-  final String? paymentId;    // idempotency_key for status polling
+  final String? redirectUrl; // Pesapal checkout URL (momo/card path)
+  final String? paymentId; // idempotency_key for status polling
 
   ShopPurchaseResult.success(
     this.message, {
@@ -205,6 +207,7 @@ extension WalletServiceShop on WalletService {
     required String deliveryAddress,
     required String customerNumber,
     int deliveryFeeUgx = 0,
+    String? idempotencyKey,
   }) async {
     try {
       final result = await _invoke(
@@ -218,7 +221,7 @@ extension WalletServiceShop on WalletService {
           'deliveryAddress': deliveryAddress,
           'customerNumber': customerNumber,
           'deliveryFeeUgx': deliveryFeeUgx,
-          'idempotencyKey': _idempotencyKey('shop-purchase'),
+          'idempotencyKey': idempotencyKey ?? _idempotencyKey('shop-purchase'),
         },
       );
       return ShopPurchaseResult.success(
@@ -247,6 +250,7 @@ extension WalletServiceShop on WalletService {
     required String deliveryAddress,
     required String customerNumber,
     int deliveryFeeUgx = 0,
+    String? idempotencyKey,
   }) async {
     try {
       final result = await _invoke(
@@ -260,7 +264,7 @@ extension WalletServiceShop on WalletService {
           'deliveryAddress': deliveryAddress,
           'customerNumber': customerNumber,
           'deliveryFeeUgx': deliveryFeeUgx,
-          'idempotencyKey': _idempotencyKey('shop-pesapal'),
+          'idempotencyKey': idempotencyKey ?? _idempotencyKey('shop-pesapal'),
         },
       );
       return ShopPurchaseResult.success(
@@ -295,7 +299,9 @@ extension WalletServiceShop on WalletService {
         final status = result['status']?.toString() ?? 'pending';
         if (status == 'completed') return true;
         if (status == 'failed' || status == 'cancelled') return false;
-      } catch (_) { /* keep polling on transient errors */ }
+      } catch (_) {
+        /* keep polling on transient errors */
+      }
       await Future<void>.delayed(const Duration(seconds: 3));
     }
     return false;

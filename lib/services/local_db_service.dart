@@ -21,7 +21,7 @@ class LocalDbService {
   static const int _feedMaxRows = 500;
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
-  static const int _dbVersion = 14;
+  static const int _dbVersion = 19;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
@@ -162,6 +162,45 @@ class LocalDbService {
             } catch (_) {}
           }
         }
+        if (oldVersion < 15) {
+          for (final statement in [
+            'ALTER TABLE transport_orders ADD COLUMN updated_at TEXT',
+            'ALTER TABLE transport_orders ADD COLUMN delivery_lat REAL',
+            'ALTER TABLE transport_orders ADD COLUMN delivery_lng REAL',
+          ]) {
+            try {
+              await db.execute(statement);
+            } catch (_) {}
+          }
+        }
+        if (oldVersion < 18) {
+          try {
+            await db.execute(
+              'ALTER TABLE app_notifications ADD COLUMN user_id TEXT',
+            );
+          } catch (_) {}
+          // Legacy notification rows cannot be attributed safely. Removing
+          // them prevents one account's cache from appearing in another.
+          try {
+            await db.delete(
+              'app_notifications',
+              where: "user_id IS NULL OR user_id = ''",
+            );
+          } catch (_) {}
+          try {
+            await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_notif_user_time '
+              'ON app_notifications(user_id, created_at DESC)',
+            );
+          } catch (_) {}
+        }
+        if (oldVersion < 19) {
+          try {
+            await db.execute(
+              "ALTER TABLE chat_rooms ADD COLUMN metadata TEXT DEFAULT '{}'",
+            );
+          } catch (_) {}
+        }
         await _createOrMigrateV5(db, isUpgrade: true);
       },
       onCreate: (db, version) async {
@@ -185,6 +224,7 @@ class LocalDbService {
         last_message_at TEXT,
         unread_count INTEGER DEFAULT 0,
         is_secure INTEGER DEFAULT 0,
+        metadata TEXT DEFAULT '{}',
         created_at TEXT
       )
     ''');
@@ -348,6 +388,7 @@ class LocalDbService {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS app_notifications (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
         type TEXT,
         title TEXT,
         body TEXT,
@@ -363,7 +404,8 @@ class LocalDbService {
       )
     ''');
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_notif_time ON app_notifications(created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS idx_notif_user_time '
+      'ON app_notifications(user_id, created_at DESC)',
     );
 
     // ── 9. Transport Orders ─────────────────────────────────────────────────
@@ -376,7 +418,10 @@ class LocalDbService {
         dropoff_location TEXT,
         status TEXT,
         price REAL,
-        created_at TEXT
+        created_at TEXT,
+        updated_at TEXT,
+        delivery_lat REAL,
+        delivery_lng REAL
       )
     ''');
     await db.execute(
@@ -455,6 +500,59 @@ class LocalDbService {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_live_comment_actions_pending '
       'ON live_comment_actions(channel_id, sync_status, last_attempt_at)',
+    );
+
+    // Vendor commerce is account-scoped and local-first. Only compact JSON and
+    // remote media URLs are stored here; image bytes stay in the image cache.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS vendor_dashboard_cache (
+        vendor_id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS vendor_order_cache (
+        vendor_id TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (vendor_id, order_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_vendor_orders_updated '
+      'ON vendor_order_cache(vendor_id, updated_at DESC, created_at DESC)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS vendor_review_cache (
+        vendor_id TEXT NOT NULL,
+        review_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (vendor_id, review_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_vendor_reviews_updated '
+      'ON vendor_review_cache(vendor_id, updated_at DESC, created_at DESC)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS commerce_order_cache (
+        account_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        order_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT,
+        updated_at TEXT,
+        PRIMARY KEY (account_id, role, order_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_commerce_orders_account_updated '
+      'ON commerce_order_cache(account_id, role, updated_at DESC, created_at DESC)',
     );
   }
 
@@ -851,6 +949,7 @@ class LocalDbService {
         'last_message': room.lastMessage,
         'last_message_at': room.lastMessageAt?.toIso8601String(),
         'unread_count': room.myUnread,
+        'metadata': jsonEncode(room.metadata ?? const <String, dynamic>{}),
         'created_at': room.createdAt.toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
@@ -860,23 +959,26 @@ class LocalDbService {
   Future<List<ChatRoom>> getRooms() async {
     final db = await database;
     final rows = await db.query('chat_rooms', orderBy: 'last_message_at DESC');
-    return rows
-        .map(
-          (m) => ChatRoom(
-            id: m['id'] as String,
-            otherName: m['other_name'] as String?,
-            otherAvatar: m['other_avatar'] as String?,
-            lastMessage: m['last_message'] as String?,
-            lastMessageAt: DateTime.tryParse(
-              m['last_message_at'] as String? ?? '',
-            ),
-            myUnread: (m['unread_count'] as int?) ?? 0,
-            createdAt:
-                DateTime.tryParse(m['created_at'] as String? ?? '') ??
-                DateTime.now(),
-          ),
-        )
-        .toList();
+    return rows.map((m) {
+      Map<String, dynamic>? metadata;
+      try {
+        final decoded = jsonDecode(m['metadata']?.toString() ?? '{}');
+        if (decoded is Map) metadata = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+      return ChatRoom(
+        id: m['id'] as String,
+        agentId: m['other_party_id'] as String?,
+        otherName: m['other_name'] as String?,
+        otherAvatar: m['other_avatar'] as String?,
+        lastMessage: m['last_message'] as String?,
+        lastMessageAt: DateTime.tryParse(m['last_message_at'] as String? ?? ''),
+        myUnread: (m['unread_count'] as int?) ?? 0,
+        metadata: metadata,
+        createdAt:
+            DateTime.tryParse(m['created_at'] as String? ?? '') ??
+            DateTime.now(),
+      );
+    }).toList();
   }
 
   // ─── Chat Messages ────────────────────────────────────────────────────────
@@ -1014,10 +1116,18 @@ class LocalDbService {
 
   // ─── Notifications ────────────────────────────────────────────────────────
 
-  Future<void> saveNotification(Map<String, dynamic> notif) async {
+  Future<void> saveNotification(
+    Map<String, dynamic> notif,
+    String userId,
+  ) async {
+    final notificationUserId = notif['user_id']?.toString() ?? '';
+    if (notificationUserId.isEmpty || notificationUserId != userId) {
+      throw StateError('Notification recipient does not match active account.');
+    }
     final db = await database;
     await db.insert('app_notifications', {
       'id': notif['id'],
+      'user_id': userId,
       'type': notif['type'],
       'title': notif['title'],
       'body': notif['body'],
@@ -1031,29 +1141,36 @@ class LocalDbService {
       'is_read': notif['is_read'] ?? 0,
       'created_at': notif['created_at'],
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    await db.rawDelete('''
-      DELETE FROM app_notifications WHERE id IN (
-        SELECT id FROM app_notifications ORDER BY created_at DESC LIMIT -1 OFFSET $_notifMaxRows
+    await db.rawDelete(
+      '''
+      DELETE FROM app_notifications WHERE user_id = ? AND id IN (
+        SELECT id FROM app_notifications
+        WHERE user_id = ?
+        ORDER BY created_at DESC LIMIT -1 OFFSET $_notifMaxRows
       )
-    ''');
+    ''',
+      [userId, userId],
+    );
   }
 
-  Future<List<Map<String, dynamic>>> getNotifications() async {
+  Future<List<Map<String, dynamic>>> getNotifications(String userId) async {
     final db = await database;
     return await db.query(
       'app_notifications',
+      where: 'user_id = ?',
+      whereArgs: [userId],
       orderBy: 'created_at DESC',
       limit: _notifMaxRows,
     );
   }
 
-  Future<bool> hasNotification(String id) async {
+  Future<bool> hasNotification(String id, String userId) async {
     final db = await database;
     final rows = await db.query(
       'app_notifications',
       columns: ['id'],
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, userId],
       limit: 1,
     );
     return rows.isNotEmpty;
@@ -1061,26 +1178,32 @@ class LocalDbService {
 
   Future<void> saveNotifications(
     List<Map<String, dynamic>> notifications,
+    String userId,
   ) async {
     if (notifications.isEmpty) return;
     for (final notification in notifications) {
-      await saveNotification(notification);
+      await saveNotification(notification, userId);
     }
   }
 
-  Future<void> markNotificationAsRead(String id) async {
+  Future<void> markNotificationAsRead(String id, String userId) async {
     final db = await database;
     await db.update(
       'app_notifications',
       {'is_read': 1},
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [id, userId],
     );
   }
 
-  Future<void> markAllNotificationsAsRead() async {
+  Future<void> markAllNotificationsAsRead(String userId) async {
     final db = await database;
-    await db.update('app_notifications', {'is_read': 1}, where: 'is_read = 0');
+    await db.update(
+      'app_notifications',
+      {'is_read': 1},
+      where: 'user_id = ? AND is_read = 0',
+      whereArgs: [userId],
+    );
   }
 
   // ─── Transport Orders persistence ───────────────────────────────────────
@@ -1089,18 +1212,238 @@ class LocalDbService {
     final db = await database;
     final batch = db.batch();
     for (var order in orders) {
+      final cachedOrder = <String, dynamic>{
+        for (final key in [
+          'id',
+          'user_id',
+          'driver_id',
+          'pickup_location',
+          'dropoff_location',
+          'status',
+          'price',
+          'created_at',
+          'updated_at',
+          'delivery_lat',
+          'delivery_lng',
+        ])
+          key: order[key],
+      };
       batch.insert(
         'transport_orders',
-        order,
+        cachedOrder,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
     await batch.commit(noResult: true);
+    final userIds = orders
+        .map((order) => order['user_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    for (final userId in userIds) {
+      await db.rawDelete(
+        'DELETE FROM transport_orders WHERE user_id = ? AND id NOT IN '
+        '(SELECT id FROM transport_orders WHERE user_id = ? '
+        'ORDER BY updated_at DESC, created_at DESC LIMIT 100)',
+        [userId, userId],
+      );
+    }
   }
 
-  Future<List<Map<String, dynamic>>> getCachedTransportOrders() async {
+  Future<List<Map<String, dynamic>>> getCachedTransportOrders(
+    String userId,
+  ) async {
     final db = await database;
-    return await db.query('transport_orders', orderBy: 'created_at DESC');
+    return await db.query(
+      'transport_orders',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'updated_at DESC, created_at DESC',
+      limit: 100,
+    );
+  }
+
+  // â”€â”€â”€ Vendor Dashboard persistence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Future<void> saveVendorDashboard(
+    String vendorId,
+    Map<String, dynamic> dashboard,
+  ) async {
+    final db = await database;
+    await db.insert('vendor_dashboard_cache', {
+      'vendor_id': vendorId,
+      'payload': jsonEncode(dashboard),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getCachedVendorDashboard(
+    String vendorId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'vendor_dashboard_cache',
+      columns: ['payload'],
+      where: 'vendor_id = ?',
+      whereArgs: [vendorId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _decodeCachedMap(rows.first['payload']);
+  }
+
+  Future<void> saveVendorOrders(
+    String vendorId,
+    List<Map<String, dynamic>> orders,
+  ) async {
+    if (orders.isEmpty) return;
+    final db = await database;
+    final batch = db.batch();
+    for (final order in orders) {
+      final id = order['id']?.toString();
+      if (id == null || id.isEmpty) continue;
+      final createdAt = order['created_at']?.toString();
+      batch.insert('vendor_order_cache', {
+        'vendor_id': vendorId,
+        'order_id': id,
+        'payload': jsonEncode(order),
+        'created_at': createdAt,
+        'updated_at': order['updated_at']?.toString() ?? createdAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+    await db.rawDelete(
+      'DELETE FROM vendor_order_cache WHERE vendor_id = ? AND order_id NOT IN '
+      '(SELECT order_id FROM vendor_order_cache WHERE vendor_id = ? '
+      'ORDER BY updated_at DESC, created_at DESC LIMIT 100)',
+      [vendorId, vendorId],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedVendorOrders(
+    String vendorId, {
+    int limit = 30,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'vendor_order_cache',
+      columns: ['payload'],
+      where: 'vendor_id = ?',
+      whereArgs: [vendorId],
+      orderBy: 'updated_at DESC, created_at DESC',
+      limit: limit,
+    );
+    return rows
+        .map((row) => _decodeCachedMap(row['payload']))
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Future<void> saveVendorReviews(
+    String vendorId,
+    List<Map<String, dynamic>> reviews,
+  ) async {
+    if (reviews.isEmpty) return;
+    final db = await database;
+    final batch = db.batch();
+    for (final review in reviews) {
+      final id = review['id']?.toString();
+      if (id == null || id.isEmpty) continue;
+      final createdAt = review['created_at']?.toString();
+      batch.insert('vendor_review_cache', {
+        'vendor_id': vendorId,
+        'review_id': id,
+        'payload': jsonEncode(review),
+        'created_at': createdAt,
+        'updated_at': review['updated_at']?.toString() ?? createdAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+    await db.rawDelete(
+      'DELETE FROM vendor_review_cache WHERE vendor_id = ? AND review_id NOT IN '
+      '(SELECT review_id FROM vendor_review_cache WHERE vendor_id = ? '
+      'ORDER BY updated_at DESC, created_at DESC LIMIT 60)',
+      [vendorId, vendorId],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedVendorReviews(
+    String vendorId, {
+    int limit = 30,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'vendor_review_cache',
+      columns: ['payload'],
+      where: 'vendor_id = ?',
+      whereArgs: [vendorId],
+      orderBy: 'updated_at DESC, created_at DESC',
+      limit: limit,
+    );
+    return rows
+        .map((row) => _decodeCachedMap(row['payload']))
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Future<void> saveCommerceOrders(
+    String accountId,
+    String role,
+    List<Map<String, dynamic>> orders,
+  ) async {
+    if (orders.isEmpty) return;
+    final db = await database;
+    final batch = db.batch();
+    for (final order in orders) {
+      final id = order['id']?.toString();
+      if (id == null || id.isEmpty) continue;
+      final createdAt = order['created_at']?.toString();
+      batch.insert('commerce_order_cache', {
+        'account_id': accountId,
+        'role': role,
+        'order_id': id,
+        'payload': jsonEncode(order),
+        'created_at': createdAt,
+        'updated_at': order['updated_at']?.toString() ?? createdAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+    await db.rawDelete(
+      'DELETE FROM commerce_order_cache WHERE account_id = ? AND role = ? '
+      'AND order_id NOT IN (SELECT order_id FROM commerce_order_cache '
+      'WHERE account_id = ? AND role = ? '
+      'ORDER BY updated_at DESC, created_at DESC LIMIT 100)',
+      [accountId, role, accountId, role],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedCommerceOrders(
+    String accountId,
+    String role, {
+    int limit = 50,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'commerce_order_cache',
+      columns: ['payload'],
+      where: 'account_id = ? AND role = ?',
+      whereArgs: [accountId, role],
+      orderBy: 'updated_at DESC, created_at DESC',
+      limit: limit,
+    );
+    return rows
+        .map((row) => _decodeCachedMap(row['payload']))
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Map<String, dynamic>? _decodeCachedMap(dynamic payload) {
+    try {
+      final decoded = jsonDecode(payload?.toString() ?? '');
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ─── Selective Cache Clears ───────────────────────────────────────────────
@@ -1128,6 +1471,11 @@ class LocalDbService {
     await db.delete('community_comments');
     await db.delete('live_comments');
     await db.delete('live_comment_actions');
+    await db.delete('transport_orders');
+    await db.delete('vendor_dashboard_cache');
+    await db.delete('vendor_order_cache');
+    await db.delete('vendor_review_cache');
+    await db.delete('commerce_order_cache');
   }
 
   // ─── Comments API ────────────────────────────────────────────────────────

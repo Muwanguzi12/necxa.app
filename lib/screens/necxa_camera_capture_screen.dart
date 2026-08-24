@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:async';
 import '../theme.dart';
 
@@ -69,7 +70,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
     // previous lens must release the hardware before the next one initializes.
     try {
       await previousController?.dispose();
-      if (previousController != null && Platform.isAndroid) {
+      if (previousController != null && !kIsWeb && Platform.isAndroid) {
         await Future<void>.delayed(const Duration(milliseconds: 150));
       }
       CameraController? nextController;

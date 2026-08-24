@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../theme.dart';
 import '../../app_state.dart';
 import '../../data.dart';
@@ -9,6 +10,8 @@ import '../../utils/error_handler.dart';
 import '../../services/finance_coin_purchase_service.dart';
 import '../../services/finance_backend.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+
+const String _giftIconCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
 
 class GiftContainer extends StatefulWidget {
   final AppState state;
@@ -299,7 +302,22 @@ class _GiftContainerState extends State<GiftContainer> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(p.emoji, style: const TextStyle(fontSize: 32)),
+                        SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: () {
+                            final url = p.imageUrl ?? '$_giftIconCdn/${p.id}.jpeg';
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: CachedNetworkImage(
+                                imageUrl: url,
+                                fit: BoxFit.cover,
+                                placeholder: (_, __) => Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32))),
+                                errorWidget: (_, __, ___) => Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32))),
+                              ),
+                            );
+                          }(),
+                        ),
                         const SizedBox(height: 10),
                         Text(p.name, 
                           maxLines: 1, 

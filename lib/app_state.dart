@@ -24,7 +24,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -35,9 +35,7 @@ import 'services/music_library_service.dart';
 import 'services/draft_service.dart';
 import 'services/payment_service.dart';
 import 'services/finance_gifting_service.dart';
-import 'services/firebase_liquidation_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'services/firebase_vault_service.dart';
+import 'services/finance_liquidation_service.dart';
 import 'services/finance_backend.dart';
 import 'services/finance_deposit_service.dart';
 import 'services/finance_withdrawal_service.dart';
@@ -48,7 +46,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'services/contact_discovery_service.dart';
 import 'services/notification_service.dart';
-import 'services/order_tracking_service.dart';
+import 'services/commerce_service.dart';
 import 'services/live_streaming_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -112,8 +110,9 @@ class AppState extends ChangeNotifier {
 
   /// Verification point for high-risk actions (Withdrawals/Escrow)
   Future<bool> verifySensitiveAction() async {
-    if (!_isBiometricsEnabled && !_is2FAEnabled)
+    if (!_isBiometricsEnabled && !_is2FAEnabled) {
       return true; // No protection enabled
+    }
 
     if (_isBiometricsEnabled) {
       final success = await verifyAppBiometrics(
@@ -178,7 +177,7 @@ class AppState extends ChangeNotifier {
         localizedReason: reason,
         options: const AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: true,
+          biometricOnly: false,
           useErrorDialogs: true,
         ),
       );
@@ -320,17 +319,15 @@ class AppState extends ChangeNotifier {
   // ── Service Modules ──
   final VaultService vault = VaultService();
   late final SocialService social;
-  final FirebaseVaultService firebaseVault = FirebaseVaultService();
   final FinanceDepositService financeDeposits = FinanceDepositService();
   final FinanceWithdrawalService financeWithdrawals =
       FinanceWithdrawalService();
   final FinanceCoinPurchaseService financeCoinPurchases =
       FinanceCoinPurchaseService();
-  final FirebaseLiquidationService firebaseLiquidation =
-      FirebaseLiquidationService();
+  final FinanceLiquidationService financeLiquidation =
+      FinanceLiquidationService();
   final NecxaCloud cloud = NecxaCloud();
   final LocalDbService localDb = LocalDbService();
-  late final OrderTrackingService orders;
   late final LiveStreamingService live;
 
   Future<void> init() async {
@@ -401,13 +398,15 @@ class AppState extends ChangeNotifier {
   final MusicLibraryService music = MusicLibraryService();
   final PaymentService payment = PaymentService();
   final FinanceGiftingService financeGifting = FinanceGiftingService();
-  final FirebaseLiquidationService fbLiquidation = FirebaseLiquidationService();
+  final FinanceLiquidationService liquidation = FinanceLiquidationService();
   final ContactDiscoveryService discovery =
       ContactDiscoveryService(); // Restored Member
 
   AppState() {
+    if (!kIsWeb) {
+      recorderController = RecorderController();
+    }
     social = SocialService(this);
-    orders = OrderTrackingService(this);
     live = LiveStreamingService(this);
     NotificationService().tappedNotification.addListener(
       _handleNotificationTap,
@@ -423,6 +422,8 @@ class AppState extends ChangeNotifier {
     final data = NotificationService().tappedNotification.value;
     if (data == null) return;
     NotificationService().tappedNotification.value = null;
+    final notificationUserId = data['user_id']?.toString();
+    if (notificationUserId == null || notificationUserId != user?.id) return;
     final notificationId =
         data['notification_id']?.toString() ?? data['id']?.toString();
     if (notificationId != null) {
@@ -599,9 +600,63 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? get currentProfile => myProfile;
   bool get isAuthenticated => user != null;
 
+  String? _firstProfileValue(Iterable<dynamic> values) {
+    for (final value in values) {
+      final normalized = value?.toString().trim() ?? '';
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return null;
+  }
+
+  String? get myDisplayName => _firstProfileValue([
+    myProfile?['full_name'],
+    myProfile?['display_name'],
+    user?.userMetadata?['full_name'],
+    user?.userMetadata?['display_name'],
+    user?.userMetadata?['name'],
+    user?.email?.split('@').first,
+  ]);
+
+  String? get myAvatarUrl => _firstProfileValue([
+    myProfile?['avatar_url'],
+    myProfile?['photo_url'],
+    myProfile?['avatar'],
+    user?.userMetadata?['avatar_url'],
+    user?.userMetadata?['picture'],
+    user?.userMetadata?['avatar'],
+  ]);
+
+  String? get myUsername => _firstProfileValue([
+    myProfile?['username'],
+    user?.userMetadata?['username'],
+  ]);
+
   Future<void> loadMyProfile() async {
     if (user == null) return;
-    myProfile = await social.getProfile(user!.id);
+    final profile = await social.getProfile(user!.id);
+    final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
+    final normalizedName = _firstProfileValue([
+      profile?['full_name'],
+      profile?['display_name'],
+      user?.userMetadata?['full_name'],
+      user?.userMetadata?['display_name'],
+      user?.userMetadata?['name'],
+      user?.email?.split('@').first,
+    ]);
+    final normalizedAvatar = _firstProfileValue([
+      profile?['avatar_url'],
+      profile?['photo_url'],
+      profile?['avatar'],
+      user?.userMetadata?['avatar_url'],
+      user?.userMetadata?['picture'],
+      user?.userMetadata?['avatar'],
+    ]);
+    myProfile = {
+      ...?profile,
+      if (normalizedName != null) 'full_name': normalizedName,
+      if (normalizedAvatar != null) 'avatar_url': normalizedAvatar,
+      if (financeSnapshot != null) 'finance': financeSnapshot,
+    };
     notify();
   }
 
@@ -773,9 +828,17 @@ class AppState extends ChangeNotifier {
 
   // ── Local Financial Cache ──
   Wallet? userWallet;
+  bool isWalletSyncing = false;
+  String? walletSyncError;
+  DateTime? walletLastSyncedAt;
+  Future<void>? _walletSyncFuture;
+  String? _walletOwnerId;
+
   double get fiatBalance => userWallet?.fiatBalance.toDouble() ?? 0.0;
   double get coinBalance => userWallet?.coinBalance.toDouble() ?? 0.0;
   double get escrowBalance => userWallet?.escrowBalance.toDouble() ?? 0.0;
+  bool get hasVerifiedWallet =>
+      userWallet != null && user != null && _walletOwnerId == user!.id;
 
   // ── Legacy Aliases for UI Widgets ──
   double get cashBalance => fiatBalance;
@@ -788,35 +851,134 @@ class AppState extends ChangeNotifier {
   Future<void> syncVault() => _syncVault();
 
   Future<void> _syncVault() async {
-    if (user == null) return;
+    final activeSync = _walletSyncFuture;
+    if (activeSync != null) {
+      await activeSync;
+      return;
+    }
+
+    final sync = _performWalletSync();
+    _walletSyncFuture = sync;
+    try {
+      await sync;
+    } finally {
+      if (identical(_walletSyncFuture, sync)) {
+        _walletSyncFuture = null;
+      }
+    }
+  }
+
+  Future<void> _performWalletSync() async {
+    final walletUser = user;
+    if (walletUser == null) {
+      userWallet = null;
+      _walletOwnerId = null;
+      walletLastSyncedAt = null;
+      walletSyncError = 'Sign in to view your wallet.';
+      notify();
+      return;
+    }
+
+    if (_walletOwnerId != null && _walletOwnerId != walletUser.id) {
+      userWallet = null;
+      walletLastSyncedAt = null;
+    }
+    isWalletSyncing = true;
+    walletSyncError = null;
+    notify();
     try {
       final result = await FinanceBackend.instance.invoke('get_wallet');
       final wallet = Map<String, dynamic>.from(
         result['wallet'] as Map? ?? const {},
       );
-      if (wallet.isNotEmpty) {
-        userWallet = Wallet.fromJson(wallet);
-        notify();
+      if (wallet.isEmpty) {
+        throw const FinanceBackendException(
+          code: 'wallet_missing',
+          message: 'The finance backend did not return a wallet.',
+        );
       }
+      if (wallet['user_id']?.toString() != walletUser.id) {
+        throw const FinanceBackendException(
+          code: 'wallet_identity_mismatch',
+          message: 'The finance service returned an invalid wallet identity.',
+        );
+      }
+
+      if (user?.id != walletUser.id) return;
+      userWallet = Wallet.fromJson(wallet);
+      _walletOwnerId = walletUser.id;
+      walletLastSyncedAt =
+          DateTime.tryParse(result['syncedAt']?.toString() ?? '') ??
+          DateTime.now();
+      myProfile = {...?myProfile, 'finance': wallet};
+    } on FinanceBackendException catch (e) {
+      final restored = await _restoreWalletFromPrimarySnapshot(walletUser);
+      walletSyncError = restored
+          ? 'Live sync delayed — showing your last verified balance.'
+          : switch (e.statusCode) {
+              401 =>
+                'Your finance session could not be verified. Please sign in again.',
+              503 =>
+                'Wallet service is temporarily unavailable. Please try again.',
+              _ =>
+                e.message.isNotEmpty
+                    ? e.message
+                    : 'Wallet balances could not be refreshed.',
+            };
+      debugPrint(
+        'Vault Sync Error (${e.statusCode ?? 'no status'}/${e.code}): '
+        '${e.message}',
+      );
     } catch (e) {
+      final restored = await _restoreWalletFromPrimarySnapshot(walletUser);
+      walletSyncError = restored
+          ? 'Live sync delayed — showing your last verified balance.'
+          : 'Wallet balances could not be refreshed. Please retry.';
       debugPrint('Vault Sync Error: $e');
+    } finally {
+      isWalletSyncing = false;
+      notify();
     }
   }
 
-  Future<void> syncVaultToFirebase() async {
-    if (user == null || userWallet == null) return;
+  Future<Map<String, dynamic>?> _loadPrimaryFinanceSnapshot(
+    String userId,
+  ) async {
     try {
-      await FirebaseFirestore.instance.collection('wallets').doc(user!.id).set({
-        'user_id': user!.id,
-        'coin_balance': userWallet!.coinBalance,
-        'fiat_balance': userWallet!.fiatBalance,
-        'escrow_balance': userWallet!.escrowBalance,
-        'last_sync_from_supabase': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      debugPrint('🔥 Vault: Firebase Shard Synchronized.');
-    } catch (e) {
-      debugPrint('🔥 Vault: Firebase Sync Fail: $e');
+      final data = await Supabase.instance.client
+          .from('profile_finance_snapshots')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
+      return data == null ? null : Map<String, dynamic>.from(data);
+    } catch (error) {
+      debugPrint('Profile finance snapshot unavailable: $error');
+      return null;
     }
+  }
+
+  Future<bool> _restoreWalletFromPrimarySnapshot(User walletUser) async {
+    final snapshot = await _loadPrimaryFinanceSnapshot(walletUser.id);
+    if (snapshot == null || user?.id != walletUser.id) return false;
+
+    final walletData = <String, dynamic>{
+      ...snapshot,
+      'id': snapshot['finance_wallet_id'],
+      'user_id': walletUser.id,
+      'created_at': snapshot['synced_at'],
+      'updated_at': snapshot['finance_updated_at'] ?? snapshot['synced_at'],
+    };
+    userWallet = Wallet.fromJson(walletData);
+    _walletOwnerId = walletUser.id;
+    walletLastSyncedAt = DateTime.tryParse(
+      snapshot['synced_at']?.toString() ?? '',
+    );
+    myProfile = {...?myProfile, 'finance': snapshot};
+    return true;
+  }
+
+  Future<void> syncVaultFromFinance() async {
+    await _syncVault();
   }
 
   Future<Map<String, dynamic>> depositFiat(double amt, {String? phone}) async {
@@ -832,63 +994,34 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> paymentMethods = [];
 
   // Multimedia State
-  final RecorderController recorderController = RecorderController();
+  RecorderController? recorderController;
   Duration recordDuration = Duration.zero;
 
   Future<void> syncForexRates() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('system_config')
-          .doc('forex')
-          .get();
-      if (doc.exists) {
-        currentForexRate = (doc.data()?['USD_TO_UGX'] ?? 3800.0).toDouble();
-        notify();
-      } else {
-        // Trigger a refresh if missing
-        await firebaseVault.refreshForexRates();
-      }
-    } catch (e) {
-      debugPrint('Forex Sync Error: $e');
-    }
+    currentForexRate = 3800;
+    notify();
   }
 
   Future<void> syncPaymentMethods() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('system_config')
-          .doc('payment_methods')
-          .get();
-      if (doc.exists) {
-        final data = doc.data()?['methods'] as Map<String, dynamic>? ?? {};
-        paymentMethods = data.values
-            .map((v) => Map<String, dynamic>.from(v))
-            .toList();
-        notify();
-      }
-    } catch (e) {
-      debugPrint('Payment Methods Sync Error: $e');
-    }
+    paymentMethods = const [
+      {'id': 'balance', 'name': 'Necxa Wallet', 'enabled': true},
+      {
+        'id': 'mtn',
+        'name': 'MTN MoMo',
+        'type': 'disbursement',
+        'status': 'active',
+        'enabled': true,
+      },
+    ];
+    notify();
   }
 
   Future<void> checkSecurityStatus() async {
     if (user == null) return;
-    await syncForexRates(); // Sync rates on status check
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('wallets')
-          .doc(user!.id)
-          .collection('security')
-          .doc('config')
-          .get();
-      if (doc.exists) {
-        is2faEnabled = doc.data()?['is_2fa_enabled'] ?? false;
-        notify();
-      }
-      await syncPaymentMethods();
-    } catch (e) {
-      debugPrint('Error checking security status: $e');
-    }
+    await syncForexRates();
+    await syncPaymentMethods();
+    is2faEnabled = _is2FAEnabled;
+    notify();
   }
 
   Future<Map<String, dynamic>> withdraw(
@@ -915,6 +1048,7 @@ class AppState extends ChangeNotifier {
       accountNumber: accountNumber,
       recipientName: recipientName,
       emailOtp: emailOtp,
+      totpToken: totpToken,
       securityMetadata: securityData,
       idempotencyKey: idempotencyKey,
     );
@@ -941,8 +1075,9 @@ class AppState extends ChangeNotifier {
     final securityData = await getFullSecurityMetadata();
     if (contextType != null) securityData['purchase_context'] = contextType;
     if (contextId != null) securityData['context_id'] = contextId;
-    if (targetGiftItemId != null)
+    if (targetGiftItemId != null) {
       securityData['target_gift_item_id'] = targetGiftItemId;
+    }
 
     final result = await financeCoinPurchases.purchase(
       packId: packId,
@@ -985,6 +1120,7 @@ class AppState extends ChangeNotifier {
         isEmulated = !info.isPhysicalDevice;
       }
     }
+    final withdrawalDeviceFingerprint = await _withdrawalDeviceFingerprint();
 
     return {
       'lat': pos.latitude,
@@ -993,9 +1129,24 @@ class AppState extends ChangeNotifier {
       'device_model': model,
       'os_version': os,
       'is_emulated': isEmulated,
+      // Opaque, per-install identifier used only for withdrawal risk limits.
+      // It avoids sending a hardware identifier to the finance backend.
+      'device_fingerprint': withdrawalDeviceFingerprint,
       'timestamp': DateTime.now().toIso8601String(),
       'ip_address': 'detected_at_edge', // Backend handles real IP
     };
+  }
+
+  Future<String> _withdrawalDeviceFingerprint() async {
+    const key = 'withdrawal_device_fingerprint_v1';
+    final preferences = await SharedPreferences.getInstance();
+    final existing = preferences.getString(key);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = math.Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+    final fingerprint = base64UrlEncode(bytes);
+    await preferences.setString(key, fingerprint);
+    return fingerprint;
   }
 
   Future<void> sellShards(double shards) async {
@@ -1003,7 +1154,7 @@ class AppState extends ChangeNotifier {
 
     final securityData = await getFullSecurityMetadata();
 
-    final result = await firebaseLiquidation.liquidate(
+    final result = await financeLiquidation.liquidate(
       userId: user!.id,
       ncxAmount: shards,
       securityMetadata: securityData,
@@ -1827,14 +1978,33 @@ class AppState extends ChangeNotifier {
       if (identityShardId != null) {
         finalIdentityShardId = identityShardId!;
       } else {
+        final frontVerificationId = lastIDResult?.sessionId ?? '';
+        final backVerificationId = lastIDBackResult?.sessionId ?? '';
+        final holdingVerificationId = lastHoldingResult?.sessionId ?? '';
+        final biometricVerificationId = lastSelfieResult?.sessionId ?? '';
+        if ([
+          frontVerificationId,
+          backVerificationId,
+          holdingVerificationId,
+          biometricVerificationId,
+        ].any((value) => value.isEmpty)) {
+          throw Exception(
+            'Identity verification receipts are missing. Complete the identity capture once before submitting.',
+          );
+        }
         final identityRes = await ListingSyncService.submitIdentityShard(
           country: payload['ea_country'] ?? 'Uganda',
           docType: payload['ea_id_type'] ?? 'National ID',
-          docNumber: payload['id_number'] ?? '0000000000',
+          docNumber: payload['id_number'] ?? '',
           idFront: idImage!,
           idBack: idBackImage!,
           idHolding: idHoldingImage!,
           facePhoto: faceImage!,
+          frontVerificationId: frontVerificationId,
+          backVerificationId: backVerificationId,
+          holdingVerificationId: holdingVerificationId,
+          biometricVerificationId: biometricVerificationId,
+          idempotencyKey: 'identity-${user!.id}-$biometricVerificationId',
         );
         finalIdentityShardId = identityRes['identity_shard_id'];
       }
@@ -1942,14 +2112,34 @@ class AppState extends ChangeNotifier {
 
   // ── Auth Actions ──
   void onAuthStateChange(AuthState state) {
-    if (state.session?.user != null) {
+    final authenticatedUserId = state.session?.user.id;
+    if (authenticatedUserId != null) {
+      if (_notificationUserId != authenticatedUserId) {
+        appNotifications = [];
+        _notificationUserId = authenticatedUserId;
+        unawaited(NotificationService().clearDisplayedNotifications());
+      }
       _syncVault();
       checkSecurityStatus(); // Syncs 2FA, Forex, and Payment Methods
+    } else {
+      _syncTimer?.cancel();
+      if (_notifChannel != null) {
+        unawaited(Supabase.instance.client.removeChannel(_notifChannel!));
+        _notifChannel = null;
+      }
+      _notificationUserId = null;
+      appNotifications = [];
+      unawaited(NotificationService().clearDisplayedNotifications());
     }
     notifyListeners();
   }
 
   Future<void> logout() async {
+    await localDb.clearAllOnLogout();
+    myTransportOrders = [];
+    myDriverOrders = [];
+    currentDriverProfile = null;
+    isDriver = false;
     await Supabase.instance.client.auth.signOut();
     notifyListeners();
   }
@@ -2019,16 +2209,19 @@ class AppState extends ChangeNotifier {
   // ── Chat & Messaging Actions ──
   RealtimeChannel? _msgChannel;
   RealtimeChannel? _notifChannel;
+  String? _notificationUserId;
 
   void _subscribeToNotifications() {
-    if (user == null) return;
+    final subscribedUserId = user?.id;
+    if (subscribedUserId == null) return;
     if (_notifChannel != null) {
       Supabase.instance.client.removeChannel(_notifChannel!);
       _notifChannel = null;
     }
+    _notificationUserId = subscribedUserId;
 
     _notifChannel = Supabase.instance.client
-        .channel('notifications:${user!.id}')
+        .channel('notifications:$subscribedUserId')
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -2036,14 +2229,22 @@ class AppState extends ChangeNotifier {
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'user_id',
-            value: user!.id,
+            value: subscribedUserId,
           ),
           callback: (payload) async {
+            if (user?.id != subscribedUserId) return;
             debugPrint(
               '🔔 Realtime Notification Received: ${payload.newRecord}',
             );
             final notif = AppNotification.fromMap(payload.newRecord);
-            await NotificationService().showNotification(notif);
+            if (notif.userId != subscribedUserId) return;
+            await NotificationService().showNotification(
+              notif,
+              recipientUserId: subscribedUserId,
+            );
+            if (notif.metadata['interaction_context'] == 'support') {
+              await fetchCreatorConversations(force: true);
+            }
             await loadNotifications();
           },
         )
@@ -2054,12 +2255,15 @@ class AppState extends ChangeNotifier {
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'user_id',
-            value: user!.id,
+            value: subscribedUserId,
           ),
           callback: (payload) async {
+            if (user?.id != subscribedUserId) return;
             final notif = AppNotification.fromMap(payload.newRecord);
+            if (notif.userId != subscribedUserId) return;
             await NotificationService().showNotification(
               notif,
+              recipientUserId: subscribedUserId,
               showSystem: false,
             );
             await loadNotifications();
@@ -2112,13 +2316,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> fetchCreatorConversations() async {
+  Future<void> fetchCreatorConversations({bool force = false}) async {
     // 1. Instant Load from Cache — always shown immediately
     if (!isInboxHydrated) await hydrateFromLocal();
 
     // 2. TTL GUARD: skip network if refreshed within the last 60 seconds
     final now = DateTime.now();
-    if (_lastInboxSync != null &&
+    if (!force &&
+        _lastInboxSync != null &&
         now.difference(_lastInboxSync!).inSeconds < 60) {
       debugPrint(
         '⏱️ Inbox sync skipped (TTL: ${now.difference(_lastInboxSync!).inSeconds}s old)',
@@ -2512,9 +2717,23 @@ class AppState extends ChangeNotifier {
       chatLog.add(userMsg);
       await localDb.saveMessages([userMsg]);
 
-      // Prefer the Cloudflare Worker (Llama 3.1 — zero-cost edge inference).
+      // Prefer the isolated Cloudflare assistant and retain the latest context.
       // Falls back to Supabase necxa-chat automatically if the worker is down.
-      final res = await NecxaAI.askNecxaWorker(query);
+      final conversation = chatLog
+          .skip(chatLog.length > 20 ? chatLog.length - 20 : 0)
+          .map(
+            (message) => {
+              'role': message.senderId == 'necxa-ai' ? 'assistant' : 'user',
+              'content': message.content ?? '',
+            },
+          )
+          .toList();
+      final res = await NecxaAI.askNecxaWorker(
+        query,
+        language: language,
+        conversation: conversation,
+        context: {'screen': 'necxa_ai_chat'},
+      );
 
       final aiMsg = ChatMessage(
         id: 'a-${DateTime.now().millisecondsSinceEpoch}',
@@ -2537,9 +2756,10 @@ class AppState extends ChangeNotifier {
     try {
       final res = await Supabase.instance.client
           .from('transport_drivers')
-          .select()
+          .select('id,name,number_plate,vehicle_type,is_verified,is_available')
           .eq('is_available', true)
-          .eq('is_verified', true);
+          .eq('is_verified', true)
+          .limit(50);
       availableDrivers = List<TransportDriver>.from(
         res.map((j) => TransportDriver.fromJson(j)),
       );
@@ -2568,6 +2788,9 @@ class AppState extends ChangeNotifier {
         permitUrl: currentDriverProfile!.permitUrl,
         isVerified: currentDriverProfile!.isVerified,
         isAvailable: online,
+        countryCode: currentDriverProfile!.countryCode,
+        verificationStatus: currentDriverProfile!.verificationStatus,
+        verificationReasonCode: currentDriverProfile!.verificationReasonCode,
       );
       notify();
     } catch (e) {
@@ -2580,9 +2803,12 @@ class AppState extends ChangeNotifier {
     try {
       final res = await Supabase.instance.client
           .from('transport_orders')
-          .select()
+          .select(
+            'id,user_id,driver_id,pickup_location,dropoff_location,status,price,created_at,updated_at,delivery_lat,delivery_lng',
+          )
           .eq('driver_id', user!.id)
-          .order('created_at', ascending: false);
+          .order('updated_at', ascending: false)
+          .limit(100);
       myDriverOrders = List<TransportOrder>.from(
         res.map((j) => TransportOrder.fromJson(j)),
       );
@@ -2600,6 +2826,9 @@ class AppState extends ChangeNotifier {
   Future<void> updateOrderStatus(String orderId, String status) async {
     try {
       final updates = <String, dynamic>{'status': status};
+      if (status == 'accepted' && currentDriverProfile != null) {
+        updates['driver_id'] = currentDriverProfile!.id;
+      }
 
       // If marking as delivered, record the current GPS location
       if (status == 'delivered') {
@@ -2610,15 +2839,21 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      if (status == 'completed') {
+        await _releaseEscrow(orderId);
+      }
+      if (status == 'cancelled') {
+        await FinanceBackend.instance.invoke(
+          'refund_transport_booking',
+          body: {'orderId': orderId, 'reason': 'customer_cancelled'},
+        );
+        await _syncVault();
+      }
+
       await Supabase.instance.client
           .from('transport_orders')
           .update(updates)
           .eq('id', orderId);
-
-      // If completed, we should release escrow
-      if (status == 'completed') {
-        await _releaseEscrow(orderId);
-      }
 
       await fetchMyOrders();
       await fetchDriverOrders();
@@ -2627,6 +2862,7 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Update Status Error: $e');
+      rethrow;
     }
   }
 
@@ -2659,43 +2895,30 @@ class AppState extends ChangeNotifier {
         'lng': currentGps?.longitude,
       });
 
+      await FinanceBackend.instance.invoke(
+        'dispute_transport_booking',
+        body: {'orderId': orderId, 'reason': reason},
+      );
+
       // 4. Update Order Status to disputed
       await updateOrderStatus(orderId, 'disputed');
 
       pickedMedia = null;
     } catch (e) {
       debugPrint('Raise Dispute Error: $e');
+      rethrow;
+    } finally {
+      isTransportLoading = false;
+      notify();
     }
-    isTransportLoading = false;
-    notify();
   }
 
   Future<void> _releaseEscrow(String orderId) async {
-    try {
-      final orderRes = await Supabase.instance.client
-          .from('transport_orders')
-          .select()
-          .eq('id', orderId)
-          .single();
-
-      final double price = (orderRes['price'] as num).toDouble();
-      final String driverId = orderRes['driver_id'];
-
-      // 🔥 FIREBASE: Release escrow to the driver's wallet securely
-      final result = await firebaseVault.releaseEscrow(
-        transactionId: orderId,
-        recipientId: driverId,
-        amount: price,
-      );
-
-      if (result['success'] == true) {
-        debugPrint('🔥 Escrow Successfully Released to Driver: $driverId');
-      } else {
-        throw Exception(result['message'] ?? 'Failed to release escrow');
-      }
-    } catch (e) {
-      debugPrint('Escrow Release Error: $e');
-    }
+    await FinanceBackend.instance.invoke(
+      'settle_transport_booking',
+      body: {'orderId': orderId},
+    );
+    await _syncVault();
   }
 
   Future<void> registerDriver(Map<String, dynamic> data) async {
@@ -2738,17 +2961,20 @@ class AppState extends ChangeNotifier {
     notify();
   }
 
-  Future<void> checkDriverStatus() async {
+  Future<void> checkDriverStatus({bool loadOrders = true}) async {
     if (user == null) return;
     try {
       final res = await Supabase.instance.client
           .from('transport_drivers')
-          .select()
+          .select(
+            'id,name,number_plate,vehicle_type,is_verified,is_available,country_code,verification_status,verification_reason_code',
+          )
           .eq('id', user!.id)
           .maybeSingle();
       if (res != null) {
         isDriver = true;
         currentDriverProfile = TransportDriver.fromJson(res);
+        if (loadOrders) await fetchDriverOrders();
       } else {
         isDriver = false;
         currentDriverProfile = null;
@@ -2768,6 +2994,8 @@ class AppState extends ChangeNotifier {
     if (user == null) return;
     isTransportLoading = true;
     notify();
+    String? transactionId;
+    var orderCreated = false;
     try {
       // 1. Check Wallet Balance
       if (fiatBalance < price) {
@@ -2777,14 +3005,19 @@ class AppState extends ChangeNotifier {
       }
 
       // 2. Create Order in Escrow Style
-      final transactionId = _generateUuidv4();
+      transactionId = _generateUuidv4();
 
-      // 🔥 FIREBASE: Hold funds in escrow
-      final escrowRes = await firebaseVault.holdInEscrow(
-        userId: user!.id,
-        amount: price,
-        transactionId: transactionId,
-        contextType: 'transport',
+      // Hold the fare in the Finance Supabase escrow before creating the trip.
+      final escrowRes = await FinanceBackend.instance.invoke(
+        'create_transport_booking',
+        body: {
+          'orderId': transactionId,
+          'driverId': driver.id,
+          'pickup': pickup,
+          'dropoff': dropoff,
+          'amountUgx': price.round(),
+          'idempotencyKey': 'transport-$transactionId',
+        },
       );
 
       if (escrowRes['success'] != true) {
@@ -2807,19 +3040,27 @@ class AppState extends ChangeNotifier {
 
       // Perform the insert
       await Supabase.instance.client.from('transport_orders').insert(orderData);
-
-      // Deduct from wallet (Simplified: just update local and DB)
-      final newBalance = fiatBalance - price;
-      await Supabase.instance.client
-          .from('wallets')
-          .update({'fiat_balance': newBalance})
-          .eq('user_id', user!.id);
+      orderCreated = true;
 
       await _syncVault(); // Refresh local wallet state
 
       await fetchMyOrders();
     } catch (e) {
       debugPrint('Create Transport Order Error: $e');
+      if (transactionId != null && !orderCreated) {
+        try {
+          await FinanceBackend.instance.invoke(
+            'refund_transport_booking',
+            body: {
+              'orderId': transactionId,
+              'reason': 'primary_order_creation_failed',
+            },
+          );
+          await _syncVault();
+        } catch (refundError) {
+          debugPrint('Transport Escrow Refund Error: $refundError');
+        }
+      }
       rethrow;
     } finally {
       isTransportLoading = false;
@@ -2834,7 +3075,7 @@ class AppState extends ChangeNotifier {
 
     try {
       // 1. Serve from local cache immediately (Local-First)
-      final cached = await localDb.getCachedTransportOrders();
+      final cached = await localDb.getCachedTransportOrders(user!.id);
       if (cached.isNotEmpty) {
         myTransportOrders = List<TransportOrder>.from(
           cached.map((j) => TransportOrder.fromJson(j)),
@@ -2849,22 +3090,34 @@ class AppState extends ChangeNotifier {
       isTransportSyncing = true;
       notify();
 
-      final cursor = await localDb.getSyncCursor('transport');
-      var query = Supabase.instance.client.from('transport_orders').select();
+      final cursorKey = 'transport:${user!.id}';
+      final cursor = await localDb.getSyncCursor(cursorKey);
+      var query = Supabase.instance.client
+          .from('transport_orders')
+          .select(
+            'id,user_id,driver_id,pickup_location,dropoff_location,status,price,created_at,updated_at,delivery_lat,delivery_lng',
+          )
+          .eq('user_id', user!.id);
 
       // If we have a cursor, only fetch what's newer
       if (cursor != null) {
-        query = query.gt('created_at', cursor);
+        query = query.gt('updated_at', cursor);
       }
 
-      final res = await query.order('created_at', ascending: false);
+      final res = await query
+          .order('updated_at', ascending: cursor != null)
+          .limit(100);
       if ((res as List).isNotEmpty) {
         final list = List<Map<String, dynamic>>.from(res);
         await localDb.saveTransportOrders(list);
-        await localDb.setSyncCursor('transport', list.first['created_at']);
+        await localDb.setSyncCursor(
+          cursorKey,
+          (cursor == null ? list.first : list.last)['updated_at'] ??
+              (cursor == null ? list.first : list.last)['created_at'],
+        );
 
         // Refresh full local list
-        final fresh = await localDb.getCachedTransportOrders();
+        final fresh = await localDb.getCachedTransportOrders(user!.id);
         myTransportOrders = List<TransportOrder>.from(
           fresh.map((j) => TransportOrder.fromJson(j)),
         );
@@ -2915,13 +3168,21 @@ class AppState extends ChangeNotifier {
       .length;
 
   Future<void> loadNotifications() async {
-    final list = await localDb.getNotifications();
+    final activeUserId = user?.id;
+    if (activeUserId == null) {
+      appNotifications = [];
+      notify();
+      return;
+    }
+    final list = await localDb.getNotifications(activeUserId);
     appNotifications = list.map((e) => AppNotification.fromMap(e)).toList();
     notify();
   }
 
   Future<void> markNotificationAsRead(String id) async {
-    await localDb.markNotificationAsRead(id);
+    final activeUserId = user?.id;
+    if (activeUserId == null) return;
+    await localDb.markNotificationAsRead(id, activeUserId);
     await loadNotifications();
     try {
       await social.markNotificationRead(id);
@@ -2931,7 +3192,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> markAllNotificationsAsRead() async {
-    await localDb.markAllNotificationsAsRead();
+    final activeUserId = user?.id;
+    if (activeUserId == null) return;
+    await localDb.markAllNotificationsAsRead(activeUserId);
     await loadNotifications();
     try {
       await social.markAllNotificationsRead();
@@ -2941,12 +3204,17 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> refreshNotifications() async {
+    final activeUserId = user?.id;
+    if (activeUserId == null) return;
     final remote = await social.fetchNotifications(limit: 50);
     for (final item in remote) {
       final notification = AppNotification.fromMap(item);
-      if (notification.id.isEmpty) continue;
+      if (notification.id.isEmpty || notification.userId != activeUserId) {
+        continue;
+      }
       await NotificationService().showNotification(
         notification,
+        recipientUserId: activeUserId,
         showSystem: false,
       );
     }
@@ -2963,7 +3231,32 @@ class AppState extends ChangeNotifier {
     }
     if (notification.targetType == 'post' && notification.targetId != null) {
       go('community', extra: notification.targetId);
+      return;
     }
+    final roomId = notification.metadata['room_id']?.toString();
+    if (roomId != null && roomId.isNotEmpty) {
+      unawaited(_openNotificationChat(roomId));
+    }
+  }
+
+  Future<void> _openNotificationChat(String roomId) async {
+    await fetchCreatorConversations(force: true);
+    ChatRoom? room;
+    for (final candidate in rooms) {
+      if (candidate.id == roomId) {
+        room = candidate;
+        break;
+      }
+    }
+    if (room == null) return;
+    activeConversation = room;
+    await fetchMessages(room.id);
+    await markRoomAsRead(room.id);
+    go(
+      room.metadata?['interaction_context'] == 'social'
+          ? 'creator-chat-detail'
+          : 'chat-detail',
+    );
   }
 
   // ── Sync Engine (Neural Pulse) ────────────────────────────────
@@ -2983,17 +3276,17 @@ class AppState extends ChangeNotifier {
     // 🧠 NEURAL PULSE: Real-time subscription
     _subscribeToNotifications();
 
-    // 🛍️ VENDOR ORDERS: Listen for new sales
-    if (user != null) {
-      FirebaseFirestore.instance
-          .collection('orders')
-          .where('vendor_id', isEqualTo: user!.id)
-          .where('status', isEqualTo: 'pending_payment') // Or 'processing'
-          .snapshots()
-          .listen((snapshot) {
-            pendingVendorOrders = snapshot.docs.length;
-            notify();
-          });
+    unawaited(_syncVendorOrderCount());
+  }
+
+  Future<void> _syncVendorOrderCount() async {
+    if (user == null) return;
+    try {
+      final dashboard = await CommerceService().fetchVendorDashboard();
+      pendingVendorOrders = dashboard.openOrders;
+      notify();
+    } catch (error) {
+      debugPrint('Vendor order sync error: $error');
     }
   }
 
@@ -3012,6 +3305,7 @@ class AppState extends ChangeNotifier {
       notify();
 
       await refreshNotifications();
+      await _syncVendorOrderCount();
     } catch (e) {
       debugPrint('Notification Sync Error: $e');
     }
@@ -3037,7 +3331,8 @@ class IDResult {
 class SelfieResult {
   final bool faceMatch;
   final String sessionId;
-  SelfieResult({required this.faceMatch, required this.sessionId});
+  final double? score;
+  SelfieResult({required this.faceMatch, required this.sessionId, this.score});
 }
 
 class UtilityBillResult {

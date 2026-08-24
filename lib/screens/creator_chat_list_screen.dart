@@ -246,6 +246,12 @@ class _NotificationTile extends StatelessWidget {
         icon = Icons.favorite_rounded;
         iconColor = C.red;
         break;
+      case 'system':
+        icon = notif.metadata['interaction_context'] == 'support'
+            ? Icons.support_agent_rounded
+            : Icons.notifications_active_rounded;
+        iconColor = C.green;
+        break;
       case 'content':
       default:
         icon = Icons.notifications_active_rounded;

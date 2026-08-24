@@ -28,7 +28,9 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
   void initState() {
     super.initState();
     // Prevent Slider assertion error: value must be <= max
-    double safeMax = widget.state.shardBalance < 10 ? 11 : widget.state.shardBalance;
+    double safeMax = widget.state.shardBalance < 10
+        ? 11
+        : widget.state.shardBalance;
     if (_sellAmount > safeMax) {
       _sellAmount = safeMax;
     }
@@ -113,7 +115,7 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
     _quoteDebounce = Timer(const Duration(milliseconds: 500), () async {
       setState(() => _isFetchingQuote = true);
       try {
-        final q = await widget.state.fbLiquidation.getQuote(_sellAmount);
+        final q = await widget.state.liquidation.getQuote(_sellAmount);
         if (mounted) setState(() => _quote = q);
       } catch (e) {
         debugPrint('Quote error: $e');
@@ -222,7 +224,7 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
     try {
       final securityMetadata = await widget.state.getFullSecurityMetadata();
 
-      final res = await widget.state.fbLiquidation.liquidate(
+      final res = await widget.state.liquidation.liquidate(
         userId: widget.state.user!.id,
         ncxAmount: _sellAmount,
         securityMetadata: securityMetadata,
