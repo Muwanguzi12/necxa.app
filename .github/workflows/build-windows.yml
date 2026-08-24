@@ -49,6 +49,28 @@ jobs:
     - name: Get dependencies
       run: flutter pub get
 
+    - name: Pre-download flutter_webrtc binaries
+      shell: pwsh
+      run: |
+        $pubCache = if ($env:PUB_CACHE) { "$env:PUB_CACHE\hosted\pub.dev" } else { "$env:LOCALAPPDATA\Pub\Cache\hosted\pub.dev" }
+        $webrtcDirs = Get-ChildItem -Path $pubCache -Filter "flutter_webrtc-*" -Directory -ErrorAction SilentlyContinue
+        foreach ($d in $webrtcDirs) {
+          $tpDir = Join-Path $d.FullName "third_party"
+          $dlDir = Join-Path $tpDir "downloads"
+          $zipPath = Join-Path $dlDir "libwebrtc.zip"
+          $libDir = Join-Path $tpDir "libwebrtc"
+          New-Item -ItemType Directory -Force -Path $dlDir | Out-Null
+          if (-not (Test-Path $libDir)) {
+            Write-Host "Pre-downloading libwebrtc.zip for $($d.Name)..."
+            Invoke-WebRequest -Uri "https://github.com/flutter-webrtc/flutter-webrtc/releases/download/v1.4.0/libwebrtc.zip" -OutFile $zipPath
+            Write-Host "Extracting libwebrtc into $tpDir..."
+            Expand-Archive -Path $zipPath -DestinationPath $tpDir -Force
+            Write-Host "Pre-extraction complete for $($d.Name)."
+          } else {
+            Write-Host "libwebrtc already present for $($d.Name)."
+          }
+        }
+
     - name: Build Windows Release
       run: flutter build windows --release
 
