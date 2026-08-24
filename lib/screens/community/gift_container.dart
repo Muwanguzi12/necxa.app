@@ -58,6 +58,22 @@ class _GiftContainerState extends State<GiftContainer> {
     } catch (e) {
       debugPrint('Gift Data Error: $e');
     }
+    if (_presets.isEmpty) {
+      _presets = gifts
+          .map(
+            (g) => GiftItem(
+              id: g.id,
+              name: g.name,
+              emoji: g.emoji,
+              ncxValue: g.price,
+              ugxValue: g.price * 100,
+              category: 'standard',
+              sortOrder: 0,
+              imageUrl: g.imageUrl,
+            ),
+          )
+          .toList();
+    }
     setState(() => _loading = false);
   }
 
@@ -148,41 +164,58 @@ class _GiftContainerState extends State<GiftContainer> {
 
   @override
   Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.70;
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: maxHeight,
+      ),
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF0D121B),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        color: const Color(0xFF0B111D),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withOpacity(0.1),
+            width: 1.0,
+          ),
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, spreadRadius: 10),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.6),
+            blurRadius: 30,
+            offset: const Offset(0, -10),
+          ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              transitionBuilder: (child, animation) {
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0.05, 0),
-                      end: Offset.zero,
-                    ).animate(animation),
-                    child: child,
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle Bar
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 4),
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                );
-              },
-              child: SizedBox(
-                key: ValueKey(_step),
-                child: _buildStepContent(),
+                ),
               ),
-            ),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  child: SizedBox(
+                    key: ValueKey(_step),
+                    child: _buildStepContent(),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -202,144 +235,280 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildHeader(String title, {VoidCallback? onBack}) {
-    return Column(
-      children: [
-        Container(
-          width: 40, height: 4,
-          decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
-        ),
-        const SizedBox(height: 20),
-        Row(
-          children: [
-            if (onBack != null) 
-              GestureDetector(
-                onTap: onBack,
-                child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
-              ),
-            if (onBack == null) const SizedBox(width: 20),
-            Expanded(
-              child: Text(title, 
-                textAlign: TextAlign.center,
-                style: syne(sz: 18, w: FontWeight.w900, ls: 1.5, c: Colors.white)
-              ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Row(
+        children: [
+          if (onBack != null)
+            GestureDetector(
+              onTap: onBack,
+              child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
             ),
-            const SizedBox(width: 20), 
-          ],
+          if (onBack == null) const SizedBox(width: 20),
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: syne(sz: 16, w: FontWeight.w900, ls: 1.2, c: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGiftIcon(GiftItem p) {
+    final url = p.imageUrl ?? '$_giftIconCdn/${p.id}.jpeg';
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: CachedNetworkImage(
+        imageUrl: url,
+        fit: BoxFit.contain,
+        placeholder: (_, __) => Center(
+          child: Text(p.emoji, style: const TextStyle(fontSize: 32)),
         ),
-        const SizedBox(height: 24),
-      ],
+        errorWidget: (_, __, ___) => Center(
+          child: Text(p.emoji, style: const TextStyle(fontSize: 32)),
+        ),
+      ),
     );
   }
 
   Widget _buildSelection() {
+    final balance = widget.state.coinBalance;
+
     return Column(
-      mainAxisSize: MainAxisSize.min,
       children: [
-        _buildHeader('GIFT COINS'),
-        
-        // Balance Banner
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: C.brand.withOpacity(0.2)),
-          ),
+        // ── Header Row ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('NCX BALANCE', style: dm(sz: 11, w: FontWeight.bold, c: Colors.white70)),
-              Row(
-                children: [
-                  const Icon(Icons.generating_tokens, color: C.brand, size: 16),
-                  const SizedBox(width: 6),
-                  Text('${widget.state.coinBalance.toInt()}', style: syne(sz: 18, w: FontWeight.bold, c: C.brand)),
-                ],
+              // Balance Pill (Left)
+              GestureDetector(
+                onTap: () => _next(1),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF131D2D),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: const Color(0xFF38BDF8).withOpacity(0.25),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF0284C7),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'T',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'NCX ',
+                        style: dm(sz: 11, w: FontWeight.bold, c: Colors.white70),
+                      ),
+                      Text(
+                        '${balance.toInt()}',
+                        style: syne(sz: 13, w: FontWeight.bold, c: const Color(0xFF38BDF8)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Title (Center)
+              Expanded(
+                child: Text(
+                  'GIFT COINS',
+                  textAlign: TextAlign.center,
+                  style: syne(
+                    sz: 16,
+                    w: FontWeight.w900,
+                    ls: 1.2,
+                    c: Colors.white,
+                  ),
+                ),
+              ),
+
+              // Close Button (Right)
+              GestureDetector(
+                onTap: widget.onDismiss,
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF172132),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: Colors.white70,
+                  ),
+                ),
               ),
             ],
           ),
         ),
-        
-        const SizedBox(height: 24),
-        
-        if (_presets.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 40),
-            child: Column(
-              children: [
-                const Icon(Icons.style_outlined, color: Colors.white10, size: 48),
-                const SizedBox(height: 12),
-                Text('No gift presets available.', style: dm(sz: 13, c: Colors.white30)),
-              ],
-            ),
-          )
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              childAspectRatio: 0.85,
-            ),
-            itemCount: _presets.length,
-            itemBuilder: (context, i) {
-              final p = _presets[i];
-              final canAfford = widget.state.coinBalance >= p.ncxValue;
-              return GestureDetector(
-                onTap: _sending ? null : () => _sendGift(p),
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 200),
-                  opacity: canAfford ? 1.0 : 0.4,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: () {
-                            final url = p.imageUrl ?? '$_giftIconCdn/${p.id}.jpeg';
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: CachedNetworkImage(
-                                imageUrl: url,
-                                fit: BoxFit.cover,
-                                placeholder: (_, __) => Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32))),
-                                errorWidget: (_, __, ___) => Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32))),
+
+        // ── Gifts Grid (Scrollable) ──
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: RawScrollbar(
+              thumbColor: const Color(0xFF38BDF8).withOpacity(0.4),
+              radius: const Radius.circular(4),
+              thickness: 4,
+              thumbVisibility: true,
+              child: GridView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                physics: const BouncingScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 4,
+                  childAspectRatio: 0.76,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 10,
+                ),
+                itemCount: _presets.length,
+                itemBuilder: (context, i) {
+                  final p = _presets[i];
+                  final canAfford = balance >= p.ncxValue;
+                  return GestureDetector(
+                    onTap: _sending ? null : () => _sendGift(p),
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 180),
+                      opacity: canAfford ? 1.0 : 0.45,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Gift Image / Icon (Un-encased, clean floating)
+                          SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: _buildGiftIcon(p),
+                          ),
+                          const SizedBox(height: 6),
+                          // Name Label
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: Text(
+                              p.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: dm(sz: 11, w: FontWeight.w600, c: Colors.white),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          // Price Badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0B243B),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFF38BDF8).withOpacity(0.25),
                               ),
-                            );
-                          }(),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(p.name, 
-                          maxLines: 1, 
-                          overflow: TextOverflow.ellipsis,
-                          style: syne(sz: 12, w: FontWeight.bold, c: Colors.white)
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.generating_tokens, color: C.brand, size: 10),
-                            const SizedBox(width: 4),
-                            Text('${p.ncxValue}', style: dm(sz: 12, w: FontWeight.w900, c: C.brand)),
-                          ],
-                        ),
-                      ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF0284C7),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Center(
+                                    child: Text(
+                                      'T',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 7,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${p.ncxValue}',
+                                  style: dm(
+                                    sz: 10,
+                                    w: FontWeight.w800,
+                                    c: const Color(0xFF38BDF8),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+
+        // ── Footer Banner ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F1A2E),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.08),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF38BDF8).withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.shield_outlined,
+                    color: Color(0xFF38BDF8),
+                    size: 15,
                   ),
                 ),
-              );
-            },
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Send gifts to support and celebrate your favorite creators!',
+                    style: dm(sz: 11, c: Colors.white70, h: 1.2),
+                  ),
+                ),
+              ],
+            ),
           ),
+        ),
       ],
     );
   }
