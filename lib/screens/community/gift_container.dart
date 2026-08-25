@@ -235,7 +235,7 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildStepContent() {
-    if (_loading) return const SizedBox(height: 300, child: Center(child: CircularProgressIndicator(color: C.brand)));
+    if (_loading) return SizedBox(height: 300, child: Center(child: CircularProgressIndicator(color: C.brand)));
 
     switch (_step) {
       case 0: return _buildSelection();
@@ -254,7 +254,7 @@ class _GiftContainerState extends State<GiftContainer> {
           if (onBack != null)
             GestureDetector(
               onTap: onBack,
-              child: const Icon(Icons.arrow_back_ios_new, color: C.text, size: 20),
+              child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 20),
             ),
           if (onBack == null) const SizedBox(width: 20),
           Expanded(
@@ -320,7 +320,7 @@ class _GiftContainerState extends State<GiftContainer> {
                           color: Color(0xFF0284C7),
                           shape: BoxShape.circle,
                         ),
-                        child: const Center(
+                        child: Center(
                           child: Text(
                             'T',
                             style: TextStyle(
@@ -369,7 +369,7 @@ class _GiftContainerState extends State<GiftContainer> {
                     color: Color(0xFF172132),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.close_rounded,
                     size: 18,
                     color: C.sub,
@@ -452,7 +452,7 @@ class _GiftContainerState extends State<GiftContainer> {
                                     color: Color(0xFF0284C7),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Center(
+                                  child: Center(
                                     child: Text(
                                       'T',
                                       style: TextStyle(
@@ -607,7 +607,7 @@ class _GiftContainerState extends State<GiftContainer> {
             const SizedBox(width: 16),
             Text(label, style: dm(sz: 14, w: FontWeight.bold, c: C.text)),
             const Spacer(),
-            const Icon(Icons.chevron_right, color: C.dim),
+            Icon(Icons.chevron_right, color: C.dim),
           ],
         ),
       ),
@@ -620,7 +620,7 @@ class _GiftContainerState extends State<GiftContainer> {
       children: [
         _buildHeader('COMPLETE PAYMENT', onBack: () => _next(1)),
         
-        const Icon(Icons.hourglass_top_rounded, color: C.brand, size: 64),
+        Icon(Icons.hourglass_top_rounded, color: C.brand, size: 64),
         const SizedBox(height: 24),
         Text('Payment Initiated', style: syne(sz: 20, w: FontWeight.bold, c: C.text)),
         const SizedBox(height: 12),
@@ -707,4 +707,5 @@ class _GiftContainerState extends State<GiftContainer> {
     );
   }
 }
+
 
