@@ -567,7 +567,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   decoration: BoxDecoration(
                     color: Colors.black,
                     borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: Colors.white12),
+                    border: Border.all(color: C.dim),
                     boxShadow: const [
                       BoxShadow(
                         color: Colors.black87,
@@ -598,12 +598,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
           const SizedBox(height: 18),
           Text(
             'COMMUNITY',
-            style: syne(sz: 17, w: FontWeight.w900, c: Colors.white, ls: 1.4),
+            style: syne(sz: 17, w: FontWeight.w900, c: C.text, ls: 1.4),
           ),
           const SizedBox(height: 5),
           Text(
             'Create, discover and shop.',
-            style: dm(sz: 11, c: Colors.white38),
+            style: dm(sz: 11, c: C.dim),
           ),
           const SizedBox(height: 30),
           _desktopNavButton(
@@ -663,7 +663,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     bool selected = false,
     Color? accent,
   }) {
-    final color = accent ?? (selected ? C.brand : Colors.white70);
+    final color = accent ?? (selected ? C.brand : C.sub);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
@@ -704,7 +704,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         children: [
           Text(
             'QUICK CONTROLS',
-            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white54, ls: 1.3),
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1.3),
           ),
           const SizedBox(height: 16),
           _keyboardHint('↑  ↓', 'Previous / next'),
@@ -713,14 +713,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
           const SizedBox(height: 28),
           Text(
             _selectedTab == 0 ? 'Community feed' : 'Community shop',
-            style: syne(sz: 16, w: FontWeight.w800, c: Colors.white),
+            style: syne(sz: 16, w: FontWeight.w800, c: C.text),
           ),
           const SizedBox(height: 8),
           Text(
             _selectedTab == 0
                 ? 'Watch creator posts, react, comment, share, gift and connect.'
                 : 'Explore verified listings, reviews and secure checkout.',
-            style: dm(sz: 12, c: Colors.white38),
+            style: dm(sz: 12, c: C.dim),
           ),
           const Spacer(),
           OutlinedButton.icon(
@@ -728,8 +728,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: const Text('Refresh'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white70,
-              side: const BorderSide(color: Colors.white12),
+              foregroundColor: C.sub,
+              side: const BorderSide(color: C.dim),
             ),
           ),
         ],
@@ -746,19 +746,19 @@ class _CommunityScreenState extends State<CommunityScreen> {
             constraints: const BoxConstraints(minWidth: 42),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
+              color: C.text.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(7),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: C.dim),
             ),
             child: Text(
               keyLabel,
               textAlign: TextAlign.center,
-              style: dm(sz: 10, w: FontWeight.w700, c: Colors.white70),
+              style: dm(sz: 10, w: FontWeight.w700, c: C.sub),
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(action, style: dm(sz: 11, c: Colors.white38)),
+            child: Text(action, style: dm(sz: 11, c: C.dim)),
           ),
         ],
       ),
@@ -777,11 +777,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.3),
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
+              border: Border.all(color: C.text.withOpacity(0.1)),
             ),
             child: const Icon(
               Icons.arrow_back_ios_new,
-              color: Colors.white,
+              color: C.text,
               size: 16,
             ),
           ),
@@ -816,9 +816,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
               child: Container(
                 padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: C.text.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -830,7 +830,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: _selectedTab == 0
-                            ? Colors.white
+                            ? C.text
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(24),
                       ),
@@ -839,7 +839,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         style: syne(
                           sz: 12,
                           w: FontWeight.bold,
-                          c: _selectedTab == 0 ? Colors.black : Colors.white70,
+                          c: _selectedTab == 0 ? Colors.black : C.sub,
                         ),
                       ),
                     ),
@@ -850,7 +850,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       ),
                       decoration: BoxDecoration(
                         color: _selectedTab == 1
-                            ? Colors.white
+                            ? C.text
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(24),
                       ),
@@ -859,7 +859,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         style: syne(
                           sz: 12,
                           w: FontWeight.bold,
-                          c: _selectedTab == 1 ? Colors.black : Colors.white70,
+                          c: _selectedTab == 1 ? Colors.black : C.sub,
                         ),
                       ),
                     ),
@@ -882,11 +882,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.3),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
                 child: const Icon(
                   Icons.cloud_upload_outlined,
-                  color: Colors.white,
+                  color: C.text,
                   size: 18,
                 ),
               ),
@@ -900,11 +900,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.3),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
                 child: const Icon(
                   Icons.search_rounded,
-                  color: Colors.white,
+                  color: C.text,
                   size: 18,
                 ),
               ),
@@ -930,7 +930,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             decoration: BoxDecoration(
               color: const Color(0xF2111419),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: C.dim),
               boxShadow: const [
                 BoxShadow(
                   color: Colors.black54,
@@ -955,14 +955,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     const SizedBox(width: 7),
                     Text(
                       'LIVE Now',
-                      style: syne(sz: 13, w: FontWeight.w900, c: Colors.white),
+                      style: syne(sz: 13, w: FontWeight.w900, c: C.text),
                     ),
                     const Spacer(),
                     if (_activeLiveStreams.isNotEmpty)
                       TextButton(
                         onPressed: () => _showLiveDirectory(_activeLiveStreams),
                         style: TextButton.styleFrom(
-                          foregroundColor: Colors.white70,
+                          foregroundColor: C.sub,
                           visualDensity: VisualDensity.compact,
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
@@ -974,7 +974,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       visualDensity: VisualDensity.compact,
                       icon: const Icon(
                         Icons.keyboard_arrow_down_rounded,
-                        color: Colors.white70,
+                        color: C.sub,
                         size: 22,
                       ),
                     ),
@@ -1015,12 +1015,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   border: Border.all(
                     color: _showLiveOverlay
                         ? const Color(0xFFFF334E)
-                        : Colors.white.withValues(alpha: 0.12),
+                        : C.text.withValues(alpha: 0.12),
                   ),
                 ),
                 child: const Icon(
                   Icons.sensors_rounded,
-                  color: Colors.white,
+                  color: C.text,
                   size: 23,
                 ),
               ),
@@ -1038,7 +1038,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   ),
                   child: Text(
                     'LIVE',
-                    style: syne(sz: 8, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 8, w: FontWeight.w900, c: C.text),
                   ),
                 ),
               ),
@@ -1097,13 +1097,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
           children: [
             const Icon(
               Icons.videocam_off_outlined,
-              color: Colors.white38,
+              color: C.dim,
               size: 22,
             ),
             const SizedBox(width: 10),
             Text(
               'No live streams right now',
-              style: dm(sz: 12, c: Colors.white54),
+              style: dm(sz: 12, c: C.dim),
             ),
           ],
         ),
@@ -1175,7 +1175,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     ),
                     child: Text(
                       'LIVE',
-                      style: syne(sz: 8, w: FontWeight.w900, c: Colors.white),
+                      style: syne(sz: 8, w: FontWeight.w900, c: C.text),
                     ),
                   ),
                 ),
@@ -1194,11 +1194,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.person, color: Colors.white, size: 8),
+                        const Icon(Icons.person, color: C.text, size: 8),
                         const SizedBox(width: 2),
                         Text(
                           _compactCount(viewerCount),
-                          style: dm(sz: 8, w: FontWeight.bold, c: Colors.white),
+                          style: dm(sz: 8, w: FontWeight.bold, c: C.text),
                         ),
                       ],
                     ),
@@ -1211,13 +1211,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
               hostName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: syne(sz: 10, w: FontWeight.w800, c: Colors.white),
+              style: syne(sz: 10, w: FontWeight.w800, c: C.text),
             ),
             Text(
               subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: dm(sz: 9, c: Colors.white54),
+              style: dm(sz: 9, c: C.dim),
             ),
           ],
         ),
@@ -1229,7 +1229,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     return Container(
       color: const Color(0xFF252932),
       alignment: Alignment.center,
-      child: const Icon(Icons.person, color: Colors.white38, size: 30),
+      child: const Icon(Icons.person, color: C.dim, size: 30),
     );
   }
 
@@ -1288,18 +1288,18 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     const SizedBox(width: 9),
                     Text(
                       'LIVE Now',
-                      style: syne(sz: 17, w: FontWeight.w900, c: Colors.white),
+                      style: syne(sz: 17, w: FontWeight.w900, c: C.text),
                     ),
                     const Spacer(),
                     IconButton(
                       onPressed: () => Navigator.pop(sheetContext),
                       tooltip: 'Close',
-                      icon: const Icon(Icons.close, color: Colors.white70),
+                      icon: const Icon(Icons.close, color: C.sub),
                     ),
                   ],
                 ),
               ),
-              const Divider(color: Colors.white12, height: 1),
+              const Divider(color: C.dim, height: 1),
               Expanded(
                 child: GridView.builder(
                   padding: const EdgeInsets.all(16),
@@ -1348,13 +1348,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
         final Color redCol = (isOffline || isSyncing)
             ? const Color(0xFFFF5252)
-            : Colors.white10;
+            : C.dim;
         final Color yellowCol = isSyncing
             ? const Color(0xFFFFD740)
-            : Colors.white10;
+            : C.dim;
         final Color greenCol = (!isOffline && !isSyncing)
             ? const Color(0xFF69F0AE)
-            : Colors.white10;
+            : C.dim;
 
         return Row(
           mainAxisSize: MainAxisSize.min,
@@ -1377,7 +1377,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
-        boxShadow: (color == Colors.white10 || isPulse)
+        boxShadow: (color == C.dim || isPulse)
             ? null
             : [
                 BoxShadow(
@@ -1400,19 +1400,19 @@ class _CommunityScreenState extends State<CommunityScreen> {
           Icon(
             hasError ? Icons.wifi_off_rounded : Icons.satellite_alt_outlined,
             size: 80,
-            color: Colors.white.withOpacity(0.1),
+            color: C.text.withOpacity(0.1),
           ),
           const SizedBox(height: 24),
           Text(
             hasError ? 'Network Disconnected' : 'Feed is Empty',
-            style: syne(sz: 20, w: FontWeight.w900, c: Colors.white),
+            style: syne(sz: 20, w: FontWeight.w900, c: C.text),
           ),
           const SizedBox(height: 8),
           Text(
             hasError
                 ? 'Please check your internet connection'
                 : 'No content available right now',
-            style: dm(sz: 14, c: Colors.white.withOpacity(0.5)),
+            style: dm(sz: 14, c: C.text.withOpacity(0.5)),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 32),
@@ -1460,7 +1460,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFF0D121B),
                 borderRadius: BorderRadius.circular(kIsWeb ? 24 : 28),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: C.dim),
               ),
               padding: const EdgeInsets.all(24),
               child: Column(
@@ -1470,7 +1470,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.white10,
+                      color: C.dim,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -1480,7 +1480,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     style: syne(
                       sz: 18,
                       w: FontWeight.w900,
-                      c: Colors.white,
+                      c: C.text,
                       ls: 1,
                     ),
                   ),
@@ -1540,9 +1540,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: C.dim),
         ),
         child: Row(
           children: [
@@ -1561,15 +1561,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 children: [
                   Text(
                     title,
-                    style: syne(sz: 15, w: FontWeight.bold, c: Colors.white),
+                    style: syne(sz: 15, w: FontWeight.bold, c: C.text),
                   ),
-                  Text(sub, style: dm(sz: 11, c: Colors.white38)),
+                  Text(sub, style: dm(sz: 11, c: C.dim)),
                 ],
               ),
             ),
             const Icon(
               Icons.arrow_forward_ios_rounded,
-              color: Colors.white24,
+              color: C.dim,
               size: 14,
             ),
           ],
@@ -1967,7 +1967,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                   const Center(
                                     child: Icon(
                                       Icons.broken_image_outlined,
-                                      color: Colors.white24,
+                                      color: C.dim,
                                       size: 48,
                                     ),
                                   ),
@@ -2049,13 +2049,13 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                         style: syne(
                           sz: 13,
                           w: FontWeight.w900,
-                          c: Colors.white,
+                          c: C.text,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         description,
-                        style: dm(sz: 13, c: Colors.white.withOpacity(0.9)),
+                        style: dm(sz: 13, c: C.text.withOpacity(0.9)),
                       ),
 
                       // 🚀 SHOP REEL: Inline Buy Button if linked to a listing
@@ -2083,7 +2083,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ? Center(
                       child: Text(
                         'Tap to exit clean mode',
-                        style: dm(sz: 13, c: Colors.white38),
+                        style: dm(sz: 13, c: C.dim),
                       ),
                     )
                   : null,
@@ -2122,7 +2122,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   _actionButton(
                     icon: _isLiked ? Icons.favorite : Icons.favorite_outline,
                     label: kNum(_likesCount),
-                    iconColor: _isLiked ? Colors.redAccent : Colors.white,
+                    iconColor: _isLiked ? Colors.redAccent : C.text,
                     onTap: _handleLike,
                   ),
                   const SizedBox(height: 14),
@@ -2137,7 +2137,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     label: 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
-                      widget.state.targetProfileId = widget.post['author_id'];
+                      widget.state.targetProfileId = widget.post['author_id'] ?? widget.post['user_id'];
                       widget.state.listingId = widget.post['id'];
                       widget.state.showGiftFloat = true;
                       widget.state.notify();
@@ -2192,7 +2192,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         decoration: BoxDecoration(
           color: const Color(0xFF0D121B),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          border: Border.all(color: C.text.withOpacity(0.1)),
         ),
         child: SafeArea(
           child: Column(
@@ -2203,7 +2203,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: C.dim,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2216,7 +2216,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ),
                   title: Text(
                     isSaved ? 'Remove from Saved' : 'Save Post',
-                    style: dm(sz: 16, c: Colors.white),
+                    style: dm(sz: 16, c: C.text),
                   ),
                   onTap: () {
                     Navigator.pop(context);
@@ -2227,11 +2227,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ListTile(
                   leading: const Icon(
                     Icons.visibility_off_outlined,
-                    color: Colors.white70,
+                    color: C.sub,
                   ),
                   title: Text(
                     'Not Interested',
-                    style: dm(sz: 16, c: Colors.white),
+                    style: dm(sz: 16, c: C.text),
                   ),
                   onTap: () {
                     Navigator.pop(context);
@@ -2256,11 +2256,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                         backgroundColor: const Color(0xFF0D121B),
                         title: Text(
                           'Delete this post?',
-                          style: syne(c: Colors.white, w: FontWeight.w800),
+                          style: syne(c: C.text, w: FontWeight.w800),
                         ),
                         content: Text(
                           'This removes the post from Community and cannot be undone.',
-                          style: dm(c: Colors.white60),
+                          style: dm(c: C.sub),
                         ),
                         actions: [
                           TextButton(
@@ -2305,11 +2305,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ListTile(
                   leading: const Icon(
                     Icons.report_problem_outlined,
-                    color: Colors.white,
+                    color: C.text,
                   ),
                   title: Text(
                     'Report Content',
-                    style: dm(sz: 16, c: Colors.white),
+                    style: dm(sz: 16, c: C.text),
                   ),
                   onTap: () async {
                     Navigator.pop(context);
@@ -2353,7 +2353,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
-    Color iconColor = Colors.white,
+    Color iconColor = C.text,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -2371,7 +2371,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           const SizedBox(height: 2),
           Text(
             label.toUpperCase(),
-            style: dm(sz: 8, w: FontWeight.w700, c: Colors.white, ls: 1),
+            style: dm(sz: 8, w: FontWeight.w700, c: C.text, ls: 1),
           ),
         ],
       ),
@@ -2476,7 +2476,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               child: photoUrl == null
                   ? Text(
                       username.isNotEmpty ? username[0].toUpperCase() : 'U',
-                      style: syne(c: Colors.white, w: FontWeight.bold),
+                      style: syne(c: C.text, w: FontWeight.bold),
                     )
                   : null,
             ),
@@ -2555,7 +2555,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: const Color(0xFF0A0F2C).withOpacity(0.5),
         borderRadius: BorderRadius.circular(23),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: C.text.withOpacity(0.08)),
         boxShadow: [
           BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 15),
         ],
@@ -2575,7 +2575,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   children: [
                     Text(
                       username,
-                      style: syne(sz: 13, w: FontWeight.bold, c: Colors.white),
+                      style: syne(sz: 13, w: FontWeight.bold, c: C.text),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -2624,7 +2624,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: C.text.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -2651,7 +2651,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       decoration: BoxDecoration(
                         color: widget.state.isGlobalMuted
                             ? Colors.redAccent.withOpacity(0.2)
-                            : Colors.white.withOpacity(0.1),
+                            : C.text.withOpacity(0.1),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -2678,7 +2678,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 },
                 child: const Icon(
                   Icons.more_horiz,
-                  color: Colors.white,
+                  color: C.text,
                   size: 18,
                 ),
               ),
@@ -2719,7 +2719,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       decoration: BoxDecoration(
                         color: const Color(0xFF0A0F2C).withOpacity(0.8),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(color: C.dim),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -2807,7 +2807,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               size: 18,
               color:
                   color ??
-                  (isAccent ? const Color(0xFF00E5FF) : Colors.white70),
+                  (isAccent ? const Color(0xFF00E5FF) : C.sub),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -2817,7 +2817,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   sz: 13,
                   c:
                       color ??
-                      (isAccent ? const Color(0xFF00E5FF) : Colors.white),
+                      (isAccent ? const Color(0xFF00E5FF) : C.text),
                 ),
               ),
             ),
@@ -2839,14 +2839,14 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           gradient: const SweepGradient(
             colors: [Colors.black, Colors.grey, Colors.black],
           ),
-          border: Border.all(color: Colors.white24, width: 2),
+          border: Border.all(color: C.dim, width: 2),
         ),
         child: Container(
           decoration: const BoxDecoration(
             color: Colors.black,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.music_note, color: Colors.white, size: 12),
+          child: const Icon(Icons.music_note, color: C.text, size: 12),
         ),
       ),
     );
@@ -2864,7 +2864,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: Colors.white24,
+              color: C.dim,
             ),
           );
         },
@@ -2889,9 +2889,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.1),
+              color: C.text.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: C.dim),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -2901,20 +2901,20 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   child: Container(
                     width: 30,
                     height: 30,
-                    color: Colors.white.withOpacity(0.05),
+                    color: C.text.withOpacity(0.05),
                     child: url != null && url.isNotEmpty
                         ? Image.network(
                             url,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stack) => const Icon(
                               Icons.shopping_bag_outlined,
-                              color: Colors.white24,
+                              color: C.dim,
                               size: 14,
                             ),
                           )
                         : const Icon(
                             Icons.shopping_bag_outlined,
-                            color: Colors.white24,
+                            color: C.dim,
                             size: 14,
                           ),
                   ),
@@ -2929,7 +2929,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       style: syne(
                         sz: 10,
                         w: FontWeight.w900,
-                        c: Colors.white,
+                        c: C.text,
                         ls: 1,
                       ),
                     ),
@@ -2946,7 +2946,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 const SizedBox(width: 8),
                 const Icon(
                   Icons.arrow_forward_ios,
-                  color: Colors.white54,
+                  color: C.dim,
                   size: 10,
                 ),
               ],
@@ -2969,7 +2969,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         ),
       ),
       child: const Center(
-        child: Icon(Icons.style_outlined, size: 100, color: Colors.white10),
+        child: Icon(Icons.style_outlined, size: 100, color: C.dim),
       ),
     );
   }
@@ -3006,7 +3006,7 @@ class _FollowButtonState extends State<_FollowButton> {
                 : const LinearGradient(
                     colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
                   ),
-            color: _following ? Colors.white24 : null,
+            color: _following ? C.dim : null,
             borderRadius: BorderRadius.circular(16),
             boxShadow: _following
                 ? null
@@ -3022,7 +3022,7 @@ class _FollowButtonState extends State<_FollowButton> {
             style: syne(
               sz: 11,
               w: FontWeight.w900,
-              c: _following ? Colors.white : Colors.black,
+              c: _following ? C.text : Colors.black,
             ),
           ),
         ),
@@ -3286,7 +3286,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   _shopAction(
                     icon: _isLiked ? Icons.favorite : Icons.favorite_outline,
                     label: kNum(_likesCount),
-                    iconColor: _isLiked ? Colors.redAccent : Colors.white,
+                    iconColor: _isLiked ? Colors.redAccent : C.text,
                     onTap: _handleLike,
                   ),
                   const SizedBox(height: 16),
@@ -3386,12 +3386,12 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   // 2. Product Description & Price (Always visible)
                   Text(
                     title,
-                    style: syne(sz: 14, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 14, w: FontWeight.w900, c: C.text),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     description,
-                    style: dm(sz: 12, c: Colors.white70),
+                    style: dm(sz: 12, c: C.sub),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -3417,7 +3417,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.3),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: C.text.withOpacity(0.05)),
       ),
       child: Row(
         children: [
@@ -3425,7 +3425,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Center(
@@ -3444,9 +3444,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(width: 120, height: 10, color: Colors.white10),
+              Container(width: 120, height: 10, color: C.dim),
               const SizedBox(height: 8),
-              Container(width: 80, height: 10, color: Colors.white10),
+              Container(width: 80, height: 10, color: C.dim),
             ],
           ),
         ],
@@ -3619,7 +3619,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
       decoration: BoxDecoration(
         color: const Color(0xFF0A0F2C).withOpacity(0.5),
         borderRadius: BorderRadius.circular(23),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: C.text.withOpacity(0.08)),
         boxShadow: [
           BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 15),
         ],
@@ -3639,7 +3639,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   children: [
                     Text(
                       username,
-                      style: syne(sz: 13, w: FontWeight.bold, c: Colors.white),
+                      style: syne(sz: 13, w: FontWeight.bold, c: C.text),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -3678,7 +3678,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: C.text.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -3705,7 +3705,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       decoration: BoxDecoration(
                         color: widget.state.isGlobalMuted
                             ? Colors.redAccent.withOpacity(0.2)
-                            : Colors.white.withOpacity(0.1),
+                            : C.text.withOpacity(0.1),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -3744,7 +3744,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.5),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: C.dim),
           ),
           child: Row(
             children: [
@@ -3753,7 +3753,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 child: Container(
                   width: 60,
                   height: 60,
-                  color: Colors.white.withOpacity(0.05),
+                  color: C.text.withOpacity(0.05),
                   child: url != null && url.isNotEmpty
                       ? Image.network(
                           url,
@@ -3766,14 +3766,14 @@ class _ShopReelItemState extends State<_ShopReelItem>
                             return Center(
                               child: CircularProgressIndicator(
                                 strokeWidth: 1,
-                                color: Colors.white.withOpacity(0.2),
+                                color: C.text.withOpacity(0.2),
                               ),
                             );
                           },
                           errorBuilder: (context, error, stack) => const Center(
                             child: Icon(
                               Icons.shopping_bag_outlined,
-                              color: Colors.white24,
+                              color: C.dim,
                               size: 20,
                             ),
                           ),
@@ -3781,7 +3781,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       : const Center(
                           child: Icon(
                             Icons.shopping_bag_outlined,
-                            color: Colors.white24,
+                            color: C.dim,
                             size: 20,
                           ),
                         ),
@@ -3795,7 +3795,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   children: [
                     Text(
                       title,
-                      style: syne(sz: 13, w: FontWeight.w900, c: Colors.white),
+                      style: syne(sz: 13, w: FontWeight.w900, c: C.text),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -3811,7 +3811,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     const SizedBox(height: 4),
                     Text(
                       'SKU: ${widget.listing['sku'] ?? 'N/A'}',
-                      style: dm(sz: 9, c: Colors.white38),
+                      style: dm(sz: 9, c: C.dim),
                     ),
                   ],
                 ),
@@ -3829,11 +3829,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: C.text,
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.white.withOpacity(0.2),
+                        color: C.text.withOpacity(0.2),
                         blurRadius: 10,
                       ),
                     ],
@@ -3854,7 +3854,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
   Widget _shopAction({
     required IconData icon,
     required String label,
-    Color iconColor = Colors.white,
+    Color iconColor = C.text,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
@@ -3871,7 +3871,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
           const SizedBox(height: 2),
           Text(
             label.toUpperCase(),
-            style: syne(sz: 10, w: FontWeight.w800, c: Colors.white, ls: 0.5),
+            style: syne(sz: 10, w: FontWeight.w800, c: C.text, ls: 0.5),
           ),
         ],
       ),
@@ -3884,7 +3884,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
       child: Icon(
         Icons.shopping_cart_outlined,
         size: 80,
-        color: Colors.white10,
+        color: C.dim,
       ),
     ),
   );
@@ -4017,7 +4017,7 @@ class _CommentSheetState extends State<_CommentSheet> {
         decoration: BoxDecoration(
           color: const Color(0xFF0D121B),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          border: Border.all(color: C.text.withOpacity(0.1)),
         ),
         child: Column(
           children: [
@@ -4026,14 +4026,14 @@ class _CommentSheetState extends State<_CommentSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: C.dim,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             const SizedBox(height: 20),
             Text(
               'NEURAL FEEDBACK',
-              style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 4),
+              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 4),
             ),
             const SizedBox(height: 20),
             Expanded(
@@ -4055,7 +4055,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                         children: [
                           Text(
                             'Comments could not be loaded.',
-                            style: dm(sz: 13, c: Colors.white54),
+                            style: dm(sz: 13, c: C.dim),
                           ),
                           const SizedBox(height: 8),
                           IconButton(
@@ -4075,7 +4075,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                     return Center(
                       child: Text(
                         'Be the first to share your thoughts.',
-                        style: dm(sz: 13, c: Colors.white24),
+                        style: dm(sz: 13, c: C.dim),
                       ),
                     );
                   }
@@ -4164,7 +4164,7 @@ class _CommentSheetState extends State<_CommentSheet> {
             ),
             child: CircleAvatar(
               radius: 18,
-              backgroundColor: Colors.white.withOpacity(0.05),
+              backgroundColor: C.text.withOpacity(0.05),
               backgroundImage: avatar != null ? NetworkImage(avatar) : null,
               child: avatar == null
                   ? Text(
@@ -4183,7 +4183,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                   children: [
                     Text(
                       name,
-                      style: dm(sz: 13, w: FontWeight.w800, c: Colors.white70),
+                      style: dm(sz: 13, w: FontWeight.w800, c: C.sub),
                     ),
                     if (isVerified) ...[
                       const SizedBox(width: 4),
@@ -4200,7 +4200,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                         child: Icon(
                           Icons.schedule_rounded,
                           size: 12,
-                          color: Colors.white38,
+                          color: C.dim,
                         ),
                       ),
                     ],
@@ -4209,7 +4209,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                 const SizedBox(height: 6),
                 Text(
                   content,
-                  style: dm(sz: 15, c: Colors.white.withOpacity(0.9), h: 1.4),
+                  style: dm(sz: 15, c: C.text.withOpacity(0.9), h: 1.4),
                 ),
               ],
             ),
@@ -4229,17 +4229,17 @@ class _CommentSheetState extends State<_CommentSheet> {
       ),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.5),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+        border: Border(top: BorderSide(color: C.text.withOpacity(0.05))),
       ),
       child: Row(
         children: [
           Expanded(
             child: TextField(
               controller: _ctrl,
-              style: dm(sz: 15, c: Colors.white),
+              style: dm(sz: 15, c: C.text),
               decoration: InputDecoration(
                 hintText: 'Add a thought...',
-                hintStyle: dm(sz: 15, c: Colors.white24),
+                hintStyle: dm(sz: 15, c: C.dim),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
               ),
@@ -4382,7 +4382,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: C.dim,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
@@ -4393,7 +4393,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
                     'DISCOVER',
-                    style: syne(sz: 20, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 20, w: FontWeight.w900, c: C.text),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -4403,7 +4403,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.07),
+                      color: C.text.withOpacity(0.07),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: C.brand.withOpacity(0.25)),
                     ),
@@ -4412,15 +4412,15 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                       autofocus: true,
                       onChanged: _scheduleSearch,
                       onSubmitted: _search,
-                      style: dm(sz: 15, c: Colors.white),
+                      style: dm(sz: 15, c: C.text),
                       decoration: InputDecoration(
                         hintText: _searchMode == 0
                             ? 'Search posts, users…'
                             : 'Search shop listings…',
-                        hintStyle: dm(sz: 14, c: Colors.white38),
+                        hintStyle: dm(sz: 14, c: C.dim),
                         prefixIcon: const Icon(
                           Icons.search_rounded,
-                          color: Colors.white38,
+                          color: C.dim,
                           size: 18,
                         ),
                         suffixIcon: _loading
@@ -4431,7 +4431,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                   height: 16,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: Colors.white54,
+                                    color: C.dim,
                                   ),
                                 ),
                               )
@@ -4458,14 +4458,14 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           style: dm(
                             sz: 12,
                             w: FontWeight.bold,
-                            c: Colors.white70,
+                            c: C.sub,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Container(
                           height: 40,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.05),
+                            color: C.text.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: TextField(
@@ -4473,10 +4473,10 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                               _tagInput = v;
                               _scheduleSearch(_ctrl.text);
                             },
-                            style: dm(sz: 13, c: Colors.white),
+                            style: dm(sz: 13, c: C.text),
                             decoration: InputDecoration(
                               hintText: 'e.g. fashion, electronics',
-                              hintStyle: dm(sz: 13, c: Colors.white24),
+                              hintStyle: dm(sz: 13, c: C.dim),
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 12,
                                 vertical: 10,
@@ -4491,7 +4491,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           style: dm(
                             sz: 12,
                             w: FontWeight.bold,
-                            c: Colors.white70,
+                            c: C.sub,
                           ),
                         ),
                         RangeSlider(
@@ -4500,7 +4500,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           max: 1000000,
                           divisions: 100,
                           activeColor: const Color(0xFF00E5FF),
-                          inactiveColor: Colors.white12,
+                          inactiveColor: C.dim,
                           onChanged: (vals) {
                             setState(() {
                               _minPrice = vals.start;
@@ -4524,7 +4524,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                             children: [
                               const Icon(
                                 Icons.explore_outlined,
-                                color: Colors.white12,
+                                color: C.dim,
                                 size: 52,
                               ),
                               const SizedBox(height: 12),
@@ -4532,7 +4532,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                 _ctrl.text.isEmpty
                                     ? 'Start typing to discover'
                                     : 'No results found',
-                                style: dm(sz: 13, c: Colors.white30),
+                                style: dm(sz: 13, c: C.dim),
                               ),
                             ],
                           ),
@@ -4545,7 +4545,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           ),
                           itemCount: _results.length,
                           separatorBuilder: (_, __) =>
-                              Divider(color: Colors.white.withOpacity(0.06)),
+                              Divider(color: C.text.withOpacity(0.06)),
                           itemBuilder: (_, i) {
                             final post = _results[i];
                             final isShop = _searchMode == 1;
@@ -4562,7 +4562,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                   width: 40,
                                   height: 40,
                                   decoration: BoxDecoration(
-                                    color: Colors.white10,
+                                    color: C.dim,
                                     borderRadius: BorderRadius.circular(8),
                                     image: mediaUrl != null
                                         ? DecorationImage(
@@ -4574,7 +4574,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                   child: mediaUrl == null
                                       ? const Icon(
                                           Icons.shopping_bag,
-                                          color: Colors.white24,
+                                          color: C.dim,
                                         )
                                       : null,
                                 ),
@@ -4583,7 +4583,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                   style: syne(
                                     sz: 13,
                                     w: FontWeight.w700,
-                                    c: Colors.white,
+                                    c: C.text,
                                   ),
                                   maxLines: 1,
                                 ),
@@ -4597,7 +4597,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                 ),
                                 trailing: const Icon(
                                   Icons.arrow_forward_ios,
-                                  color: Colors.white24,
+                                  color: C.dim,
                                   size: 14,
                                 ),
                                 onTap: () {
@@ -4649,18 +4649,18 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                 style: syne(
                                   sz: 13,
                                   w: FontWeight.w700,
-                                  c: Colors.white,
+                                  c: C.text,
                                 ),
                               ),
                               subtitle: Text(
                                 title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: dm(sz: 12, c: Colors.white54),
+                                style: dm(sz: 12, c: C.dim),
                               ),
                               trailing: const Icon(
                                 Icons.arrow_forward_ios,
-                                color: Colors.white24,
+                                color: C.dim,
                                 size: 14,
                               ),
                               onTap: () {
@@ -4789,15 +4789,15 @@ class _ReviewSheetState extends State<_ReviewSheet> {
             height: 4,
             margin: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white24,
+              color: C.dim,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           Text(
             'VERIFIED REVIEWS',
-            style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 2),
+            style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
           ),
-          const Divider(color: Colors.white12, height: 30),
+          const Divider(color: C.dim, height: 30),
           Expanded(
             child: _isLoading
                 ? const Center(
@@ -4807,7 +4807,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                 ? Center(
                     child: Text(
                       'No verified reviews yet.',
-                      style: dm(c: Colors.white38),
+                      style: dm(c: C.dim),
                     ),
                   )
                 : ListView.builder(
@@ -4839,7 +4839,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                                   style: syne(
                                     sz: 12,
                                     w: FontWeight.bold,
-                                    c: Colors.white,
+                                    c: C.text,
                                   ),
                                 ),
                                 const Spacer(),
@@ -4851,7 +4851,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                                       size: 12,
                                       color: i < (r['rating'] ?? 0)
                                           ? Colors.amberAccent
-                                          : Colors.white10,
+                                          : C.dim,
                                     ),
                                   ),
                                 ),
@@ -4860,7 +4860,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                             const SizedBox(height: 10),
                             Text(
                               r['comment'] ?? '',
-                              style: dm(sz: 14, c: Colors.white70, h: 1.4),
+                              style: dm(sz: 14, c: C.sub, h: 1.4),
                             ),
                             if (r['seller_response']?.toString().isNotEmpty ==
                                 true) ...[
@@ -4869,12 +4869,12 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withAlpha(13),
+                                  color: C.text.withAlpha(13),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
                                   'Seller: ${r['seller_response']}',
-                                  style: dm(sz: 12, c: Colors.white60),
+                                  style: dm(sz: 12, c: C.sub),
                                 ),
                               ),
                             ],
@@ -4931,7 +4931,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
         child: Center(
           child: Text(
             text.toUpperCase(),
-            style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 1.5),
+            style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 1.5),
           ),
         ),
       ),
@@ -5006,7 +5006,7 @@ class _SubmitCommerceReviewSheetState
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: C.dim,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -5014,7 +5014,7 @@ class _SubmitCommerceReviewSheetState
               const SizedBox(height: 22),
               Text(
                 'RATE YOUR PURCHASE',
-                style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+                style: syne(sz: 15, w: FontWeight.w900, c: C.text),
               ),
               const SizedBox(height: 14),
               Row(
@@ -5036,12 +5036,12 @@ class _SubmitCommerceReviewSheetState
                 minLines: 3,
                 maxLines: 6,
                 maxLength: 2000,
-                style: dm(c: Colors.white),
+                style: dm(c: C.text),
                 decoration: InputDecoration(
                   hintText: 'Share what arrived and how the purchase went',
-                  hintStyle: dm(c: Colors.white38),
+                  hintStyle: dm(c: C.dim),
                   filled: true,
-                  fillColor: Colors.white.withAlpha(13),
+                  fillColor: C.text.withAlpha(13),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide.none,
@@ -5069,3 +5069,5 @@ class _SubmitCommerceReviewSheetState
     );
   }
 }
+
+

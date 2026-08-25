@@ -103,6 +103,8 @@ class _GiftContainerState extends State<GiftContainer> {
         ncxAmount: preset.ncxValue,
         contextType: widget.postId != null ? 'creator_post' : 'direct',
         contextId: widget.postId,
+        senderName: widget.state.myDisplayName,
+        senderAvatar: widget.state.myAvatarUrl,
         notificationUrl: preset.notificationUrl ?? '$_giftIconCdn/${preset.id}.jpeg',
       );
 
@@ -177,7 +179,7 @@ class _GiftContainerState extends State<GiftContainer> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(
           top: BorderSide(
-            color: Colors.white.withOpacity(0.1),
+            color: C.text.withOpacity(0.1),
             width: 1.0,
           ),
         ),
@@ -203,7 +205,7 @@ class _GiftContainerState extends State<GiftContainer> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: C.text.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -244,14 +246,14 @@ class _GiftContainerState extends State<GiftContainer> {
           if (onBack != null)
             GestureDetector(
               onTap: onBack,
-              child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+              child: const Icon(Icons.arrow_back_ios_new, color: C.text, size: 20),
             ),
           if (onBack == null) const SizedBox(width: 20),
           Expanded(
             child: Text(
               title,
               textAlign: TextAlign.center,
-              style: syne(sz: 16, w: FontWeight.w900, ls: 1.2, c: Colors.white),
+              style: syne(sz: 16, w: FontWeight.w900, ls: 1.2, c: C.text),
             ),
           ),
           const SizedBox(width: 20),
@@ -314,7 +316,7 @@ class _GiftContainerState extends State<GiftContainer> {
                           child: Text(
                             'T',
                             style: TextStyle(
-                              color: Colors.white,
+                              color: C.text,
                               fontSize: 10,
                               fontWeight: FontWeight.w900,
                             ),
@@ -324,7 +326,7 @@ class _GiftContainerState extends State<GiftContainer> {
                       const SizedBox(width: 6),
                       Text(
                         'NCX ',
-                        style: dm(sz: 11, w: FontWeight.bold, c: Colors.white70),
+                        style: dm(sz: 11, w: FontWeight.bold, c: C.sub),
                       ),
                       Text(
                         '${balance.toInt()}',
@@ -344,7 +346,7 @@ class _GiftContainerState extends State<GiftContainer> {
                     sz: 16,
                     w: FontWeight.w900,
                     ls: 1.2,
-                    c: Colors.white,
+                    c: C.text,
                   ),
                 ),
               ),
@@ -362,7 +364,7 @@ class _GiftContainerState extends State<GiftContainer> {
                   child: const Icon(
                     Icons.close_rounded,
                     size: 18,
-                    color: Colors.white70,
+                    color: C.sub,
                   ),
                 ),
               ),
@@ -415,7 +417,7 @@ class _GiftContainerState extends State<GiftContainer> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
-                              style: dm(sz: 11, w: FontWeight.w600, c: Colors.white),
+                              style: dm(sz: 11, w: FontWeight.w600, c: C.text),
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -446,7 +448,7 @@ class _GiftContainerState extends State<GiftContainer> {
                                     child: Text(
                                       'T',
                                       style: TextStyle(
-                                        color: Colors.white,
+                                        color: C.text,
                                         fontSize: 7,
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -484,7 +486,7 @@ class _GiftContainerState extends State<GiftContainer> {
               color: const Color(0xFF0F1A2E),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: Colors.white.withOpacity(0.08),
+                color: C.text.withOpacity(0.08),
               ),
             ),
             child: Row(
@@ -505,7 +507,7 @@ class _GiftContainerState extends State<GiftContainer> {
                 Expanded(
                   child: Text(
                     'Send gifts to support and celebrate your favorite creators!',
-                    style: dm(sz: 11, c: Colors.white70, h: 1.2),
+                    style: dm(sz: 11, c: C.sub, h: 1.2),
                   ),
                 ),
               ],
@@ -526,7 +528,7 @@ class _GiftContainerState extends State<GiftContainer> {
         Text('INSUFFICIENT BALANCE', style: syne(sz: 12, w: FontWeight.w900, c: Colors.redAccent, ls: 1)),
         const SizedBox(height: 8),
         Text('You need ${(_selectedPreset!.ncxValue - widget.state.coinBalance).toInt()} more NCX coins to send this gift.',
-          style: dm(sz: 14, c: Colors.white70)
+          style: dm(sz: 14, c: C.sub)
         ),
         
         const SizedBox(height: 24),
@@ -535,17 +537,17 @@ class _GiftContainerState extends State<GiftContainer> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: C.text.withOpacity(0.05),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
+            border: Border.all(color: C.text.withOpacity(0.1)),
           ),
           child: Column(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Recharge Amount', style: dm(sz: 13, c: Colors.white38)),
-                  Text(ugx(_rechargeUGX), style: syne(sz: 18, w: FontWeight.bold, c: Colors.white)),
+                  Text('Recharge Amount', style: dm(sz: 13, c: C.dim)),
+                  Text(ugx(_rechargeUGX), style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
                 ],
               ),
               const SizedBox(height: 20),
@@ -555,7 +557,7 @@ class _GiftContainerState extends State<GiftContainer> {
                 max: 500000,
                 divisions: 99,
                 activeColor: C.brand,
-                inactiveColor: Colors.white10,
+                inactiveColor: C.dim,
                 onChanged: (v) => setState(() => _rechargeUGX = v),
               ),
               Text('Yields ${(_rechargeUGX / 100).toInt()} NCX Coins', style: dm(sz: 12, c: C.brand, w: FontWeight.bold)),
@@ -565,7 +567,7 @@ class _GiftContainerState extends State<GiftContainer> {
         
         const SizedBox(height: 24),
         
-        Text('SELECT PAYMENT METHOD', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 1)),
+        Text('SELECT PAYMENT METHOD', style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 1)),
         const SizedBox(height: 16),
         
         _paymentOption('Vault Balance', Icons.account_balance_wallet, Colors.cyan[600]!, () => _initiateRecharge('fiat_balance')),
@@ -583,9 +585,9 @@ class _GiftContainerState extends State<GiftContainer> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          border: Border.all(color: C.text.withOpacity(0.1)),
         ),
         child: Row(
           children: [
@@ -595,9 +597,9 @@ class _GiftContainerState extends State<GiftContainer> {
               child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(width: 16),
-            Text(label, style: dm(sz: 14, w: FontWeight.bold, c: Colors.white)),
+            Text(label, style: dm(sz: 14, w: FontWeight.bold, c: C.text)),
             const Spacer(),
-            const Icon(Icons.chevron_right, color: Colors.white24),
+            const Icon(Icons.chevron_right, color: C.dim),
           ],
         ),
       ),
@@ -612,20 +614,20 @@ class _GiftContainerState extends State<GiftContainer> {
         
         const Icon(Icons.hourglass_top_rounded, color: C.brand, size: 64),
         const SizedBox(height: 24),
-        Text('Payment Initiated', style: syne(sz: 20, w: FontWeight.bold, c: Colors.white)),
+        Text('Payment Initiated', style: syne(sz: 20, w: FontWeight.bold, c: C.text)),
         const SizedBox(height: 12),
         Text('Please check your phone for a push notification or follow the instructions in your provider app.',
           textAlign: TextAlign.center,
-          style: dm(sz: 14, c: Colors.white70)
+          style: dm(sz: 14, c: C.sub)
         ),
         const SizedBox(height: 32),
         
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(color: C.text.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
           child: Column(
             children: [
-              Text('REFERENCE ID', style: dm(sz: 10, c: Colors.white38)),
+              Text('REFERENCE ID', style: dm(sz: 10, c: C.dim)),
               const SizedBox(height: 4),
               SelectableText(_paymentRef ?? 'REF-XXXX', style: syne(sz: 16, w: FontWeight.w900, c: C.brand)),
             ],
@@ -671,11 +673,11 @@ class _GiftContainerState extends State<GiftContainer> {
           ),
         ),
         const SizedBox(height: 24),
-        Text('GIFT DELIVERED!', style: syne(sz: 24, w: FontWeight.w900, c: Colors.white, ls: 2)),
+        Text('GIFT DELIVERED!', style: syne(sz: 24, w: FontWeight.w900, c: C.text, ls: 2)),
         const SizedBox(height: 12),
         Text('Your ${_selectedPreset?.name ?? 'Gift'} was successfully received. The creator has been notified.',
           textAlign: TextAlign.center,
-          style: dm(sz: 15, c: Colors.white70)
+          style: dm(sz: 15, c: C.sub)
         ),
         const SizedBox(height: 40),
         GestureDetector(
@@ -697,3 +699,4 @@ class _GiftContainerState extends State<GiftContainer> {
     );
   }
 }
+
