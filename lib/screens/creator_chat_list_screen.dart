@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../app_state.dart';
+import '../data.dart' show giftNotificationImageUrlFor;
 import '../models/chat_models.dart';
 import '../models/notification_model.dart';
 
@@ -13,7 +14,6 @@ class CreatorChatListScreen extends StatefulWidget {
   @override
   State<CreatorChatListScreen> createState() => _CreatorChatListScreenState();
 }
-
 class _CreatorChatListScreenState extends State<CreatorChatListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -41,7 +41,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
         backgroundColor: Colors.black,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: C.text),
           onPressed: () => widget.state.goBack(),
         ),
         title: Text(
@@ -53,7 +53,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
           if (widget.state.unreadNotificationCount > 0)
             IconButton(
               tooltip: 'Mark all notifications as read',
-              icon: const Icon(Icons.done_all_rounded, color: Colors.white70),
+              icon: Icon(Icons.done_all_rounded, color: C.sub),
               onPressed: widget.state.markAllNotificationsAsRead,
             ),
         ],
@@ -61,7 +61,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
           controller: _tabController,
           indicatorColor: const Color(0xFF00E5FF),
           labelColor: const Color(0xFF00E5FF),
-          unselectedLabelColor: Colors.white54,
+          unselectedLabelColor: C.dim,
           labelStyle: syne(sz: 13, w: FontWeight.bold),
           tabs: [
             const Tab(text: 'CHATS'),
@@ -87,7 +87,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
                             ? '99+'
                             : '${widget.state.unreadNotificationCount}',
                         textAlign: TextAlign.center,
-                        style: dm(sz: 9, c: Colors.white, w: FontWeight.w800),
+                        style: dm(sz: 9, c: C.text, w: FontWeight.w800),
                       ),
                     ),
                   ],
@@ -123,12 +123,12 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
                 const Icon(
                   Icons.forum_outlined,
                   size: 60,
-                  color: Colors.white10,
+                  color: C.dim,
                 ),
                 const SizedBox(height: 16),
                 Text(
                   'NO CREATOR INTERACTIONS YET',
-                  style: syne(sz: 12, c: Colors.white24, ls: 1),
+                  style: syne(sz: 12, c: C.dim, ls: 1),
                 ),
               ],
             ),
@@ -169,12 +169,12 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
                         const Icon(
                           Icons.notifications_none_rounded,
                           size: 54,
-                          color: Colors.white12,
+                          color: C.dim,
                         ),
                         const SizedBox(height: 14),
                         Text(
                           'ALL CAUGHT UP',
-                          style: syne(sz: 12, c: Colors.white38, ls: 1),
+                          style: syne(sz: 12, c: C.dim, ls: 1),
                         ),
                       ],
                     ),
@@ -258,13 +258,18 @@ class _NotificationTile extends StatelessWidget {
         iconColor = C.brand;
     }
 
+    final giftItemId = notif.metadata['gift_item_id']?.toString();
+    final giftImageUrl = giftItemId == null
+        ? null
+        : giftNotificationImageUrlFor(giftItemId);
+
     return GestureDetector(
       onTap: () => state.openNotification(notif),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: notif.isRead
-              ? Colors.white.withOpacity(0.02)
+              ? C.text.withOpacity(0.02)
               : const Color(0xFF0A0F2C).withOpacity(0.4),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
@@ -275,7 +280,9 @@ class _NotificationTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _NotificationIdentity(
-              avatarUrl: notif.actorAvatar,
+              // Gift JPEGs are requested only when the notification list is
+              // visible. Transactions persist just gift_item_id, not media.
+              avatarUrl: giftImageUrl ?? notif.actorAvatar,
               icon: icon,
               color: iconColor,
             ),
@@ -308,11 +315,11 @@ class _NotificationTile extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  Text(notif.body, style: dm(sz: 13, c: Colors.white70)),
+                  Text(notif.body, style: dm(sz: 13, c: C.sub)),
                   const SizedBox(height: 8),
                   Text(
                     _relativeTime(notif.createdAt),
-                    style: dm(sz: 11, c: Colors.white38),
+                    style: dm(sz: 11, c: C.dim),
                   ),
                 ],
               ),
@@ -392,14 +399,14 @@ class _CreatorChatTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xFF0A0F2C).withOpacity(0.4),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          border: Border.all(color: C.text.withOpacity(0.05)),
         ),
         child: Row(
           children: [
             CircleAvatar(
               radius: 28,
               backgroundColor: const Color(0xFF00E5FF).withOpacity(0.1),
-              // CachedNetworkImageProvider — zero repeat egress after first load
+              // CachedNetworkImageProvider � zero repeat egress after first load
               backgroundImage: room.otherAvatar != null
                   ? CachedNetworkImageProvider(room.otherAvatar!)
                   : null,
@@ -460,7 +467,7 @@ class _CreatorChatTile extends StatelessWidget {
                     room.lastMessage ?? 'Start a conversation',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: dm(sz: 13, c: Colors.white54),
+                    style: dm(sz: 13, c: C.dim),
                   ),
                 ],
               ),

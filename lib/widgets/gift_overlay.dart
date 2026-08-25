@@ -8,7 +8,7 @@ class GiftOverlay extends StatelessWidget {
   final AppState state;
   final void Function(String emoji, String name, int price, int fee) onSend;
 
-  const GiftOverlay({super.key, required this.state, required this.onSend});
+  GiftOverlay({super.key, required this.state, required this.onSend});
 
   @override
   Widget build(BuildContext context) {
@@ -21,11 +21,11 @@ class GiftOverlay extends StatelessWidget {
       ),
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF0B111D),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        color: Color(0xFF0B111D),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(
           top: BorderSide(
-            color: Colors.white.withOpacity(0.1),
+            color: C.text.withOpacity(0.1),
             width: 1.0,
           ),
         ),
@@ -33,29 +33,29 @@ class GiftOverlay extends StatelessWidget {
           BoxShadow(
             color: Colors.black.withOpacity(0.6),
             blurRadius: 30,
-            offset: const Offset(0, -10),
+            offset: Offset(0, -10),
           ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Handle Bar ──
+          // -- Handle Bar --
           Padding(
-            padding: const EdgeInsets.only(top: 10, bottom: 4),
+            padding: EdgeInsets.only(top: 10, bottom: 4),
             child: Container(
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: C.text.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
           ),
 
-          // ── Header Row ──
+          // -- Header Row --
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+            padding: EdgeInsets.fromLTRB(16, 6, 16, 10),
             child: Row(
               children: [
                 // Balance Pill (Left)
@@ -65,12 +65,12 @@ class GiftOverlay extends StatelessWidget {
                     state.go('profile');
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF131D2D),
+                      color: Color(0xFF131D2D),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: const Color(0xFF38BDF8).withOpacity(0.25),
+                        color: Color(0xFF38BDF8).withOpacity(0.25),
                       ),
                     ),
                     child: Row(
@@ -79,29 +79,29 @@ class GiftOverlay extends StatelessWidget {
                         Container(
                           width: 18,
                           height: 18,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             color: Color(0xFF0284C7),
                             shape: BoxShape.circle,
                           ),
-                          child: const Center(
+                          child: Center(
                             child: Text(
                               'T',
                               style: TextStyle(
-                                color: Colors.white,
+                                color: C.text,
                                 fontSize: 10,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        SizedBox(width: 6),
                         Text(
                           'NCX ',
-                          style: dm(sz: 11, w: FontWeight.bold, c: Colors.white70),
+                          style: dm(sz: 11, w: FontWeight.bold, c: C.sub),
                         ),
                         Text(
                           '${coinBalance.toInt()}',
-                          style: syne(sz: 13, w: FontWeight.bold, c: const Color(0xFF38BDF8)),
+                          style: syne(sz: 13, w: FontWeight.bold, c: Color(0xFF38BDF8)),
                         ),
                       ],
                     ),
@@ -117,7 +117,7 @@ class GiftOverlay extends StatelessWidget {
                       sz: 16,
                       w: FontWeight.w900,
                       ls: 1.2,
-                      c: Colors.white,
+                      c: C.text,
                     ),
                   ),
                 ),
@@ -128,14 +128,14 @@ class GiftOverlay extends StatelessWidget {
                   child: Container(
                     width: 32,
                     height: 32,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       color: Color(0xFF172132),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.close_rounded,
                       size: 18,
-                      color: Colors.white70,
+                      color: C.sub,
                     ),
                   ),
                 ),
@@ -143,19 +143,19 @@ class GiftOverlay extends StatelessWidget {
             ),
           ),
 
-          // ── Gifts Grid (Scrollable) ──
+          // -- Gifts Grid (Scrollable) --
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: EdgeInsets.symmetric(horizontal: 14),
               child: RawScrollbar(
-                thumbColor: const Color(0xFF38BDF8).withOpacity(0.4),
-                radius: const Radius.circular(4),
+                thumbColor: Color(0xFF38BDF8).withOpacity(0.4),
+                radius: Radius.circular(4),
                 thickness: 4,
                 thumbVisibility: true,
                 child: GridView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-                  physics: const BouncingScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  padding: EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+                  physics: BouncingScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 4,
                     childAspectRatio: 0.76,
                     mainAxisSpacing: 12,
@@ -165,15 +165,23 @@ class GiftOverlay extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final g = gifts[index];
                     final canAfford = coinBalance >= g.price;
-                    return GestureDetector(
-                      onTap: canAfford
-                          ? () => onSend(g.emoji, g.name, g.price, g.fee)
-                          : () {
-                              Navigator.pop(context);
-                              state.go('profile');
-                            },
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 180),
+                    return Semantics(
+                      button: true,
+                      label: canAfford
+                          ? 'Send ${g.name} for ${g.price} NCX'
+                          : 'Add NCX to send ${g.name}',
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: canAfford
+                              ? () => onSend(g.emoji, g.name, g.price, g.fee)
+                              : () {
+                                  Navigator.pop(context);
+                                  state.go('profile');
+                                },
+                          borderRadius: BorderRadius.circular(12),
+                          child: AnimatedOpacity(
+                        duration: Duration(milliseconds: 180),
                         opacity: canAfford ? 1.0 : 0.45,
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -190,45 +198,45 @@ class GiftOverlay extends StatelessWidget {
                                         fit: BoxFit.contain,
                                         placeholder: (_, __) => Center(
                                           child: Text(g.emoji,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                   fontSize: 32)),
                                         ),
                                         errorWidget: (_, __, ___) => Center(
                                           child: Text(g.emoji,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                   fontSize: 32)),
                                         ),
                                       ),
                                     )
                                   : Center(
                                       child: Text(g.emoji,
-                                          style: const TextStyle(fontSize: 32)),
+                                          style: TextStyle(fontSize: 32)),
                                     ),
                             ),
-                            const SizedBox(height: 6),
+                            SizedBox(height: 6),
                             // Gift Name Label
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 2),
+                              padding: EdgeInsets.symmetric(horizontal: 2),
                               child: Text(
                                 g.name,
-                                style: dm(sz: 11, w: FontWeight.w600, c: Colors.white),
+                                style: dm(sz: 11, w: FontWeight.w600, c: C.text),
                                 textAlign: TextAlign.center,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const SizedBox(height: 4),
+                            SizedBox(height: 4),
                             // Price Badge
                             Container(
-                              padding: const EdgeInsets.symmetric(
+                              padding: EdgeInsets.symmetric(
                                 horizontal: 8,
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF0B243B),
+                                color: Color(0xFF0B243B),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: const Color(0xFF38BDF8).withOpacity(0.25),
+                                  color: Color(0xFF38BDF8).withOpacity(0.25),
                                 ),
                               ),
                               child: Row(
@@ -237,34 +245,36 @@ class GiftOverlay extends StatelessWidget {
                                   Container(
                                     width: 12,
                                     height: 12,
-                                    decoration: const BoxDecoration(
+                                    decoration: BoxDecoration(
                                       color: Color(0xFF0284C7),
                                       shape: BoxShape.circle,
                                     ),
-                                    child: const Center(
+                                    child: Center(
                                       child: Text(
                                         'T',
                                         style: TextStyle(
-                                          color: Colors.white,
+                                          color: C.text,
                                           fontSize: 7,
                                           fontWeight: FontWeight.w900,
                                         ),
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 4),
+                                  SizedBox(width: 4),
                                   Text(
                                     '${g.price}',
                                     style: dm(
                                       sz: 10,
                                       w: FontWeight.w800,
-                                      c: const Color(0xFF38BDF8),
+                                      c: Color(0xFF38BDF8),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
                           ],
+                        ),
+                          ),
                         ),
                       ),
                     );
@@ -274,37 +284,37 @@ class GiftOverlay extends StatelessWidget {
             ),
           ),
 
-          // ── Footer Banner ──
+          // -- Footer Banner --
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+            padding: EdgeInsets.fromLTRB(14, 8, 14, 14),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F1A2E),
+                color: Color(0xFF0F1A2E),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: Colors.white.withOpacity(0.08),
+                  color: C.text.withOpacity(0.08),
                 ),
               ),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(4),
+                    padding: EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF38BDF8).withOpacity(0.12),
+                      color: Color(0xFF38BDF8).withOpacity(0.12),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.shield_outlined,
                       color: Color(0xFF38BDF8),
                       size: 15,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'Send gifts to support and celebrate your favorite creators!',
-                      style: dm(sz: 11, c: Colors.white70, h: 1.2),
+                      style: dm(sz: 11, c: C.sub, h: 1.2),
                     ),
                   ),
                 ],

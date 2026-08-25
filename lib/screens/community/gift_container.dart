@@ -11,8 +11,6 @@ import '../../services/finance_coin_purchase_service.dart';
 import '../../services/finance_backend.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-const String _giftIconCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
-
 class GiftContainer extends StatefulWidget {
   final AppState state;
   final String receiverId;
@@ -34,8 +32,8 @@ class GiftContainer extends StatefulWidget {
 class _GiftContainerState extends State<GiftContainer> {
   int _step = 0; // 0: Selection, 1: Recharge, 2: Payment, 3: Success
 
-  // Reads from AppState.cachedGiftItems — no network call on open
-  List<GiftItem> get _presets => widget.state.cachedGiftItems;
+  List<GiftItem> _presets = [];
+  bool _loading = true;
   bool _sending = false;
 
   GiftItem? _selectedPreset;
@@ -46,14 +44,35 @@ class _GiftContainerState extends State<GiftContainer> {
   @override
   void initState() {
     super.initState();
-    // If the catalog hasn't been pre-warmed yet (e.g. first launch before
-    // background sync finished), kick it off now — the setState inside
-    // prewarmGiftCatalog notifies this widget automatically.
-    if (widget.state.cachedGiftItems.isEmpty) {
-      widget.state.prewarmGiftCatalog().then((_) {
-        if (mounted) setState(() {});
-      });
+    _initData();
+  }
+
+  Future<void> _initData() async {
+    setState(() => _loading = true);
+    try {
+      _presets = await widget.state.financeGifting.fetchGiftItems();
+      _presets.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      await widget.state.syncVault();
+    } catch (e) {
+      debugPrint('Gift Data Error: $e');
     }
+    if (_presets.isEmpty) {
+      _presets = gifts
+          .map(
+            (g) => GiftItem(
+              id: g.id,
+              name: g.name,
+              emoji: g.emoji,
+              ncxValue: g.price,
+              ugxValue: g.price * 100,
+              category: 'standard',
+              sortOrder: 0,
+              imageUrl: g.imageUrl,
+            ),
+          )
+          .toList();
+    }
+    setState(() => _loading = false);
   }
 
   void _next(int step) => setState(() => _step = step);
@@ -61,10 +80,8 @@ class _GiftContainerState extends State<GiftContainer> {
   Future<void> _sendGift(GiftItem preset) async {
     if (widget.receiverId.isEmpty) { _showError('No recipient selected.'); return; }
 
-    // Always track which gift is being sent so the success screen shows the correct name
-    _selectedPreset = preset;
-
     if (widget.state.coinBalance < preset.ncxValue) {
+      _selectedPreset = preset;
       _rechargeUGX = ((preset.ncxValue - widget.state.coinBalance) * 100).clamp(5000, 500000).toDouble();
       _next(1);
       return;
@@ -83,9 +100,6 @@ class _GiftContainerState extends State<GiftContainer> {
         ncxAmount: preset.ncxValue,
         contextType: widget.postId != null ? 'creator_post' : 'direct',
         contextId: widget.postId,
-        senderName: widget.state.myDisplayName,
-        senderAvatar: widget.state.myAvatarUrl,
-        notificationUrl: preset.notificationUrl ?? '$_giftIconCdn/${preset.id}.jpeg',
       );
 
       if (res.success) {
@@ -129,13 +143,7 @@ class _GiftContainerState extends State<GiftContainer> {
         await widget.state.syncVault();
       }
       _rechargeIdempotencyKey = null;
-      // Auto-retry the gift that triggered the recharge — no need to tap again
-      if (_selectedPreset != null) {
-        _next(0);
-        await _sendGift(_selectedPreset!);
-      } else {
-        _next(0);
-      }
+      _next(0);
     } catch (e) {
       if (e is FinanceBackendException &&
           (e.code == 'payment_final' || e.code == 'payment_initialization_failed')) {
@@ -165,7 +173,7 @@ class _GiftContainerState extends State<GiftContainer> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(
           top: BorderSide(
-            color: C.text.withOpacity(0.1),
+            color: Colors.white.withOpacity(0.1),
             width: 1.0,
           ),
         ),
@@ -191,7 +199,7 @@ class _GiftContainerState extends State<GiftContainer> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: C.text.withOpacity(0.2),
+                    color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -213,14 +221,7 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildStepContent() {
-    // Only show a spinner on very first launch before background sync pre-warms the catalog.
-    // On every subsequent open the catalog is already in memory — instant display.
-    if (_presets.isEmpty) {
-      return const SizedBox(
-        height: 300,
-        child: Center(child: CircularProgressIndicator(color: C.brand)),
-      );
-    }
+    if (_loading) return const SizedBox(height: 300, child: Center(child: CircularProgressIndicator(color: C.brand)));
 
     switch (_step) {
       case 0: return _buildSelection();
@@ -239,14 +240,14 @@ class _GiftContainerState extends State<GiftContainer> {
           if (onBack != null)
             GestureDetector(
               onTap: onBack,
-              child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 20),
+              child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
             ),
           if (onBack == null) const SizedBox(width: 20),
           Expanded(
             child: Text(
               title,
               textAlign: TextAlign.center,
-              style: syne(sz: 16, w: FontWeight.w900, ls: 1.2, c: C.text),
+              style: syne(sz: 16, w: FontWeight.w900, ls: 1.2, c: Colors.white),
             ),
           ),
           const SizedBox(width: 20),
@@ -256,8 +257,10 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildGiftIcon(GiftItem p) {
-    final localGift = gifts.where((g) => g.id == p.id).firstOrNull;
-    final url = localGift?.imageUrl ?? p.imageUrl ?? '$_giftIconCdn/${p.id}.jpeg';
+    final url = p.imageUrl;
+    if (url == null || url.isEmpty) {
+      return Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32)));
+    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: CachedNetworkImage(
@@ -305,11 +308,11 @@ class _GiftContainerState extends State<GiftContainer> {
                           color: Color(0xFF0284C7),
                           shape: BoxShape.circle,
                         ),
-                        child: Center(
+                        child: const Center(
                           child: Text(
                             'T',
                             style: TextStyle(
-                              color: C.text,
+                              color: Colors.white,
                               fontSize: 10,
                               fontWeight: FontWeight.w900,
                             ),
@@ -319,7 +322,7 @@ class _GiftContainerState extends State<GiftContainer> {
                       const SizedBox(width: 6),
                       Text(
                         'NCX ',
-                        style: dm(sz: 11, w: FontWeight.bold, c: C.sub),
+                        style: dm(sz: 11, w: FontWeight.bold, c: Colors.white70),
                       ),
                       Text(
                         '${balance.toInt()}',
@@ -339,7 +342,7 @@ class _GiftContainerState extends State<GiftContainer> {
                     sz: 16,
                     w: FontWeight.w900,
                     ls: 1.2,
-                    c: C.text,
+                    c: Colors.white,
                   ),
                 ),
               ),
@@ -354,10 +357,10 @@ class _GiftContainerState extends State<GiftContainer> {
                     color: Color(0xFF172132),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.close_rounded,
                     size: 18,
-                    color: C.sub,
+                    color: Colors.white70,
                   ),
                 ),
               ),
@@ -387,9 +390,16 @@ class _GiftContainerState extends State<GiftContainer> {
                 itemBuilder: (context, i) {
                   final p = _presets[i];
                   final canAfford = balance >= p.ncxValue;
-                  return GestureDetector(
-                    onTap: _sending ? null : () => _sendGift(p),
-                    child: AnimatedOpacity(
+                  return Semantics(
+                    button: true,
+                    enabled: !_sending,
+                    label: 'Send ${p.name} for ${p.ncxValue} NCX',
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _sending ? null : () => _sendGift(p),
+                        borderRadius: BorderRadius.circular(12),
+                        child: AnimatedOpacity(
                       duration: const Duration(milliseconds: 180),
                       opacity: canAfford ? 1.0 : 0.45,
                       child: Column(
@@ -410,7 +420,7 @@ class _GiftContainerState extends State<GiftContainer> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               textAlign: TextAlign.center,
-                              style: dm(sz: 11, w: FontWeight.w600, c: C.text),
+                              style: dm(sz: 11, w: FontWeight.w600, c: Colors.white),
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -437,11 +447,11 @@ class _GiftContainerState extends State<GiftContainer> {
                                     color: Color(0xFF0284C7),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: Center(
+                                  child: const Center(
                                     child: Text(
                                       'T',
                                       style: TextStyle(
-                                        color: C.text,
+                                        color: Colors.white,
                                         fontSize: 7,
                                         fontWeight: FontWeight.w900,
                                       ),
@@ -462,6 +472,8 @@ class _GiftContainerState extends State<GiftContainer> {
                           ),
                         ],
                       ),
+                        ),
+                      ),
                     ),
                   );
                 },
@@ -479,7 +491,7 @@ class _GiftContainerState extends State<GiftContainer> {
               color: const Color(0xFF0F1A2E),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: C.text.withOpacity(0.08),
+                color: Colors.white.withOpacity(0.08),
               ),
             ),
             child: Row(
@@ -500,7 +512,7 @@ class _GiftContainerState extends State<GiftContainer> {
                 Expanded(
                   child: Text(
                     'Send gifts to support and celebrate your favorite creators!',
-                    style: dm(sz: 11, c: C.sub, h: 1.2),
+                    style: dm(sz: 11, c: Colors.white70, h: 1.2),
                   ),
                 ),
               ],
@@ -521,7 +533,7 @@ class _GiftContainerState extends State<GiftContainer> {
         Text('INSUFFICIENT BALANCE', style: syne(sz: 12, w: FontWeight.w900, c: Colors.redAccent, ls: 1)),
         const SizedBox(height: 8),
         Text('You need ${(_selectedPreset!.ncxValue - widget.state.coinBalance).toInt()} more NCX coins to send this gift.',
-          style: dm(sz: 14, c: C.sub)
+          style: dm(sz: 14, c: Colors.white70)
         ),
         
         const SizedBox(height: 24),
@@ -530,17 +542,17 @@ class _GiftContainerState extends State<GiftContainer> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: C.text.withOpacity(0.05),
+            color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: C.text.withOpacity(0.1)),
+            border: Border.all(color: Colors.white.withOpacity(0.1)),
           ),
           child: Column(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Recharge Amount', style: dm(sz: 13, c: C.dim)),
-                  Text(ugx(_rechargeUGX), style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
+                  Text('Recharge Amount', style: dm(sz: 13, c: Colors.white38)),
+                  Text(ugx(_rechargeUGX), style: syne(sz: 18, w: FontWeight.bold, c: Colors.white)),
                 ],
               ),
               const SizedBox(height: 20),
@@ -550,7 +562,7 @@ class _GiftContainerState extends State<GiftContainer> {
                 max: 500000,
                 divisions: 99,
                 activeColor: C.brand,
-                inactiveColor: C.dim,
+                inactiveColor: Colors.white10,
                 onChanged: (v) => setState(() => _rechargeUGX = v),
               ),
               Text('Yields ${(_rechargeUGX / 100).toInt()} NCX Coins', style: dm(sz: 12, c: C.brand, w: FontWeight.bold)),
@@ -560,7 +572,7 @@ class _GiftContainerState extends State<GiftContainer> {
         
         const SizedBox(height: 24),
         
-        Text('SELECT PAYMENT METHOD', style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 1)),
+        Text('SELECT PAYMENT METHOD', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 1)),
         const SizedBox(height: 16),
         
         _paymentOption('Vault Balance', Icons.account_balance_wallet, Colors.cyan[600]!, () => _initiateRecharge('fiat_balance')),
@@ -578,9 +590,9 @@ class _GiftContainerState extends State<GiftContainer> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: C.text.withOpacity(0.05),
+          color: Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: C.text.withOpacity(0.1)),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
         ),
         child: Row(
           children: [
@@ -590,9 +602,9 @@ class _GiftContainerState extends State<GiftContainer> {
               child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(width: 16),
-            Text(label, style: dm(sz: 14, w: FontWeight.bold, c: C.text)),
+            Text(label, style: dm(sz: 14, w: FontWeight.bold, c: Colors.white)),
             const Spacer(),
-            Icon(Icons.chevron_right, color: C.dim),
+            const Icon(Icons.chevron_right, color: Colors.white24),
           ],
         ),
       ),
@@ -605,22 +617,22 @@ class _GiftContainerState extends State<GiftContainer> {
       children: [
         _buildHeader('COMPLETE PAYMENT', onBack: () => _next(1)),
         
-        Icon(Icons.hourglass_top_rounded, color: C.brand, size: 64),
+        const Icon(Icons.hourglass_top_rounded, color: C.brand, size: 64),
         const SizedBox(height: 24),
-        Text('Payment Initiated', style: syne(sz: 20, w: FontWeight.bold, c: C.text)),
+        Text('Payment Initiated', style: syne(sz: 20, w: FontWeight.bold, c: Colors.white)),
         const SizedBox(height: 12),
         Text('Please check your phone for a push notification or follow the instructions in your provider app.',
           textAlign: TextAlign.center,
-          style: dm(sz: 14, c: C.sub)
+          style: dm(sz: 14, c: Colors.white70)
         ),
         const SizedBox(height: 32),
         
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: C.text.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
           child: Column(
             children: [
-              Text('REFERENCE ID', style: dm(sz: 10, c: C.dim)),
+              Text('REFERENCE ID', style: dm(sz: 10, c: Colors.white38)),
               const SizedBox(height: 4),
               SelectableText(_paymentRef ?? 'REF-XXXX', style: syne(sz: 16, w: FontWeight.w900, c: C.brand)),
             ],
@@ -630,7 +642,7 @@ class _GiftContainerState extends State<GiftContainer> {
         const SizedBox(height: 32),
         GestureDetector(
           onTap: () async {
-            setState(() => _sending = true);
+            setState(() => _loading = true);
             await widget.state.syncVault();
             if (widget.state.coinBalance >= _selectedPreset!.ncxValue) {
               _next(0); // Go back to selection with new balance
@@ -638,7 +650,7 @@ class _GiftContainerState extends State<GiftContainer> {
               _showError('Payment not yet detected. Please wait.');
               _next(0); 
             }
-            setState(() => _sending = false);
+            setState(() => _loading = false);
           },
           child: Container(
             width: double.infinity,
@@ -666,11 +678,11 @@ class _GiftContainerState extends State<GiftContainer> {
           ),
         ),
         const SizedBox(height: 24),
-        Text('GIFT DELIVERED!', style: syne(sz: 24, w: FontWeight.w900, c: C.text, ls: 2)),
+        Text('GIFT DELIVERED!', style: syne(sz: 24, w: FontWeight.w900, c: Colors.white, ls: 2)),
         const SizedBox(height: 12),
         Text('Your ${_selectedPreset?.name ?? 'Gift'} was successfully received. The creator has been notified.',
           textAlign: TextAlign.center,
-          style: dm(sz: 15, c: C.sub)
+          style: dm(sz: 15, c: Colors.white70)
         ),
         const SizedBox(height: 40),
         GestureDetector(
@@ -692,5 +704,3 @@ class _GiftContainerState extends State<GiftContainer> {
     );
   }
 }
-
-

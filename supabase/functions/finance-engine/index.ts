@@ -25,6 +25,29 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, apikey, content-type",
 };
 
+// IDs and prices are the payment contract. Image URLs deliberately do not live
+// here: clients resolve PNGs for the picker and JPEGs for notifications by ID.
+const GIFT_CATALOGUE = [
+  { id: "rose", name: "Rose", emoji: "🌹", ncx_value: 1, ugx_value: 100, category: "standard", sort_order: 1, is_active: true },
+  { id: "clap", name: "Clap", emoji: "👏", ncx_value: 2, ugx_value: 200, category: "standard", sort_order: 2, is_active: true },
+  { id: "heart", name: "Heart", emoji: "❤️", ncx_value: 3, ugx_value: 300, category: "standard", sort_order: 3, is_active: true },
+  { id: "coffee", name: "Coffee", emoji: "☕", ncx_value: 5, ugx_value: 500, category: "standard", sort_order: 4, is_active: true },
+  { id: "star", name: "Star", emoji: "⭐", ncx_value: 5, ugx_value: 500, category: "standard", sort_order: 5, is_active: true },
+  { id: "fire", name: "Fire", emoji: "🔥", ncx_value: 10, ugx_value: 1000, category: "standard", sort_order: 6, is_active: true },
+  { id: "rocket", name: "Rocket", emoji: "🚀", ncx_value: 20, ugx_value: 2000, category: "standard", sort_order: 7, is_active: true },
+  { id: "crown", name: "Crown", emoji: "👑", ncx_value: 25, ugx_value: 2500, category: "standard", sort_order: 8, is_active: true },
+  { id: "diamond", name: "Diamond", emoji: "💎", ncx_value: 50, ugx_value: 5000, category: "premium", sort_order: 9, is_active: true },
+  { id: "trophy", name: "Trophy", emoji: "🏆", ncx_value: 50, ugx_value: 5000, category: "premium", sort_order: 10, is_active: true },
+  { id: "money_bag", name: "Money Bag", emoji: "💰", ncx_value: 100, ugx_value: 10000, category: "premium", sort_order: 11, is_active: true },
+  { id: "sports_car", name: "Sports Car", emoji: "🏎️", ncx_value: 200, ugx_value: 20000, category: "premium", sort_order: 12, is_active: true },
+  { id: "yacht", name: "Yacht", emoji: "🛥️", ncx_value: 500, ugx_value: 50000, category: "premium", sort_order: 13, is_active: true },
+  { id: "mansion", name: "Mansion", emoji: "🏰", ncx_value: 1000, ugx_value: 100000, category: "premium", sort_order: 14, is_active: true },
+  { id: "jet", name: "Private Jet", emoji: "✈️", ncx_value: 1500, ugx_value: 150000, category: "premium", sort_order: 15, is_active: true },
+  { id: "globe", name: "Globe", emoji: "🌍", ncx_value: 5000, ugx_value: 500000, category: "epic", sort_order: 16, is_active: true },
+  { id: "stadium", name: "Stadium", emoji: "🏟️", ncx_value: 10000, ugx_value: 1000000, category: "epic", sort_order: 17, is_active: true },
+  { id: "ressort", name: "Ressort", emoji: "🎢", ncx_value: 50000, ugx_value: 5000000, category: "legendary", sort_order: 18, is_active: true },
+] as const;
+
 // ── Pesapal helpers ─────────────────────────────────────────────────────────
 async function getPesapalToken(): Promise<string> {
   const res = await fetch(`${PESAPAL_BASE}/api/Auth/RequestToken`, {
@@ -1888,14 +1911,7 @@ serve(async (req) => {
     if (action === "list_gift_items") {
       return json({
         success: true,
-        giftItems: [
-          { id: "rose", name: "Rose", emoji: "🌹", ncx_value: 1, ugx_value: 100, category: "standard", sort_order: 1, is_active: true },
-          { id: "coffee", name: "Coffee", emoji: "☕", ncx_value: 5, ugx_value: 500, category: "standard", sort_order: 2, is_active: true },
-          { id: "heart", name: "Heart", emoji: "💖", ncx_value: 10, ugx_value: 1000, category: "standard", sort_order: 3, is_active: true },
-          { id: "diamond", name: "Diamond", emoji: "💎", ncx_value: 50, ugx_value: 5000, category: "premium", sort_order: 4, is_active: true },
-          { id: "crown", name: "Crown", emoji: "👑", ncx_value: 100, ugx_value: 10000, category: "premium", sort_order: 5, is_active: true },
-          { id: "rocket", name: "Rocket", emoji: "🚀", ncx_value: 500, ugx_value: 50000, category: "epic", sort_order: 6, is_active: true },
-        ],
+        giftItems: GIFT_CATALOGUE,
       });
     }
 
@@ -1910,6 +1926,10 @@ serve(async (req) => {
       const isAnonymous = Boolean(body.isAnonymous);
       const idempotencyKey = (body.idempotencyKey as string) || `gift-${user.id}-${Date.now()}`;
       const metadata = (body.metadata ?? {}) as Record<string, unknown>;
+      const giftDef = GIFT_CATALOGUE.find((gift) => gift.id === giftItemId);
+      if (!giftDef || ncxAmount !== giftDef.ncx_value) {
+        return json({ success: false, message: "Gift is unavailable or its price has changed." }, 400);
+      }
 
       const isLiveGift = contextType === "live_stream" || contextType === "live";
       const rpcName = isLiveGift ? "process_live_gift_ncx" : "process_gift_ncx";
@@ -1960,16 +1980,35 @@ serve(async (req) => {
         return json({ success: false, message: resData.message }, 400);
       }
 
-      // Fetch gift details to enrich response
-      const giftItems = [
-        { id: "rose", name: "Rose", emoji: "🌹" },
-        { id: "coffee", name: "Coffee", emoji: "☕" },
-        { id: "heart", name: "Heart", emoji: "💖" },
-        { id: "diamond", name: "Diamond", emoji: "💎" },
-        { id: "crown", name: "Crown", emoji: "👑" },
-        { id: "rocket", name: "Rocket", emoji: "🚀" },
-      ];
-      const giftDef = giftItems.find(g => g.id === giftItemId) || { name: "Gift", emoji: "🎁" };
+      // A gift notification stores just the immutable gift ID. The app resolves
+      // the matching JPEG only if the recipient opens the notification, keeping
+      // payment requests, realtime payloads, and local storage media-free.
+      const senderName = String(
+        user.user_metadata?.full_name ?? user.user_metadata?.name ?? user.email ?? "Someone",
+      );
+      const { error: notificationError } = await supabase.from("notifications").upsert({
+        user_id: receiverId,
+        actor_id: user.id,
+        notification_type: "gift_received",
+        type: "financial",
+        title: "You received a gift",
+        body: `${senderName} sent you ${giftDef.emoji} ${giftDef.name}.`,
+        target_id: resData?.gift_id || idempotencyKey,
+        target_type: "system",
+        dedupe_key: `gift:${resData?.gift_id || idempotencyKey}`,
+        metadata: {
+          gift_item_id: giftItemId,
+          ncx_amount: ncxAmount,
+          context_type: contextType,
+          context_id: contextId,
+          actor_name: senderName,
+        },
+      }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
+      if (notificationError) {
+        // The financial transfer has already succeeded; notifications are best
+        // effort and must never turn a completed gift into an apparent failure.
+        console.error("Gift notification error:", notificationError.message);
+      }
 
       return json({
         success: true,

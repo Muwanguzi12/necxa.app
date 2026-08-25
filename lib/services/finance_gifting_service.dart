@@ -1,5 +1,6 @@
 import 'finance_backend.dart';
 import 'finance_initializer.dart';
+import '../data.dart' show giftPickerImageUrlFor, gifts;
 
 class GiftItem {
   const GiftItem({
@@ -12,13 +13,11 @@ class GiftItem {
     required this.sortOrder,
     this.isActive = true,
     this.imageUrl,
-    this.notificationUrl,
   });
   final String id, name, emoji, category;
   final int ncxValue, ugxValue, sortOrder;
   final bool isActive;
   final String? imageUrl;
-  final String? notificationUrl;
   factory GiftItem.fromJson(Map<String, dynamic> json) => GiftItem(
     id: json['id']?.toString() ?? '',
     name: json['name']?.toString() ?? '',
@@ -28,8 +27,10 @@ class GiftItem {
     category: json['category']?.toString() ?? 'standard',
     sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
     isActive: json['is_active'] as bool? ?? true,
-    imageUrl: json['image_url']?.toString(),
-    notificationUrl: json['notification_url']?.toString(),
+    // The client-owned picker catalogue supplies the optimized PNG artwork.
+    // A server URL remains a fallback for future dynamic gifts only.
+    imageUrl: giftPickerImageUrlFor(json['id']?.toString() ?? '') ??
+        json['image_url']?.toString(),
   );
 }
 
@@ -52,14 +53,44 @@ class GiftResult {
 }
 
 class FinanceGiftingService {
+  List<GiftItem>? _catalogCache;
+
   Future<List<GiftItem>> fetchGiftItems() async {
+    final cached = _catalogCache;
+    if (cached != null) return List<GiftItem>.of(cached);
+
     await FinanceInitializer.instance.ensureInitialized();
     final result = await FinanceBackend.instance.invoke('list_gift_items');
-    return (result['giftItems'] as List? ?? const [])
+    final remoteItems = (result['giftItems'] as List? ?? const [])
         .map(
           (item) => GiftItem.fromJson(Map<String, dynamic>.from(item as Map)),
         )
         .toList();
+
+    // Keep the app usable during a staged edge-function deployment. The payment
+    // still sends only the item ID and NCX amount; no image payload is involved.
+    final remoteById = {for (final item in remoteItems) item.id: item};
+    final builtInItems = gifts
+        .map(
+          (gift) => GiftItem(
+            id: gift.id,
+            name: gift.name,
+            emoji: gift.emoji,
+            ncxValue: gift.price,
+            ugxValue: gift.price * 100,
+            category: gift.price >= 500 ? 'premium' : 'standard',
+            sortOrder: gifts.indexOf(gift) + 1,
+            isActive: remoteById[gift.id]?.isActive ?? true,
+            imageUrl: gift.imageUrl,
+          ),
+        )
+        .toList();
+    final builtInIds = {for (final item in builtInItems) item.id};
+    _catalogCache = [
+      ...builtInItems,
+      ...remoteItems.where((item) => !builtInIds.contains(item.id)),
+    ];
+    return List<GiftItem>.of(_catalogCache!);
   }
 
   Future<GiftResult> sendGift({
@@ -72,7 +103,6 @@ class FinanceGiftingService {
     String? contextNote,
     String? senderName,
     String? senderAvatar,
-    String? notificationUrl,
     bool isAnonymous = false,
     String? idempotencyKey,
   }) async {
@@ -81,7 +111,6 @@ class FinanceGiftingService {
       final result = await FinanceBackend.instance.invoke(
         'send_gift',
         body: {
-          'senderId': senderId,
           'receiverId': receiverId,
           'giftItemId': giftItemId,
           'ncxAmount': ncxAmount,
@@ -93,7 +122,6 @@ class FinanceGiftingService {
             'context_note': contextNote,
             'sender_name': senderName,
             'sender_avatar': senderAvatar,
-            'notification_url': notificationUrl,
           },
           'idempotencyKey':
               idempotencyKey ?? 'gift-${DateTime.now().microsecondsSinceEpoch}',
