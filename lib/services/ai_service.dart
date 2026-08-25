@@ -101,6 +101,23 @@ class NecxaAI {
     return '$mediaLabel verification could not connect. Check your connection and try again.';
   }
 
+  static String _gatewayErrorMessage({
+    required String body,
+    required int statusCode,
+    required String service,
+  }) {
+    final cloudflareCode = RegExp(
+      r'error\s+code:\s*(\d+)',
+      caseSensitive: false,
+    ).firstMatch(body)?.group(1);
+    final isGatewayFailure =
+        cloudflareCode != null && cloudflareCode.startsWith('52');
+    if (isGatewayFailure || statusCode >= 520) {
+      return '$service is temporarily unavailable. Please try again shortly.';
+    }
+    return '$service failed. Please try again.';
+  }
+
   /// Returns auth headers that forward the logged-in user's primary JWT to
   /// the Cloudflare Worker for cross-service identity resolution.
   static Map<String, String> _workerHeaders() {
@@ -138,7 +155,11 @@ class NecxaAI {
     ).firstMatch(body)?.group(1);
     final serviceMessage = cloudflareCode == '1101'
         ? 'AI verification is temporarily unavailable. Please try again.'
-        : '$operation failed. Please try again.';
+        : _gatewayErrorMessage(
+            body: body,
+            statusCode: statusCode,
+            service: operation,
+          );
 
     return {
       'success': false,
@@ -457,15 +478,34 @@ class NecxaAI {
         )
         .timeout(const Duration(seconds: 45));
     final raw = response.body.trim();
-    final data = raw.isEmpty
-        ? <String, dynamic>{}
-        : Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    Map<String, dynamic>? data;
+    if (raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) data = Map<String, dynamic>.from(decoded);
+      } on FormatException {
+        // A proxy may return an HTML/plain-text gateway error page.
+      }
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
-        data['feedback']?.toString() ??
-            data['message']?.toString() ??
-            data['error']?.toString() ??
-            'Identity verification is temporarily unavailable.',
+        data?['feedback']?.toString() ??
+            data?['message']?.toString() ??
+            data?['error']?.toString() ??
+            _gatewayErrorMessage(
+              body: raw,
+              statusCode: response.statusCode,
+              service: 'Identity verification',
+            ),
+      );
+    }
+    if (data == null) {
+      throw Exception(
+        _gatewayErrorMessage(
+          body: raw,
+          statusCode: response.statusCode,
+          service: 'Identity verification',
+        ),
       );
     }
     return data;

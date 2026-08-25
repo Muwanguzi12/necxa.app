@@ -88,7 +88,7 @@ class Gift {
   final String id, emoji, name;
   final int price, fee;
   final String? imageUrl;
-  final String? jpegUrl;
+  final String? notificationUrl;
   const Gift({
     required this.id,
     required this.emoji,
@@ -96,7 +96,7 @@ class Gift {
     required this.price,
     required this.fee,
     this.imageUrl,
-    this.jpegUrl,
+    this.notificationUrl,
   });
 }
 
@@ -142,28 +142,27 @@ class PaymentMethod {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-const String _giftCdnJpeg = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
-const String _giftCdnPng = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/gift%20icon';
+const String _giftCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
+const String _giftPngCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/gift%20icon';
 
 const List<Gift> gifts = [
-  Gift(id: 'rose',       emoji: '🌹', name: 'Rose',        price: 1,     fee: 0,    imageUrl: '$_giftCdnPng/file_00000000d79481f89b4523d67e1b4d29.png', jpegUrl: '$_giftCdnJpeg/rose.jpeg'),
-  Gift(id: 'clap',       emoji: '👏', name: 'Clap',        price: 2,     fee: 0,    imageUrl: '$_giftCdnPng/file_0000000089c481f4816d139e6f26262a.png', jpegUrl: '$_giftCdnJpeg/clap.jpeg'),
-  Gift(id: 'heart',      emoji: '❤️', name: 'Heart',       price: 3,     fee: 0,    imageUrl: '$_giftCdnPng/heart.png',                                 jpegUrl: '$_giftCdnJpeg/heart.jpeg'),
-  Gift(id: 'star',       emoji: '⭐', name: 'Star',        price: 5,     fee: 1,    imageUrl: '$_giftCdnPng/file_0000000099ac81f481b11ce02752b0c2.png', jpegUrl: '$_giftCdnJpeg/star.jpeg'),
-  Gift(id: 'coffee',     emoji: '☕', name: 'Coffee',      price: 5,     fee: 1,    imageUrl: '$_giftCdnPng/file_00000000857081f4a3c8768f37acdd83.png', jpegUrl: '$_giftCdnJpeg/coffee.jpeg'),
-  Gift(id: 'fire',       emoji: '🔥', name: 'Fire',        price: 10,    fee: 1,    imageUrl: '$_giftCdnPng/file_00000000a43881f4a34869b1e449e685.png', jpegUrl: '$_giftCdnJpeg/fire.jpeg'),
-  Gift(id: 'rocket',     emoji: '🚀', name: 'Rocket',      price: 20,    fee: 2,    imageUrl: '$_giftCdnPng/file_000000006a0c81fd84117047c3de8479.png', jpegUrl: '$_giftCdnJpeg/rocket.jpeg'),
-  Gift(id: 'crown',      emoji: '👑', name: 'Crown',       price: 25,    fee: 3,    imageUrl: '$_giftCdnPng/crown.png',                                 jpegUrl: '$_giftCdnJpeg/crown.jpeg'),
-  Gift(id: 'trophy',     emoji: '🏆', name: 'Trophy',      price: 50,    fee: 6,    imageUrl: '$_giftCdnPng/file_00000000ec7881f4b94ee4cb666786ce.png', jpegUrl: '$_giftCdnJpeg/trophy.jpeg'),
-  Gift(id: 'diamond',    emoji: '💎', name: 'Diamond',     price: 50,    fee: 6,    imageUrl: '$_giftCdnPng/file_00000000d3d881f4a1f3522af02db335.png', jpegUrl: '$_giftCdnJpeg/diamond.jpeg'),
-  Gift(id: 'money_bag',  emoji: '💰', name: 'Money Bag',   price: 100,   fee: 11,   imageUrl: '$_giftCdnPng/file_00000000c24481f483798d796fa9e5ab.png', jpegUrl: '$_giftCdnJpeg/money_bag.jpeg'),
-  Gift(id: 'sports_car', emoji: '🏎️', name: 'Sports Car',  price: 200,   fee: 22,   imageUrl: '$_giftCdnPng/file_00000000d0f081f4b0f47169f3e987f9.png', jpegUrl: '$_giftCdnJpeg/sports_car.jpeg'),
-  Gift(id: 'yacht',      emoji: '🛥️', name: 'Yacht',       price: 500,   fee: 55,   imageUrl: '$_giftCdnPng/file_00000000898c81f4bafd3c88dd3fdfcd.png', jpegUrl: '$_giftCdnJpeg/yacht.jpeg'),
-  Gift(id: 'mansion',    emoji: '🏰', name: 'Mansion',     price: 1000,  fee: 110,  imageUrl: '$_giftCdnPng/file_00000000218481f488f653dcf7520c10.png', jpegUrl: '$_giftCdnJpeg/mansion.jpeg'),
-  Gift(id: 'jet',        emoji: '✈️', name: 'Private Jet', price: 1500,  fee: 165,  imageUrl: '$_giftCdnPng/Private%20Jet%20.png',                     jpegUrl: '$_giftCdnJpeg/jet.jpeg'),
-  Gift(id: 'globe',      emoji: '🌍', name: 'Globe',       price: 5000,  fee: 550,  imageUrl: '$_giftCdnPng/file_00000000b280820ab886eb4cf8be8fa3.png', jpegUrl: '$_giftCdnJpeg/globe.jpeg'),
-  Gift(id: 'stadium',    emoji: '🏟️', name: 'Stadium',     price: 10000, fee: 1100, imageUrl: '$_giftCdnPng/file_0000000095f081f490d301c0473200d4.png', jpegUrl: '$_giftCdnJpeg/stadium.jpeg'),
-  Gift(id: 'resort',     emoji: '🏝️', name: 'Resort',      price: 50000, fee: 5500, imageUrl: '$_giftCdnPng/ressort.png',                               jpegUrl: '$_giftCdnJpeg/resort.jpeg'),
+  Gift(id: 'rose',       emoji: '🌹', name: 'Rose',        price: 1,      fee: 0,    imageUrl: '$_giftPngCdn/file_00000000d79481f89b4523d67e1b4d29.png', notificationUrl: '$_giftCdn/rose.jpeg'),
+  Gift(id: 'clap',       emoji: '👏', name: 'Clap',        price: 2,      fee: 0,    imageUrl: '$_giftPngCdn/file_0000000089c481f4816d139e6f26262a.png', notificationUrl: '$_giftCdn/clap.jpeg'),
+  Gift(id: 'heart',      emoji: '❤️', name: 'Heart',       price: 3,      fee: 0,    imageUrl: '$_giftCdn/heart.jpeg',                                   notificationUrl: '$_giftCdn/heart.jpeg'),
+  Gift(id: 'coffee',     emoji: '☕', name: 'Coffee',      price: 5,      fee: 1,    imageUrl: '$_giftPngCdn/file_00000000857081f4a3c8768f37acdd83.png', notificationUrl: '$_giftCdn/coffee.jpeg'),
+  Gift(id: 'star',       emoji: '⭐', name: 'Star',        price: 5,      fee: 1,    imageUrl: '$_giftPngCdn/file_0000000099ac81f481b11ce02752b0c2.png', notificationUrl: '$_giftCdn/star.jpeg'),
+  Gift(id: 'fire',       emoji: '🔥', name: 'Fire',        price: 10,     fee: 1,    imageUrl: '$_giftPngCdn/file_00000000a43881f4a34869b1e449e685.png', notificationUrl: '$_giftCdn/fire.jpeg'),
+  Gift(id: 'rocket',     emoji: '🚀', name: 'Rocket',      price: 20,     fee: 2,    imageUrl: '$_giftPngCdn/file_000000006a0c81fd84117047c3de8479.png', notificationUrl: '$_giftCdn/rocket.jpeg'),
+  Gift(id: 'diamond',    emoji: '💎', name: 'Diamond',     price: 50,     fee: 6,    imageUrl: '$_giftPngCdn/file_00000000d3d881f4a1f3522af02db335.png', notificationUrl: '$_giftCdn/diamond.jpeg'),
+  Gift(id: 'trophy',     emoji: '🏆', name: 'Trophy',      price: 50,     fee: 6,    imageUrl: '$_giftPngCdn/file_00000000ec7881f4b94ee4cb666786ce.png', notificationUrl: '$_giftCdn/trophy.jpeg'),
+  Gift(id: 'money_bag',  emoji: '💰', name: 'Money Bag',   price: 100,    fee: 11,   imageUrl: '$_giftPngCdn/file_00000000c24481f483798d796fa9e5ab.png', notificationUrl: '$_giftCdn/money_bag.jpeg'),
+  Gift(id: 'sports_car', emoji: '🏎️', name: 'Sports Car',  price: 200,    fee: 22,   imageUrl: '$_giftPngCdn/file_00000000d0f081f4b0f47169f3e987f9.png', notificationUrl: '$_giftCdn/sports_car.jpeg'),
+  Gift(id: 'yacht',      emoji: '🛥️', name: 'Yacht',       price: 500,    fee: 55,   imageUrl: '$_giftPngCdn/file_00000000898c81f4bafd3c88dd3fdfcd.png', notificationUrl: '$_giftCdn/yacht.jpeg'),
+  Gift(id: 'mansion',    emoji: '🏰', name: 'Mansion',     price: 1000,   fee: 110,  imageUrl: '$_giftPngCdn/file_00000000218481f488f653dcf7520c10.png', notificationUrl: '$_giftCdn/mansion.jpeg'),
+  Gift(id: 'jet',        emoji: '✈️', name: 'Private Jet', price: 1500,   fee: 165,  imageUrl: '$_giftPngCdn/Private%20Jet%20.png',                      notificationUrl: '$_giftCdn/jet.jpeg'),
+  Gift(id: 'globe',      emoji: '🌍', name: 'Globe',       price: 5000,   fee: 550,  imageUrl: '$_giftPngCdn/file_00000000b280820ab886eb4cf8be8fa3.png', notificationUrl: '$_giftCdn/globe.jpeg'),
+  Gift(id: 'stadium',    emoji: '🏟️', name: 'Stadium',     price: 10000,  fee: 1100, imageUrl: '$_giftPngCdn/file_0000000095f081f490d301c0473200d4.png', notificationUrl: '$_giftCdn/stadium.jpeg'),
+  Gift(id: 'ressort',    emoji: '🏖️', name: 'Ressort',     price: 50000,  fee: 5500, imageUrl: '$_giftPngCdn/ressort.png',                              notificationUrl: '$_giftCdn/ressort.jpeg'),
 ];
 
 const List<Post> posts = [

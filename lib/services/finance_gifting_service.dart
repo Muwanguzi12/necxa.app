@@ -12,13 +12,13 @@ class GiftItem {
     required this.sortOrder,
     this.isActive = true,
     this.imageUrl,
-    this.jpegUrl,
+    this.notificationUrl,
   });
   final String id, name, emoji, category;
   final int ncxValue, ugxValue, sortOrder;
   final bool isActive;
   final String? imageUrl;
-  final String? jpegUrl;
+  final String? notificationUrl;
   factory GiftItem.fromJson(Map<String, dynamic> json) => GiftItem(
     id: json['id']?.toString() ?? '',
     name: json['name']?.toString() ?? '',
@@ -29,7 +29,7 @@ class GiftItem {
     sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
     isActive: json['is_active'] as bool? ?? true,
     imageUrl: json['image_url']?.toString(),
-    jpegUrl: json['jpeg_url']?.toString(),
+    notificationUrl: json['notification_url']?.toString(),
   );
 }
 
@@ -72,6 +72,7 @@ class FinanceGiftingService {
     String? contextNote,
     String? senderName,
     String? senderAvatar,
+    String? notificationUrl,
     bool isAnonymous = false,
     String? idempotencyKey,
   }) async {
@@ -91,6 +92,7 @@ class FinanceGiftingService {
             'context_note': contextNote,
             'sender_name': senderName,
             'sender_avatar': senderAvatar,
+            'notification_url': notificationUrl,
           },
           'idempotencyKey':
               idempotencyKey ?? 'gift-${DateTime.now().microsecondsSinceEpoch}',

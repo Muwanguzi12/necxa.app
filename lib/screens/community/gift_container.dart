@@ -11,7 +11,7 @@ import '../../services/finance_coin_purchase_service.dart';
 import '../../services/finance_backend.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-const String _giftIconCdnPng = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/gift%20icon';
+const String _giftIconCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
 
 class GiftContainer extends StatefulWidget {
   final AppState state;
@@ -70,7 +70,7 @@ class _GiftContainerState extends State<GiftContainer> {
               category: 'standard',
               sortOrder: 0,
               imageUrl: g.imageUrl,
-              jpegUrl: g.jpegUrl,
+              notificationUrl: g.notificationUrl,
             ),
           )
           .toList();
@@ -103,6 +103,7 @@ class _GiftContainerState extends State<GiftContainer> {
         ncxAmount: preset.ncxValue,
         contextType: widget.postId != null ? 'creator_post' : 'direct',
         contextId: widget.postId,
+        notificationUrl: preset.notificationUrl ?? '$_giftIconCdn/${preset.id}.jpeg',
       );
 
       if (res.success) {
@@ -260,7 +261,8 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildGiftIcon(GiftItem p) {
-    final url = p.imageUrl ?? '$_giftIconCdnPng/${p.id}.png';
+    final localGift = gifts.where((g) => g.id == p.id).firstOrNull;
+    final url = localGift?.imageUrl ?? p.imageUrl ?? '$_giftIconCdn/${p.id}.jpeg';
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: CachedNetworkImage(
