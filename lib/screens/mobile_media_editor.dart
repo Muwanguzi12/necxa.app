@@ -2025,26 +2025,43 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final playheadOffset = (_currentTime.inMilliseconds / 1000.0) * scale;
 
     return Positioned(
-      left: playheadOffset,
+      left: playheadOffset - 20, // 40 width hit area centered on playheadOffset
       top: 0,
       bottom: 0,
-      child: IgnorePointer(
-        child: Container(
-          width: 2,
-          color: C.brand,
-          child: Column(
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: C.brand,
-                  shape: BoxShape.circle,
-                ),
-                transform: Matrix4.translationValues(-4, 0, 0),
+      width: 40,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (details) {
+          if (_isPlaying) {
+            _togglePlayback();
+          }
+        },
+        onPanUpdate: (details) {
+          final currentOffset = (_currentTime.inMilliseconds / 1000.0) * scale;
+          final newOffset = currentOffset + details.delta.dx;
+          final newTimeInSeconds = newOffset / scale;
+          final newTime = Duration(milliseconds: (newTimeInSeconds * 1000).round());
+          final clampedTime = _clampDuration(newTime, Duration.zero, _totalDuration);
+          
+          _playback.seek(clampedTime, _tracks);
+        },
+        child: Column(
+          children: [
+            Container(
+              width: 14,
+              height: 14,
+              decoration: const BoxDecoration(
+                color: C.brand,
+                shape: BoxShape.circle,
               ),
-            ],
-          ),
+            ),
+            Expanded(
+              child: Container(
+                width: 2,
+                color: C.brand,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -4426,6 +4443,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _deleteClip() {
     if (_selectedClipIds.isEmpty) return;
     _captureTimeline();
+
+    // Snap playhead to nearest valid position (the start of the deleted clip)
+    Duration? snapTime;
+    final deletedClip = _tracks
+        .expand((t) => t.clips)
+        .where((c) => _selectedClipIds.contains(c.id))
+        .firstOrNull;
+    if (deletedClip != null) {
+      snapTime = deletedClip.start;
+    }
+
     setState(() {
       for (final track in _tracks) {
         track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
@@ -4437,7 +4465,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _selectedTrackIndex = null;
       TimelineModelUtils.pruneEmptyTracks(_tracks);
     });
+    
     _playback.updateProject(_tracks);
+    
+    if (snapTime != null) {
+      _playback.seek(snapTime, _tracks);
+    }
   }
 
   void _duplicateSelectedClips() {
