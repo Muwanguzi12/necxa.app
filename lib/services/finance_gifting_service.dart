@@ -81,6 +81,7 @@ class FinanceGiftingService {
       final result = await FinanceBackend.instance.invoke(
         'send_gift',
         body: {
+          'senderId': senderId,
           'receiverId': receiverId,
           'giftItemId': giftItemId,
           'ncxAmount': ncxAmount,

@@ -83,8 +83,10 @@ class _GiftContainerState extends State<GiftContainer> {
   Future<void> _sendGift(GiftItem preset) async {
     if (widget.receiverId.isEmpty) { _showError('No recipient selected.'); return; }
 
+    // Always track which gift is being sent so the success screen shows the correct name
+    _selectedPreset = preset;
+
     if (widget.state.coinBalance < preset.ncxValue) {
-      _selectedPreset = preset;
       _rechargeUGX = ((preset.ncxValue - widget.state.coinBalance) * 100).clamp(5000, 500000).toDouble();
       _next(1);
       return;
@@ -149,7 +151,13 @@ class _GiftContainerState extends State<GiftContainer> {
         await widget.state.syncVault();
       }
       _rechargeIdempotencyKey = null;
-      _next(0);
+      // Auto-retry the gift that triggered the recharge — no need to tap again
+      if (_selectedPreset != null) {
+        _next(0);
+        await _sendGift(_selectedPreset!);
+      } else {
+        _next(0);
+      }
     } catch (e) {
       if (e is FinanceBackendException &&
           (e.code == 'payment_final' || e.code == 'payment_initialization_failed')) {
