@@ -11,7 +11,7 @@ import '../../services/finance_coin_purchase_service.dart';
 import '../../services/finance_backend.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-const String _giftIconCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
+const String _giftIconCdnPng = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/gift%20icon';
 
 class GiftContainer extends StatefulWidget {
   final AppState state;
@@ -260,7 +260,7 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildGiftIcon(GiftItem p) {
-    final url = p.imageUrl ?? '$_giftIconCdn/${p.id}.jpeg';
+    final url = p.imageUrl ?? '$_giftIconCdnPng/${p.id}.png';
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: CachedNetworkImage(
