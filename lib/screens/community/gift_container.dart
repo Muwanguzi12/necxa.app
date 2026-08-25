@@ -33,11 +33,11 @@ class GiftContainer extends StatefulWidget {
 
 class _GiftContainerState extends State<GiftContainer> {
   int _step = 0; // 0: Selection, 1: Recharge, 2: Payment, 3: Success
-  
-  List<GiftItem> _presets = [];
-  bool _loading = true;
+
+  // Reads from AppState.cachedGiftItems — no network call on open
+  List<GiftItem> get _presets => widget.state.cachedGiftItems;
   bool _sending = false;
-  
+
   GiftItem? _selectedPreset;
   double _rechargeUGX = 10000;
   String? _paymentRef;
@@ -46,36 +46,14 @@ class _GiftContainerState extends State<GiftContainer> {
   @override
   void initState() {
     super.initState();
-    _initData();
-  }
-
-  Future<void> _initData() async {
-    setState(() => _loading = true);
-    try {
-      _presets = await widget.state.financeGifting.fetchGiftItems();
-      _presets.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-      await widget.state.syncVault();
-    } catch (e) {
-      debugPrint('Gift Data Error: $e');
+    // If the catalog hasn't been pre-warmed yet (e.g. first launch before
+    // background sync finished), kick it off now — the setState inside
+    // prewarmGiftCatalog notifies this widget automatically.
+    if (widget.state.cachedGiftItems.isEmpty) {
+      widget.state.prewarmGiftCatalog().then((_) {
+        if (mounted) setState(() {});
+      });
     }
-    if (_presets.isEmpty) {
-      _presets = gifts
-          .map(
-            (g) => GiftItem(
-              id: g.id,
-              name: g.name,
-              emoji: g.emoji,
-              ncxValue: g.price,
-              ugxValue: g.price * 100,
-              category: 'standard',
-              sortOrder: 0,
-              imageUrl: g.imageUrl,
-              notificationUrl: g.notificationUrl,
-            ),
-          )
-          .toList();
-    }
-    setState(() => _loading = false);
   }
 
   void _next(int step) => setState(() => _step = step);
@@ -235,7 +213,14 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildStepContent() {
-    if (_loading) return SizedBox(height: 300, child: Center(child: CircularProgressIndicator(color: C.brand)));
+    // Only show a spinner on very first launch before background sync pre-warms the catalog.
+    // On every subsequent open the catalog is already in memory — instant display.
+    if (_presets.isEmpty) {
+      return const SizedBox(
+        height: 300,
+        child: Center(child: CircularProgressIndicator(color: C.brand)),
+      );
+    }
 
     switch (_step) {
       case 0: return _buildSelection();
@@ -645,7 +630,7 @@ class _GiftContainerState extends State<GiftContainer> {
         const SizedBox(height: 32),
         GestureDetector(
           onTap: () async {
-            setState(() => _loading = true);
+            setState(() => _sending = true);
             await widget.state.syncVault();
             if (widget.state.coinBalance >= _selectedPreset!.ncxValue) {
               _next(0); // Go back to selection with new balance
@@ -653,7 +638,7 @@ class _GiftContainerState extends State<GiftContainer> {
               _showError('Payment not yet detected. Please wait.');
               _next(0); 
             }
-            setState(() => _loading = false);
+            setState(() => _sending = false);
           },
           child: Container(
             width: double.infinity,

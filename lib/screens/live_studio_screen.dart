@@ -107,8 +107,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _inviteDialogVisible = false;
   final List<Map<String, dynamic>> _reactionBursts = [];
 
-  // ── Smart Live Verification State ──────────────────────────────────────
-  // Silent background face pulse timer — fires every 5 minutes while live as host.
+  // -- Smart Live Verification State --------------------------------------
+  // Silent background face pulse timer � fires every 5 minutes while live as host.
   Timer? _facePulseTimer;
   static const Duration _facePulseInterval = Duration(minutes: 5);
   // Full re-verification is required once every 30 days.
@@ -340,11 +340,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         backgroundColor: const Color(0xFF0C0E14),
         title: Text(
           'CO-HOST INVITATION',
-          style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+          style: syne(sz: 16, w: FontWeight.bold, c: C.text),
         ),
         content: Text(
           'The host invited you to join this live with your camera and microphone.',
-          style: dm(sz: 13, c: Colors.white70),
+          style: dm(sz: 13, c: C.sub),
         ),
         actions: [
           TextButton(
@@ -485,7 +485,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           });
         }
       } catch (e) {
-        debugPrint('⚠️ Sync Comments failed: $e');
+        debugPrint('?? Sync Comments failed: $e');
       }
     });
   }
@@ -506,7 +506,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     try {
       await widget.state.live.sendLiveComment(_channelName, myName, text);
     } catch (e) {
-      debugPrint('⚠️ Send Comment failed: $e');
+      debugPrint('?? Send Comment failed: $e');
     }
   }
 
@@ -711,12 +711,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: const Color(0xFF171717),
-        title: Text('Edit comment', style: syne(sz: 16, c: Colors.white)),
+        title: Text('Edit comment', style: syne(sz: 16, c: C.text)),
         content: TextField(
           controller: controller,
           autofocus: true,
           maxLength: 2000,
-          style: dm(sz: 14, c: Colors.white),
+          style: dm(sz: 14, c: C.text),
           decoration: const InputDecoration(border: OutlineInputBorder()),
         ),
         actions: [
@@ -771,10 +771,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           children: [
             if (failed)
               ListTile(
-                leading: const Icon(Icons.sync_rounded, color: Colors.white),
-                title: const Text(
+                leading: Icon(Icons.sync_rounded, color: C.text),
+                title: Text(
                   'Retry',
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: C.text),
                 ),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -787,10 +787,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               ),
             if (isMine)
               ListTile(
-                leading: const Icon(Icons.edit_rounded, color: Colors.white),
-                title: const Text(
+                leading: Icon(Icons.edit_rounded, color: C.text),
+                title: Text(
                   'Edit',
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: C.text),
                 ),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -814,10 +814,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               ),
             if (!isMine && !isLocal)
               ListTile(
-                leading: const Icon(Icons.flag_outlined, color: Colors.white),
-                title: const Text(
+                leading: Icon(Icons.flag_outlined, color: C.text),
+                title: Text(
                   'Report',
-                  style: TextStyle(color: Colors.white),
+                  style: TextStyle(color: C.text),
                 ),
                 onTap: () {
                   Navigator.pop(sheetContext);
@@ -986,7 +986,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
   }
 
-  // ── SMART LIVE VERIFICATION HELPERS ────────────────────────────────────
+  // -- SMART LIVE VERIFICATION HELPERS ------------------------------------
 
   /// Reads the persisted verification timestamp. If absent or expired (> 30 days),
   /// sets [_requiresVerification] = true so _initAgora will surface the Shield card.
@@ -1029,10 +1029,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     return localVerificationComplete || profileVerified;
   }
 
-  // ── SILENT BACKGROUND FACE PULSE ────────────────────────────────────────
+  // -- SILENT BACKGROUND FACE PULSE ----------------------------------------
 
   /// Starts a periodic timer that silently captures a frame from the Agora engine
-  /// and runs a background liveness check — zero UI disruption.
+  /// and runs a background liveness check � zero UI disruption.
   void _startSilentFacePulse() {
     _facePulseTimer?.cancel();
     _facePulseTimer = Timer.periodic(
@@ -1040,7 +1040,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       (_) => _runSilentFaceCheck(),
     );
     debugPrint(
-      '🛡️ Live: Silent face pulse started (every ${_facePulseInterval.inMinutes}m).',
+      '??? Live: Silent face pulse started (every ${_facePulseInterval.inMinutes}m).',
     );
   }
 
@@ -1070,10 +1070,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       await file.writeAsBytes(buffer.asUint8List());
       if (!file.existsSync()) return;
 
-      // 1. Liveness Check (Supabase — biometric composite model)
+      // 1. Liveness Check (Supabase � biometric composite model)
 
       // 2. Strict Content Safety Scan via Cloudflare Worker (Llama 3.2 Vision).
-      // Falls back to safe() on any network error — stream is never killed
+      // Falls back to safe() on any network error � stream is never killed
       // on connectivity issues alone.
       final safetyResult = await NecxaAI.scanLiveFrameWorker(file);
 
@@ -1087,7 +1087,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       if (!safetyResult.safe && safetyResult.severity != 'none') {
         _consecutiveViolations++;
         debugPrint(
-          '🚨 Live Safety Violation [$_consecutiveViolations]: ${safetyResult.severity} - ${safetyResult.reason}',
+          '?? Live Safety Violation [$_consecutiveViolations]: ${safetyResult.severity} - ${safetyResult.reason}',
         );
 
         // Escalation matrix:
@@ -1106,7 +1106,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       }
     } catch (e) {
       // Silently swallow network errors so we don't accidentally kill a stream
-      debugPrint('🛡️ Silent Pulse/Scan (non-fatal): $e');
+      debugPrint('??? Silent Pulse/Scan (non-fatal): $e');
     }
   }
 
@@ -1190,7 +1190,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       _promotionTimer?.cancel();
       _stopSilentFacePulse();
       widget.state.live.setAVEnabled(false);
-      debugPrint('🛡️ Live Studio: App minimized, pausing AV & Timers');
+      debugPrint('??? Live Studio: App minimized, pausing AV & Timers');
     } else if (state == AppLifecycleState.resumed) {
       // Resume operations
       if (_localUserJoined && !_isEnforcementActive) {
@@ -1199,7 +1199,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         _startGiftStatsSync();
         _startPromotionClock();
         if (widget.isHost) _startSilentFacePulse();
-        debugPrint('🛡️ Live Studio: App resumed, restarting AV & Timers');
+        debugPrint('??? Live Studio: App resumed, restarting AV & Timers');
       }
     }
   }
@@ -1221,7 +1221,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (mounted) Navigator.pop(context);
   }
 
-  // ── SAFETY ENFORCEMENT UI ──────────────────────────────────────────────────
+  // -- SAFETY ENFORCEMENT UI --------------------------------------------------
 
   // Enforcement card moved to lib/widgets/live_studio/live_enforcement_overlay.dart
 
@@ -1232,7 +1232,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // ── Video Layer ──
+          // -- Video Layer --
           _buildVideoView(),
           Positioned(
             left: 0,
@@ -1252,26 +1252,26 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             ),
           ),
 
-          // ── Shield Verification Wall (403 Handler) ──
+          // -- Shield Verification Wall (403 Handler) --
           if (_requiresVerification) _buildShieldVerificationCard(),
 
-          // ── Safety Enforcement Wall (Violations) ──
+          // -- Safety Enforcement Wall (Violations) --
           if (_isEnforcementActive)
             LiveEnforcementOverlay(
               enforcementReason: _enforcementReason,
               onClose: () => Navigator.pop(context),
             ),
 
-          // ── Gifting Layer ──
+          // -- Gifting Layer --
           LiveGiftingOverlay(eventStream: _liveGiftEvents),
 
           for (var i = 0; i < _reactionBursts.length; i++)
             _buildReactionBurst(_reactionBursts[i], i),
 
-          // ── Glass Overlay Layer ──
+          // -- Glass Overlay Layer --
           _buildCompactHUD(),
 
-          // ── Interaction Layer ──
+          // -- Interaction Layer --
           _buildInteractionUI(),
         ],
       ),
@@ -1319,10 +1319,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       width: 2,
                     ),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Icon(
                       Icons.videocam_outlined,
-                      color: Colors.white24,
+                      color: C.dim,
                       size: 30,
                     ),
                   ),
@@ -1339,7 +1339,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: Text(
                   _initError!,
                   textAlign: TextAlign.center,
-                  style: dm(sz: 10, c: Colors.white38),
+                  style: dm(sz: 10, c: C.dim),
                 ),
               ),
               const SizedBox(height: 20),
@@ -1374,7 +1374,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 style: syne(
                   sz: 10,
                   w: FontWeight.w900,
-                  c: Colors.white38,
+                  c: C.dim,
                   ls: 2,
                 ),
               ),
@@ -1387,10 +1387,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final room = widget.state.live.room!;
     final participants = _videoParticipants(room);
     if (participants.isEmpty) {
-      return const Center(
+      return Center(
         child: Icon(
           Icons.videocam_off_outlined,
-          color: Colors.white24,
+          color: C.dim,
           size: 48,
         ),
       );
@@ -1510,7 +1510,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: const Color(0xFF17151F),
-          border: showChrome ? Border.all(color: Colors.white12) : null,
+          border: showChrome ? Border.all(color: C.dim) : null,
         ),
         child: Stack(
           fit: StackFit.expand,
@@ -1518,10 +1518,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (videoTrack is VideoTrack)
               VideoTrackRenderer(videoTrack, fit: VideoViewFit.cover)
             else
-              const ColoredBox(
+              ColoredBox(
                 color: Color(0xFF17151F),
                 child: Center(
-                  child: Icon(Icons.person, color: Colors.white30, size: 40),
+                  child: Icon(Icons.person, color: C.dim, size: 40),
                 ),
               ),
             if (showChrome) ...[
@@ -1531,12 +1531,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: _videoTileBadge(isHostTile ? 'HOST' : 'GUEST'),
               ),
               if (isMuted)
-                const Positioned(
+                Positioned(
                   top: 8,
                   right: 8,
                   child: Icon(
                     Icons.mic_off_rounded,
-                    color: Colors.white70,
+                    color: C.sub,
                     size: 14,
                   ),
                 ),
@@ -1551,7 +1551,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: dm(sz: 9, w: FontWeight.w800, c: Colors.white),
+                        style: dm(sz: 9, w: FontWeight.w800, c: C.text),
                       ),
                     ),
                     if (!isHostTile) ...[
@@ -1563,9 +1563,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           color: Color(0xFFFF176B),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.add,
-                          color: Colors.white,
+                          color: C.text,
                           size: 14,
                         ),
                       ),
@@ -1609,11 +1609,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+            Icon(Icons.add_rounded, color: C.text, size: 28),
             const SizedBox(height: 4),
             Text(
               'REQUEST',
-              style: dm(sz: 8, w: FontWeight.w700, c: Colors.white70),
+              style: dm(sz: 8, w: FontWeight.w700, c: C.sub),
             ),
           ],
         ),
@@ -1671,7 +1671,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       width: 40,
       height: 4,
       decoration: BoxDecoration(
-        color: Colors.white24,
+        color: C.dim,
         borderRadius: BorderRadius.circular(2),
       ),
     ),
@@ -1699,12 +1699,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   const SizedBox(width: 9),
                   Text(
                     'LIVE AUDIENCE',
-                    style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 15, w: FontWeight.w900, c: C.text),
                   ),
                   const Spacer(),
                   Text(
                     _compactNumber(_viewerCount),
-                    style: dm(sz: 13, w: FontWeight.w800, c: Colors.white70),
+                    style: dm(sz: 13, w: FontWeight.w800, c: C.sub),
                   ),
                 ],
               ),
@@ -1716,7 +1716,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     _viewerCount == 0
                         ? 'Waiting for viewers to join.'
                         : 'Audience details are refreshing.',
-                    style: dm(sz: 12, c: Colors.white54),
+                    style: dm(sz: 12, c: C.dim),
                   ),
                 )
               else
@@ -1728,7 +1728,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     shrinkWrap: true,
                     itemCount: viewers.length,
                     separatorBuilder: (_, __) =>
-                        const Divider(height: 1, color: Colors.white10),
+                        Divider(height: 1, color: C.dim),
                     itemBuilder: (_, index) {
                       final viewer = viewers[index];
                       final rawName = viewer['userName']?.toString().trim();
@@ -1741,7 +1741,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         leading: CircleAvatar(
-                          backgroundColor: Colors.white12,
+                          backgroundColor: C.dim,
                           backgroundImage: avatar.isEmpty
                               ? null
                               : CachedNetworkImageProvider(avatar),
@@ -1751,7 +1751,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                   style: dm(
                                     sz: 11,
                                     w: FontWeight.w900,
-                                    c: Colors.white,
+                                    c: C.text,
                                   ),
                                 )
                               : null,
@@ -1761,14 +1761,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           style: dm(
                             sz: 12,
                             w: FontWeight.w700,
-                            c: Colors.white,
+                            c: C.text,
                           ),
                         ),
                         subtitle: username == null || username.isEmpty
                             ? null
                             : Text(
                                 '@$username',
-                                style: dm(sz: 10, c: Colors.white54),
+                                style: dm(sz: 10, c: C.dim),
                               ),
                       );
                     },
@@ -1778,7 +1778,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 const SizedBox(height: 10),
                 Text(
                   'Showing the ${viewers.length} most recently active viewers.',
-                  style: dm(sz: 9, c: Colors.white38),
+                  style: dm(sz: 9, c: C.dim),
                 ),
               ],
             ],
@@ -1813,7 +1813,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   const SizedBox(width: 9),
                   Text(
                     'LIVE GIFT RANKING',
-                    style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 15, w: FontWeight.w900, c: C.text),
                   ),
                 ],
               ),
@@ -1823,7 +1823,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   padding: const EdgeInsets.symmetric(vertical: 28),
                   child: Text(
                     'The first gift will start the ranking.',
-                    style: dm(sz: 12, c: Colors.white54),
+                    style: dm(sz: 12, c: C.dim),
                   ),
                 )
               else
@@ -1849,7 +1849,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         leading: CircleAvatar(
-                          backgroundColor: Colors.white12,
+                          backgroundColor: C.dim,
                           backgroundImage: avatar.isEmpty
                               ? null
                               : CachedNetworkImageProvider(avatar),
@@ -1861,7 +1861,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                     w: FontWeight.w900,
                                     c: rank == 1
                                         ? const Color(0xFFFFA300)
-                                        : Colors.white,
+                                        : C.text,
                                   ),
                                 )
                               : null,
@@ -1871,12 +1871,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           style: dm(
                             sz: 12,
                             w: FontWeight.w700,
-                            c: Colors.white,
+                            c: C.text,
                           ),
                         ),
                         subtitle: Text(
                           'Rank #$rank',
-                          style: dm(sz: 9, c: Colors.white38),
+                          style: dm(sz: 9, c: C.dim),
                         ),
                         trailing: Text(
                           '${_compactNumber(amount)} NCX',
@@ -1919,7 +1919,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             children: [
               Text(
                 'LIVE GIFT GOAL',
-                style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+                style: syne(sz: 15, w: FontWeight.w900, c: C.text),
               ),
               const SizedBox(height: 8),
               Text(
@@ -1936,7 +1936,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: LinearProgressIndicator(
                   value: progress,
                   minHeight: 8,
-                  backgroundColor: Colors.white12,
+                  backgroundColor: C.dim,
                   color: const Color(0xFFFF176B),
                 ),
               ),
@@ -1945,7 +1945,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 remaining == 0
                     ? 'Goal reached. The next milestone is refreshing.'
                     : '${_compactNumber(remaining)} NCX to the next milestone.',
-                style: dm(sz: 11, c: Colors.white60),
+                style: dm(sz: 11, c: C.sub),
               ),
             ],
           ),
@@ -1987,7 +1987,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: Colors.white12),
+                          border: Border.all(color: C.dim),
                         ),
                         child: Row(
                           children: [
@@ -2015,7 +2015,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                         style: dm(
                                           sz: 11,
                                           w: FontWeight.w900,
-                                          c: Colors.white,
+                                          c: C.text,
                                         ),
                                       )
                                     : null,
@@ -2037,7 +2037,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                           style: syne(
                                             sz: 11,
                                             w: FontWeight.w800,
-                                            c: Colors.white,
+                                            c: C.text,
                                           ),
                                         ),
                                       ),
@@ -2051,15 +2051,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                   ),
                                   Row(
                                     children: [
-                                      const Icon(
+                                      Icon(
                                         Icons.visibility_outlined,
-                                        color: Colors.white70,
+                                        color: C.sub,
                                         size: 10,
                                       ),
                                       const SizedBox(width: 3),
                                       Text(
                                         '$_viewerCount viewers',
-                                        style: dm(sz: 8, c: Colors.white70),
+                                        style: dm(sz: 8, c: C.sub),
                                       ),
                                     ],
                                   ),
@@ -2087,7 +2087,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 ),
                 child: Text(
                   'LIVE',
-                  style: syne(sz: 10, w: FontWeight.w900, c: Colors.white),
+                  style: syne(sz: 10, w: FontWeight.w900, c: C.text),
                 ),
               ),
               if (widget.isHost) ...[
@@ -2117,7 +2117,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   title: 'TOP GIFTER',
                   value: topGifterName == null || topGifterName.isEmpty
                       ? 'No gifts yet'
-                      : '$topGifterName · ${_compactNumber(topGifterAmount)}',
+                      : '$topGifterName � ${_compactNumber(topGifterAmount)}',
                   onTap: _showGiftLeaderboard,
                 ),
               ),
@@ -2171,7 +2171,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.52),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: C.dim),
         ),
         child: Row(
           children: [
@@ -2184,13 +2184,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 children: [
                   Text(
                     title,
-                    style: dm(sz: 7, w: FontWeight.w800, c: Colors.white60),
+                    style: dm(sz: 7, w: FontWeight.w800, c: C.sub),
                   ),
                   Text(
                     value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: dm(sz: 8, w: FontWeight.w700, c: Colors.white),
+                    style: dm(sz: 8, w: FontWeight.w700, c: C.text),
                   ),
                   if (progress != null) ...[
                     const SizedBox(height: 2),
@@ -2199,7 +2199,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       child: LinearProgressIndicator(
                         value: progress,
                         minHeight: 2,
-                        backgroundColor: Colors.white12,
+                        backgroundColor: C.dim,
                         color: const Color(0xFFFF176B),
                       ),
                     ),
@@ -2224,17 +2224,17 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: loading
-          ? const Padding(
+          ? Padding(
               padding: EdgeInsets.all(10),
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: Colors.white,
+                color: C.text,
               ),
             )
-          : Icon(icon, color: Colors.white, size: 19),
+          : Icon(icon, color: C.text, size: 19),
     );
   }
 
@@ -2337,12 +2337,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               vertical: 7,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.1),
+                              color: C.text.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: syncStatus == 'failed'
                                     ? Colors.redAccent.withOpacity(0.6)
-                                    : Colors.white.withOpacity(0.05),
+                                    : C.text.withOpacity(0.05),
                               ),
                             ),
                             child: Row(
@@ -2351,7 +2351,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               children: [
                                 CircleAvatar(
                                   radius: 10,
-                                  backgroundColor: Colors.white12,
+                                  backgroundColor: C.dim,
                                   backgroundImage: avatar.isNotEmpty
                                       ? CachedNetworkImageProvider(avatar)
                                       : null,
@@ -2361,7 +2361,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                           style: dm(
                                             sz: 8,
                                             w: FontWeight.bold,
-                                            c: Colors.white70,
+                                            c: C.sub,
                                           ),
                                         )
                                       : null,
@@ -2381,13 +2381,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                         ),
                                         TextSpan(
                                           text: '${c['text']}',
-                                          style: dm(sz: 11, c: Colors.white),
+                                          style: dm(sz: 11, c: C.text),
                                         ),
                                         TextSpan(
                                           text:
                                               '  ${_commentTimeLabel(c)}'
                                               '${edited ? ' edited' : ''}',
-                                          style: dm(sz: 9, c: Colors.white38),
+                                          style: dm(sz: 9, c: C.dim),
                                         ),
                                       ],
                                     ),
@@ -2402,7 +2402,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                     size: 12,
                                     color: syncStatus == 'failed'
                                         ? Colors.redAccent
-                                        : Colors.white54,
+                                        : C.dim,
                                   ),
                                 ],
                               ],
@@ -2486,7 +2486,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                     style: syne(
                                       sz: 11,
                                       w: FontWeight.w900,
-                                      c: Colors.white,
+                                      c: C.text,
                                       ls: 1,
                                     ),
                                   ),
@@ -2507,7 +2507,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       style: syne(
                                         sz: 8,
                                         w: FontWeight.bold,
-                                        c: Colors.white,
+                                        c: C.text,
                                       ),
                                     ),
                                   ),
@@ -2585,9 +2585,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   height: 44,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: C.text.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: Colors.white10),
+                    border: Border.all(color: C.dim),
                   ),
                   child: Center(
                     child: TextField(
@@ -2600,11 +2600,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             required isFocused,
                             maxLength,
                           }) => null,
-                      style: dm(sz: 13, c: Colors.white),
+                      style: dm(sz: 13, c: C.text),
                       onSubmitted: (_) => _sendComment(),
                       decoration: InputDecoration(
                         hintText: 'Say something...',
-                        hintStyle: dm(sz: 13, c: Colors.white38),
+                        hintStyle: dm(sz: 13, c: C.dim),
                         border: InputBorder.none,
                       ),
                     ),
@@ -2692,7 +2692,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: _liveActionButton(
                   icon: Icons.more_horiz_rounded,
                   label: 'More',
-                  color: Colors.white,
+                  color: C.text,
                   onTap: _showLiveMenu,
                 ),
               ),
@@ -2786,7 +2786,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: C.dim,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2819,7 +2819,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               const SizedBox(height: 3),
                               Text(
                                 reaction.$3,
-                                style: dm(sz: 8, c: Colors.white70),
+                                style: dm(sz: 8, c: C.sub),
                               ),
                             ],
                           ),
@@ -2929,7 +2929,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       try {
         products = await widget.state.social.fetchUserListings(hostId);
       } catch (e) {
-        debugPrint('⚠️ Fetch listings failed: $e');
+        debugPrint('?? Fetch listings failed: $e');
       }
     }
 
@@ -2950,14 +2950,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: C.dim,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             const SizedBox(height: 16),
             Text(
               'PIN A PRODUCT',
-              style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+              style: syne(sz: 16, w: FontWeight.bold, c: C.text),
             ),
             const SizedBox(height: 20),
             if (widget.state.pinnedLiveProduct != null)
@@ -2968,7 +2968,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 ),
                 title: Text(
                   'Unpin current product',
-                  style: dm(sz: 13, c: Colors.white),
+                  style: dm(sz: 13, c: C.text),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -2980,7 +2980,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 padding: const EdgeInsets.all(30),
                 child: Text(
                   'No shop listings available to pin.',
-                  style: dm(sz: 13, c: Colors.white38),
+                  style: dm(sz: 13, c: C.dim),
                 ),
               )
             else
@@ -3024,16 +3024,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           errorBuilder: (_, __, ___) => Container(
                             width: 40,
                             height: 40,
-                            color: Colors.white10,
-                            child: const Icon(
+                            color: C.dim,
+                            child: Icon(
                               Icons.shopping_bag_outlined,
-                              color: Colors.white38,
+                              color: C.dim,
                               size: 18,
                             ),
                           ),
                         ),
                       ),
-                      title: Text(title, style: dm(sz: 13, c: Colors.white)),
+                      title: Text(title, style: dm(sz: 13, c: C.text)),
                       subtitle: Text(ugx(price), style: dm(sz: 11, c: C.brand)),
                       onTap: () async {
                         final mapped = <String, dynamic>{
@@ -3188,7 +3188,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: C.dim,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -3198,7 +3198,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   children: [
                     Text(
                       'Send a gift to support the streamer!',
-                      style: syne(sz: 12, w: FontWeight.bold, c: Colors.white),
+                      style: syne(sz: 12, w: FontWeight.bold, c: C.text),
                     ),
                     if (sending)
                       const SizedBox(
@@ -3225,7 +3225,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         style: syne(
                           sz: 12,
                           w: isSelected ? FontWeight.bold : FontWeight.normal,
-                          c: isSelected ? C.brand : Colors.white54,
+                          c: isSelected ? C.brand : C.dim,
                         ),
                       ),
                     );
@@ -3243,9 +3243,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       onTap: sending ? null : () => sendGift(gift),
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
+                          color: C.text.withOpacity(0.05),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white10),
+                          border: Border.all(color: C.dim),
                         ),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -3272,7 +3272,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               style: dm(
                                 sz: 11,
                                 w: FontWeight.bold,
-                                c: Colors.white,
+                                c: C.text,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -3321,22 +3321,22 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             backgroundColor: const Color(0xFF0C0E14),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24),
-              side: const BorderSide(color: Colors.white10),
+              side: BorderSide(color: C.dim),
             ),
             title: Text(
               'LEAVE CO-STREAM?',
-              style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+              style: syne(sz: 16, w: FontWeight.bold, c: C.text),
             ),
             content: Text(
               'Are you sure you want to stop broadcasting and return to silent viewing?',
-              style: dm(sz: 13, c: Colors.white70),
+              style: dm(sz: 13, c: C.sub),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
                 child: Text(
                   'CANCEL',
-                  style: syne(sz: 12, w: FontWeight.bold, c: Colors.white38),
+                  style: syne(sz: 12, w: FontWeight.bold, c: C.dim),
                 ),
               ),
               Container(
@@ -3430,7 +3430,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: C.dim,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -3441,7 +3441,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   children: [
                     Text(
                       'GUEST CONTROL CONSOLE',
-                      style: syne(sz: 15, w: FontWeight.bold, c: Colors.white),
+                      style: syne(sz: 15, w: FontWeight.bold, c: C.text),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -3449,9 +3449,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
+                        color: C.text.withOpacity(0.05),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(color: C.dim),
                       ),
                       child: Text(
                         '${requests.length} Requests',
@@ -3467,15 +3467,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     padding: const EdgeInsets.symmetric(vertical: 40),
                     child: Column(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.people_outline,
-                          color: Colors.white24,
+                          color: C.dim,
                           size: 40,
                         ),
                         const SizedBox(height: 12),
                         Text(
                           'No active co-hosting requests.',
-                          style: dm(sz: 12, c: Colors.white38),
+                          style: dm(sz: 12, c: C.dim),
                         ),
                       ],
                     ),
@@ -3497,10 +3497,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.02),
+                            color: C.text.withOpacity(0.02),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.05),
+                              color: C.text.withOpacity(0.05),
                             ),
                           ),
                           child: Row(
@@ -3518,10 +3518,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                 child:
                                     req['avatar'] == null ||
                                         (req['avatar'] as String).isEmpty
-                                    ? const Icon(
+                                    ? Icon(
                                         Icons.person,
                                         size: 18,
-                                        color: Colors.white54,
+                                        color: C.dim,
                                       )
                                     : null,
                               ),
@@ -3532,7 +3532,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                   style: syne(
                                     sz: 13,
                                     w: FontWeight.bold,
-                                    c: Colors.white,
+                                    c: C.text,
                                   ),
                                 ),
                               ),
@@ -3646,7 +3646,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     ),
                   ),
 
-                const Divider(color: Colors.white10, height: 32),
+                Divider(color: C.dim, height: 32),
 
                 Align(
                   alignment: Alignment.centerLeft,
@@ -3655,7 +3655,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     style: syne(
                       sz: 10,
                       w: FontWeight.bold,
-                      c: Colors.white38,
+                      c: C.dim,
                       ls: 1,
                     ),
                   ),
@@ -3665,21 +3665,21 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   height: 48,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
+                    color: C.text.withOpacity(0.05),
                     borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: Colors.white10),
+                    border: Border.all(color: C.dim),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.search, color: Colors.white38, size: 18),
+                      Icon(Icons.search, color: C.dim, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
                         child: TextField(
-                          style: dm(sz: 13, c: Colors.white),
+                          style: dm(sz: 13, c: C.text),
                           enabled: !inviteSending,
                           decoration: InputDecoration(
                             hintText: 'Search online viewer by username...',
-                            hintStyle: dm(sz: 13, c: Colors.white24),
+                            hintStyle: dm(sz: 13, c: C.dim),
                             border: InputBorder.none,
                           ),
                           onSubmitted: (val) async {
@@ -3728,7 +3728,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       SnackBar(
         content: Text(
           message,
-          style: syne(sz: 12, w: FontWeight.bold, c: Colors.white),
+          style: syne(sz: 12, w: FontWeight.bold, c: C.text),
         ),
         backgroundColor: const Color(0xFF0F172A),
         behavior: SnackBarBehavior.floating,
@@ -3769,13 +3769,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 10),
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: C.dim,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.share_outlined, color: Colors.white),
-                title: Text('Share live', style: dm(c: Colors.white)),
+                leading: Icon(Icons.share_outlined, color: C.text),
+                title: Text('Share live', style: dm(c: C.text)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   unawaited(_shareLive());
@@ -3786,7 +3786,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   Icons.shopping_bag_outlined,
                   color: Color(0xFF00E5FF),
                 ),
-                title: Text('Open live shop', style: dm(c: Colors.white)),
+                title: Text('Open live shop', style: dm(c: C.text)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _openLiveShop();
@@ -3798,7 +3798,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     Icons.push_pin_outlined,
                     color: Colors.amber,
                   ),
-                  title: Text('Pin a product', style: dm(c: Colors.white)),
+                  title: Text('Pin a product', style: dm(c: C.text)),
                   onTap: () {
                     Navigator.pop(sheetContext);
                     _showProductPicker();
@@ -3809,7 +3809,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   Icons.emoji_emotions_outlined,
                   color: Color(0xFFFF176B),
                 ),
-                title: Text('Choose a reaction', style: dm(c: Colors.white)),
+                title: Text('Choose a reaction', style: dm(c: C.text)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _showReactionPicker();
@@ -3872,7 +3872,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         child: Text(
                           badge,
                           textAlign: TextAlign.center,
-                          style: dm(sz: 7, w: FontWeight.w900, c: Colors.white),
+                          style: dm(sz: 7, w: FontWeight.w900, c: C.text),
                         ),
                       ),
                     ),
@@ -3881,7 +3881,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               const SizedBox(height: 3),
               Text(
                 label,
-                style: dm(sz: 8, w: FontWeight.w600, c: Colors.white),
+                style: dm(sz: 8, w: FontWeight.w600, c: C.text),
               ),
             ],
           ),
@@ -3902,9 +3902,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 margin: const EdgeInsets.symmetric(horizontal: 24),
                 padding: const EdgeInsets.all(28),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
+                  color: C.text.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: Colors.white.withOpacity(0.12)),
+                  border: Border.all(color: C.text.withOpacity(0.12)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.5),
@@ -3939,7 +3939,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       style: syne(
                         sz: 14,
                         w: FontWeight.w900,
-                        c: Colors.white,
+                        c: C.text,
                         ls: 1.5,
                       ),
                     ),
@@ -3947,7 +3947,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     Text(
                       'To guarantee livestream security and unlock instant shopping features, a biometric face-match is required.',
                       textAlign: TextAlign.center,
-                      style: dm(sz: 12, c: Colors.white70, h: 1.5),
+                      style: dm(sz: 12, c: C.sub, h: 1.5),
                     ),
                     const SizedBox(height: 28),
                     GestureDetector(
@@ -3987,7 +3987,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         style: syne(
                           sz: 11,
                           w: FontWeight.bold,
-                          c: Colors.white38,
+                          c: C.dim,
                           ls: 1,
                         ),
                       ),
@@ -4002,3 +4002,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 }
+
+
+

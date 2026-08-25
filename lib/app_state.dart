@@ -360,6 +360,9 @@ class AppState extends ChangeNotifier {
       // 4. Shop Listings (Delta Only)
       await social.fetchListings(forceRefresh: false);
 
+      // 5. Gift Catalog Pre-warm (once per session — zero cost on re-open)
+      await prewarmGiftCatalog();
+
       debugPrint('⚡ Necxa-Sync: Full Background Modular Hydration Complete');
     } catch (e) {
       debugPrint('Background Sync Warning: $e');
@@ -806,6 +809,54 @@ class AppState extends ChangeNotifier {
   bool showCheckoutOverlay = false;
   Map<String, dynamic>? selectedListing;
   Map<String, dynamic>? pendingCheckoutListing;
+
+  /// Persistent gift catalog — fetched once at login, reused on every open.
+  /// GiftContainer reads this directly so the overlay opens instantly.
+  List<GiftItem> cachedGiftItems = [];
+
+  /// Pre-warms the gift catalog into [cachedGiftItems]. Safe to call multiple times.
+  Future<void> prewarmGiftCatalog() async {
+    if (cachedGiftItems.isNotEmpty) return; // already loaded
+    try {
+      final items = await financeGifting.fetchGiftItems();
+      items.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      if (items.isNotEmpty) {
+        cachedGiftItems = items;
+      } else {
+        // Fallback: hydrate from local static data so the overlay is never empty
+        cachedGiftItems = gifts
+            .map((g) => GiftItem(
+                  id: g.id,
+                  name: g.name,
+                  emoji: g.emoji,
+                  ncxValue: g.price,
+                  ugxValue: g.price * 100,
+                  category: 'standard',
+                  sortOrder: 0,
+                  imageUrl: g.imageUrl,
+                  notificationUrl: g.notificationUrl,
+                ))
+            .toList();
+      }
+    } catch (_) {
+      // On failure keep static fallback so UI never blocks
+      if (cachedGiftItems.isEmpty) {
+        cachedGiftItems = gifts
+            .map((g) => GiftItem(
+                  id: g.id,
+                  name: g.name,
+                  emoji: g.emoji,
+                  ncxValue: g.price,
+                  ugxValue: g.price * 100,
+                  category: 'standard',
+                  sortOrder: 0,
+                  imageUrl: g.imageUrl,
+                  notificationUrl: g.notificationUrl,
+                ))
+            .toList();
+      }
+    }
+  }
 
   // ── LOCAL SHOWCASE CACHE ──
   Map<String, List<Map<String, dynamic>>> cachedUserShowcases = {};
