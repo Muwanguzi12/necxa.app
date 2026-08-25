@@ -70,6 +70,7 @@ class _GiftContainerState extends State<GiftContainer> {
               category: 'standard',
               sortOrder: 0,
               imageUrl: g.imageUrl,
+              jpegUrl: g.jpegUrl,
             ),
           )
           .toList();
