@@ -297,6 +297,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _onClipPanEnd(DragEndDetails details) {
+    final movedClipId = _activeDragClipId;
     _activeDragClipId = null;
     _clipDragMode = _ClipDragMode.none;
     _dragStartLocalX = null;
@@ -304,7 +305,50 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _dragOriginalDuration = null;
     _dragCumulativeDx = 0;
     _dragRippleOriginalStarts.clear();
-    // finalize history capture already taken at start
+
+    // ── Snap-to-neighbor after a move drag ──────────────────────
+    // When the user releases a clip within a small snap threshold of an
+    // adjacent clip's edge, we close the tiny gap automatically so the
+    // timeline remains gapless (TikTok / CapCut behaviour).
+    if (movedClipId == null) return;
+    const snapThresholdMs = 80; // milliseconds — ~2 frames @ 24fps
+    setState(() {
+      for (final track in _tracks) {
+        final clip = track.clips.cast<TimelineClip?>().firstWhere(
+          (c) => c?.id == movedClipId,
+          orElse: () => null,
+        );
+        if (clip == null) continue;
+
+        // Build sorted list of all OTHER clips on this track.
+        final others =
+            track.clips.where((c) => c.id != clip.id).toList()
+              ..sort((a, b) => a.start.compareTo(b.start));
+
+        // Try to snap this clip's START to the END of the nearest left neighbour.
+        for (final neighbor in others) {
+          final neighborEnd = neighbor.start + neighbor.duration;
+          final gapMs = (clip.start - neighborEnd).inMilliseconds.abs();
+          if (gapMs <= snapThresholdMs && clip.start >= neighbor.start) {
+            clip.start = neighborEnd;
+            break;
+          }
+        }
+
+        // Try to snap this clip's END to the START of the nearest right neighbour.
+        final clipEnd = clip.start + clip.duration;
+        for (final neighbor in others) {
+          final gapMs = (neighbor.start - clipEnd).inMilliseconds.abs();
+          if (gapMs <= snapThresholdMs && neighbor.start >= clipEnd) {
+            // Shift this clip so its end butts against the neighbour's start.
+            clip.start = neighbor.start - clip.duration;
+            if (clip.start < Duration.zero) clip.start = Duration.zero;
+            break;
+          }
+        }
+      }
+    });
+    _playback.updateProject(_tracks);
   }
 
   bool _isPlaying = false;
@@ -4425,16 +4469,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _applyFilter() => _showEffectLibrarySheet();
   void _deleteClip() {
     if (_selectedClipIds.isEmpty) return;
-    _captureTimeline();
+    _captureTimeline(); // snapshot before mutation (enables undo)
     setState(() {
-      for (final track in _tracks) {
-        track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
-      }
+      // ── Ripple delete: close the gap left by each removed clip ──
+      TimelineModelUtils.rippleDeleteClips(_tracks, Set.of(_selectedClipIds));
+
+      // Clear selection state.
       _selectedClipIds.clear();
       _isMultiSelectMode = false;
       _selectedClip = null;
       _selectedTrackId = null;
       _selectedTrackIndex = null;
+
+      // Remove any tracks that are now empty (except the primary video track).
       TimelineModelUtils.pruneEmptyTracks(_tracks);
     });
     _playback.updateProject(_tracks);

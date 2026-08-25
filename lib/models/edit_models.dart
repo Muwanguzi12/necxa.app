@@ -944,6 +944,109 @@ class TimelineModelUtils {
     return clip;
   }
 
+  /// Ripple-delete: removes the given clip IDs from [track] and immediately
+  /// shifts all clips that *start after* each deleted segment left so no gap
+  /// remains.  Works correctly when multiple clips are deleted at once (sorted
+  /// by start, deleted in order, cumulative gap applied).
+  ///
+  /// Returns the total Duration removed (useful for callers that need to trim
+  /// companion tracks, e.g. synced audio/overlay tracks).
+  static Duration rippleDeleteClipsOnTrack(
+    TimelineTrack track,
+    Set<String> idsToDelete,
+  ) {
+    // Collect victims sorted by start so we process left-to-right.
+    final victims =
+        track.clips
+            .where((c) => idsToDelete.contains(c.id))
+            .toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+
+    if (victims.isEmpty) return Duration.zero;
+
+    // Remove victims.
+    track.clips.removeWhere((c) => idsToDelete.contains(c.id));
+
+    // Rebuild a gap map: for each victim, accumulate the total gap to shift.
+    // After removing victim V (start=S, duration=D), every clip with
+    // original start > S+D shifts left by D (plus any previously accumulated
+    // gap at an earlier position).
+    var cumulativeGap = Duration.zero;
+    for (final v in victims) {
+      cumulativeGap += v.duration;
+      final threshold = v.start; // clips starting after the victim's start move
+      for (final c in track.clips) {
+        if (c.start > threshold) {
+          c.start -= v.duration;
+          if (c.start < Duration.zero) c.start = Duration.zero;
+        }
+      }
+    }
+    return cumulativeGap;
+  }
+
+  /// Ripple-delete across ALL tracks in [tracks] for the given clip IDs.
+  ///
+  /// For the primary (video/images) track the gap is closed immediately.
+  /// For companion tracks (text, overlay, effects, audio, captions, etc.) any
+  /// clip whose start falls within a deleted segment is also removed, and all
+  /// subsequent clips are shifted left by the same cumulative gap.  This
+  /// mirrors TikTok / CapCut behaviour where attached annotations move or
+  /// disappear with their host segment.
+  static void rippleDeleteClips(
+    List<TimelineTrack> tracks,
+    Set<String> idsToDelete,
+  ) {
+    // Determine which tracks actually contain the selected clips.
+    final primaryTracks =
+        tracks
+            .where((t) => t.clips.any((c) => idsToDelete.contains(c.id)))
+            .toList();
+
+    // Build a list of (start, end) ranges that will be removed per primary track.
+    final deletedRanges = <(Duration, Duration)>[];
+    for (final pt in primaryTracks) {
+      for (final c in pt.clips) {
+        if (idsToDelete.contains(c.id)) {
+          deletedRanges.add((c.start, c.start + c.duration));
+        }
+      }
+    }
+    deletedRanges.sort((a, b) => a.$1.compareTo(b.$1));
+
+    // 1. Apply ripple on the primary tracks.
+    for (final pt in primaryTracks) {
+      rippleDeleteClipsOnTrack(pt, idsToDelete);
+    }
+
+    // 2. For companion tracks, remove clips that fall inside a deleted range
+    //    and shift remaining clips left by the total deleted duration.
+    final companionTracks = tracks.where(
+      (t) => !primaryTracks.contains(t),
+    );
+
+    for (final ct in companionTracks) {
+      // Remove companion clips that overlap any deleted range.
+      ct.clips.removeWhere((c) {
+        final cEnd = c.start + c.duration;
+        return deletedRanges.any(
+          (range) => c.start < range.$2 && cEnd > range.$1,
+        );
+      });
+
+      // Shift remaining companion clips left for each deleted range.
+      for (final range in deletedRanges) {
+        final gap = range.$2 - range.$1;
+        for (final c in ct.clips) {
+          if (c.start >= range.$1) {
+            c.start -= gap;
+            if (c.start < Duration.zero) c.start = Duration.zero;
+          }
+        }
+      }
+    }
+  }
+
   static void pruneEmptyTracks(List<TimelineTrack> tracks) {
     tracks.removeWhere(
       (track) => track.type != TrackType.video && track.clips.isEmpty,
