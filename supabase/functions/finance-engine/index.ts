@@ -832,6 +832,41 @@ async function mirrorUserWalletSnapshotToPrimary(
   return await mirrorWalletSnapshotToPrimary(wallet);
 }
 
+async function syncCommunityGiftToPrimary(
+  financeGiftId: string,
+  senderId: string,
+  receiverId: string,
+  postId: string,
+  giftItemId: string,
+  ncxAmount: number,
+  receiverNcx: number,
+  platformFeeNcx: number,
+  idempotencyKey: string,
+  metadata: Record<string, unknown>,
+) {
+  if (!PRIMARY_SUPABASE_URL || !PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+    return { synced: false, reason: "primary_community_sync_not_configured" };
+  }
+  const primaryAdmin = createClient(
+    PRIMARY_SUPABASE_URL,
+    PRIMARY_SUPABASE_SERVICE_ROLE_KEY,
+  );
+  const { data, error } = await primaryAdmin.rpc("record_community_gift", {
+    p_finance_gift_id: financeGiftId,
+    p_post_id: postId,
+    p_sender_id: senderId,
+    p_receiver_id: receiverId,
+    p_gift_item_id: giftItemId,
+    p_ncx_amount: ncxAmount,
+    p_receiver_ncx: receiverNcx,
+    p_platform_fee_ncx: platformFeeNcx,
+    p_idempotency_key: idempotencyKey,
+    p_metadata: metadata,
+  });
+  if (error) throw new Error(`Primary community gift sync failed: ${error.message}`);
+  return { synced: true, result: data };
+}
+
 type PrimaryAuthUser = {
   id: string;
   email?: string | null;
@@ -2537,6 +2572,8 @@ serve(async (req) => {
               context_note: contextNote,
               is_anonymous: isAnonymous,
               idempotency_key: idempotencyKey,
+              sender_name: isAnonymous ? "Anonymous" : (metadata.sender_name || user.email || "Viewer"),
+              sender_avatar: isAnonymous ? "" : (metadata.sender_avatar || ""),
             },
           };
 
@@ -2553,27 +2590,48 @@ serve(async (req) => {
         return json({ success: false, message: resData.message }, 400);
       }
 
-      // Fetch gift details to enrich response
-      const giftItems = [
-        { id: "rose", name: "Rose", emoji: "🌹" },
-        { id: "coffee", name: "Coffee", emoji: "☕" },
-        { id: "heart", name: "Heart", emoji: "💖" },
-        { id: "diamond", name: "Diamond", emoji: "💎" },
-        { id: "crown", name: "Crown", emoji: "👑" },
-        { id: "rocket", name: "Rocket", emoji: "🚀" },
-      ];
-      const giftDef = giftItems.find(g => g.id === giftItemId) || { name: "Gift", emoji: "🎁" };
+      const { data: giftDef } = await supabase
+        .from("gift_items")
+        .select("name, emoji")
+        .eq("id", giftItemId)
+        .maybeSingle();
+      const receiverNcx = Number(resData?.receiver_amount_credited || (ncxAmount * 0.89));
+      const platformFeeNcx = Number(resData?.platform_fee_paid || (ncxAmount * 0.11));
+      const financeGiftId = resData?.gift_id?.toString();
+      let communitySync: Record<string, unknown> = { synced: false, reason: "not_a_community_post" };
+      if (contextType === "creator_post" && contextId && financeGiftId && !contextId.startsWith("direct")) {
+        try {
+          communitySync = await syncCommunityGiftToPrimary(
+            financeGiftId,
+            user.id,
+            receiverId,
+            contextId,
+            giftItemId,
+            ncxAmount,
+            receiverNcx,
+            platformFeeNcx,
+            idempotencyKey,
+            metadata,
+          );
+        } catch (syncError) {
+          // Finance remains authoritative; a failed social projection must be
+          // observable without turning a completed debit into a false failure.
+          console.error(syncError);
+          communitySync = { synced: false, reason: "sync_failed" };
+        }
+      }
 
       return json({
         success: true,
         giftId: resData?.gift_id || idempotencyKey,
-        giftEmoji: giftDef.emoji,
-        giftName: giftDef.name,
+        giftEmoji: giftDef?.emoji || "🎁",
+        giftName: giftDef?.name || "Gift",
         ncxAmount: ncxAmount,
-        receiverNcx: resData?.receiver_amount_credited || (ncxAmount * 0.89),
-        platformFeeNcx: resData?.platform_fee_paid || (ncxAmount * 0.11),
+        receiverNcx,
+        platformFeeNcx,
         ugxEquivalent: ncxAmount * 100, // standard conversion
         isHighlighted: ncxAmount >= 50,
+        communitySynced: communitySync.synced,
         message: "Gift sent successfully.",
       });
     }
