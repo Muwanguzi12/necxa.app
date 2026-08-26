@@ -8,6 +8,70 @@ alter table public.community_gifts
   add column if not exists receiver_ncx bigint,
   add column if not exists platform_fee_ncx bigint;
 
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  actor_id uuid references public.profiles(id) on delete set null,
+  notification_type text,
+  type text not null default 'social',
+  title text not null,
+  body text not null,
+  target_id text,
+  target_type text not null default 'post',
+  metadata jsonb not null default '{}'::jsonb,
+  dedupe_key text,
+  is_read boolean not null default false,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table public.notifications
+  add column if not exists actor_id uuid,
+  add column if not exists notification_type text,
+  add column if not exists type text default 'social',
+  add column if not exists title text default 'Necxa notification',
+  add column if not exists body text default '',
+  add column if not exists target_id text,
+  add column if not exists target_type text default 'post',
+  add column if not exists metadata jsonb default '{}'::jsonb,
+  add column if not exists dedupe_key text,
+  add column if not exists is_read boolean default false,
+  add column if not exists read_at timestamptz,
+  add column if not exists created_at timestamptz default now();
+
+do $$
+declare
+  v_constraint record;
+begin
+  for v_constraint in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.notifications'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%notification_type%'
+  loop
+    execute format('alter table public.notifications drop constraint if exists %I', v_constraint.conname);
+  end loop;
+end;
+$$;
+
+update public.notifications
+set type = coalesce(type, 'social'),
+    title = coalesce(title, 'Necxa notification'),
+    body = coalesce(body, ''),
+    target_type = coalesce(target_type, 'post'),
+    metadata = coalesce(metadata, '{}'::jsonb),
+    is_read = coalesce(is_read, false),
+    created_at = coalesce(created_at, now());
+
+alter table public.notifications
+  alter column type set default 'social',
+  alter column title set default 'Necxa notification',
+  alter column body set default '',
+  alter column metadata set default '{}'::jsonb,
+  alter column is_read set default false,
+  alter column created_at set default now();
+
 create unique index if not exists community_gifts_finance_idempotency_idx
   on public.community_gifts (idempotency_key)
   where idempotency_key is not null;
@@ -84,7 +148,7 @@ begin
     user_id, actor_id, notification_type, type, title, body,
     target_id, target_type, metadata, dedupe_key
   ) values (
-    p_receiver_id, p_sender_id, 'gift', 'social', 'New gift received',
+    p_receiver_id, p_sender_id, 'social', 'social', 'New gift received',
     coalesce(p_metadata->>'sender_name', 'Someone') || ' sent you a gift.',
     p_post_id::text, 'post',
     coalesce(p_metadata, '{}'::jsonb) || jsonb_build_object(
