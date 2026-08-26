@@ -49,10 +49,13 @@ class _GiftContainerState extends State<GiftContainer> {
 
   Future<void> _initData() async {
     setState(() => _loading = true);
+    final dataSaverMode = widget.state.isDataSaverMode;
     try {
-      _presets = await widget.state.financeGifting.fetchGiftItems();
+      _presets = await widget.state.financeGifting.fetchGiftItems(
+        allowNetwork: !dataSaverMode,
+      );
       _presets.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-      await widget.state.syncVault();
+      if (!dataSaverMode) await widget.state.syncVault();
     } catch (e) {
       debugPrint('Gift Data Error: $e');
     }
@@ -79,6 +82,12 @@ class _GiftContainerState extends State<GiftContainer> {
 
   Future<void> _sendGift(GiftItem preset) async {
     if (widget.receiverId.isEmpty) { _showError('No recipient selected.'); return; }
+
+    if (widget.state.coinBalance < preset.ncxValue) {
+      if (widget.state.isDataSaverMode) {
+        await widget.state.syncVault();
+      }
+    }
 
     if (widget.state.coinBalance < preset.ncxValue) {
       _selectedPreset = preset;
@@ -263,6 +272,9 @@ class _GiftContainerState extends State<GiftContainer> {
     }
     if (url.startsWith('assets/')) {
       return Image.asset(url, fit: BoxFit.contain);
+    }
+    if (widget.state.isDataSaverMode) {
+      return Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32)));
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),

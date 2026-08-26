@@ -55,9 +55,11 @@ class GiftResult {
 class FinanceGiftingService {
   List<GiftItem>? _catalogCache;
 
-  Future<List<GiftItem>> fetchGiftItems() async {
+  Future<List<GiftItem>> fetchGiftItems({bool allowNetwork = true}) async {
     final cached = _catalogCache;
     if (cached != null) return List<GiftItem>.of(cached);
+
+    if (!allowNetwork) return _builtInGiftItems();
 
     await FinanceInitializer.instance.ensureInitialized();
     final result = await FinanceBackend.instance.invoke('list_gift_items');
@@ -78,7 +80,12 @@ class FinanceGiftingService {
     // This is display-only continuity while Finance is temporarily
     // unavailable. sendGift still requires the Finance service and cannot
     // transfer a locally invented item.
-    _catalogCache = gifts
+    _catalogCache = _builtInGiftItems();
+    return List<GiftItem>.of(_catalogCache!);
+  }
+
+  List<GiftItem> _builtInGiftItems() {
+    return gifts
         .map(
           (gift) => GiftItem(
             id: gift.id,
@@ -93,7 +100,6 @@ class FinanceGiftingService {
           ),
         )
         .toList();
-    return List<GiftItem>.of(_catalogCache!);
   }
 
   Future<GiftResult> sendGift({
