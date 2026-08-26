@@ -635,6 +635,26 @@ class AppState extends ChangeNotifier {
     if (user == null) return;
     final profile = await social.getProfile(user!.id);
     final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
+    try {
+      final relationships = await social.loadMyFollowRelationships();
+      followed
+        ..clear()
+        ..addAll(
+          relationships
+              .map((relationship) => relationship['user_id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      friends
+        ..clear()
+        ..addAll(
+          relationships
+              .where((relationship) => relationship['is_friend'] == true)
+              .map((relationship) => relationship['user_id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+    } catch (error) {
+      debugPrint('Follow graph sync deferred: $error');
+    }
     final normalizedName = _firstProfileValue([
       profile?['full_name'],
       profile?['display_name'],
@@ -1502,6 +1522,7 @@ class AppState extends ChangeNotifier {
   }
 
   final Set<String> followed = {};
+  final Set<String> friends = {};
   final Set<String> liked = {};
   final Set<String> saved = {};
 
@@ -1630,11 +1651,40 @@ class AppState extends ChangeNotifier {
   }
 
   bool isFollowingSync(String id) => followed.contains(id); // Restored Method
+  bool isFriendSync(String id) => friends.contains(id);
 
-  Future<void> toggleFollow(String id) async {
-    followed.contains(id) ? followed.remove(id) : followed.add(id);
+  Future<bool> toggleFollow(String id) async {
+    if (user == null || id == user!.id) return false;
+    final wasFollowing = followed.contains(id);
+    wasFollowing ? followed.remove(id) : followed.add(id);
     notify();
-    await social.toggleFollow(id);
+    Map<String, dynamic>? relationship;
+    try {
+      relationship = await social.toggleFollow(id);
+    } catch (error) {
+      // Reject an online failure rather than leaving a false follow state on
+      // screen. Offline work returns null below and stays queued instead.
+      wasFollowing ? followed.add(id) : followed.remove(id);
+      notify();
+      debugPrint('Follow update failed: $error');
+      return false;
+    }
+    // A null result means the change was queued for retry while offline. Keep
+    // the immediate UI feedback; the next graph refresh reconciles it.
+    if (relationship == null) return true;
+    final isFollowing = relationship['following'] == true;
+    if (isFollowing) {
+      followed.add(id);
+    } else {
+      followed.remove(id);
+    }
+    if (relationship['is_friend'] == true) {
+      friends.add(id);
+    } else {
+      friends.remove(id);
+    }
+    notify();
+    return true;
   }
 
   Future<void> toggleLike(String id) async {

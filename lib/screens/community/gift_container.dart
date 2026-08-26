@@ -261,6 +261,9 @@ class _GiftContainerState extends State<GiftContainer> {
     if (url == null || url.isEmpty) {
       return Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32)));
     }
+    if (url.startsWith('assets/')) {
+      return Image.asset(url, fit: BoxFit.contain);
+    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: CachedNetworkImage(

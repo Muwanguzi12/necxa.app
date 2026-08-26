@@ -25,6 +25,17 @@ class SocialService {
   // ── In-memory caches (hot path for fast-scroll) ────────────────────────
   final Map<String, Map<String, dynamic>> _profileCache = {};
 
+  /// Loads the signed-in user's durable follow graph. A friendship is a
+  /// reciprocal follow, calculated and stored by the database transaction.
+  Future<List<Map<String, dynamic>>> loadMyFollowRelationships() async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return const [];
+    final result = await client.rpc('my_follow_relationships');
+    return (result as List)
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+  }
+
   // ── Sync debounce tracking (prevents hammering the backend) ───────────
   bool _feedSyncing = false;
   bool _shopSyncing = false;
@@ -1464,42 +1475,40 @@ class SocialService {
 
   // ── NEW BACKEND INTERACTIONS ──────────────────────────────────
 
-  Future<void> toggleFollow(String targetUserId) async {
+  Future<Map<String, dynamic>?> toggleFollow(String targetUserId) async {
     final userId = client.auth.currentUser?.id;
-    if (userId == null || userId == targetUserId) return;
+    if (userId == null || userId == targetUserId) return null;
 
     try {
-      await _applyFollow(targetUserId);
+      return await _applyFollow(targetUserId);
     } catch (e) {
+      if (await _isOnline()) rethrow;
       debugPrint('Offline Follow Queued: $e');
       await LocalDbService().queueSocialAction(
         'follow',
         targetUserId,
         dedupeKey: 'follow:$userId:$targetUserId',
       );
+      return null;
     }
   }
 
-  Future<void> _applyFollow(String targetUserId) async {
+  Future<Map<String, dynamic>> _applyFollow(String targetUserId) async {
     final userId = client.auth.currentUser?.id;
-    if (userId == null || userId == targetUserId) return;
-    final existing = await client.from('creator_followers').select().match({
-      'follower_id': userId,
-      'creator_id': targetUserId,
-    }).maybeSingle();
-
-    if (existing != null) {
-      await client.from('creator_followers').delete().match({
-        'follower_id': userId,
-        'creator_id': targetUserId,
-      });
-      return;
+    if (userId == null || userId == targetUserId) {
+      throw StateError('Choose another user to follow.');
     }
-    await client.from('creator_followers').insert({
-      'follower_id': userId,
-      'creator_id': targetUserId,
-    });
-    await notifySocialEvent('follow', targetUserId, targetType: 'profile');
+    final result = await client.rpc(
+      'toggle_follow_relationship',
+      params: {'p_target_user_id': targetUserId},
+    );
+    final raw = result is List && result.isNotEmpty ? result.first : result;
+    if (raw is! Map) throw StateError('Invalid follow response.');
+    final relationship = Map<String, dynamic>.from(raw);
+    if (relationship['following'] == true) {
+      await notifySocialEvent('follow', targetUserId, targetType: 'profile');
+    }
+    return relationship;
   }
 
   Future<void> reportContent(

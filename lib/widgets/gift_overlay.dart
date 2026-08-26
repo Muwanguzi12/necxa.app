@@ -190,8 +190,11 @@ class GiftOverlay extends StatelessWidget {
                             SizedBox(
                               width: 44,
                               height: 44,
-                              child: g.imageUrl != null
-                                  ? ClipRRect(
+                            child: g.imageUrl != null &&
+                                    g.imageUrl!.startsWith('assets/')
+                                ? Image.asset(g.imageUrl!, fit: BoxFit.contain)
+                                : g.imageUrl != null
+                                ? ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
                                       child: CachedNetworkImage(
                                         imageUrl: g.imageUrl!,

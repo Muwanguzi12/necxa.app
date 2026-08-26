@@ -1490,6 +1490,31 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         participants.any((participant) => participant != host);
   }
 
+  bool _isUserId(String value) =>
+      RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')
+          .hasMatch(value);
+
+  Future<void> _toggleGuestFollow(String guestId, String displayName) async {
+    if (!_isUserId(guestId) || guestId == widget.state.user?.id) return;
+    final updated = await widget.state.toggleFollow(guestId);
+    if (!updated) return;
+    if (!mounted) return;
+    final isFriend = widget.state.isFriendSync(guestId);
+    final isFollowing = widget.state.isFollowingSync(guestId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isFriend
+              ? 'You and $displayName are now friends.'
+              : isFollowing
+              ? 'Following $displayName.'
+              : 'Unfollowed $displayName.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Widget _participantVideoTile(
     Participant participant, {
     bool isHostTile = false,
@@ -1504,6 +1529,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final isMuted =
         audioPublications.isEmpty ||
         audioPublications.every((publication) => publication.muted);
+    final guestId = participant.identity;
+    final canFollowGuest = !isHostTile &&
+        guestId != widget.state.user?.id &&
+        _isUserId(guestId);
+    final isFriend = canFollowGuest && widget.state.isFriendSync(guestId);
+    final isFollowing = canFollowGuest && widget.state.isFollowingSync(guestId);
 
     return ClipRRect(
       borderRadius: showChrome ? BorderRadius.circular(8) : BorderRadius.zero,
@@ -1554,19 +1585,40 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         style: dm(sz: 9, w: FontWeight.w800, c: C.text),
                       ),
                     ),
-                    if (!isHostTile) ...[
+                    if (canFollowGuest) ...[
                       const SizedBox(width: 4),
-                      Container(
-                        width: 20,
-                        height: 20,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFF176B),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.add,
-                          color: C.text,
-                          size: 14,
+                      Semantics(
+                        button: true,
+                        label: isFriend
+                            ? '$displayName is your friend'
+                            : isFollowing
+                            ? 'Unfollow $displayName'
+                            : 'Follow $displayName',
+                        child: GestureDetector(
+                          onTap: () => unawaited(
+                            _toggleGuestFollow(guestId, displayName),
+                          ),
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: isFriend
+                                  ? const Color(0xFF00C853)
+                                  : isFollowing
+                                  ? const Color(0xFF00AEEF)
+                                  : const Color(0xFFFF176B),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isFriend
+                                  ? Icons.people_alt_rounded
+                                  : isFollowing
+                                  ? Icons.check_rounded
+                                  : Icons.add,
+                              color: C.text,
+                              size: 14,
+                            ),
+                          ),
                         ),
                       ),
                     ],

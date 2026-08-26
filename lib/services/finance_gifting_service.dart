@@ -67,10 +67,18 @@ class FinanceGiftingService {
         )
         .toList();
 
-    // Keep the app usable during a staged edge-function deployment. The payment
-    // still sends only the item ID and NCX amount; no image payload is involved.
-    final remoteById = {for (final item in remoteItems) item.id: item};
-    final builtInItems = gifts
+    // Finance owns the gift ID and price contract. Do not merge a local list
+    // ahead of it: a stale local ID (for example `money_bag` instead of
+    // `moneybag`) passes the UI but is rejected by the atomic transfer RPC.
+    if (remoteItems.isNotEmpty) {
+      _catalogCache = remoteItems;
+      return List<GiftItem>.of(_catalogCache!);
+    }
+
+    // This is display-only continuity while Finance is temporarily
+    // unavailable. sendGift still requires the Finance service and cannot
+    // transfer a locally invented item.
+    _catalogCache = gifts
         .map(
           (gift) => GiftItem(
             id: gift.id,
@@ -80,16 +88,11 @@ class FinanceGiftingService {
             ugxValue: gift.price * 100,
             category: gift.price >= 500 ? 'premium' : 'standard',
             sortOrder: gifts.indexOf(gift) + 1,
-            isActive: remoteById[gift.id]?.isActive ?? true,
+            isActive: true,
             imageUrl: gift.imageUrl,
           ),
         )
         .toList();
-    final builtInIds = {for (final item in builtInItems) item.id};
-    _catalogCache = [
-      ...builtInItems,
-      ...remoteItems.where((item) => !builtInIds.contains(item.id)),
-    ];
     return List<GiftItem>.of(_catalogCache!);
   }
 
@@ -111,6 +114,10 @@ class FinanceGiftingService {
       final result = await FinanceBackend.instance.invoke(
         'send_gift',
         body: {
+          // The finance server derives identity from the bearer token. Keep
+          // this field for compatibility with an already-deployed processor
+          // that still expects it; it must never be trusted by the server.
+          'senderId': senderId,
           'receiverId': receiverId,
           'giftItemId': giftItemId,
           'ncxAmount': ncxAmount,
