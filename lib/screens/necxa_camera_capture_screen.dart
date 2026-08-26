@@ -46,6 +46,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
   final List<File> _capturedClips = [];
   final List<Duration> _capturedClipDurations = [];
   double _totalRecordedSeconds = 0;
+  double maxSeconds = 60.0;
 
   final List<String> _filters = ['Normal', 'Cinema', 'Neon', 'Noir', 'Vivid'];
   final List<double> _speeds = [0.5, 1.0, 2.0];

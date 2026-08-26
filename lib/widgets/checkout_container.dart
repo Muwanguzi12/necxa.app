@@ -44,6 +44,15 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   bool _trackingLoading = false;
   String? _trackingError;
   late final String _checkoutIdempotencyKey;
+  final List<String> stages = [
+    'confirmed',
+    'ready_for_pickup',
+    'driver_assigned',
+    'picked_up',
+    'out_for_delivery',
+    'delivered',
+    'completed',
+  ];
 
   double _listingNumber(String key) =>
       double.tryParse(widget.listing[key]?.toString() ?? '') ?? 0;
@@ -987,15 +996,6 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   }
 
   Widget _buildCommerceTracking(CommerceOrder order) {
-    stages = [
-      'confirmed',
-      'ready_for_pickup',
-      'driver_assigned',
-      'picked_up',
-      'out_for_delivery',
-      'delivered',
-      'completed',
-    ];
     final currentIndex = stages.indexOf(order.status);
     final driverId = order.delivery?['driver_id']?.toString();
     final driverName = order.driver == null

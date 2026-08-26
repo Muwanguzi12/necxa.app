@@ -42,12 +42,9 @@ class C {
   static const Color purple = Color(0xFFA855F7);
   static const Color orange = Color(0xFFF97316);
 
-  static Color get text =>
-      isDark ? const Color(0xFFF0F4FF) : const Color(0xFF172033);
-  static Color get sub =>
-      isDark ? const Color(0xFF8A9AB2) : const Color(0xFF5F6B7A);
-  static Color get dim =>
-      isDark ? const Color(0xFF5A6A82) : const Color(0xFF8B96A6);
+    static const Color text = Color(0xFFF0F4FF);
+    static const Color sub = Color(0xFF8A9AB2);
+    static const Color dim = Color(0xFF5A6A82);
 }
 
 // ── Text helpers ──────────────────────────────────────────────

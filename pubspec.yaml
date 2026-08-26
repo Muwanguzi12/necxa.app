@@ -28,7 +28,7 @@ dependencies:
   sqflite: ^2.4.1
   sqflite_common_ffi_web: ^0.4.3+2
   share_plus: ^12.0.2
-  record: ^5.2.1
+  record: ^6.1.2
   just_audio: ^0.9.40
   flutter_contacts: ^1.1.9+1
   permission_handler: ^11.3.1

@@ -829,7 +829,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (failed)
               ListTile(
                 leading: Icon(Icons.sync_rounded, color: C.text),
-                title: const Text(
+                title: Text(
                   'Retry',
                   style: TextStyle(color: C.text),
                 ),
@@ -845,7 +845,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (isMine)
               ListTile(
                 leading: Icon(Icons.edit_rounded, color: C.text),
-                title: const Text(
+                title: Text(
                   'Edit',
                   style: TextStyle(color: C.text),
                 ),
@@ -872,7 +872,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (!isMine && !isLocal)
               ListTile(
                 leading: Icon(Icons.flag_outlined, color: C.text),
-                title: const Text(
+                title: Text(
                   'Report',
                   style: TextStyle(color: C.text),
                 ),
@@ -1517,7 +1517,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       width: 2,
                     ),
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Icon(
                       Icons.videocam_outlined,
                       color: C.dim,
@@ -1585,7 +1585,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final room = widget.state.live.room!;
     final participants = _videoParticipants(room);
     if (participants.isEmpty) {
-      return const Center(
+      return Center(
         child: Icon(
           Icons.videocam_off_outlined,
           color: C.dim,
@@ -1767,7 +1767,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   },
                 ),
               if (widget.isHost && _isUserId(guestId)) ...[
-                const Divider(color: C.dim),
+                Divider(color: C.dim),
                 ListTile(
                   leading: Icon(
                     isModerator
@@ -1869,7 +1869,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (videoTrack is VideoTrack)
               VideoTrackRenderer(videoTrack, fit: VideoViewFit.cover)
             else
-              const ColoredBox(
+              ColoredBox(
                 color: Color(0xFF17151F),
                 child: Center(
                   child: Icon(Icons.person, color: C.dim, size: 40),
@@ -1888,7 +1888,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 ),
               ),
               if (isMuted)
-                const Positioned(
+                Positioned(
                   top: 8,
                   right: 8,
                   child: Icon(
@@ -2435,7 +2435,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                   ),
                                   Row(
                                     children: [
-                                      const Icon(
+                                      Icon(
                                         Icons.visibility_outlined,
                                         color: C.sub,
                                         size: 10,
@@ -2611,7 +2611,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         border: Border.all(color: C.dim),
       ),
       child: loading
-          ? const Padding(
+          ? Padding(
               padding: EdgeInsets.all(10),
               child: CircularProgressIndicator(
                 strokeWidth: 2,
@@ -3409,7 +3409,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             width: 40,
                             height: 40,
                             color: C.dim,
-                            child: const Icon(
+                            child: Icon(
                               Icons.shopping_bag_outlined,
                               color: C.dim,
                               size: 18,
@@ -3459,6 +3459,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final gifts = await widget.state.financeGifting.fetchGiftItems();
     if (!mounted) return;
     var sending = false;
+    final giftReceiverName = receiverName ?? _hostDisplayName;
 
     showModalBottomSheet(
       context: context,
@@ -3472,7 +3473,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (sending) return;
             final senderId = widget.state.user?.id;
             final giftReceiverId = receiverId ?? _hostUserId;
-            final giftReceiverName = receiverName ?? _hostDisplayName;
             if (senderId == null || giftReceiverId == null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -3855,7 +3855,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     padding: const EdgeInsets.symmetric(vertical: 40),
                     child: Column(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.people_outline,
                           color: C.dim,
                           size: 40,
@@ -3906,7 +3906,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                 child:
                                     req['avatar'] == null ||
                                         (req['avatar'] as String).isEmpty
-                                    ? const Icon(
+                                    ? Icon(
                                         Icons.person,
                                         size: 18,
                                         color: C.dim,
