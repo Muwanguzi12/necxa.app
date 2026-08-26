@@ -203,7 +203,7 @@ String? giftNotificationImageUrlFor(String giftId) {
 
 String? giftPickerImageUrlFor(String giftId) => giftPickerImageUrls[giftId];
 
-const List<Gift> gifts = [
+final List<Gift> gifts = [
   Gift(id: 'rose',       emoji: '🌹', name: 'Rose',        price: 1,     fee: 0,    imageUrl: giftPickerImageUrls['rose'], notificationImageUrl: '$_giftCdn/rose.jpeg'),
   Gift(id: 'clap',       emoji: '👏', name: 'Clap',        price: 2,     fee: 0,    imageUrl: giftPickerImageUrls['clap'], notificationImageUrl: '$_giftCdn/clap.jpeg'),
   Gift(id: 'heart',      emoji: '❤️', name: 'Heart',       price: 3,     fee: 0,    imageUrl: giftPickerImageUrls['heart']),
