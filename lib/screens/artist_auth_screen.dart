@@ -71,12 +71,12 @@ class _ArtistAuthScreenState extends State<ArtistAuthScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                    const SizedBox(height: 40),
-                   const Text('🎨', style: TextStyle(fontSize: 60), textAlign: TextAlign.center),
+                   const Text('??', style: TextStyle(fontSize: 60), textAlign: TextAlign.center),
                    const SizedBox(height: 16),
                    Text(_isLogin ? 'Artist Login' : 'Artist Program', 
                       style: syne(sz: 28, w: FontWeight.w900, ls: 1), textAlign: TextAlign.center),
                    Text(_isLogin ? 'Welcome back to your studio' : 'Join the verified distribution program', 
-                      style: dm(sz: 14, c: Colors.white38), textAlign: TextAlign.center),
+                      style: dm(sz: 14, c: C.dim), textAlign: TextAlign.center),
                    const SizedBox(height: 48),
 
                    if (!_isLogin) ...[
@@ -125,18 +125,20 @@ class _ArtistAuthScreenState extends State<ArtistAuthScreen> {
     return TextFormField(
       obscureText: obscure,
       onSaved: onSave,
-      style: dm(sz: 15, c: Colors.white),
+      style: dm(sz: 15, c: C.text),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        hintStyle: dm(sz: 13, c: Colors.white24),
-        labelStyle: dm(sz: 14, c: Colors.white60),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.white10)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: C.brand)),
+        hintStyle: dm(sz: 13, c: C.dim),
+        labelStyle: dm(sz: 14, c: C.sub),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: C.dim)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: C.brand)),
         filled: true,
-        fillColor: Colors.white.withOpacity(.05),
+        fillColor: C.text.withOpacity(.05),
       ),
       validator: (v) => v == null || v.isEmpty ? 'Required field' : null,
     );
   }
 }
+
+

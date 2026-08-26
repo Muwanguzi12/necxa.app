@@ -1,5 +1,5 @@
 // lib/screens/new_chat_screen.dart
-// NECXA — New Chat: Find users via email search, phone contacts, or saved contacts
+// NECXA � New Chat: Find users via email search, phone contacts, or saved contacts
 
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
@@ -57,7 +57,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     super.dispose();
   }
 
-  // ── EMAIL SEARCH ─────────────────────────────────────────────
+  // -- EMAIL SEARCH ---------------------------------------------
   Future<void> _searchByEmail() async {
     final email = _emailCtrl.text.trim().toLowerCase();
     if (email.isEmpty || !email.contains('@')) {
@@ -84,7 +84,7 @@ class _NewChatScreenState extends State<NewChatScreen>
         });
       } else if (res['id'] == widget.state.user?.id) {
         setState(() {
-          _emailError = 'That\'s your own account 😅';
+          _emailError = 'That\'s your own account ??';
           _emailSearching = false;
         });
       } else {
@@ -101,7 +101,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     }
   }
 
-  // ── PHONE CONTACTS ───────────────────────────────────────────
+  // -- PHONE CONTACTS -------------------------------------------
   Future<void> _loadPhoneContacts() async {
     setState(() => _contactsLoading = true);
     final status = await Permission.contacts.request();
@@ -165,7 +165,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     }
   }
 
-  // ── SAVED CONTACTS ───────────────────────────────────────────
+  // -- SAVED CONTACTS -------------------------------------------
   Future<void> _loadSavedContacts() async {
     setState(() => _savedLoading = true);
     try {
@@ -185,7 +185,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     }
   }
 
-  // ── OPEN CHAT ────────────────────────────────────────────────
+  // -- OPEN CHAT ------------------------------------------------
   Future<void> _openChatWith(
     String otherUserId,
     String otherName,
@@ -230,9 +230,9 @@ class _NewChatScreenState extends State<NewChatScreen>
     }
   }
 
-  // ════════════════════════════════════════════════════════════
+  // ------------------------------------------------------------
   // BUILD
-  // ════════════════════════════════════════════════════════════
+  // ------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -245,13 +245,13 @@ class _NewChatScreenState extends State<NewChatScreen>
         ),
         title: Text(
           'New Message',
-          style: syne(sz: 20, w: FontWeight.w800, c: Colors.white),
+          style: syne(sz: 20, w: FontWeight.w800, c: C.text),
         ),
         bottom: TabBar(
           controller: _tabs,
           indicatorColor: C.brand,
           labelColor: C.brand,
-          unselectedLabelColor: Colors.white38,
+          unselectedLabelColor: C.dim,
           labelStyle: syne(sz: 12, w: FontWeight.w700, c: C.brand),
           tabs: const [
             Tab(icon: Icon(Icons.all_inbox), text: 'Inbox'),
@@ -273,17 +273,17 @@ class _NewChatScreenState extends State<NewChatScreen>
     );
   }
 
-  // ── TAB 1: INBOX ───────────────────────────────────────────────
+  // -- TAB 1: INBOX -----------------------------------------------
   Widget _buildInboxTab() {
     if (widget.state.isChatLoading) {
-      return const Center(child: CircularProgressIndicator(color: C.brand));
+      return Center(child: CircularProgressIndicator(color: C.brand));
     }
 
     final convos = widget.state.conversations;
 
     return Column(
       children: [
-        // 🚀 Separate Creator Social Entry
+        // ?? Separate Creator Social Entry
         GestureDetector(
           onTap: () => widget.state.go('creator-chat-list'),
           child: Container(
@@ -339,7 +339,7 @@ class _NewChatScreenState extends State<NewChatScreen>
             child: Center(
               child: Text(
                 'No active conversations yet.',
-                style: dm(sz: 14, c: Colors.white30),
+                style: dm(sz: 14, c: C.dim),
               ),
             ),
           ),
@@ -350,7 +350,7 @@ class _NewChatScreenState extends State<NewChatScreen>
               padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: convos.length,
               separatorBuilder: (_, __) =>
-                  Divider(color: Colors.white.withOpacity(0.05)),
+                  Divider(color: C.text.withOpacity(0.05)),
               itemBuilder: (_, i) {
                 final room = convos[i];
                 final isUnread = room.myUnread > 0;
@@ -362,8 +362,8 @@ class _NewChatScreenState extends State<NewChatScreen>
                   ),
                   leading: CircleAvatar(
                     radius: 28,
-                    backgroundColor: Colors.white.withOpacity(0.1),
-                    // CachedNetworkImage — zero repeat egress after first load
+                    backgroundColor: C.text.withOpacity(0.1),
+                    // CachedNetworkImage � zero repeat egress after first load
                     backgroundImage: !room.isSupport && room.otherAvatar != null
                         ? CachedNetworkImageProvider(room.otherAvatar!)
                         : null,
@@ -385,21 +385,21 @@ class _NewChatScreenState extends State<NewChatScreen>
                     style: syne(
                       sz: 16,
                       w: isUnread ? FontWeight.w900 : FontWeight.w600,
-                      c: isUnread ? Colors.white : Colors.white70,
+                      c: isUnread ? C.text : C.sub,
                     ),
                   ),
                   subtitle: Padding(
                     padding: const EdgeInsets.only(top: 4.0),
                     child: Text(
                       room.isSupport
-                          ? 'Necxa Support · ${room.lastMessage ?? 'Support conversation'}'
+                          ? 'Necxa Support � ${room.lastMessage ?? 'Support conversation'}'
                           : (room.lastMessage ?? 'Started a conversation'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: dm(
                         sz: 13,
                         w: isUnread ? FontWeight.w600 : FontWeight.w400,
-                        c: isUnread ? Colors.white : C.dim,
+                        c: isUnread ? C.text : C.dim,
                       ),
                     ),
                   ),
@@ -415,14 +415,14 @@ class _NewChatScreenState extends State<NewChatScreen>
                             style: dm(
                               sz: 11,
                               w: FontWeight.bold,
-                              c: Colors.white,
+                              c: C.text,
                             ),
                           ),
                         )
                       : const Icon(
                           Icons.arrow_forward_ios,
                           size: 14,
-                          color: Colors.white24,
+                          color: C.dim,
                         ),
                   onTap: () async {
                     widget.state.activeConversation = room;
@@ -437,7 +437,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     );
   }
 
-  // ── TAB 2: EMAIL SEARCH ───────────────────────────────────────
+  // -- TAB 2: EMAIL SEARCH ---------------------------------------
   Widget _buildEmailTab() {
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -511,10 +511,10 @@ class _NewChatScreenState extends State<NewChatScreen>
     );
   }
 
-  // ── TAB 2: PHONE CONTACTS ─────────────────────────────────────
+  // -- TAB 2: PHONE CONTACTS -------------------------------------
   Widget _buildContactsTab() {
     if (_contactsLoading) {
-      return const Center(child: CircularProgressIndicator(color: C.brand));
+      return Center(child: CircularProgressIndicator(color: C.brand));
     }
 
     if (!_contactsGranted && _phoneContacts.isEmpty) {
@@ -531,7 +531,7 @@ class _NewChatScreenState extends State<NewChatScreen>
                   color: C.brand.withOpacity(.1),
                   border: Border.all(color: C.brand.withOpacity(.3)),
                 ),
-                child: const Icon(Icons.contacts, color: C.brand, size: 48),
+                child: Icon(Icons.contacts, color: C.brand, size: 48),
               ),
               const SizedBox(height: 24),
               Text('Import Contacts', style: syne(sz: 20, w: FontWeight.w800)),
@@ -596,7 +596,7 @@ class _NewChatScreenState extends State<NewChatScreen>
             onChanged: (v) => setState(() => _contactFilter = v),
             style: dm(),
             decoration: InputDecoration(
-              hintText: 'Search contacts…',
+              hintText: 'Search contacts�',
               hintStyle: dm(c: C.dim),
               filled: true,
               fillColor: C.card,
@@ -614,7 +614,7 @@ class _NewChatScreenState extends State<NewChatScreen>
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             children: [
-              // ── ON NECXA ───────────────────────────────────────────
+              // -- ON NECXA -------------------------------------------
               if (filteredMatches.isNotEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 8, 0, 12),
@@ -645,7 +645,7 @@ class _NewChatScreenState extends State<NewChatScreen>
                 const SizedBox(height: 24),
               ],
 
-              // ── OTHER CONTACTS ─────────────────────────────────────
+              // -- OTHER CONTACTS -------------------------------------
               if (otherContacts.isNotEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 8, 0, 12),
@@ -730,13 +730,13 @@ class _NewChatScreenState extends State<NewChatScreen>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white10,
+                color: C.dim,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white12),
+                border: Border.all(color: C.dim),
               ),
               child: Text(
                 'Invite',
-                style: syne(sz: 12, w: FontWeight.w700, c: Colors.white70),
+                style: syne(sz: 12, w: FontWeight.w700, c: C.sub),
               ),
             ),
           ),
@@ -745,10 +745,10 @@ class _NewChatScreenState extends State<NewChatScreen>
     );
   }
 
-  // ── TAB 3: SAVED CONTACTS ─────────────────────────────────────
+  // -- TAB 3: SAVED CONTACTS -------------------------------------
   Widget _buildSavedTab() {
     if (_savedLoading)
-      return const Center(child: CircularProgressIndicator(color: C.brand));
+      return Center(child: CircularProgressIndicator(color: C.brand));
 
     if (_savedContacts.isEmpty) {
       return Center(
@@ -791,7 +791,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     );
   }
 
-  // ── SHARED WIDGETS ────────────────────────────────────────────
+  // -- SHARED WIDGETS --------------------------------------------
 
   Widget _userResultCard(Map<String, dynamic> user) {
     return Container(
@@ -940,3 +940,6 @@ class _NewChatScreenState extends State<NewChatScreen>
     );
   }
 }
+
+
+

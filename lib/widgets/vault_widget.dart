@@ -61,7 +61,7 @@ class _VaultWidgetState extends State<VaultWidget> {
             value: _fiatMasked
                 ? 'UGX ******'
                 : !widget.state.hasVerifiedWallet
-                ? 'UGX —'
+                ? 'UGX �'
                 : 'UGX ${_formatNumber(widget.state.fiatBalance)}',
             color: const Color(0xFF3b82f6),
             masked: _fiatMasked,
@@ -93,7 +93,7 @@ class _VaultWidgetState extends State<VaultWidget> {
             value: _coinsMasked
                 ? '****** NCX'
                 : !widget.state.hasVerifiedWallet
-                ? '— NCX'
+                ? '� NCX'
                 : '${_formatNumber(widget.state.coinBalance)} NCX',
             color: const Color(0xFFeab308),
             masked: _coinsMasked,
@@ -125,7 +125,7 @@ class _VaultWidgetState extends State<VaultWidget> {
             value: _escrowMasked
                 ? 'UGX ******'
                 : !widget.state.hasVerifiedWallet
-                ? 'UGX —'
+                ? 'UGX �'
                 : 'UGX ${_formatNumber(widget.state.escrowBalance)}',
             color: const Color(0xFF10b981),
             masked: _escrowMasked,
@@ -231,7 +231,7 @@ class _WalletSyncHeader extends StatelessWidget {
               sz: 10,
               w: FontWeight.w700,
               ls: error == null && !isSyncing ? 1.5 : 0,
-              c: error == null ? Colors.white54 : const Color(0xFFef4444),
+              c: error == null ? C.dim : Color(0xFFef4444),
             ),
           ),
         ),
@@ -279,7 +279,7 @@ class _VaultNodeCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .02),
+        color: C.text.withValues(alpha: .02),
         borderRadius: BorderRadius.circular(32),
         border: Border.all(color: color.withValues(alpha: .15)),
       ),
@@ -299,7 +299,7 @@ class _VaultNodeCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       sub,
-                      style: dm(sz: 9, c: Colors.white24, fs: FontStyle.italic),
+                      style: dm(sz: 9, c: C.dim, fs: FontStyle.italic),
                     ),
                   ],
                 ),
@@ -312,7 +312,7 @@ class _VaultNodeCard extends StatelessWidget {
                   masked
                       ? Icons.visibility_outlined
                       : Icons.visibility_off_outlined,
-                  color: Colors.white70,
+                  color: C.sub,
                   size: 20,
                 ),
               ),
@@ -363,7 +363,7 @@ class _EscrowSyncDot extends StatelessWidget {
         ),
       ),
       const SizedBox(width: 8),
-      Text('Protected', style: dm(sz: 9, c: Colors.white38)),
+      Text('Protected', style: dm(sz: 9, c: C.dim)),
     ],
   );
 }
@@ -386,14 +386,14 @@ class _NodeAction extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .05),
+          color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: .05)),
+          border: Border.all(color: C.text.withValues(alpha: .05)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: Colors.white, size: 14),
+            Icon(icon, color: C.text, size: 14),
             const SizedBox(width: 8),
             Text(label, style: dm(sz: 10, w: FontWeight.w700, ls: 1)),
           ],
@@ -402,3 +402,5 @@ class _NodeAction extends StatelessWidget {
     );
   }
 }
+
+

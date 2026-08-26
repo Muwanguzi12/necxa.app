@@ -103,7 +103,7 @@ class ProMediaEditorScreen extends StatefulWidget {
   final AppState state;
   final EditorProjectController? projectController;
 
-  const ProMediaEditorScreen({
+  ProMediaEditorScreen({
     super.key,
     this.initialImage,
     this.initialVideo,
@@ -379,7 +379,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
       if (!mediaFile.existsSync() || mediaFile.lengthSync() == 0) {
         debugPrint(
-          '❌ MediaEditor: Clip file is empty or missing! ${mediaFile.path}',
+          '? MediaEditor: Clip file is empty or missing! ${mediaFile.path}',
         );
         _feedback("Error: Footage is empty or corrupt");
         return;
@@ -619,7 +619,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         TimelineClip(
           id: 'desktop-overlay-$index',
           start: start,
-          duration: end > start ? end - start : const Duration(seconds: 1),
+          duration: end > start ? end - start : Duration(seconds: 1),
           operation: overlay,
         ),
         TrackType.overlay,
@@ -726,11 +726,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Container(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: C.card,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            border: Border.all(color: Colors.white10),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            border: Border.all(color: C.dim),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -739,7 +739,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 'COLOR GRADING (GPU)',
                 style: syne(sz: 14, w: FontWeight.w900, ls: 2),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24),
               _adjustSlider('Brightness', _brightness, -0.5, 0.5, (v) {
                 setModalState(() => _brightness = v);
                 setState(() {});
@@ -756,7 +756,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 setModalState(() => _hue = v);
                 setState(() {});
               }),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               TextButton(
                 onPressed: () {
                   setModalState(() {
@@ -791,7 +791,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: dm(sz: 10, c: Colors.white70)),
+            Text(label, style: dm(sz: 10, c: C.sub)),
             Text(value.toStringAsFixed(2), style: dm(sz: 10, c: C.brand)),
           ],
         ),
@@ -800,7 +800,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           min: min,
           max: max,
           activeColor: C.brand,
-          inactiveColor: Colors.white10,
+          inactiveColor: C.dim,
           onChanged: onChanged,
         ),
       ],
@@ -816,21 +816,21 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.95),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               'CHOOSE EXPORT PATH',
-              style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 2),
+              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             _exportOption(
-              'FAST SYNC ✨',
+              'FAST SYNC ?',
               'Instant posting. Music is synced on-the-fly.',
               Icons.bolt,
               () {
@@ -838,9 +838,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 _finish(false);
               },
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             _exportOption(
-              'HIGH-QUALITY FLATTEN 🎬',
+              'HIGH-QUALITY FLATTEN ??',
               'Permanent video file. Best for sharing elsewhere.',
               Icons.video_library,
               () {
@@ -848,7 +848,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 _finish(true);
               },
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
           ],
         ),
       ),
@@ -875,7 +875,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         if (combinedFile == null) {
           _feedback("Failed to generate master file.");
         } else {
-          _feedback("Master File Ready! ✨");
+          _feedback("Master File Ready! ?");
         }
       } catch (e) {
         _feedback("Error combining video: $e");
@@ -1041,25 +1041,25 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white10,
+          color: C.dim,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: C.brand.withOpacity(0.3)),
         ),
         child: Row(
           children: [
             Icon(icon, color: C.brand, size: 28),
-            const SizedBox(width: 16),
+            SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: syne(sz: 13, w: FontWeight.w800, c: Colors.white),
+                    style: syne(sz: 13, w: FontWeight.w800, c: C.text),
                   ),
-                  Text(sub, style: dm(sz: 10, c: Colors.white38)),
+                  Text(sub, style: dm(sz: 10, c: C.dim)),
                 ],
               ),
             ),
@@ -1076,37 +1076,37 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) => Container(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.95),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 'AUDIO MIXER',
-                style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 2),
+                style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               _volSlider('Original Video', _originalVolume, (v) {
                 setModalState(() => _originalVolume = v);
                 setState(() => _originalVolume = v);
                 _videoController?.setVolume(v);
               }),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               _volSlider('Background Music', _bgmVolume, (v) {
                 setModalState(() => _bgmVolume = v);
                 setState(() => _bgmVolume = v);
                 _musicPlayer.setVolume(v);
               }),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               _volSlider('Voiceover', _voiceVolume, (v) {
                 setModalState(() => _voiceVolume = v);
                 setState(() => _voiceVolume = v);
                 _voicePlayer.setVolume(v);
               }),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
             ],
           ),
         ),
@@ -1118,7 +1118,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: dm(sz: 11, c: Colors.white70)),
+        Text(label, style: dm(sz: 11, c: C.sub)),
         Slider(value: val, onChanged: onChanged, activeColor: C.brand),
       ],
     );
@@ -1139,7 +1139,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         height: 140,
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.95),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -1157,7 +1157,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         Icons.crop_square,
                         color: _selectedAspectRatio == r
                             ? C.brand
-                            : Colors.white38,
+                            : C.dim,
                       ),
                       Text(
                         r,
@@ -1165,7 +1165,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           sz: 10,
                           c: _selectedAspectRatio == r
                               ? C.brand
-                              : Colors.white38,
+                              : C.dim,
                         ),
                       ),
                     ],
@@ -1194,7 +1194,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         caption: "",
       );
       _feedback("Saved to Drafts!");
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(Duration(milliseconds: 500));
       if (mounted) widget.state.go('upload');
     } catch (e) {
       _feedback("Saving failed: $e");
@@ -1208,11 +1208,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       SnackBar(
         content: Text(
           msg,
-          style: syne(sz: 12, c: Colors.white, w: FontWeight.bold),
+          style: syne(sz: 12, c: C.text, w: FontWeight.bold),
         ),
         backgroundColor: Colors.black87,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 1),
+        duration: Duration(seconds: 1),
       ),
     );
   }
@@ -1248,18 +1248,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               child: Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: EdgeInsets.all(16),
                     child: Row(
                       children: [
                         _circleBtn(Icons.close, () => Navigator.pop(context)),
-                        const Spacer(),
+                        Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(
+                          padding: EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.08),
+                            color: C.text.withOpacity(0.08),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
@@ -1267,11 +1267,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                             style: syne(
                               sz: 12,
                               w: FontWeight.w700,
-                              c: Colors.white,
+                              c: C.text,
                             ),
                           ),
                         ),
-                        const Spacer(),
+                        Spacer(),
                       ],
                     ),
                   ),
@@ -1303,7 +1303,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     final width = MediaQuery.of(context).size.width;
     final horizontalPadding = width < 720 ? 10.0 : 14.0;
     return Scaffold(
-      backgroundColor: const Color(0xFF070A10),
+      backgroundColor: Color(0xFF070A10),
       body: Stack(
         children: [
           SafeArea(
@@ -1317,9 +1317,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               child: Column(
                 children: [
                   _buildStudioHeader(),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   Expanded(child: _buildStudioWorkspace()),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 12),
                   _buildEditorDock(),
                 ],
               ),
@@ -1333,17 +1333,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _buildStudioHeader() {
     return Container(
-      constraints: const BoxConstraints(minHeight: 74),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      constraints: BoxConstraints(minHeight: 74),
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF0E121B),
+        color: Color(0xFF0E121B),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: C.text.withOpacity(0.08)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.22),
             blurRadius: 24,
-            offset: const Offset(0, 10),
+            offset: Offset(0, 10),
           ),
         ],
       ),
@@ -1357,18 +1357,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 Icons.arrow_back_ios_new,
                 () => Navigator.pop(context),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Necxa Studio',
-                    style: syne(sz: 17, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 17, w: FontWeight.w900, c: C.text),
                   ),
                   Text(
                     'Professional layer editor',
-                    style: dm(sz: 11, c: Colors.white38),
+                    style: dm(sz: 11, c: C.dim),
                   ),
                 ],
               ),
@@ -1410,7 +1410,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               GestureDetector(
                 onTap: _onNext,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
+                  padding: EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 10,
                   ),
@@ -1426,7 +1426,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   ),
                   child: Text(
                     'Export',
-                    style: syne(sz: 12, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 12, w: FontWeight.w900, c: C.text),
                   ),
                 ),
               ),
@@ -1437,8 +1437,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [title, const Spacer(), actions]),
-                const SizedBox(height: 10),
+                Row(children: [title, Spacer(), actions]),
+                SizedBox(height: 10),
                 meta,
               ],
             );
@@ -1447,9 +1447,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           return Row(
             children: [
               title,
-              const SizedBox(width: 18),
+              SizedBox(width: 18),
               Expanded(child: meta),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               actions,
             ],
           );
@@ -1468,15 +1468,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           return Column(
             children: [
               _buildCategoryPanel(horizontal: true),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               Expanded(child: _buildPreviewStage()),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               SizedBox(
                 height: panelHeight,
                 child: Row(
                   children: [
                     Expanded(child: _buildAssetsPanel()),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(child: _buildInspectorPanel()),
                   ],
                 ),
@@ -1491,11 +1491,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(width: 98, child: _buildCategoryPanel()),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             SizedBox(width: assetWidth, child: _buildAssetsPanel()),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Expanded(child: _buildPreviewStage()),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             SizedBox(width: inspectorWidth, child: _buildInspectorPanel()),
           ],
         );
@@ -1509,28 +1509,28 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         : (_selectedAspectRatio == '4:5' ? 4 / 5 : 9 / 16);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF06080D),
+        color: Color(0xFF06080D),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: C.text.withOpacity(0.08)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.3),
             blurRadius: 30,
-            offset: const Offset(0, 18),
+            offset: Offset(0, 18),
           ),
         ],
       ),
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 8),
             child: Row(
               children: [
                 Text(
                   'Preview',
-                  style: syne(sz: 12, w: FontWeight.w900, c: Colors.white70),
+                  style: syne(sz: 12, w: FontWeight.w900, c: C.sub),
                 ),
-                const Spacer(),
+                Spacer(),
                 _buildTransportBar(showLabels: false),
               ],
             ),
@@ -1538,14 +1538,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           Expanded(
             child: Center(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+                padding: EdgeInsets.fromLTRB(18, 4, 18, 18),
                 child: AspectRatio(
                   aspectRatio: ratio,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: Colors.black,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      border: Border.all(color: C.text.withOpacity(0.08)),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(7),
@@ -1563,7 +1563,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 14),
             child: _buildTransportBar(showLabels: true),
           ),
         ],
@@ -1579,21 +1579,21 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       height: dockHeight,
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF0E121B),
+          color: Color(0xFF0E121B),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: C.text.withOpacity(0.08)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.25),
               blurRadius: 22,
-              offset: const Offset(0, -10),
+              offset: Offset(0, -10),
             ),
           ],
         ),
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+              padding: EdgeInsets.fromLTRB(14, 14, 14, 8),
               child: Row(
                 children: [
                   Column(
@@ -1604,24 +1604,24 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         style: syne(
                           sz: 13,
                           w: FontWeight.w900,
-                          c: Colors.white,
+                          c: C.text,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       Text(
                         'Bottom workspace for tools, quick actions, and tab navigation',
-                        style: dm(sz: 10, c: Colors.white38),
+                        style: dm(sz: 10, c: C.dim),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
-                  const Spacer(),
+                  Spacer(),
                   _circleBtn(Icons.save_outlined, _onSaveDraft),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   GestureDetector(
                     onTap: _onNext,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
+                      padding: EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 10,
                       ),
@@ -1632,7 +1632,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           BoxShadow(
                             color: C.blue.withOpacity(0.25),
                             blurRadius: 18,
-                            offset: const Offset(0, 4),
+                            offset: Offset(0, 4),
                           ),
                         ],
                       ),
@@ -1641,7 +1641,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         style: syne(
                           sz: 11,
                           w: FontWeight.w900,
-                          c: Colors.white,
+                          c: C.text,
                         ),
                       ),
                     ),
@@ -1649,22 +1649,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             _buildBottomNav(),
-            const SizedBox(height: 10),
+            SizedBox(height: 10),
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildPrimaryToolbar(),
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12),
                     _buildQuickToolbar(),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: 10),
           ],
         ),
       ),
@@ -1678,8 +1678,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(color: C.brand, strokeWidth: 2),
-            const SizedBox(height: 20),
+            CircularProgressIndicator(color: C.brand, strokeWidth: 2),
+            SizedBox(height: 20),
             Text(
               "ENGINEERING MEDIA...",
               style: syne(sz: 10, w: FontWeight.w900, ls: 4, c: C.brand),
@@ -1715,20 +1715,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _buildMetaPill(IconData icon, String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
+        color: C.text.withOpacity(0.06),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: C.text.withOpacity(0.08)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white70, size: 12),
-          const SizedBox(width: 6),
+          Icon(icon, color: C.sub, size: 12),
+          SizedBox(width: 6),
           Text(
             label,
-            style: syne(sz: 10, w: FontWeight.w700, c: Colors.white70),
+            style: syne(sz: 10, w: FontWeight.w700, c: C.sub),
           ),
         ],
       ),
@@ -1743,20 +1743,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.06),
+          color: C.text.withOpacity(0.06),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: C.text.withOpacity(0.08)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: C.brand, size: 14),
-            const SizedBox(width: 6),
+            SizedBox(width: 6),
             Text(
               label,
-              style: syne(sz: 10, w: FontWeight.w700, c: Colors.white70),
+              style: syne(sz: 10, w: FontWeight.w700, c: C.sub),
             ),
           ],
         ),
@@ -1766,11 +1766,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _buildAssetsPanel() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C1018),
+        color: Color(0xFF0C1018),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1779,33 +1779,33 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             children: [
               Text(
                 'Assets',
-                style: syne(sz: 12, w: FontWeight.w900, c: Colors.white),
+                style: syne(sz: 12, w: FontWeight.w900, c: C.text),
               ),
-              const Spacer(),
+              Spacer(),
               Tooltip(
                 message: 'Add media',
                 child: GestureDetector(
                   onTap: _addClip,
-                  child: const Icon(
+                  child: Icon(
                     Icons.add_box_outlined,
-                    color: Colors.white38,
+                    color: C.dim,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 3),
+          SizedBox(height: 3),
           Text(
             '${_sequence.length} source item${_sequence.length == 1 ? '' : 's'}',
-            style: dm(sz: 10, c: Colors.white.withOpacity(0.35)),
+            style: dm(sz: 10, c: C.text.withOpacity(0.35)),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Expanded(
             child: _sequence.isEmpty
                 ? Center(
                     child: Text(
                       'No clips',
-                      style: dm(sz: 12, c: Colors.white24),
+                      style: dm(sz: 12, c: C.dim),
                     ),
                   )
                 : ListView.builder(
@@ -1821,43 +1821,43 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           });
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
+                          padding: EdgeInsets.symmetric(
                             vertical: 8,
                             horizontal: 8,
                           ),
-                          margin: const EdgeInsets.only(bottom: 8),
+                          margin: EdgeInsets.only(bottom: 8),
                           decoration: BoxDecoration(
                             color: i == _activeClipIndex
                                 ? C.brand.withOpacity(0.14)
-                                : Colors.white.withOpacity(0.045),
+                                : C.text.withOpacity(0.045),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: i == _activeClipIndex
                                   ? C.brand
-                                  : Colors.white.withOpacity(0.04),
+                                  : C.text.withOpacity(0.04),
                             ),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 c.isVideo ? Icons.movie : Icons.image,
-                                color: Colors.white70,
+                                color: C.sub,
                               ),
-                              const SizedBox(width: 8),
+                              SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   name,
                                   style: syne(
                                     sz: 11,
                                     w: FontWeight.w700,
-                                    c: Colors.white,
+                                    c: C.text,
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              SizedBox(width: 8),
                               Text(
                                 '${((c.duration <= 0 ? 0 : c.duration)).toStringAsFixed(1)}s',
-                                style: dm(sz: 10, c: Colors.white38),
+                                style: dm(sz: 10, c: C.dim),
                               ),
                             ],
                           ),
@@ -1877,11 +1877,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     final estBytes = _estimateSizeBytes();
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C1018),
+        color: Color(0xFF0C1018),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -1889,9 +1889,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           children: [
             Text(
               'Inspector',
-              style: syne(sz: 12, w: FontWeight.w900, c: Colors.white),
+              style: syne(sz: 12, w: FontWeight.w900, c: C.text),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             _inspectorSectionTitle('Project Information'),
             _projectInfoRow(Icons.aspect_ratio, 'Resolution', resolution),
             _projectInfoRow(
@@ -1905,18 +1905,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               'Estimated size',
               _formatBytes(estBytes),
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: 14),
             _inspectorSectionTitle('Playback Controls'),
-            const SizedBox(height: 8),
+            SizedBox(height: 8),
             _buildTransportBar(showLabels: true),
-            const SizedBox(height: 14),
+            SizedBox(height: 14),
             _inspectorSectionTitle('Asset Tracks'),
             _trackControlRow(
               icon: Icons.movie_outlined,
               label: 'Video',
               sub:
                   '${_sequence.length} clip${_sequence.length == 1 ? '' : 's'}',
-              color: const Color(0xFF60A5FA),
+              color: Color(0xFF60A5FA),
               visible: _videoTrackVisible,
               locked: _videoTrackLocked,
               onVisibility: () =>
@@ -1928,7 +1928,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               icon: Icons.music_note,
               label: 'Music',
               sub: _selectedTrack?.title ?? 'No track selected',
-              color: const Color(0xFFA78BFA),
+              color: Color(0xFFA78BFA),
               visible: _musicTrackVisible,
               locked: _musicTrackLocked,
               onVisibility: () =>
@@ -1940,7 +1940,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               icon: Icons.mic,
               label: 'Voice',
               sub: _voiceOverFile == null ? 'No voiceover' : 'Voiceover ready',
-              color: const Color(0xFF34D399),
+              color: Color(0xFF34D399),
               visible: _voiceTrackVisible,
               locked: _voiceTrackLocked,
               onVisibility: () =>
@@ -1953,7 +1953,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               label: 'Text',
               sub:
                   '${_overlays.length} overlay${_overlays.length == 1 ? '' : 's'}',
-              color: const Color(0xFF38BDF8),
+              color: Color(0xFF38BDF8),
               visible: _textTrackVisible,
               locked: _textTrackLocked,
               onVisibility: () =>
@@ -1961,7 +1961,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               onLock: () =>
                   setState(() => _textTrackLocked = !_textTrackLocked),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             _actionRow(Icons.upload_file, 'Export', _onNext, c: C.brand),
           ],
         ),
@@ -2000,17 +2000,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      padding: EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF0A0D14),
+        color: Color(0xFF0A0D14),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: C.text.withOpacity(0.08)),
       ),
       child: Column(
         children: items
             .map(
               (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: EdgeInsets.only(bottom: 10),
                 child: item,
               ),
             )
@@ -2023,21 +2023,21 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        margin: EdgeInsets.only(right: 8),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.04),
-          border: Border.all(color: Colors.white.withOpacity(0.06)),
+          color: C.text.withOpacity(0.04),
+          border: Border.all(color: C.text.withOpacity(0.06)),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white70, size: 18),
-            const SizedBox(width: 8),
+            Icon(icon, color: C.sub, size: 18),
+            SizedBox(width: 8),
             Text(
               label,
-              style: syne(sz: 10, w: FontWeight.w700, c: Colors.white),
+              style: syne(sz: 10, w: FontWeight.w700, c: C.text),
             ),
           ],
         ),
@@ -2109,9 +2109,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           width: 34,
           height: 34,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.06),
+            color: C.text.withOpacity(0.06),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: C.text.withOpacity(0.08)),
           ),
           child: Icon(
             icon,
@@ -2129,36 +2129,36 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _inspectorSectionTitle(String label) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: 8),
       child: Text(
         label,
-        style: syne(sz: 10, w: FontWeight.w900, c: Colors.white38, ls: 1.1),
+        style: syne(sz: 10, w: FontWeight.w900, c: C.dim, ls: 1.1),
       ),
     );
   }
 
   Widget _projectInfoRow(IconData icon, String label, String value) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      margin: EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: C.text.withOpacity(0.04),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: C.text.withOpacity(0.06)),
       ),
       child: Row(
         children: [
           Icon(icon, color: C.brand, size: 15),
-          const SizedBox(width: 9),
+          SizedBox(width: 9),
           Expanded(
             child: Text(
               label,
-              style: dm(sz: 11, c: Colors.white.withOpacity(0.45)),
+              style: dm(sz: 11, c: C.text.withOpacity(0.45)),
             ),
           ),
           Text(
             value,
-            style: syne(sz: 11, w: FontWeight.w800, c: Colors.white),
+            style: syne(sz: 11, w: FontWeight.w800, c: C.text),
           ),
         ],
       ),
@@ -2176,53 +2176,53 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     required VoidCallback onLock,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      margin: EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: C.text.withOpacity(0.04),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: C.text.withOpacity(0.06)),
       ),
       child: Row(
         children: [
           Icon(icon, color: color, size: 18),
-          const SizedBox(width: 10),
+          SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
-                  style: syne(sz: 11, w: FontWeight.w900, c: Colors.white),
+                  style: syne(sz: 11, w: FontWeight.w900, c: C.text),
                 ),
                 Text(
                   sub,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: dm(sz: 9, c: Colors.white.withOpacity(0.35)),
+                  style: dm(sz: 9, c: C.text.withOpacity(0.35)),
                 ),
               ],
             ),
           ),
           IconButton(
-            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+            constraints: BoxConstraints.tightFor(width: 30, height: 30),
             padding: EdgeInsets.zero,
             onPressed: onVisibility,
             icon: Icon(
               visible
                   ? Icons.visibility_outlined
                   : Icons.visibility_off_outlined,
-              color: visible ? color : Colors.white24,
+              color: visible ? color : C.dim,
               size: 16,
             ),
           ),
           IconButton(
-            constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+            constraints: BoxConstraints.tightFor(width: 30, height: 30),
             padding: EdgeInsets.zero,
             onPressed: onLock,
             icon: Icon(
               locked ? Icons.lock_outlined : Icons.lock_open_outlined,
-              color: locked ? color : Colors.white24,
+              color: locked ? color : C.dim,
               size: 16,
             ),
           ),
@@ -2233,12 +2233,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _buildPrimaryToolbar() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: EdgeInsets.symmetric(horizontal: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+            padding: EdgeInsets.symmetric(horizontal: 4),
             child: Row(
               children: [
                 Text(
@@ -2246,19 +2246,19 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   style: syne(
                     sz: 10,
                     w: FontWeight.w800,
-                    c: Colors.white38,
+                    c: C.dim,
                     ls: 1.2,
                   ),
                 ),
-                const Spacer(),
+                Spacer(),
                 Text(
                   'Organized by workflow',
-                  style: syne(sz: 9, w: FontWeight.w600, c: Colors.white24),
+                  style: syne(sz: 9, w: FontWeight.w600, c: C.dim),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -2329,21 +2329,21 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _toolGroup(String title, List<Widget> children) {
     return Container(
-      margin: const EdgeInsets.only(right: 10),
-      padding: const EdgeInsets.fromLTRB(8, 7, 2, 8),
+      margin: EdgeInsets.only(right: 10),
+      padding: EdgeInsets.fromLTRB(8, 7, 2, 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.035),
+        color: C.text.withOpacity(0.035),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: C.text.withOpacity(0.06)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: EdgeInsets.only(right: 8),
             child: Text(
               title,
-              style: syne(sz: 9, w: FontWeight.w800, c: Colors.white30),
+              style: syne(sz: 9, w: FontWeight.w800, c: C.dim),
             ),
           ),
           ...children,
@@ -2356,21 +2356,21 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        margin: EdgeInsets.only(right: 6),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: C.text.withOpacity(0.08)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
+            Icon(icon, color: C.text, size: 18),
+            SizedBox(width: 8),
             Text(
               label,
-              style: syne(sz: 9, w: FontWeight.bold, c: Colors.white),
+              style: syne(sz: 9, w: FontWeight.bold, c: C.text),
             ),
           ],
         ),
@@ -2380,24 +2380,24 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _buildQuickToolbar() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      margin: EdgeInsets.symmetric(horizontal: 12),
+      padding: EdgeInsets.fromLTRB(10, 10, 10, 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: C.text.withOpacity(0.04),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: C.text.withOpacity(0.06)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            padding: EdgeInsets.only(left: 4, bottom: 8),
             child: Text(
               'Quick actions',
               style: syne(
                 sz: 10,
                 w: FontWeight.w800,
-                c: Colors.white38,
+                c: C.dim,
                 ls: 1.2,
               ),
             ),
@@ -2435,21 +2435,21 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        margin: EdgeInsets.only(right: 8),
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.06)),
+          border: Border.all(color: C.text.withOpacity(0.06)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: Colors.white70, size: 15),
-            const SizedBox(width: 6),
+            Icon(icon, color: C.sub, size: 15),
+            SizedBox(width: 6),
             Text(
               label,
-              style: syne(sz: 8, w: FontWeight.bold, c: Colors.white38),
+              style: syne(sz: 8, w: FontWeight.bold, c: C.dim),
             ),
           ],
         ),
@@ -2512,12 +2512,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     ];
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+      margin: EdgeInsets.symmetric(horizontal: 12),
+      padding: EdgeInsets.fromLTRB(10, 12, 10, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF0C1018),
+        color: Color(0xFF0C1018),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: C.text.withOpacity(0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2533,20 +2533,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     children: [
                       Icon(
                         tabs[i]['icon'] as IconData,
-                        color: active ? C.brand : Colors.white24,
+                        color: active ? C.brand : C.dim,
                         size: 20,
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       Text(
                         tabs[i]['label'] as String,
                         textAlign: TextAlign.center,
                         style: syne(
                           sz: 10,
                           w: FontWeight.w700,
-                          c: active ? Colors.white : Colors.white38,
+                          c: active ? C.text : C.dim,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      SizedBox(height: 6),
                       Container(
                         height: 4,
                         width: 32,
@@ -2561,7 +2561,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               );
             }),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: actions[_activeNavIndex]),
@@ -2573,24 +2573,24 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   Widget _bottomAction(IconData icon, String label, VoidCallback onTap) {
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: EdgeInsets.only(right: 8),
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
+            color: C.text.withOpacity(0.05),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: C.text.withOpacity(0.08)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: Colors.white70, size: 16),
-              const SizedBox(width: 8),
+              Icon(icon, color: C.sub, size: 16),
+              SizedBox(width: 8),
               Text(
                 label,
-                style: syne(sz: 10, w: FontWeight.bold, c: Colors.white70),
+                style: syne(sz: 10, w: FontWeight.bold, c: C.sub),
               ),
             ],
           ),
@@ -2607,11 +2607,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
+          color: C.text.withOpacity(0.1),
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.white12),
+          border: Border.all(color: C.dim),
         ),
-        child: Icon(icon, color: Colors.white, size: 16),
+        child: Icon(icon, color: C.text, size: 16),
       ),
     );
   }
@@ -2623,11 +2623,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white, size: 18),
-          const SizedBox(height: 4),
+          Icon(icon, color: C.text, size: 18),
+          SizedBox(height: 4),
           Text(
             label,
-            style: syne(sz: 9, w: FontWeight.bold, c: Colors.white),
+            style: syne(sz: 9, w: FontWeight.bold, c: C.text),
           ),
         ],
       ),
@@ -2659,7 +2659,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       _sequence.insert(_activeClipIndex + 1, newClip);
 
       HapticFeedback.mediumImpact();
-      _feedback("Clip Split! ✂️");
+      _feedback("Clip Split! ??");
     });
     _syncSharedProjectFromSequence();
   }
@@ -2697,20 +2697,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.94),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: Colors.white10),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: C.dim),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               'FADE STYLE',
-              style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 2),
+              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Row(
               children: options.map((option) {
                 final selected = current == option;
@@ -2734,13 +2734,13 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       _feedback("$option fade applied");
                     },
                     child: Container(
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      margin: EdgeInsets.only(right: 8),
+                      padding: EdgeInsets.symmetric(vertical: 14),
                       decoration: BoxDecoration(
-                        color: selected ? C.brand : Colors.white10,
+                        color: selected ? C.brand : C.dim,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: selected ? C.brand : Colors.white12,
+                          color: selected ? C.brand : C.dim,
                         ),
                       ),
                       child: Center(
@@ -2749,7 +2749,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           style: syne(
                             sz: 11,
                             w: FontWeight.w900,
-                            c: selected ? Colors.black : Colors.white70,
+                            c: selected ? Colors.black : C.sub,
                           ),
                         ),
                       ),
@@ -2770,11 +2770,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.94),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: Colors.white10),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: C.dim),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2782,9 +2782,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           children: [
             Text(
               'STICKERS',
-              style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 2),
+              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -2801,7 +2801,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                               'end': 1.0,
                               'color': sticker.length > 1
                                   ? Colors.black
-                                  : Colors.white,
+                                  : C.text,
                               'background': sticker.length > 1
                                   ? C.brand
                                   : Colors.transparent,
@@ -2827,9 +2827,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         width: 76,
                         height: 54,
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
+                          color: C.text.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white12),
+                          border: Border.all(color: C.dim),
                         ),
                         child: Center(
                           child: Text(
@@ -2837,7 +2837,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                             style: syne(
                               sz: sticker.length > 1 ? 14 : 24,
                               w: FontWeight.w900,
-                              c: Colors.white,
+                              c: C.text,
                             ),
                           ),
                         ),
@@ -2859,23 +2859,23 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => Container(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: C.card,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            border: Border.all(color: Colors.white10),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            border: Border.all(color: C.dim),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text('TRIM CLIP', style: syne(sz: 14, w: FontWeight.w900, ls: 2)),
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               RangeSlider(
                 values: RangeValues(clip.start, clip.end),
                 min: 0,
                 max: clip.duration,
                 activeColor: C.brand,
-                inactiveColor: Colors.white10,
+                inactiveColor: C.dim,
                 onChanged: (values) {
                   _saveHistory();
                   setModalState(() {
@@ -2890,15 +2890,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 children: [
                   Text(
                     'Start: ${clip.start.toStringAsFixed(1)}s',
-                    style: dm(sz: 10, c: Colors.white54),
+                    style: dm(sz: 10, c: C.dim),
                   ),
                   Text(
                     'End: ${clip.end.toStringAsFixed(1)}s',
-                    style: dm(sz: 10, c: Colors.white54),
+                    style: dm(sz: 10, c: C.dim),
                   ),
                 ],
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -2908,7 +2908,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    padding: const EdgeInsets.all(16),
+                    padding: EdgeInsets.all(16),
                   ),
                   onPressed: () => Navigator.pop(context),
                   child: Text('DONE', style: syne(sz: 14, w: FontWeight.w900)),
@@ -2927,11 +2927,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: C.card,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          border: Border.all(color: Colors.white10),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          border: Border.all(color: C.dim),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2940,7 +2940,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               'PLAYBACK SPEED',
               style: syne(sz: 14, w: FontWeight.w900, ls: 2),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [0.5, 1.0, 1.5, 2.0]
@@ -2956,14 +2956,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         _feedback("Speed: ${s}x");
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
+                        padding: EdgeInsets.symmetric(
                           horizontal: 20,
                           vertical: 12,
                         ),
                         decoration: BoxDecoration(
                           color: clip.speed == s
                               ? C.brand
-                              : Colors.white.withOpacity(0.05),
+                              : C.text.withOpacity(0.05),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -2971,7 +2971,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           style: syne(
                             sz: 14,
                             w: FontWeight.bold,
-                            c: clip.speed == s ? Colors.black : Colors.white70,
+                            c: clip.speed == s ? Colors.black : C.sub,
                           ),
                         ),
                       ),
@@ -2979,7 +2979,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   )
                   .toList(),
             ),
-            const SizedBox(height: 24),
+            SizedBox(height: 24),
           ],
         ),
       ),
@@ -3007,7 +3007,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const MusicLibraryScreen()),
+      MaterialPageRoute(builder: (_) => MusicLibraryScreen()),
     );
 
     if (result is MusicTrack) {
@@ -3036,13 +3036,13 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         builder: (context, setModalState) {
           final clip = _sequence[_activeClipIndex];
           return Container(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+            padding: EdgeInsets.fromLTRB(24, 20, 24, 28),
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.94),
-              borderRadius: const BorderRadius.vertical(
+              borderRadius: BorderRadius.vertical(
                 top: Radius.circular(24),
               ),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: C.dim),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -3052,11 +3052,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   style: syne(
                     sz: 14,
                     w: FontWeight.w900,
-                    c: Colors.white,
+                    c: C.text,
                     ls: 2,
                   ),
                 ),
-                const SizedBox(height: 18),
+                SizedBox(height: 18),
                 _adjustSlider('Scale', clip.scale, 0.5, 2.4, (v) {
                   setModalState(() => clip.scale = v);
                   setState(() {});
@@ -3077,7 +3077,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   setModalState(() => clip.opacity = v);
                   setState(() {});
                 }),
-                const SizedBox(height: 10),
+                SizedBox(height: 10),
                 _actionRow(Icons.restart_alt, 'Reset Transform', () {
                   setModalState(() {
                     clip.scale = 1.0;
@@ -3103,20 +3103,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (context, setModalState) => Container(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+          padding: EdgeInsets.fromLTRB(24, 20, 24, 28),
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.94),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: Colors.white10),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: C.dim),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 'EFFECTS EDITOR',
-                style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 2),
+                style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
               ),
-              const SizedBox(height: 18),
+              SizedBox(height: 18),
               _adjustSlider('Vignette', _effectVignette, 0.0, 1.0, (v) {
                 setModalState(() => _effectVignette = v);
                 setState(() {});
@@ -3129,7 +3129,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 setModalState(() => _effectBlur = v);
                 setState(() {});
               }),
-              const SizedBox(height: 10),
+              SizedBox(height: 10),
               _actionRow(Icons.restart_alt, 'Reset Effects', () {
                 setModalState(() {
                   _effectVignette = 0.0;
@@ -3218,19 +3218,19 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           height: 174,
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.92),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
+                padding: EdgeInsets.fromLTRB(18, 16, 18, 0),
                 child: Text(
                   'FILTER PRESETS',
                   style: syne(
                     sz: 12,
                     w: FontWeight.w900,
-                    c: Colors.white,
+                    c: C.text,
                     ls: 2,
                   ),
                 ),
@@ -3238,7 +3238,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               Expanded(
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(16),
                   children: ImageFilter.values
                       .map(
                         (f) => GestureDetector(
@@ -3248,16 +3248,16 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           },
                           child: Container(
                             width: 92,
-                            margin: const EdgeInsets.only(right: 12),
+                            margin: EdgeInsets.only(right: 12),
                             decoration: BoxDecoration(
                               color: _selectedFilter == f
                                   ? C.brand
-                                  : Colors.white10,
+                                  : C.dim,
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: _selectedFilter == f
                                     ? C.brand
-                                    : Colors.white24,
+                                    : C.dim,
                               ),
                             ),
                             child: Column(
@@ -3267,10 +3267,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                   Icons.filter,
                                   color: _selectedFilter == f
                                       ? Colors.black
-                                      : Colors.white,
+                                      : C.text,
                                   size: 20,
                                 ),
-                                const SizedBox(height: 7),
+                                SizedBox(height: 7),
                                 Text(
                                   f.name
                                       .replaceAllMapped(
@@ -3284,7 +3284,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                     w: FontWeight.bold,
                                     c: _selectedFilter == f
                                         ? Colors.black
-                                        : Colors.white,
+                                        : C.text,
                                   ),
                                 ),
                               ],
@@ -3326,11 +3326,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(color: C.brand),
-            const SizedBox(height: 16),
+            CircularProgressIndicator(color: C.brand),
+            SizedBox(height: 16),
             Text(
               "Applying ${_faceEngine.selectedPreset.name}...",
-              style: syne(sz: 14, w: FontWeight.bold, c: Colors.white),
+              style: syne(sz: 14, w: FontWeight.bold, c: C.text),
             ),
           ],
         ),
@@ -3395,7 +3395,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
-  // ── CORE UI UTILITIES ───────────────────────────────────────
+  // -- CORE UI UTILITIES ---------------------------------------
   Widget _buildPreviewLayer() {
     double ratio = 9 / 16;
     if (_selectedAspectRatio == '1:1') {
@@ -3485,7 +3485,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         ],
       );
     }
-    return const Center(child: CircularProgressIndicator(color: C.brand));
+    return Center(child: CircularProgressIndicator(color: C.brand));
   }
 
   List<Widget> _buildVisibleOverlays() {
@@ -3518,7 +3518,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 Widget child;
                 if (o.kind == 'sticker') {
                   child = Container(
-                    padding: const EdgeInsets.symmetric(
+                    padding: EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 6,
                     ),
@@ -3526,7 +3526,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       color: o.background.withOpacity(o.backgroundOpacity),
                       borderRadius: BorderRadius.circular(8),
                       border: o.stroke
-                          ? Border.all(color: Colors.white, width: 2)
+                          ? Border.all(color: C.text, width: 2)
                           : null,
                     ),
                     child: Text(
@@ -3547,7 +3547,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       color: o.color.withOpacity(o.opacity),
                       fontWeight: FontWeight.bold,
                       shadows: o.shadow
-                          ? [const Shadow(blurRadius: 8, color: Colors.black54)]
+                          ? [Shadow(blurRadius: 8, color: Colors.black54)]
                           : null,
                     ),
                   );
@@ -3557,7 +3557,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   left: x,
                   top: y,
                   child: Transform.translate(
-                    offset: const Offset(-150, -50), // Center approximation
+                    offset: Offset(-150, -50), // Center approximation
                     child: Transform.rotate(
                       angle: o.rotation,
                       child: Transform.scale(
@@ -3593,7 +3593,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           'rotation': 0.0,
           'opacity': 1.0,
           'fontSize': 28.0,
-          'color': Colors.white,
+          'color': C.text,
           'background': Colors.black,
           'backgroundOpacity': 0.0,
           'shadow': true,
@@ -3623,7 +3623,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       // Start recording
       if (await _voiceoverService.start()) {
         setState(() => _isRecordingVoice = true);
-        _feedback("Recording voice... 🎤");
+        _feedback("Recording voice... ??");
       } else {
         _feedback("Microphone permission denied.");
       }
@@ -3639,20 +3639,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        backgroundColor: const Color(0xFF1A1D23),
+        backgroundColor: Color(0xFF1A1D23),
         builder: (sheetContext) {
           return SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Choose Transition',
-                    style: syne(sz: 15, w: FontWeight.w800, c: Colors.white),
+                    style: syne(sz: 15, w: FontWeight.w800, c: C.text),
                   ),
-                  const SizedBox(height: 10),
+                  SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -3676,15 +3676,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           _feedback('${preset.name} transition selected');
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
+                          padding: EdgeInsets.symmetric(
                             horizontal: 12,
                             vertical: 10,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.06),
+                            color: C.text.withOpacity(0.06),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.12),
+                              color: C.text.withOpacity(0.12),
                             ),
                           ),
                           child: Row(
@@ -3692,15 +3692,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                             children: [
                               Text(
                                 preset.icon,
-                                style: const TextStyle(fontSize: 18),
+                                style: TextStyle(fontSize: 18),
                               ),
-                              const SizedBox(width: 8),
+                              SizedBox(width: 8),
                               Text(
                                 preset.name,
                                 style: dm(
                                   sz: 12,
                                   w: FontWeight.w600,
-                                  c: Colors.white,
+                                  c: C.text,
                                 ),
                               ),
                             ],
@@ -3721,20 +3721,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1D23),
+        backgroundColor: Color(0xFF1A1D23),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
+        title: Text(
           'Unlock Pro Feature',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(color: C.text),
         ),
         content: Text(
           'Unlock Pro Transitions for all your projects for just 50 NCX.',
-          style: dm(c: Colors.white70),
+          style: dm(c: C.sub),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Maybe Later'),
+            child: Text('Maybe Later'),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: C.brand),
@@ -3753,7 +3753,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 );
                 if (result['success'] == true) {
                   setState(() => _transitionsUnlocked = true);
-                  _feedback('Pro Transitions Unlocked! 🚀');
+                  _feedback('Pro Transitions Unlocked! ??');
                   _showTransitionSheet();
                 }
               } catch (e) {
@@ -3781,20 +3781,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: C.text.withOpacity(0.08)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: c ?? Colors.white70, size: 16),
-            const SizedBox(width: 8),
+            Icon(icon, color: c ?? C.sub, size: 16),
+            SizedBox(width: 8),
             Text(
               label,
-              style: syne(sz: 10, w: FontWeight.bold, c: c ?? Colors.white70),
+              style: syne(sz: 10, w: FontWeight.bold, c: c ?? C.sub),
             ),
           ],
         ),
@@ -3809,7 +3809,7 @@ class MaskingPreview extends StatelessWidget {
   final VoidCallback onToggle;
   final List<Widget> overlays;
 
-  const MaskingPreview({
+  MaskingPreview({
     super.key,
     required this.child,
     required this.isMasked,
@@ -3837,7 +3837,7 @@ class MaskingPreview extends StatelessWidget {
           child: GestureDetector(
             onTap: onToggle,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.5),
                 borderRadius: BorderRadius.circular(99),
@@ -3848,13 +3848,13 @@ class MaskingPreview extends StatelessWidget {
                     isMasked
                         ? Icons.visibility_off_outlined
                         : Icons.visibility_outlined,
-                    color: Colors.white,
+                    color: C.text,
                     size: 14,
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(width: 4),
                   Text(
                     isMasked ? 'Masked' : 'Visible',
-                    style: dm(sz: 10, c: Colors.white),
+                    style: dm(sz: 10, c: C.text),
                   ),
                 ],
               ),
@@ -3911,7 +3911,7 @@ class GrainPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.white.withOpacity(0.12 * intensity);
+    final paint = Paint()..color = C.text.withOpacity(0.12 * intensity);
     for (int i = 0; i < 1500 * intensity; i++) {
       final x = _rand.nextDouble() * size.width;
       final y = _rand.nextDouble() * size.height;
@@ -3922,3 +3922,7 @@ class GrainPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant GrainPainter oldDelegate) => false;
 }
+
+
+
+

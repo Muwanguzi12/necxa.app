@@ -26,13 +26,13 @@ import '../services/editor_export_service.dart';
 import '../services/ai_service.dart';
 import '../utils/error_handler.dart';
 
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 // CREATOR TYPE ENUM
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 enum CreatorType {
-  unified, // 🎭  Automatic Content Selector (Photo/Video/Music)
-  artist, // 👨‍🎤  Artist Hub (Visual mood + beat track)
-  audio, // 🎙️  Podcast & Voice (Simplified audio-first)
+  unified, // ??  Automatic Content Selector (Photo/Video/Music)
+  artist, // ?????  Artist Hub (Visual mood + beat track)
+  audio, // ???  Podcast & Voice (Simplified audio-first)
 }
 
 enum _LiveCapturePreviewState {
@@ -75,7 +75,7 @@ extension CreatorTypeX on CreatorType {
       case CreatorType.unified:
         return 'Automatic selector for photos, videos, and music';
       case CreatorType.artist:
-        return 'Select visual mood · Add your own beat';
+        return 'Select visual mood � Add your own beat';
       case CreatorType.audio:
         return 'Record or upload your next hit or podcast';
     }
@@ -84,11 +84,11 @@ extension CreatorTypeX on CreatorType {
   String get emoji {
     switch (this) {
       case CreatorType.unified:
-        return '✨';
+        return '?';
       case CreatorType.artist:
-        return '👨‍🎤';
+        return '?????';
       case CreatorType.audio:
-        return '🎙️';
+        return '???';
     }
   }
 
@@ -98,9 +98,9 @@ extension CreatorTypeX on CreatorType {
   bool get isUnified => this == CreatorType.unified;
 }
 
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 // UPLOAD SCREEN
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 class UploadScreen extends StatefulWidget {
   final AppState state;
   final MusicTrack? initialTrack;
@@ -112,7 +112,7 @@ class UploadScreen extends StatefulWidget {
 
 class _UploadScreenState extends State<UploadScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  // ── Navigation ──────────────────────────────────────────────
+  // -- Navigation ----------------------------------------------
   // NEW Campaign Hierarchy
   // Step 0: Goal Selection
   // Step 1: Setup (Budget/Target/Category)
@@ -121,11 +121,11 @@ class _UploadScreenState extends State<UploadScreen>
   int _step = 0;
   String? _objectiveId; // awareness, conversion, sales
 
-  // ── Creative Metadata ───────────────────────────────────────
+  // -- Creative Metadata ---------------------------------------
   MusicTrack? _bakedTrack;
   File? _visualFile;
   List<File> _multiFiles = [];
-  final List<File> _productPhotos = []; // 📸 Miniature product photos for Sales
+  final List<File> _productPhotos = []; // ?? Miniature product photos for Sales
   bool _isVideo = false;
   File? _preparedThumbnailFile;
   Map<String, dynamic>? _aiVerification;
@@ -151,7 +151,7 @@ class _UploadScreenState extends State<UploadScreen>
   final Map<int, double> _startOffsets = {};
   final Map<int, double> _endOffsets = {};
 
-  // ── Setup Metadata ──────────────────────────────────────────
+  // -- Setup Metadata ------------------------------------------
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descController = TextEditingController();
   final TextEditingController _tagsController = TextEditingController();
@@ -174,7 +174,7 @@ class _UploadScreenState extends State<UploadScreen>
   double? _pickupLatitude;
   double? _pickupLongitude;
 
-  // ── Sync State ──────────────────────────────────────────────
+  // -- Sync State ----------------------------------------------
   bool _isOptimizing = false;
   String _optimizingStatus = "";
   bool _agreedToPolicies = false;
@@ -356,7 +356,7 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────────
+  // -- Helpers ---------------------------------------------------
   void _err(String m) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(m), backgroundColor: C.red));
@@ -384,7 +384,7 @@ class _UploadScreenState extends State<UploadScreen>
     });
   }
 
-  // ── Media pickers ─────────────────────────────────────────────
+  // -- Media pickers ---------------------------------------------
   Future<void> _processResult(
     XFile? f,
     bool isVideo, {
@@ -510,7 +510,7 @@ class _UploadScreenState extends State<UploadScreen>
   }
 
   Future<void> _pickUnifiedMedia() async {
-    // 🎭 TikTok Style: Pick multiple media (Images & Videos)
+    // ?? TikTok Style: Pick multiple media (Images & Videos)
     final resumeLivePreview = _shouldRunLivePreview;
     if (resumeLivePreview) await _stopLivePreview();
     if (!mounted) return;
@@ -579,7 +579,7 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
-  // ── Step navigation ────────────────────────────────────────────
+  // -- Step navigation --------------------------------------------
   void _next() {
     if (_step == 0) {
       if (_objectiveId == null) {
@@ -655,13 +655,13 @@ class _UploadScreenState extends State<UploadScreen>
       // Cleanup compression cache
       await VideoCompress.deleteAllCache();
 
-      // 🚀 NEURAL DESTINATION WARP: Teleport user to where their content lives
+      // ?? NEURAL DESTINATION WARP: Teleport user to where their content lives
       final destinationTab = (_objectiveId == 'sales') ? 'shop' : 'feed';
       final successMsg = (_objectiveId == 'sales')
-          ? '🛍️ Your product is LIVE in the Shop!'
+          ? '??? Your product is LIVE in the Shop!'
           : (_objectiveId == 'conversion')
-          ? '🎵 Your release is LIVE in the Feed!'
-          : '⚡ Your post is LIVE in the Feed!';
+          ? '?? Your release is LIVE in the Feed!'
+          : '? Your post is LIVE in the Feed!';
 
       _onShareSuccess(successMsg, destinationTab: destinationTab);
     } catch (e) {
@@ -1069,7 +1069,7 @@ class _UploadScreenState extends State<UploadScreen>
       _aiVerification = verification;
     }
 
-    // 🛡️ Upload product photos only after all AI checks have passed.
+    // ??? Upload product photos only after all AI checks have passed.
     List<String> productPhotoUrls = [];
     if (compressedProductPhotos.isNotEmpty) {
       setState(() => _optimizingStatus = "Syncing Product Miniatures...");
@@ -1350,11 +1350,11 @@ class _UploadScreenState extends State<UploadScreen>
   void _onShareSuccess(String msg, {String destinationTab = 'feed'}) {
     if (!mounted) return;
 
-    // 🚀 NEURAL DESTINATION WARP
+    // ?? NEURAL DESTINATION WARP
     // 1. Set the correct community tab BEFORE navigating
     widget.state.setCreatorTab(destinationTab);
 
-    // 2. Navigate to CommunityScreen — user lands directly on their content
+    // 2. Navigate to CommunityScreen � user lands directly on their content
     widget.state.go('community');
 
     // 3. Show a premium confirmation banner
@@ -1364,7 +1364,7 @@ class _UploadScreenState extends State<UploadScreen>
           children: [
             const Icon(
               Icons.check_circle_rounded,
-              color: Colors.white,
+              color: C.text,
               size: 22,
             ),
             const SizedBox(width: 12),
@@ -1375,13 +1375,13 @@ class _UploadScreenState extends State<UploadScreen>
                 children: [
                   Text(
                     msg,
-                    style: syne(sz: 13, w: FontWeight.bold, c: Colors.white),
+                    style: syne(sz: 13, w: FontWeight.bold, c: C.text),
                   ),
                   Text(
                     destinationTab == 'shop'
                         ? 'Tap Shop to see your product'
                         : 'Scroll to find your post',
-                    style: dm(sz: 11, c: Colors.white70),
+                    style: dm(sz: 11, c: C.sub),
                   ),
                 ],
               ),
@@ -1399,9 +1399,9 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // ════════════════════════════════════════════════════════════
+  // ------------------------------------------------------------
   // BUILD
-  // ════════════════════════════════════════════════════════════
+  // ------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     Color accent = _objectiveId == 'sales' ? C.gold : C.brand;
@@ -1480,14 +1480,14 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
-  // ── STEP 0: OBJECTIVE SELECTION ─────────────────────────────
+  // -- STEP 0: OBJECTIVE SELECTION -----------------------------
   Widget _buildObjectiveSelection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'CHOOSE YOUR GOAL',
-          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+          style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
         ),
         const SizedBox(height: 16),
         ObjectiveCard(
@@ -1524,14 +1524,14 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // ── STEP 1: CAMPAIGN SETUP ──────────────────────────────────
+  // -- STEP 1: CAMPAIGN SETUP ----------------------------------
   Widget _buildSetupStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'CAMPAIGN DETAILS',
-          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+          style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
         ),
         const SizedBox(height: 24),
         GlassCard(
@@ -1543,7 +1543,7 @@ class _UploadScreenState extends State<UploadScreen>
                   _buildProductPhotoPicker(),
                   const SizedBox(height: 20),
                 ],
-                const Divider(color: Colors.white10),
+                Divider(color: C.dim),
                 const SizedBox(height: 20),
               ],
               _inputField(
@@ -1649,13 +1649,13 @@ class _UploadScreenState extends State<UploadScreen>
                     _pickupLatitude == null
                         ? 'Pin pickup location'
                         : 'Pickup location pinned',
-                    style: dm(sz: 14, c: Colors.white),
+                    style: dm(sz: 14, c: C.text),
                   ),
                   subtitle: _pickupLatitude == null
                       ? null
                       : Text(
                           '${_pickupLatitude!.toStringAsFixed(5)}, ${_pickupLongitude!.toStringAsFixed(5)}',
-                          style: dm(sz: 11, c: Colors.white38),
+                          style: dm(sz: 11, c: C.dim),
                         ),
                   onTap: _capturePickupLocation,
                 ),
@@ -1673,7 +1673,7 @@ class _UploadScreenState extends State<UploadScreen>
       children: [
         Text(
           'PRODUCT MINIATURES (MAX 3)',
-          style: syne(sz: 10, w: FontWeight.w900, c: Colors.white38, ls: 1.5),
+          style: syne(sz: 10, w: FontWeight.w900, c: C.dim, ls: 1.5),
         ),
         const SizedBox(height: 12),
         SizedBox(
@@ -1691,16 +1691,16 @@ class _UploadScreenState extends State<UploadScreen>
                     width: 80,
                     margin: const EdgeInsets.only(right: 12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(13),
+                      color: C.text.withAlpha(13),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: Colors.white10,
+                        color: C.dim,
                         style: BorderStyle.solid,
                       ),
                     ),
                     child: const Icon(
                       Icons.add_a_photo_outlined,
-                      color: Colors.white24,
+                      color: C.dim,
                       size: 24,
                     ),
                   ),
@@ -1715,7 +1715,7 @@ class _UploadScreenState extends State<UploadScreen>
                     image: FileImage(_productPhotos[i]),
                     fit: BoxFit.cover,
                   ),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(color: C.dim),
                 ),
                 child: Align(
                   alignment: Alignment.topRight,
@@ -1730,7 +1730,7 @@ class _UploadScreenState extends State<UploadScreen>
                       child: const Icon(
                         Icons.close,
                         size: 14,
-                        color: Colors.white,
+                        color: C.text,
                       ),
                     ),
                   ),
@@ -1780,7 +1780,7 @@ class _UploadScreenState extends State<UploadScreen>
           child: SizedBox.square(
             dimension: 22,
             child: CircularProgressIndicator(
-              color: Colors.white38,
+              color: C.dim,
               strokeWidth: 2,
             ),
           ),
@@ -1791,7 +1791,7 @@ class _UploadScreenState extends State<UploadScreen>
     return const ColoredBox(
       color: Color(0xFF111317),
       child: Center(
-        child: Icon(Icons.videocam_outlined, color: Colors.white12, size: 58),
+        child: Icon(Icons.videocam_outlined, color: C.dim, size: 58),
       ),
     );
   }
@@ -1803,7 +1803,7 @@ class _UploadScreenState extends State<UploadScreen>
         child: FilledButton.icon(
           onPressed: _enableLivePreviewCamera,
           style: FilledButton.styleFrom(
-            backgroundColor: Colors.white,
+            backgroundColor: C.text,
             foregroundColor: Colors.black,
             minimumSize: const Size(0, 36),
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1822,7 +1822,7 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // ── STEP 2: FILM HUB ────────────────────────────────────────
+  // -- STEP 2: FILM HUB ----------------------------------------
   Widget _buildCreativeStep() {
     return Column(
       children: [
@@ -1831,7 +1831,7 @@ class _UploadScreenState extends State<UploadScreen>
           children: [
             Text(
               'ASSETS',
-              style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+              style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
             ),
             if (_multiFiles.isNotEmpty)
               Text(
@@ -1842,7 +1842,7 @@ class _UploadScreenState extends State<UploadScreen>
         ),
         const SizedBox(height: 16),
 
-        // 🚀 LIVE CONTENT CAPTURE BUTTON
+        // ?? LIVE CONTENT CAPTURE BUTTON
         if (_objectiveId == 'awareness')
           Padding(
             padding: const EdgeInsets.only(bottom: 20),
@@ -1878,12 +1878,12 @@ class _UploadScreenState extends State<UploadScreen>
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: const BoxDecoration(
-                              color: Colors.white24,
+                              color: C.dim,
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(
                               Icons.videocam,
-                              color: Colors.white,
+                              color: C.text,
                               size: 32,
                             ),
                           ),
@@ -1897,19 +1897,19 @@ class _UploadScreenState extends State<UploadScreen>
                                   style: syne(
                                     sz: 18,
                                     w: FontWeight.w900,
-                                    c: Colors.white,
+                                    c: C.text,
                                   ),
                                 ),
                                 Text(
-                                  'Speed · Filters · 4K Mastery',
-                                  style: dm(sz: 12, c: Colors.white70),
+                                  'Speed � Filters � 4K Mastery',
+                                  style: dm(sz: 12, c: C.sub),
                                 ),
                               ],
                             ),
                           ),
                           const Icon(
                             Icons.arrow_forward_ios,
-                            color: Colors.white,
+                            color: C.text,
                             size: 16,
                           ),
                         ],
@@ -1955,12 +1955,12 @@ class _UploadScreenState extends State<UploadScreen>
                         ),
                         Text(
                           'Edit layers, tracks, and timing',
-                          style: dm(sz: 11, c: Colors.white54),
+                          style: dm(sz: 11, c: C.dim),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.arrow_forward_ios, color: C.brand, size: 16),
+                  Icon(Icons.arrow_forward_ios, color: C.brand, size: 16),
                 ],
               ),
             ),
@@ -1969,14 +1969,14 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // ── STEP 3: FINAL REVIEW ────────────────────────────────────
+  // -- STEP 3: FINAL REVIEW ------------------------------------
   Widget _buildFinalReview() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'FINAL SYNTHESIS',
-          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+          style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
         ),
         const SizedBox(height: 16),
         GlassCard(
@@ -1985,7 +1985,7 @@ class _UploadScreenState extends State<UploadScreen>
               _reviewRow('Objective', _objectiveId?.toUpperCase() ?? 'NONE'),
               _reviewRow('Tracks', '${_multiFiles.length} Layers'),
               _reviewRow('Sound', _bakedTrack?.title ?? 'Original'),
-              const Divider(color: Colors.white10, height: 32),
+              Divider(color: C.dim, height: 32),
               Row(
                 children: [
                   Checkbox(
@@ -1997,7 +1997,7 @@ class _UploadScreenState extends State<UploadScreen>
                   Expanded(
                     child: Text(
                       'I agree to Necxa Content Policies',
-                      style: dm(sz: 11, c: Colors.white60),
+                      style: dm(sz: 11, c: C.sub),
                     ),
                   ),
                 ],
@@ -2015,21 +2015,21 @@ class _UploadScreenState extends State<UploadScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: dm(sz: 12, c: Colors.white38)),
+          Text(label, style: dm(sz: 12, c: C.dim)),
           Text(
             value,
-            style: syne(sz: 12, w: FontWeight.bold, c: Colors.white),
+            style: syne(sz: 12, w: FontWeight.bold, c: C.text),
           ),
         ],
       ),
     );
   }
 
-  // ── SHARED WIDGETS ───────────────────────────────────────────
+  // -- SHARED WIDGETS -------------------------------------------
   Widget _topBar(
     String title,
     VoidCallback onBack, {
-    Color color = Colors.white,
+    Color color = C.text,
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 16, 0),
@@ -2062,7 +2062,7 @@ class _UploadScreenState extends State<UploadScreen>
       children: [
         Text(
           label,
-          style: syne(sz: 11, w: FontWeight.w800, c: Colors.white38, ls: 1),
+          style: syne(sz: 11, w: FontWeight.w800, c: C.dim, ls: 1),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -2070,10 +2070,10 @@ class _UploadScreenState extends State<UploadScreen>
           maxLines: maxLines,
           keyboardType: keyboardType,
           inputFormatters: inputFormatters,
-          style: dm(sz: 14, c: Colors.white),
+          style: dm(sz: 14, c: C.text),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: dm(sz: 14, c: Colors.white12),
+            hintStyle: dm(sz: 14, c: C.dim),
             filled: true,
             fillColor: Colors.black26,
             border: OutlineInputBorder(
@@ -2095,20 +2095,20 @@ class _UploadScreenState extends State<UploadScreen>
           height: 160,
           width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.white.withAlpha(13),
+            color: C.text.withAlpha(13),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: C.dim),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Icon(
                 Icons.add_photo_alternate_outlined,
-                color: Colors.white24,
+                color: C.dim,
                 size: 40,
               ),
               const SizedBox(height: 12),
-              Text('Tap to select media', style: dm(sz: 13, c: Colors.white24)),
+              Text('Tap to select media', style: dm(sz: 13, c: C.dim)),
             ],
           ),
         ),
@@ -2130,11 +2130,11 @@ class _UploadScreenState extends State<UploadScreen>
             onTap: _pickUnifiedMedia,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white10,
+                color: C.dim,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: C.dim),
               ),
-              child: const Icon(Icons.add, color: Colors.white54),
+              child: Icon(Icons.add, color: C.dim),
             ),
           );
         }
@@ -2157,7 +2157,7 @@ class _UploadScreenState extends State<UploadScreen>
                 child: const CircleAvatar(
                   radius: 10,
                   backgroundColor: Colors.black54,
-                  child: Icon(Icons.close, size: 12, color: Colors.white),
+                  child: Icon(Icons.close, size: 12, color: C.text),
                 ),
               ),
             ),
@@ -2165,7 +2165,7 @@ class _UploadScreenState extends State<UploadScreen>
               const Center(
                 child: Icon(
                   Icons.play_circle_outline,
-                  color: Colors.white70,
+                  color: C.sub,
                   size: 30,
                 ),
               ),
@@ -2237,7 +2237,7 @@ class _UploadScreenState extends State<UploadScreen>
                   strokeWidth: 4,
                 ),
               ),
-              const Icon(Icons.psychology_outlined, color: C.brand, size: 40),
+              Icon(Icons.psychology_outlined, color: C.brand, size: 40),
             ],
           ),
           const SizedBox(height: 48),
@@ -2268,14 +2268,14 @@ class _UploadScreenState extends State<UploadScreen>
                     style: syne(
                       sz: 10,
                       w: FontWeight.bold,
-                      c: _isOptimizing ? C.brand : Colors.white70,
+                      c: _isOptimizing ? C.brand : C.sub,
                       ls: 1.5,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Step ${value + 1} of 5',
-                    style: dm(sz: 10, c: Colors.white24),
+                    style: dm(sz: 10, c: C.dim),
                   ),
                 ],
               );
@@ -2289,7 +2289,7 @@ class _UploadScreenState extends State<UploadScreen>
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
               child: const LinearProgressIndicator(
-                backgroundColor: Colors.white10,
+                backgroundColor: C.dim,
                 valueColor: AlwaysStoppedAnimation<Color>(C.brand),
                 minHeight: 2,
               ),
@@ -2308,3 +2308,5 @@ class _UpperCaseTextFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) => newValue.copyWith(text: newValue.text.toUpperCase());
 }
+
+

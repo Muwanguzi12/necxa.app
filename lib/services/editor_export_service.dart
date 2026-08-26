@@ -1,3 +1,4 @@
+import '../theme.dart';
 import 'dart:convert';
 import 'package:universal_io/io.dart';
 import 'package:flutter/foundation.dart';
@@ -213,7 +214,7 @@ class EditorExportService {
             scale: operation.scale,
             rotation: operation.rotation,
             fontSize: operation.style.fontSize ?? 28,
-            color: operation.style.color ?? Colors.white,
+            color: operation.style.color ?? C.text,
           ),
         );
       } else if (operation is TransitionOperation) {
@@ -323,3 +324,5 @@ class EditorExportService {
     }
   }
 }
+
+

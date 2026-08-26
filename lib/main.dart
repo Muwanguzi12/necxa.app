@@ -63,7 +63,7 @@ void main() async {
     ),
   );
 
-  // ── CUSTOM ERROR TELEMETRY ────────────────────────────────────────────────
+  // -- CUSTOM ERROR TELEMETRY ------------------------------------------------
   // Catch UI / Framework errors
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
@@ -80,7 +80,7 @@ void main() async {
     TelemetryService().logCrash(error, stack, context: 'PlatformDispatcher');
     return true;
   };
-  // ──────────────────────────────────────────────────────────────────────────
+  // --------------------------------------------------------------------------
 
   if (!kIsWeb) {
     final notifService = NotificationService();
@@ -141,7 +141,7 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // 📱 SMART ORIENTATION LOCK:
+    // ?? SMART ORIENTATION LOCK:
     // Only lock portrait for phones (shortest side < 600).
     // Tablets, Laptops, and Desktops maintain full rotation freedom.
     final double shortestSide = MediaQuery.of(context).size.shortestSide;
@@ -241,16 +241,16 @@ class _RootShellState extends State<RootShell> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.lock_person_outlined, color: C.brand, size: 80),
+            Icon(Icons.lock_person_outlined, color: C.brand, size: 80),
             const SizedBox(height: 32),
             Text(
               'Necxa Vault Locked',
-              style: syne(sz: 24, w: FontWeight.w800, c: Colors.white),
+              style: syne(sz: 24, w: FontWeight.w800, c: C.text),
             ),
             const SizedBox(height: 8),
             Text(
               'Biometric authentication required',
-              style: dm(sz: 14, c: Colors.white54),
+              style: dm(sz: 14, c: C.dim),
             ),
             const SizedBox(height: 48),
             if (_state.biometricError != null)
@@ -341,3 +341,5 @@ class _RootShellState extends State<RootShell> {
     }
   }
 }
+
+

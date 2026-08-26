@@ -90,7 +90,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final dir = await getTemporaryDirectory();
       _recordPath =
           '${dir.path}/vn_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      // Use compressed config: 16kHz mono 32kbps ≈ 120KB per 30s
+      // Use compressed config: 16kHz mono 32kbps � 120KB per 30s
       await _record.start(VoiceNoteService.recordConfig, path: _recordPath!);
       setState(() => _isRecording = true);
     }
@@ -111,7 +111,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final duration = await VoiceNoteService.getDuration(path);
       final durationSecs = duration?.inSeconds ?? 0;
 
-      // Encode audio bytes as base64 — travels through Realtime, NOT Storage
+      // Encode audio bytes as base64 � travels through Realtime, NOT Storage
       final b64 = await VoiceNoteService.encodeForTransport(path);
 
       // Save permanently to local device storage (sender keeps their own copy)
@@ -120,7 +120,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final localPath = await VoiceNoteService.saveToLocal(bytes, messageId);
 
       widget.state.sendChatMessage(
-        '🎤 Voice Note (${VoiceNoteService.formatDuration(duration)})',
+        '?? Voice Note (${VoiceNoteService.formatDuration(duration)})',
         mediaUrl: localPath,
         messageType: 'voice',
         voiceData: b64,
@@ -167,12 +167,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           elevation: 0,
           // Back button returns to the home screen
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            icon: Icon(Icons.arrow_back, color: C.text),
             onPressed: () => s.goBack(),
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.settings, color: Colors.white70),
+              icon: Icon(Icons.settings, color: C.sub),
               onPressed: () => _showChatSettings(s),
             ),
           ],
@@ -216,7 +216,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   children: [
                     Text(
                       conv.displayName,
-                      style: syne(sz: 17, w: FontWeight.w700, c: Colors.white),
+                      style: syne(sz: 17, w: FontWeight.w700, c: C.text),
                       overflow: TextOverflow.ellipsis,
                     ),
                     Row(
@@ -563,10 +563,10 @@ class _MsgBubble extends StatelessWidget {
                 gradient: bubbleGrad,
                 color: (isMe && !isSystem)
                     ? null
-                    : Colors.white.withOpacity(.05),
+                    : C.text.withOpacity(.05),
                 border: (isMe && !isSystem)
                     ? null
-                    : Border.all(color: Colors.white.withOpacity(.1)),
+                    : Border.all(color: C.text.withOpacity(.1)),
                 boxShadow: (isMe && !isSystem)
                     ? [
                         BoxShadow(
@@ -604,7 +604,7 @@ class _MsgBubble extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.1),
+                            color: C.text.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(r, style: const TextStyle(fontSize: 10)),
@@ -623,7 +623,7 @@ class _MsgBubble extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.shield_outlined, size: 16, color: Colors.white70),
+        Icon(Icons.shield_outlined, size: 16, color: C.sub),
         const SizedBox(width: 8),
         Flexible(
           child: Text(
@@ -689,7 +689,7 @@ class _MsgBubble extends StatelessWidget {
             msg.content!,
             style: dm(
               sz: 15,
-              c: isMe ? Colors.black : Colors.white,
+              c: isMe ? Colors.black : C.text,
               w: FontWeight.w500,
             ),
           ),
@@ -699,7 +699,7 @@ class _MsgBubble extends StatelessWidget {
           children: [
             Text(
               '${msg.createdAt.hour}:${msg.createdAt.minute.toString().padLeft(2, '0')}',
-              style: dm(sz: 11, c: isMe ? Colors.black54 : Colors.white54),
+              style: dm(sz: 11, c: isMe ? Colors.black54 : C.dim),
             ),
             if (isMe) ...[
               const SizedBox(width: 4),
@@ -727,7 +727,7 @@ class _MsgBubble extends StatelessWidget {
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: ['❤️', '😂', '😮', '😢', '🔥', '👍']
+          children: ['??', '??', '??', '??', '??', '??']
               .map(
                 (emoji) => GestureDetector(
                   onTap: () {
@@ -770,13 +770,13 @@ class _BubbleOpt extends StatelessWidget {
                 gradient: grad,
                 borderRadius: BorderRadius.circular(15),
                 border: Border.all(
-                  color: sel ? Colors.white : Colors.transparent,
+                  color: sel ? C.text : Colors.transparent,
                   width: 2,
                 ),
               ),
             ),
             const SizedBox(height: 4),
-            Text(label, style: dm(sz: 10, c: sel ? Colors.white : C.dim)),
+            Text(label, style: dm(sz: 10, c: sel ? C.text : C.dim)),
           ],
         ),
       ),
@@ -824,7 +824,7 @@ class _VoiceBubbleState extends State<_VoiceBubble>
 
   Future<void> _initPlayer() async {
     try {
-      // Always prefer local file — never re-download from Supabase
+      // Always prefer local file � never re-download from Supabase
       File? local = await VoiceNoteService.loadFromLocal(widget.messageId);
       if (local == null && widget.url.startsWith('/')) {
         local = File(widget.url);
@@ -882,7 +882,7 @@ class _VoiceBubbleState extends State<_VoiceBubble>
         ? (_position.inMilliseconds / _total.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
     final accent = widget.isMe ? Colors.black87 : C.brand;
-    final trackColor = widget.isMe ? Colors.black26 : Colors.white24;
+    final trackColor = widget.isMe ? Colors.black26 : C.dim;
 
     return SizedBox(
       width: 200,
@@ -1009,7 +1009,7 @@ class _MsgInput extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(10, 12, 16, 24),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(.8),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(.05))),
+        border: Border(top: BorderSide(color: C.text.withOpacity(.05))),
       ),
       child: SafeArea(
         child: Row(
@@ -1027,16 +1027,16 @@ class _MsgInput extends StatelessWidget {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(.05),
+                  color: C.text.withOpacity(.05),
                   borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: Colors.white.withOpacity(.1)),
+                  border: Border.all(color: C.text.withOpacity(.1)),
                 ),
                 child: TextField(
                   controller: controller,
-                  style: dm(sz: 15, c: Colors.white),
+                  style: dm(sz: 15, c: C.text),
                   decoration: InputDecoration(
                     hintText: hintText,
-                    hintStyle: dm(sz: 15, c: Colors.white54),
+                    hintStyle: dm(sz: 15, c: C.dim),
                     border: InputBorder.none,
                   ),
                   onSubmitted: (_) => onSend(),
@@ -1054,7 +1054,7 @@ class _MsgInput extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isRecording
                       ? Colors.red.withOpacity(0.2)
-                      : Colors.white.withOpacity(.05),
+                      : C.text.withOpacity(.05),
                   shape: BoxShape.circle,
                   border: isRecording
                       ? Border.all(color: Colors.redAccent, width: 2)
@@ -1094,3 +1094,5 @@ class _MsgInput extends StatelessWidget {
     );
   }
 }
+
+

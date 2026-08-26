@@ -54,13 +54,13 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder> {
                 ),
               )
             else
-              const Expanded(child: Divider(color: C.brand, thickness: 2)),
+              Expanded(child: Divider(color: C.brand, thickness: 2)),
             const SizedBox(width: 16),
             Text(
               'Slide to cancel',
-              style: dm(sz: 12, c: Colors.white54),
+              style: dm(sz: 12, c: C.dim),
             ),
-            const Icon(Icons.chevron_left, color: Colors.white24, size: 20),
+            Icon(Icons.chevron_left, color: C.dim, size: 20),
           ],
         ),
       ),
@@ -73,3 +73,5 @@ class _VoiceNoteRecorderState extends State<VoiceNoteRecorder> {
     return '$m:$s';
   }
 }
+
+

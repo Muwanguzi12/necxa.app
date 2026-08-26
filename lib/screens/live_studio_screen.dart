@@ -19,6 +19,8 @@ import 'package:share_plus/share_plus.dart';
 import '../widgets/live_studio/live_enforcement_overlay.dart';
 import '../utils/error_handler.dart';
 
+enum _GuestJoinMode { video, audioOnly }
+
 class LiveStudioScreen extends StatefulWidget {
   final AppState state;
   final String channelName;
@@ -105,6 +107,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _isLeaving = false;
   bool _coHostTransitioning = false;
   bool _inviteDialogVisible = false;
+  bool _guestJoinChoiceVisible = false;
+  bool _guestVideoEnabled = true;
+  bool _guestAudioEnabled = true;
   bool _hostInGreenRoom = false;
   bool _startingBroadcast = false;
   DateTime? _plannedBroadcastTime;

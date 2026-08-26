@@ -128,16 +128,16 @@ class _TransportVerificationScreenState extends State<TransportVerificationScree
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: file != null ? C.brand : Colors.white10),
+        border: Border.all(color: file != null ? C.brand : C.dim),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.all(16),
         leading: CircleAvatar(
-          backgroundColor: file != null ? C.brand : Colors.white10,
-          child: Icon(file != null ? Icons.check : icon, color: Colors.white),
+          backgroundColor: file != null ? C.brand : C.dim,
+          child: Icon(file != null ? Icons.check : icon, color: C.text),
         ),
-        title: Text(title, style: syne(sz: 16, w: FontWeight.w700, c: Colors.white)),
-        subtitle: Text(subtitle, style: dm(sz: 13, c: Colors.white60)),
+        title: Text(title, style: syne(sz: 16, w: FontWeight.w700, c: C.text)),
+        subtitle: Text(subtitle, style: dm(sz: 13, c: C.sub)),
         trailing: file != null 
           ? ClipRRect(
               borderRadius: BorderRadius.circular(8),
@@ -158,18 +158,18 @@ class _TransportVerificationScreenState extends State<TransportVerificationScree
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: Text('Courier Verification', style: syne(sz: 18, w: FontWeight.w700, c: Colors.white)),
+        title: Text('Courier Verification', style: syne(sz: 18, w: FontWeight.w700, c: C.text)),
       ),
       body: _isScanning
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const CircularProgressIndicator(color: C.brand),
+                  CircularProgressIndicator(color: C.brand),
                   const SizedBox(height: 24),
-                  Text('Necxa AI is scanning documents...', style: syne(sz: 16, c: Colors.white)),
+                  Text('Necxa AI is scanning documents...', style: syne(sz: 16, c: C.text)),
                   const SizedBox(height: 8),
-                  Text('Analyzing license plates and permits', style: dm(sz: 13, c: Colors.white54)),
+                  Text('Analyzing license plates and permits', style: dm(sz: 13, c: C.dim)),
                 ],
               ),
             )
@@ -178,15 +178,15 @@ class _TransportVerificationScreenState extends State<TransportVerificationScree
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Become a Courier', style: syne(sz: 28, w: FontWeight.w900, c: Colors.white)),
+                  Text('Become a Courier', style: syne(sz: 28, w: FontWeight.w900, c: C.text)),
                   const SizedBox(height: 8),
-                  Text('Submit your documents for secure multi-layer verification. Uncertain formats are sent for human review.', style: dm(sz: 15, c: Colors.white70)),
+                  Text('Submit your documents for secure multi-layer verification. Uncertain formats are sent for human review.', style: dm(sz: 15, c: C.sub)),
                   const SizedBox(height: 24),
                   TextField(
                     controller: _countryController,
                     textCapitalization: TextCapitalization.characters,
                     maxLength: 2,
-                    style: dm(sz: 16, c: Colors.white),
+                    style: dm(sz: 16, c: C.text),
                     decoration: InputDecoration(
                       labelText: 'Permit issuing country',
                       hintText: '2-letter code, e.g. BR, CA, IN, NG',
@@ -209,10 +209,10 @@ class _TransportVerificationScreenState extends State<TransportVerificationScree
                     onChanged: (value) => setState(() => _aiProcessingConsent = value == true),
                     contentPadding: EdgeInsets.zero,
                     activeColor: C.brand,
-                    title: Text('Allow secure AI verification', style: syne(sz: 14, w: FontWeight.w700, c: Colors.white)),
+                    title: Text('Allow secure AI verification', style: syne(sz: 14, w: FontWeight.w700, c: C.text)),
                     subtitle: Text(
                       'Your permit image may be processed by approved AI providers. Your selfie is reserved for the specialized biometric service.',
-                      style: dm(sz: 12, c: Colors.white60),
+                      style: dm(sz: 12, c: C.sub),
                     ),
                     controlAffinity: ListTileControlAffinity.leading,
                   ),
@@ -245,7 +245,7 @@ class _TransportVerificationScreenState extends State<TransportVerificationScree
                       onPressed: (_selfieFile != null && _permitFile != null && _vehicleFile != null && _aiProcessingConsent)
                           ? _runAIVerification
                           : null,
-                      child: Text('Run AI Verification', style: syne(sz: 16, w: FontWeight.w800, c: Colors.white)),
+                      child: Text('Run AI Verification', style: syne(sz: 16, w: FontWeight.w800, c: C.text)),
                     ),
                   )
                 ],
@@ -254,3 +254,5 @@ class _TransportVerificationScreenState extends State<TransportVerificationScree
     );
   }
 }
+
+

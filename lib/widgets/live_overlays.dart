@@ -102,7 +102,7 @@ class _LiveGiftingOverlayState extends State<LiveGiftingOverlay> with TickerProv
                       ),
                       child: Text(
                         gift.userName,
-                        style: syne(sz: 10, w: FontWeight.bold, c: Colors.white),
+                        style: syne(sz: 10, w: FontWeight.bold, c: C.text),
                       ),
                     ),
                   ],
@@ -126,3 +126,4 @@ class _GiftAnimation {
 
 /// 🛍️ Live Shop Overlay
 /// Displays pinned products and allows one-tap checkout.
+

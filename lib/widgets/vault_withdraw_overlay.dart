@@ -86,7 +86,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(28),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: C.dim))),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -97,7 +97,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
               Text('Step $_stage of 7', style: dm(sz: 11, c: Colors.redAccent.withOpacity(.4))),
             ],
           ),
-          IconButton(icon: const Icon(Icons.close, color: Colors.white38), onPressed: () => Navigator.pop(context)),
+          IconButton(icon: Icon(Icons.close, color: C.dim), onPressed: () => Navigator.pop(context)),
         ],
       ),
     );
@@ -116,7 +116,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     }
   }
 
-  // ── STAGE 1: BIO-SHIELD ────────────────────────────────
+  // -- STAGE 1: BIO-SHIELD --------------------------------
   Widget _buildBioShield() {
     return Center(
       child: Column(
@@ -130,9 +130,9 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
             onReleased: () => _cancelScan(),
           ),
           const SizedBox(height: 40),
-          Text('Verify it\'s you', style: syne(sz: 16, w: FontWeight.w700, c: Colors.white)),
+          Text('Verify it\'s you', style: syne(sz: 16, w: FontWeight.w700, c: C.text)),
           const SizedBox(height: 12),
-          Text('Press and hold to authorize extraction.', style: dm(sz: 12, c: Colors.white38)),
+          Text('Press and hold to authorize extraction.', style: dm(sz: 12, c: C.dim)),
         ],
       ),
     );
@@ -162,7 +162,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     if (mounted) setState(() => _scanProgress = 0.0);
   }
 
-  // ── STAGE 2: EXTRACTION SYNTHESIS ──────────────────────
+  // -- STAGE 2: EXTRACTION SYNTHESIS ----------------------
   Widget _buildAmountStage() {
     return Padding(
       padding: const EdgeInsets.all(28),
@@ -199,7 +199,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     );
   }
 
-  // ── STAGE 3: TRANSIT NODES ────────────────────────────
+  // -- STAGE 3: TRANSIT NODES ----------------------------
   Widget _buildDestinationStage() {
     final methods = widget.state.paymentMethods
         .where((m) => m['type'] == 'both' || m['type'] == 'disbursement')
@@ -213,7 +213,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
           Text('Send to', style: dm(sz: 12, w: FontWeight.w600, c: Colors.redAccent.withOpacity(.6))),
           const SizedBox(height: 24),
           if (methods.isEmpty)
-             Center(child: Text('No payout methods available.', style: dm(sz: 14, c: Colors.white38)))
+             Center(child: Text('No payout methods available.', style: dm(sz: 14, c: C.dim)))
           else
             ...methods.map((m) {
               final isSelected = _selectedMethod == m['id'];
@@ -230,7 +230,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
                       label: label, 
                       status: !isActive ? 'Maintenance' : (isSelected ? 'Selected' : 'Active'), 
                       icon: m['id'] == 'card' ? Icons.account_balance_wallet : Icons.phone_android, 
-                      color: m['id'] == 'mtn' ? const Color(0xFFeab308) : (m['id'] == 'airtel' ? Colors.red : Colors.white70)
+                      color: m['id'] == 'mtn' ? Color(0xFFeab308) : (m['id'] == 'airtel' ? Colors.red : C.sub)
                     ),
                   ),
                 ),
@@ -255,7 +255,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     );
   }
 
-  // ── STAGE 4: ACCOUNT IDENTIFICATION ──────────────────
+  // -- STAGE 4: ACCOUNT IDENTIFICATION ------------------
   Widget _buildAccountStage() {
     String hint = _selectedMethod == 'card' ? 'Card / Bank Account Number' : 'Phone Number (e.g. 077xxxxxxx)';
     return Padding(
@@ -268,18 +268,18 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: C.dim),
             ),
             child: TextField(
               controller: _accountController,
               keyboardType: TextInputType.phone,
-              style: syne(sz: 18, w: FontWeight.w600, c: Colors.white),
+              style: syne(sz: 18, w: FontWeight.w600, c: C.text),
               decoration: InputDecoration(
                 border: InputBorder.none,
                 hintText: hint,
-                hintStyle: dm(sz: 14, c: Colors.white24),
+                hintStyle: dm(sz: 14, c: C.dim),
               ),
             ),
           ),
@@ -289,17 +289,17 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: C.dim),
             ),
             child: TextField(
               controller: _nameController,
-              style: syne(sz: 16, w: FontWeight.w600, c: Colors.white),
+              style: syne(sz: 16, w: FontWeight.w600, c: C.text),
               decoration: InputDecoration(
                 border: InputBorder.none,
                 hintText: 'Full Legal Name',
-                hintStyle: dm(sz: 14, c: Colors.white24),
+                hintStyle: dm(sz: 14, c: C.dim),
               ),
             ),
           ),
@@ -332,16 +332,16 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     );
   }
 
-  // ── STAGE 5: MULTI-FACTOR VERIFICATION ───────────────
+  // -- STAGE 5: MULTI-FACTOR VERIFICATION ---------------
   Widget _buildVerificationStage() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Security Verification', style: syne(sz: 18, w: FontWeight.w700, c: Colors.white)),
+          Text('Security Verification', style: syne(sz: 18, w: FontWeight.w700, c: C.text)),
           const SizedBox(height: 8),
-          Text('We sent a six-digit verification code to your email address.', style: dm(sz: 12, c: Colors.white38)),
+          Text('We sent a six-digit verification code to your email address.', style: dm(sz: 12, c: C.dim)),
           
           const SizedBox(height: 32),
           
@@ -468,16 +468,16 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     });
   }
 
-  // ── STAGE 4: EXTRACTION PULSE ──────────────────────────
+  // -- STAGE 4: EXTRACTION PULSE --------------------------
   Widget _buildPulseStage() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _PulseCoreNode(),
         const SizedBox(height: 40),
-        Text(_statusText, style: syne(sz: 16, w: FontWeight.w700, c: Colors.white)),
+        Text(_statusText, style: syne(sz: 16, w: FontWeight.w700, c: C.text)),
         const SizedBox(height: 12),
-        Text('Real-time ledger bridging active...', style: dm(sz: 11, c: Colors.white38)),
+        Text('Real-time ledger bridging active...', style: dm(sz: 11, c: C.dim)),
         const Spacer(),
         _HandshakeProgress(),
         const SizedBox(height: 60),
@@ -485,7 +485,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
     );
   }
 
-  // ── STAGE 5: FINALIZED ────────────────────────────────
+  // -- STAGE 5: FINALIZED --------------------------------
   Widget _buildSuccessStage() {
     return Center(
       child: Column(
@@ -493,7 +493,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
         children: [
           _SuccessHalo(),
           const SizedBox(height: 32),
-          Text('Withdrawal ${_withdrawalStatus.toUpperCase()}', style: syne(sz: 22, w: FontWeight.w700, c: Colors.white)),
+          Text('Withdrawal ${_withdrawalStatus.toUpperCase()}', style: syne(sz: 22, w: FontWeight.w700, c: C.text)),
           const SizedBox(height: 24),
           _SummaryCard(amt: _selectedAmount, method: _selectedMethod, status: _withdrawalStatus),
           const SizedBox(height: 48),
@@ -504,7 +504,7 @@ class _VaultWithdrawOverlayState extends State<VaultWithdrawOverlay> {
   }
 }
 
-// ── WIDGETS ──────────────────────────────────────────────
+// -- WIDGETS ----------------------------------------------
 
 class _ScannerBadge extends StatelessWidget {
   @override
@@ -522,7 +522,7 @@ class _FingerprintNode extends StatelessWidget {
       onLongPressStart: (_) => onPressed(),
       onLongPressEnd: (_) => onReleased(),
       child: Stack(alignment: Alignment.center, children: [
-        Container(width: 120, height: 120, decoration: BoxDecoration(color: Colors.white.withOpacity(.03), shape: BoxShape.circle, border: Border.all(color: Colors.redAccent.withOpacity(.2)), boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(progress * 0.3), blurRadius: 40)])),
+        Container(width: 120, height: 120, decoration: BoxDecoration(color: C.text.withOpacity(.03), shape: BoxShape.circle, border: Border.all(color: Colors.redAccent.withOpacity(.2)), boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(progress * 0.3), blurRadius: 40)])),
         SizedBox(width: 120, height: 120, child: CircularProgressIndicator(value: progress, color: Colors.redAccent, strokeWidth: 3)),
         const Icon(Icons.fingerprint, color: Colors.redAccent, size: 56),
       ]),
@@ -534,10 +534,10 @@ class _BalanceGuard extends StatelessWidget {
   final double balance;
   const _BalanceGuard({required this.balance});
   @override
-  Widget build(BuildContext context) => Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: Colors.white.withOpacity(.02), borderRadius: BorderRadius.circular(24), border: Border.all(color: Colors.white.withOpacity(.05))), child: Column(children: [
-    Text('Available balance', style: dm(sz: 11, w: FontWeight.w600, c: Colors.white38)),
+  Widget build(BuildContext context) => Container(padding: EdgeInsets.all(24), decoration: BoxDecoration(color: C.text.withOpacity(.02), borderRadius: BorderRadius.circular(24), border: Border.all(color: C.text.withOpacity(.05))), child: Column(children: [
+    Text('Available balance', style: dm(sz: 11, w: FontWeight.w600, c: C.dim)),
     const SizedBox(height: 8),
-    Text(ugx(balance.toInt()), style: syne(sz: 32, w: FontWeight.w700, fs: FontStyle.italic, c: Colors.white))]));
+    Text(ugx(balance.toInt()), style: syne(sz: 32, w: FontWeight.w700, fs: FontStyle.italic, c: C.text))]));
 }
 
 class _AmountGrid extends StatelessWidget {
@@ -566,7 +566,7 @@ class _PotsBtn extends StatelessWidget {
   final VoidCallback onTap;
   const _PotsBtn({required this.label, required this.active, required this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: AnimatedContainer(duration: const Duration(milliseconds: 200), decoration: BoxDecoration(color: active ? Colors.redAccent : Colors.white.withOpacity(.02), borderRadius: BorderRadius.circular(16), border: Border.all(color: active ? Colors.redAccent : Colors.white.withOpacity(.1))), child: Center(child: Text(label, style: syne(sz: 18, w: FontWeight.w900, fs: FontStyle.italic, c: active ? Colors.black : Colors.white60)))));
+  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: AnimatedContainer(duration: Duration(milliseconds: 200), decoration: BoxDecoration(color: active ? Colors.redAccent : C.text.withOpacity(.02), borderRadius: BorderRadius.circular(16), border: Border.all(color: active ? Colors.redAccent : C.text.withOpacity(.1))), child: Center(child: Text(label, style: syne(sz: 18, w: FontWeight.w900, fs: FontStyle.italic, c: active ? Colors.black : C.sub)))));
 }
 
 class _TransitTile extends StatelessWidget {
@@ -580,9 +580,9 @@ class _TransitTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18), 
       decoration: BoxDecoration(
-        color: isSelected ? color.withOpacity(.15) : Colors.white.withOpacity(.03), 
+        color: isSelected ? color.withOpacity(.15) : C.text.withOpacity(.03), 
         borderRadius: BorderRadius.circular(20), 
-        border: Border.all(color: isSelected ? color : Colors.white.withOpacity(.05))
+        border: Border.all(color: isSelected ? color : C.text.withOpacity(.05))
       ), 
       child: Row(
         children: [
@@ -595,18 +595,18 @@ class _TransitTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start, 
             children: [
-              Text(label, style: syne(sz: 14, w: FontWeight.w800, c: Colors.white)), 
+              Text(label, style: syne(sz: 14, w: FontWeight.w800, c: C.text)), 
               Row(
                 children: [
                   Container(width: 6, height: 6, decoration: BoxDecoration(color: isSelected ? Colors.green : Colors.grey, shape: BoxShape.circle)), 
                   const SizedBox(width: 6), 
-                  Text('Sync Status: $status', style: dm(sz: 10, c: Colors.white38))
+                  Text('Sync Status: $status', style: dm(sz: 10, c: C.dim))
                 ]
               )
             ]
           ), 
           const Spacer(), 
-          if (isSelected) Icon(Icons.check_circle, color: color) else const Icon(Icons.chevron_right, color: Colors.white24)
+          if (isSelected) Icon(Icons.check_circle, color: color) else Icon(Icons.chevron_right, color: C.dim)
         ]
       )
     );
@@ -620,7 +620,7 @@ class _PulseCoreNode extends StatelessWidget {
 
 class _HandshakeProgress extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.symmetric(horizontal: 40), child: Container(height: 2, width: double.infinity, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(1)), child: const LinearProgressIndicator(backgroundColor: Colors.transparent, color: Colors.redAccent)));
+  Widget build(BuildContext context) => Padding(padding: EdgeInsets.symmetric(horizontal: 40), child: Container(height: 2, width: double.infinity, decoration: BoxDecoration(color: C.dim, borderRadius: BorderRadius.circular(1)), child: LinearProgressIndicator(backgroundColor: Colors.transparent, color: Colors.redAccent)));
 }
 
 class _SuccessHalo extends StatelessWidget {
@@ -644,8 +644,8 @@ class _SummaryCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: Colors.white.withOpacity(.02), borderRadius: BorderRadius.circular(24), border: Border.all(color: Colors.white.withOpacity(.05))), child: Column(children: [
-    Text('Withdrawal amount', style: dm(sz: 11, w: FontWeight.w600, c: Colors.white38)),
+  Widget build(BuildContext context) => Container(padding: EdgeInsets.all(24), decoration: BoxDecoration(color: C.text.withOpacity(.02), borderRadius: BorderRadius.circular(24), border: Border.all(color: C.text.withOpacity(.05))), child: Column(children: [
+    Text('Withdrawal amount', style: dm(sz: 11, w: FontWeight.w600, c: C.dim)),
     const SizedBox(height: 12),
     Text('UGX $amt', style: syne(sz: 24, w: FontWeight.w700, fs: FontStyle.italic, c: Colors.redAccent)),
     const SizedBox(height: 12),
@@ -655,7 +655,7 @@ class _SummaryCard extends StatelessWidget {
       Text('Payout ${status.toUpperCase()}', style: dm(sz: 10, w: FontWeight.w600, c: Colors.blue)),
     ]),
     const SizedBox(height: 8),
-    Text('Sent to: $_methodLabel', style: dm(sz: 11, c: Colors.white38))
+    Text('Sent to: $_methodLabel', style: dm(sz: 11, c: C.dim))
   ]));
 }
 
@@ -665,7 +665,7 @@ class _BottomBtn extends StatelessWidget {
   final VoidCallback onTap;
   const _BottomBtn({required this.label, required this.icon, required this.onTap});
   @override
-  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: Container(height: 64, width: double.infinity, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: Colors.black, size: 20), const SizedBox(width: 12), Text(label, style: syne(sz: 16, w: FontWeight.w700, c: Colors.black))])));
+  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: Container(height: 64, width: double.infinity, decoration: BoxDecoration(color: C.text, borderRadius: BorderRadius.circular(20)), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: Colors.black, size: 20), SizedBox(width: 12), Text(label, style: syne(sz: 16, w: FontWeight.w700, c: Colors.black))])));
 }
 
 class _SecureInput extends StatelessWidget {
@@ -686,9 +686,9 @@ class _SecureInput extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: C.text.withOpacity(0.05),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: Row(
         children: [
@@ -698,11 +698,11 @@ class _SecureInput extends StatelessWidget {
             child: TextField(
               controller: controller,
               keyboardType: TextInputType.number,
-              style: syne(sz: 18, w: FontWeight.w600, c: Colors.white, ls: 2),
+              style: syne(sz: 18, w: FontWeight.w600, c: C.text, ls: 2),
               decoration: InputDecoration(
                 border: InputBorder.none,
                 hintText: hint,
-                hintStyle: dm(sz: 14, c: Colors.white24, ls: 0),
+                hintStyle: dm(sz: 14, c: C.dim, ls: 0),
               ),
             ),
           ),
@@ -721,3 +721,5 @@ String ugx(int n) {
   }
   return 'UGX $buf';
 }
+
+

@@ -1,5 +1,6 @@
 import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import '../services/video_enhancement_service.dart';
 
 /// Base class for any non-destructive edit operation.
@@ -45,7 +46,7 @@ class TextOverlay extends EditOperation {
     this.rotation = 0.0,
     this.style = const TextStyle(
       fontSize: 24,
-      color: Colors.white,
+      color: Color(0xFFF0F4FF),
       fontWeight: FontWeight.bold,
     ),
   }) : super('text');
@@ -127,7 +128,7 @@ class OverlayOperation extends EditOperation {
     this.rotation = 0,
     this.opacity = 1,
     this.fontSize = 28,
-    this.color = Colors.white,
+    this.color = const Color(0xFFF0F4FF),
     this.background = Colors.transparent,
     this.backgroundOpacity = 0,
     this.shadow = true,
@@ -150,7 +151,7 @@ class OverlayOperation extends EditOperation {
       rotation: (values['rotation'] as num?)?.toDouble() ?? 0,
       opacity: (values['opacity'] as num?)?.toDouble() ?? 1,
       fontSize: (values['fontSize'] as num?)?.toDouble() ?? 28,
-      color: values['color'] as Color? ?? Colors.white,
+      color: values['color'] as Color? ?? C.text,
       background: values['background'] as Color? ?? Colors.transparent,
       backgroundOpacity: (values['backgroundOpacity'] as num?)?.toDouble() ?? 0,
       shadow: values['shadow'] as bool? ?? true,
@@ -935,7 +936,7 @@ class TimelineModelUtils {
             style ??
             const TextStyle(
               fontSize: 28,
-              color: Colors.white,
+              color: Color(0xFFF0F4FF),
               fontWeight: FontWeight.bold,
             ),
       ),
@@ -960,3 +961,4 @@ class TimelineModelUtils {
         .toList();
   }
 }
+

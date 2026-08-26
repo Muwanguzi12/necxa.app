@@ -45,16 +45,16 @@ class ShieldCaptureOverlay extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(.05),
+        color: C.text.withOpacity(.05),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const _PulsePulse(),
           const SizedBox(width: 10),
-          Text('AI LIVE CAPTURE', style: syne(sz: 10, w: FontWeight.w700, ls: 1, c: Colors.white70)),
+          Text('AI LIVE CAPTURE', style: syne(sz: 10, w: FontWeight.w700, ls: 1, c: C.sub)),
         ],
       ),
     );
@@ -104,7 +104,7 @@ class ShieldCaptureOverlay extends StatelessWidget {
             child: Text(
               feedback!,
               textAlign: TextAlign.center,
-              style: dm(sz: 15, c: Colors.white70, h: 1.5),
+              style: dm(sz: 15, c: C.sub, h: 1.5),
             ),
           ),
         ],
@@ -129,9 +129,9 @@ class ShieldCaptureOverlay extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 18),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(.1),
+                  color: C.text.withOpacity(.1),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(color: C.dim),
                 ),
                 child: Center(child: Text('Retake Photo', style: syne(sz: 15, w: FontWeight.bold))),
               ),
@@ -146,10 +146,10 @@ class ShieldCaptureOverlay extends StatelessWidget {
                   gradient: brandGrad,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
-                    BoxShadow(color: C.brand.withOpacity(.3), blurRadius: 20, spreadRadius: 0, offset: const Offset(0, 10)),
+                    BoxShadow(color: C.brand.withOpacity(.3), blurRadius: 20, spreadRadius: 0, offset: Offset(0, 10)),
                   ],
                 ),
-                child: Center(child: Text('Continue →', style: syne(sz: 15, w: FontWeight.bold, c: C.bg))),
+                child: Center(child: Text('Continue ?', style: syne(sz: 15, w: FontWeight.bold, c: C.bg))),
               ),
             ),
         ],
@@ -185,3 +185,5 @@ class _PulsePulseState extends State<_PulsePulse> with SingleTickerProviderState
     );
   }
 }
+
+

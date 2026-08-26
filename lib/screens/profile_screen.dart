@@ -127,7 +127,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
             decoration: BoxDecoration(
               color: C.bg.withOpacity(.6),
-              border: const Border(bottom: BorderSide(color: Colors.white10)),
+              border: Border(bottom: BorderSide(color: C.dim)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -172,7 +172,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 height: 132,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(56),
-                  gradient: const LinearGradient(colors: [C.brand, C.purple]),
+                  gradient: LinearGradient(colors: [C.brand, C.purple]),
                 ),
                 padding: const EdgeInsets.all(2),
                 child: Container(
@@ -243,7 +243,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                     child: const Icon(
                       Icons.add_a_photo_rounded,
-                      color: Colors.white,
+                      color: C.text,
                       size: 18,
                     ),
                   ),
@@ -261,7 +261,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   ),
                   child: const Icon(
                     Icons.verified_user,
-                    color: Colors.white,
+                    color: C.text,
                     size: 16,
                   ),
                 ),
@@ -303,7 +303,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.bolt, color: C.brand, size: 12),
+                    Icon(Icons.bolt, color: C.brand, size: 12),
                     const SizedBox(width: 4),
                     Text(
                       widget.state.isAgent
@@ -319,7 +319,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           const SizedBox(height: 12),
           Text(
             '"Living my best life with Necxa."',
-            style: dm(sz: 14, c: Colors.white70),
+            style: dm(sz: 14, c: C.sub),
           ),
         ],
       ),
@@ -332,9 +332,9 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.03),
+          color: C.text.withOpacity(.03),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(.05)),
+          border: Border.all(color: C.text.withOpacity(.05)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -357,7 +357,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               trend: true,
             ),
             _MetricSeparator(),
-            const _MetricItem(label: 'Posts', value: '01', color: Colors.white),
+            _MetricItem(label: 'Posts', value: '01', color: C.text),
           ],
         ),
       ),
@@ -475,7 +475,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         _MetricItem(
                           label: 'Listings',
                           value: isLoading || hasError
-                              ? '—'
+                              ? '�'
                               : '${dashboard?.activeListings ?? 0}',
                           color: C.brandDk,
                         ),
@@ -483,7 +483,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         _MetricItem(
                           label: 'Orders',
                           value: isLoading || hasError
-                              ? '—'
+                              ? '�'
                               : '${dashboard?.totalOrders ?? 0}',
                           color: C.blue,
                         ),
@@ -491,7 +491,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         _MetricItem(
                           label: 'Sales',
                           value: isLoading || hasError
-                              ? '—'
+                              ? '�'
                               : '${(dashboard?.grossSalesUgx ?? 0) ~/ 1000}K',
                           color: C.green,
                         ),
@@ -667,7 +667,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               child: Center(
                 child: Text(
                   'No posts yet',
-                  style: syne(sz: 14, c: Colors.white38),
+                  style: syne(sz: 14, c: C.dim),
                 ),
               ),
             ),
@@ -733,9 +733,9 @@ class _ProfileScreenState extends State<ProfileScreen>
               height: 64,
               width: double.infinity,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(.05),
+                color: C.text.withOpacity(.05),
                 borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: Colors.white.withOpacity(.1)),
+                border: Border.all(color: C.text.withOpacity(.1)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -790,7 +790,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             decoration: BoxDecoration(
               color: C.bg.withOpacity(.8),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: C.dim),
             ),
             child: Row(
               children: [
@@ -850,7 +850,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 }
 
-// ── Supporting Widgets ──────────────────────────────────────────
+// -- Supporting Widgets ------------------------------------------
 
 class _AvatarGlow extends StatefulWidget {
   @override
@@ -912,7 +912,7 @@ class _MetricItem extends StatelessWidget {
       children: [
         Text(
           label,
-          style: dm(sz: 10, w: FontWeight.w500, c: Colors.white38),
+          style: dm(sz: 10, w: FontWeight.w500, c: C.dim),
         ),
         const SizedBox(height: 6),
         Row(
@@ -928,7 +928,7 @@ class _MetricItem extends StatelessWidget {
             ),
             if (trend) ...[
               const SizedBox(width: 4),
-              const Icon(Icons.trending_up, color: C.brand, size: 14),
+              Icon(Icons.trending_up, color: C.brand, size: 14),
             ],
           ],
         ),
@@ -940,7 +940,7 @@ class _MetricItem extends StatelessWidget {
 class _MetricSeparator extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
-      Container(width: 1, height: 24, color: Colors.white10);
+      Container(width: 1, height: 24, color: C.dim);
 }
 
 class _ActionTile extends StatelessWidget {
@@ -1021,7 +1021,7 @@ class _ProfileTab extends StatelessWidget {
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color: active ? C.brand : Colors.white10,
+                color: active ? C.brand : C.dim,
                 width: active ? 2 : 1,
               ),
             ),
@@ -1032,7 +1032,7 @@ class _ProfileTab extends StatelessWidget {
               style: syne(
                 sz: 13,
                 w: FontWeight.w600,
-                c: active ? C.brand : Colors.white38,
+                c: active ? C.brand : C.dim,
               ),
             ),
           ),
@@ -1068,10 +1068,10 @@ class _ContentGridItem extends StatelessWidget {
         children: [
           Container(
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(.05),
+              color: C.text.withOpacity(.05),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isSelected ? C.brand : Colors.white.withOpacity(.1),
+                color: isSelected ? C.brand : C.text.withOpacity(.1),
               ),
               image: (thumbUrl != null || mediaUrl != null)
                   ? DecorationImage(
@@ -1087,12 +1087,12 @@ class _ContentGridItem extends StatelessWidget {
                   : null,
             ),
             child: (thumbUrl == null && mediaUrl == null)
-                ? const Center(child: Icon(Icons.bolt, color: Colors.white24))
+                ? Center(child: Icon(Icons.bolt, color: C.dim))
                 : isVideo
                 ? const Center(
                     child: Icon(
                       Icons.play_arrow_rounded,
-                      color: Colors.white70,
+                      color: C.sub,
                       size: 32,
                     ),
                   )
@@ -1109,7 +1109,7 @@ class _ContentGridItem extends StatelessWidget {
                   color: Colors.black54,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.lock, color: Colors.white70, size: 10),
+                child: Icon(Icons.lock, color: C.sub, size: 10),
               ),
             ),
 
@@ -1132,11 +1132,11 @@ class _ContentGridItem extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSelected ? C.brand : Colors.black26,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white24),
+                  border: Border.all(color: C.dim),
                 ),
                 child: Icon(
                   isSelected ? Icons.check : Icons.circle_outlined,
-                  color: Colors.white,
+                  color: C.text,
                   size: 14,
                 ),
               ),
@@ -1204,20 +1204,20 @@ class _DetailRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(.03),
+        color: C.text.withOpacity(.03),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(.05)),
+        border: Border.all(color: C.text.withOpacity(.05)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: Colors.white38, size: 20),
+          Icon(icon, color: C.dim, size: 20),
           const SizedBox(width: 16),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 label,
-                style: dm(sz: 10, w: FontWeight.w500, c: Colors.white38),
+                style: dm(sz: 10, w: FontWeight.w500, c: C.dim),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1225,7 +1225,7 @@ class _DetailRow extends StatelessWidget {
                 style: syne(
                   sz: 13,
                   w: FontWeight.w700,
-                  c: statusColor ?? Colors.white70,
+                  c: statusColor ?? C.sub,
                 ),
               ),
             ],
@@ -1243,7 +1243,7 @@ class _NavBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
-    child: Icon(icon, color: Colors.white38, size: 26),
+    child: Icon(icon, color: C.dim, size: 26),
   );
 }
 
@@ -1323,7 +1323,7 @@ class _MoreOptionsSheet extends StatelessWidget {
         decoration: BoxDecoration(
           color: C.bg,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
-          border: const Border(top: BorderSide(color: Colors.white10)),
+          border: Border(top: BorderSide(color: C.dim)),
         ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
@@ -1352,9 +1352,9 @@ class _MoreOptionsSheet extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(.03),
+                  color: C.text.withOpacity(.03),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(.05)),
+                  border: Border.all(color: C.text.withOpacity(.05)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1364,7 +1364,7 @@ class _MoreOptionsSheet extends StatelessWidget {
                       style: syne(
                         sz: 13,
                         w: FontWeight.bold,
-                        c: Colors.white70,
+                        c: C.sub,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1477,7 +1477,7 @@ class _MoreOptionsSheet extends StatelessWidget {
                 child: const _SheetBtn(
                   label: 'Necxa Technology Ltd',
                   subtitle:
-                      'Necxa is a product of Necxa Technology Ltd • www.necxa.uk',
+                      'Necxa is a product of Necxa Technology Ltd � www.necxa.uk',
                   icon: Icons.business_outlined,
                   color: Colors.blueAccent,
                   opensExternally: true,
@@ -1571,9 +1571,9 @@ class _SheetBtn extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
     decoration: BoxDecoration(
-      color: Colors.white.withOpacity(.03),
+      color: C.text.withOpacity(.03),
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: Colors.white.withOpacity(.05)),
+      border: Border.all(color: C.text.withOpacity(.05)),
     ),
     child: Row(
       children: [
@@ -1594,7 +1594,7 @@ class _SheetBtn extends StatelessWidget {
         if (opensExternally)
           const Icon(
             Icons.open_in_new_rounded,
-            color: Colors.white24,
+            color: C.dim,
             size: 16,
           ),
       ],
@@ -1627,3 +1627,5 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
       minHeight != oldDelegate.minHeight ||
       child != oldDelegate.child;
 }
+
+

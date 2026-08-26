@@ -11,7 +11,7 @@ class NecxaCameraCaptureScreen extends StatefulWidget {
   final CameraLensDirection initialLensDirection;
   final ValueChanged<CameraLensDirection>? onLensChanged;
 
-  const NecxaCameraCaptureScreen({
+  NecxaCameraCaptureScreen({
     super.key,
     required this.cameras,
     this.initialLensDirection = CameraLensDirection.front,
@@ -71,7 +71,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
     try {
       await previousController?.dispose();
       if (previousController != null && !kIsWeb && Platform.isAndroid) {
-        await Future<void>.delayed(const Duration(milliseconds: 150));
+        await Future<void>.delayed(Duration(milliseconds: 150));
       }
       CameraController? nextController;
       Object? lastError;
@@ -158,7 +158,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
       (total, duration) => total + duration.inMilliseconds / 1000,
     );
     _recordingTimer?.cancel();
-    _recordingTimer = Timer.periodic(const Duration(milliseconds: 100), (t) {
+    _recordingTimer = Timer.periodic(Duration(milliseconds: 100), (t) {
       if (mounted) {
         final elapsed = _recordingStopwatch.elapsed;
         setState(() {
@@ -195,7 +195,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
     }
     _countdownTimer?.cancel();
     setState(() => _countdownRemaining = _countdownSeconds);
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _countdownTimer = Timer.periodic(Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
@@ -246,8 +246,8 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
       final XFile rawFile = await controller.stopVideoRecording();
       if (mounted) setState(() => _isRecording = false);
 
-      // 🛡️ SAFELY STORE CONTENT
-      await Future.delayed(const Duration(milliseconds: 300));
+      // ??? SAFELY STORE CONTENT
+      await Future.delayed(Duration(milliseconds: 300));
       final directory = await getApplicationDocumentsDirectory();
       final String fileName =
           'necxa_clip_${DateTime.now().millisecondsSinceEpoch}.mp4';
@@ -266,7 +266,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
             );
           });
           debugPrint(
-            '🎬 NecxaCapture: Segment added (${_capturedClips.length} total)',
+            '?? NecxaCapture: Segment added (${_capturedClips.length} total)',
           );
         }
       } catch (e) {
@@ -322,12 +322,12 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
         body: SafeArea(
           child: Stack(
             children: [
-              const Center(child: CircularProgressIndicator(color: C.brand)),
+              Center(child: CircularProgressIndicator(color: C.brand)),
               Positioned(
                 top: 8,
                 left: 8,
                 child: IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
+                  icon: Icon(Icons.close, color: C.text),
                   onPressed: () => Navigator.pop(context),
                 ),
               ),
@@ -355,7 +355,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                 child: Center(
                   child: Text(
                     '${_countdownRemaining!}',
-                    style: syne(sz: 88, w: FontWeight.w900, c: Colors.white),
+                    style: syne(sz: 88, w: FontWeight.w900, c: C.text),
                   ),
                 ),
               ),
@@ -367,7 +367,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
               children: [
                 _topBar(),
                 _buildTimeline(),
-                const Spacer(),
+                Spacer(),
                 _sideControls(),
                 _bottomControls(),
               ],
@@ -379,22 +379,22 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
   }
 
   Widget _buildTimeline() {
-    const maxSeconds = 60.0;
+    maxSeconds = 60.0;
     double progress = (_totalRecordedSeconds / maxSeconds).clamp(0.0, 1.0);
 
     return Container(
       width: double.infinity,
       height: 6,
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white10,
+        color: C.dim,
         borderRadius: BorderRadius.circular(3),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) => Stack(
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 100),
+              duration: Duration(milliseconds: 100),
               width: constraints.maxWidth * progress,
               decoration: BoxDecoration(
                 color: C.brand,
@@ -438,7 +438,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
     }
     if (_activeFilter == 'Noir') {
       return ColorFiltered(
-        colorFilter: const ColorFilter.matrix([
+        colorFilter: ColorFilter.matrix([
           0.2126,
           0.7152,
           0.0722,
@@ -469,17 +469,17 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
 
   Widget _topBar() {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white, size: 28),
+            icon: Icon(Icons.close, color: C.text, size: 28),
             onPressed: () => Navigator.pop(context),
           ),
           if (_isRecording || _capturedClips.isNotEmpty)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(20),
@@ -491,12 +491,12 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                     color: _isRecording ? Colors.red : C.brand,
                     size: 12,
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Text(
                     _isRecording
                         ? _formatDuration(_timerSeconds)
                         : '${_capturedClips.length} Clips',
-                    style: syne(sz: 14, w: FontWeight.bold, c: Colors.white),
+                    style: syne(sz: 14, w: FontWeight.bold, c: C.text),
                   ),
                 ],
               ),
@@ -504,7 +504,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
           IconButton(
             icon: Icon(
               _isFrontCamera ? Icons.camera_rear : Icons.camera_front,
-              color: Colors.white,
+              color: C.text,
               size: 28,
             ),
             onPressed:
@@ -523,17 +523,17 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
     return Align(
       alignment: Alignment.centerRight,
       child: Padding(
-        padding: const EdgeInsets.only(right: 16),
+        padding: EdgeInsets.only(right: 16),
         child: Column(
           children: [
             _controlBtn(Icons.zoom_in, 'Zoom', () => _showZoomDialog()),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             _controlBtn(
               Icons.filter_vintage,
               'Filters',
               () => _showFilterDialog(),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: 20),
             _controlBtn(
               Icons.timer_outlined,
               _countdownSeconds == 0 ? 'Timer' : '${_countdownSeconds}s',
@@ -553,17 +553,17 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
-            decoration: const BoxDecoration(
+            padding: EdgeInsets.all(10),
+            decoration: BoxDecoration(
               color: Colors.black26,
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: Colors.white, size: 24),
+            child: Icon(icon, color: C.text, size: 24),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: 4),
           Text(
             label,
-            style: dm(sz: 10, c: Colors.white, w: FontWeight.bold),
+            style: dm(sz: 10, c: C.text, w: FontWeight.bold),
           ),
         ],
       ),
@@ -572,7 +572,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
 
   Widget _bottomControls() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 40),
+      padding: EdgeInsets.only(bottom: 40),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -587,13 +587,13 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(color: C.text, width: 2),
                 borderRadius: BorderRadius.circular(8),
-                color: Colors.white10,
+                color: C.dim,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.photo_library,
-                color: Colors.white,
+                color: C.text,
                 size: 24,
               ),
             ),
@@ -602,9 +602,9 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
           if (!_isRecording && _capturedClips.isNotEmpty)
             _controlBtn(Icons.backspace_outlined, 'Undo', _removeLastClip)
           else
-            const SizedBox(width: 48),
+            SizedBox(width: 48),
 
-          const SizedBox(width: 20),
+          SizedBox(width: 20),
           // Record Button
           GestureDetector(
             onTap: () {
@@ -619,10 +619,10 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
             child: Container(
               width: 80,
               height: 80,
-              padding: const EdgeInsets.all(4),
+              padding: EdgeInsets.all(4),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 4),
+                border: Border.all(color: C.text, width: 4),
               ),
               child: Container(
                 decoration: BoxDecoration(
@@ -637,7 +637,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 20),
+          SizedBox(width: 20),
 
           // Done Button
           if (!_isRecording && _capturedClips.isNotEmpty)
@@ -646,15 +646,15 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
               child: Container(
                 width: 48,
                 height: 48,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: C.brand,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.check, color: Colors.black, size: 28),
+                child: Icon(Icons.check, color: Colors.black, size: 28),
               ),
             )
           else
-            const SizedBox(width: 48),
+            SizedBox(width: 48),
         ],
       ),
     );
@@ -679,12 +679,12 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                     if (sheetContext.mounted) Navigator.pop(sheetContext);
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
+                    padding: EdgeInsets.symmetric(
                       horizontal: 20,
                       vertical: 10,
                     ),
                     decoration: BoxDecoration(
-                      color: _speed == s ? C.brand : Colors.white10,
+                      color: _speed == s ? C.brand : C.dim,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -692,7 +692,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                       style: syne(
                         sz: 14,
                         w: FontWeight.bold,
-                        c: _speed == s ? Colors.black : Colors.white,
+                        c: _speed == s ? Colors.black : C.text,
                       ),
                     ),
                   ),
@@ -712,7 +712,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
         height: 150,
         child: ListView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.all(20),
           children: _filters
               .map(
                 (f) => GestureDetector(
@@ -721,13 +721,13 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                     Navigator.pop(context);
                   },
                   child: Container(
-                    margin: const EdgeInsets.only(right: 16),
+                    margin: EdgeInsets.only(right: 16),
                     width: 80,
                     decoration: BoxDecoration(
-                      color: _activeFilter == f ? C.brand : Colors.white10,
+                      color: _activeFilter == f ? C.brand : C.dim,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: _activeFilter == f ? C.brand : Colors.white24,
+                        color: _activeFilter == f ? C.brand : C.dim,
                       ),
                     ),
                     child: Center(
@@ -736,7 +736,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                         style: syne(
                           sz: 12,
                           w: FontWeight.bold,
-                          c: _activeFilter == f ? Colors.black : Colors.white,
+                          c: _activeFilter == f ? Colors.black : C.text,
                         ),
                       ),
                     ),
@@ -772,12 +772,12 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                       decoration: BoxDecoration(
                         color: _countdownSeconds == seconds
                             ? C.brand
-                            : Colors.white10,
+                            : C.dim,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: _countdownSeconds == seconds
                               ? C.brand
-                              : Colors.white24,
+                              : C.dim,
                         ),
                       ),
                       child: Text(
@@ -787,7 +787,7 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
                           w: FontWeight.bold,
                           c: _countdownSeconds == seconds
                               ? Colors.black
-                              : Colors.white,
+                              : C.text,
                         ),
                       ),
                     ),
@@ -814,3 +814,6 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
     return '${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 }
+
+
+

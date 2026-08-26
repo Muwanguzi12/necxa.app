@@ -82,7 +82,7 @@ double communityModalMaxWidth(double width, {bool isWeb = kIsWeb}) =>
 
 class CommunityScreen extends StatefulWidget {
   final AppState state;
-  CommunityScreen({super.key, required this.state});
+  const CommunityScreen({super.key, required this.state});
 
   @override
   State<CommunityScreen> createState() => _CommunityScreenState();
@@ -215,7 +215,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (target == _currentPageIndex) return;
     _pageController.animateToPage(
       target,
-      duration: Duration(milliseconds: 280),
+      duration: const Duration(milliseconds: 280),
       curve: Curves.easeOutCubic,
     );
   }
@@ -329,7 +329,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               if (items.isEmpty &&
                                   snapshot.connectionState ==
                                       ConnectionState.waiting) {
-                                return Center(
+                                return const Center(
                                   child: CircularProgressIndicator(
                                     color: C.brand,
                                   ),
@@ -403,7 +403,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     key: ValueKey(_selectedTab),
                                     controller: _pageController,
                                     scrollDirection: Axis.vertical,
-                                    physics: BouncingScrollPhysics(),
+                                    physics: const BouncingScrollPhysics(),
                                     itemCount: items.length,
                                     onPageChanged: (index) {
                                       _currentPageIndex = index;
@@ -456,7 +456,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     },
                                     itemBuilder: (context, index) {
                                       if (index >= items.length) {
-                                        return SizedBox.shrink();
+                                        return const SizedBox.shrink();
                                       }
                                       final item = items[index];
 
@@ -485,7 +485,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           right: 16,
                           child: AnimatedOpacity(
                             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
-                            duration: Duration(milliseconds: 300),
+                            duration: const Duration(milliseconds: 300),
                             child: IgnorePointer(
                               ignoring: widget.state.isFeedCleanMode,
                               child: _buildTopHUDContent(),
@@ -504,8 +504,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             right: 16,
                             bottom: MediaQuery.of(context).padding.bottom + 92,
                             child: AnimatedSwitcher(
-                              duration: Duration(milliseconds: 240),
-                              reverseDuration: Duration(
+                              duration: const Duration(milliseconds: 240),
+                              reverseDuration: const Duration(
                                 milliseconds: 180,
                               ),
                               transitionBuilder: (child, animation) {
@@ -523,7 +523,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               },
                               child: _showLiveOverlay
                                   ? _buildLivePipeline()
-                                  : SizedBox.shrink(
+                                  : const SizedBox.shrink(
                                       key: ValueKey('live-overlay-hidden'),
                                     ),
                             ),
@@ -547,7 +547,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _buildDesktopShell(Widget canvas, double width) {
     return DecoratedBox(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: RadialGradient(
           center: Alignment(0.15, -0.2),
           radius: 1.15,
@@ -561,8 +561,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
             Expanded(
               child: Center(
                 child: Container(
-                  constraints: BoxConstraints(maxWidth: 720),
-                  margin: EdgeInsets.symmetric(vertical: 16),
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  margin: const EdgeInsets.symmetric(vertical: 16),
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     color: Colors.black,
@@ -590,22 +590,22 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _buildDesktopNavigation() {
     return Padding(
-      padding: EdgeInsets.fromLTRB(22, 24, 14, 24),
+      padding: const EdgeInsets.fromLTRB(22, 24, 14, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          NecxaLogo(size: 48),
-          SizedBox(height: 18),
+          const NecxaLogo(size: 48),
+          const SizedBox(height: 18),
           Text(
             'COMMUNITY',
             style: syne(sz: 17, w: FontWeight.w900, c: C.text, ls: 1.4),
           ),
-          SizedBox(height: 5),
+          const SizedBox(height: 5),
           Text(
             'Create, discover and shop.',
             style: dm(sz: 11, c: C.dim),
           ),
-          SizedBox(height: 30),
+          const SizedBox(height: 30),
           _desktopNavButton(
             icon: Icons.home_outlined,
             label: 'Home',
@@ -631,20 +631,20 @@ class _CommunityScreenState extends State<CommunityScreen> {
           _desktopNavButton(
             icon: Icons.sensors_rounded,
             label: 'Live now',
-            accent: Color(0xFFFF5267),
+            accent: const Color(0xFFFF5267),
             onTap: _toggleLiveOverlay,
           ),
-          Spacer(),
+          const Spacer(),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: () => _showUploadOptions(context),
-              icon: Icon(Icons.add_rounded),
-              label: Text('Create'),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Create'),
               style: FilledButton.styleFrom(
                 backgroundColor: C.brand,
                 foregroundColor: Colors.black,
-                padding: EdgeInsets.symmetric(vertical: 15),
+                padding: const EdgeInsets.symmetric(vertical: 15),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -665,13 +665,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }) {
     final color = accent ?? (selected ? C.brand : C.sub);
     return Padding(
-      padding: EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
-          duration: Duration(milliseconds: 160),
-          padding: EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
           decoration: BoxDecoration(
             color: selected ? C.brand.withValues(alpha: 0.12) : null,
             borderRadius: BorderRadius.circular(12),
@@ -684,7 +684,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
           child: Row(
             children: [
               Icon(icon, size: 20, color: color),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               Text(
                 label,
                 style: dm(sz: 13, w: FontWeight.w700, c: color),
@@ -698,7 +698,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _buildDesktopGuide() {
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 28, 24, 28),
+      padding: const EdgeInsets.fromLTRB(16, 28, 24, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -706,30 +706,30 @@ class _CommunityScreenState extends State<CommunityScreen> {
             'QUICK CONTROLS',
             style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1.3),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           _keyboardHint('↑  ↓', 'Previous / next'),
           _keyboardHint('Space', 'Next item'),
           _keyboardHint('Esc', 'Close / go home'),
-          SizedBox(height: 28),
+          const SizedBox(height: 28),
           Text(
             _selectedTab == 0 ? 'Community feed' : 'Community shop',
             style: syne(sz: 16, w: FontWeight.w800, c: C.text),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             _selectedTab == 0
                 ? 'Watch creator posts, react, comment, share, gift and connect.'
                 : 'Explore verified listings, reviews and secure checkout.',
             style: dm(sz: 12, c: C.dim),
           ),
-          Spacer(),
+          const Spacer(),
           OutlinedButton.icon(
             onPressed: () => _refreshFuture(force: true),
-            icon: Icon(Icons.refresh_rounded, size: 18),
-            label: Text('Refresh'),
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Refresh'),
             style: OutlinedButton.styleFrom(
               foregroundColor: C.sub,
-              side: BorderSide(color: C.dim),
+              side: const BorderSide(color: C.dim),
             ),
           ),
         ],
@@ -739,12 +739,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _keyboardHint(String keyLabel, String action) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
           Container(
-            constraints: BoxConstraints(minWidth: 42),
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            constraints: const BoxConstraints(minWidth: 42),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
               color: C.text.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(7),
@@ -756,7 +756,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               style: dm(sz: 10, w: FontWeight.w700, c: C.sub),
             ),
           ),
-          SizedBox(width: 10),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(action, style: dm(sz: 11, c: C.dim)),
           ),
@@ -773,13 +773,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
         GestureDetector(
           onTap: () => widget.state.go('home'),
           child: Container(
-            padding: EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.3),
               shape: BoxShape.circle,
               border: Border.all(color: C.text.withOpacity(0.1)),
             ),
-            child: Icon(
+            child: const Icon(
               Icons.arrow_back_ios_new,
               color: C.text,
               size: 16,
@@ -794,7 +794,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildSyncDots(),
-            SizedBox(height: 6),
+            const SizedBox(height: 6),
             GestureDetector(
               onTap: () {
                 setState(() {
@@ -814,7 +814,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 });
               },
               child: Container(
-                padding: EdgeInsets.all(3),
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
                   color: C.text.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(30),
@@ -824,7 +824,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      padding: EdgeInsets.symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 6,
                       ),
@@ -844,7 +844,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       ),
                     ),
                     Container(
-                      padding: EdgeInsets.symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 6,
                       ),
@@ -878,38 +878,38 @@ class _CommunityScreenState extends State<CommunityScreen> {
             GestureDetector(
               onTap: () => _showUploadOptions(context),
               child: Container(
-                padding: EdgeInsets.all(9),
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.3),
                   shape: BoxShape.circle,
                   border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.cloud_upload_outlined,
                   color: C.text,
                   size: 18,
                 ),
               ),
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             // Search Button
             GestureDetector(
               onTap: () => _showSearchSheet(context),
               child: Container(
-                padding: EdgeInsets.all(9),
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.3),
                   shape: BoxShape.circle,
                   border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.search_rounded,
                   color: C.text,
                   size: 18,
                 ),
               ),
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
           ],
         ),
       ],
@@ -920,15 +920,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
     return Align(
       alignment: Alignment.bottomCenter,
       child: ConstrainedBox(
-        key: ValueKey('live-overlay-visible'),
-        constraints: BoxConstraints(maxWidth: 520),
+        key: const ValueKey('live-overlay-visible'),
+        constraints: const BoxConstraints(maxWidth: 520),
         child: Material(
           color: Colors.transparent,
           child: Container(
             height: 194,
-            padding: EdgeInsets.fromLTRB(14, 12, 10, 12),
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
             decoration: BoxDecoration(
-              color: Color(0xF2111419),
+              color: const Color(0xF2111419),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: C.dim),
               boxShadow: const [
@@ -947,32 +947,32 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     Container(
                       width: 7,
                       height: 7,
-                      decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                         color: Color(0xFFFF334E),
                         shape: BoxShape.circle,
                       ),
                     ),
-                    SizedBox(width: 7),
+                    const SizedBox(width: 7),
                     Text(
                       'LIVE Now',
                       style: syne(sz: 13, w: FontWeight.w900, c: C.text),
                     ),
-                    Spacer(),
+                    const Spacer(),
                     if (_activeLiveStreams.isNotEmpty)
                       TextButton(
                         onPressed: () => _showLiveDirectory(_activeLiveStreams),
                         style: TextButton.styleFrom(
                           foregroundColor: C.sub,
                           visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
-                        child: Text('View All'),
+                        child: const Text('View All'),
                       ),
                     IconButton(
                       onPressed: _toggleLiveOverlay,
                       tooltip: 'Collapse live streams',
                       visualDensity: VisualDensity.compact,
-                      icon: Icon(
+                      icon: const Icon(
                         Icons.keyboard_arrow_down_rounded,
                         color: C.sub,
                         size: 22,
@@ -980,7 +980,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     ),
                   ],
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Expanded(child: _buildLiveStreamRail()),
               ],
             ),
@@ -1004,21 +1004,21 @@ class _CommunityScreenState extends State<CommunityScreen> {
             clipBehavior: Clip.none,
             children: [
               AnimatedContainer(
-                duration: Duration(milliseconds: 180),
+                duration: const Duration(milliseconds: 180),
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
                   color: _showLiveOverlay
-                      ? Color(0x33FF334E)
+                      ? const Color(0x33FF334E)
                       : Colors.black.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: _showLiveOverlay
-                        ? Color(0xFFFF334E)
+                        ? const Color(0xFFFF334E)
                         : C.text.withValues(alpha: 0.12),
                   ),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.sensors_rounded,
                   color: C.text,
                   size: 23,
@@ -1027,12 +1027,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
               Positioned(
                 bottom: -1,
                 child: Container(
-                  padding: EdgeInsets.symmetric(
+                  padding: const EdgeInsets.symmetric(
                     horizontal: 6,
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: Color(0xFFFF334E),
+                    color: const Color(0xFFFF334E),
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(color: Colors.black, width: 1.5),
                   ),
@@ -1056,7 +1056,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (!opening) return;
 
     _loadLiveStreams();
-    _liveRefreshTimer = Timer.periodic(Duration(seconds: 15), (_) {
+    _liveRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _loadLiveStreams(quiet: true);
     });
   }
@@ -1079,7 +1079,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _buildLiveStreamRail() {
     if (_loadingLiveStreams && _activeLiveStreams.isEmpty) {
-      return Center(
+      return const Center(
         child: SizedBox(
           width: 22,
           height: 22,
@@ -1095,12 +1095,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
+            const Icon(
               Icons.videocam_off_outlined,
               color: C.dim,
               size: 22,
             ),
-            SizedBox(width: 10),
+            const SizedBox(width: 10),
             Text(
               'No live streams right now',
               style: dm(sz: 12, c: C.dim),
@@ -1113,7 +1113,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     return ListView.separated(
       scrollDirection: Axis.horizontal,
       itemCount: _activeLiveStreams.length,
-      separatorBuilder: (_, __) => SizedBox(width: 10),
+      separatorBuilder: (_, __) => const SizedBox(width: 10),
       itemBuilder: (context, index) =>
           _buildLiveStreamTile(_activeLiveStreams[index]),
     );
@@ -1165,12 +1165,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   left: 5,
                   bottom: 5,
                   child: Container(
-                    padding: EdgeInsets.symmetric(
+                    padding: const EdgeInsets.symmetric(
                       horizontal: 5,
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: Color(0xFFFF334E),
+                      color: const Color(0xFFFF334E),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -1183,7 +1183,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   right: 5,
                   bottom: 5,
                   child: Container(
-                    padding: EdgeInsets.symmetric(
+                    padding: const EdgeInsets.symmetric(
                       horizontal: 5,
                       vertical: 3,
                     ),
@@ -1194,8 +1194,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.person, color: C.text, size: 8),
-                        SizedBox(width: 2),
+                        const Icon(Icons.person, color: C.text, size: 8),
+                        const SizedBox(width: 2),
                         Text(
                           _compactCount(viewerCount),
                           style: dm(sz: 8, w: FontWeight.bold, c: C.text),
@@ -1206,7 +1206,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ),
               ],
             ),
-            SizedBox(height: 5),
+            const SizedBox(height: 5),
             Text(
               hostName,
               maxLines: 1,
@@ -1227,9 +1227,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _liveStreamPlaceholder() {
     return Container(
-      color: Color(0xFF252932),
+      color: const Color(0xFF252932),
       alignment: Alignment.center,
-      child: Icon(Icons.person, color: C.dim, size: 30),
+      child: const Icon(Icons.person, color: C.dim, size: 30),
     );
   }
 
@@ -1271,8 +1271,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Color(0xFF111419),
-      shape: RoundedRectangleBorder(
+      backgroundColor: const Color(0xFF111419),
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
       ),
       builder: (sheetContext) => SafeArea(
@@ -1281,29 +1281,29 @@ class _CommunityScreenState extends State<CommunityScreen> {
           child: Column(
             children: [
               Padding(
-                padding: EdgeInsets.fromLTRB(20, 18, 10, 12),
+                padding: const EdgeInsets.fromLTRB(20, 18, 10, 12),
                 child: Row(
                   children: [
-                    Icon(Icons.sensors_rounded, color: Color(0xFFFF334E)),
-                    SizedBox(width: 9),
+                    const Icon(Icons.sensors_rounded, color: Color(0xFFFF334E)),
+                    const SizedBox(width: 9),
                     Text(
                       'LIVE Now',
                       style: syne(sz: 17, w: FontWeight.w900, c: C.text),
                     ),
-                    Spacer(),
+                    const Spacer(),
                     IconButton(
                       onPressed: () => Navigator.pop(sheetContext),
                       tooltip: 'Close',
-                      icon: Icon(Icons.close, color: C.sub),
+                      icon: const Icon(Icons.close, color: C.sub),
                     ),
                   ],
                 ),
               ),
-              Divider(color: C.dim, height: 1),
+              const Divider(color: C.dim, height: 1),
               Expanded(
                 child: GridView.builder(
-                  padding: EdgeInsets.all(16),
-                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 116,
                     mainAxisExtent: 126,
                     crossAxisSpacing: 12,
@@ -1315,7 +1315,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     onTap: () async {
                       Navigator.pop(sheetContext);
                       await Future<void>.delayed(
-                        Duration(milliseconds: 180),
+                        const Duration(milliseconds: 180),
                       );
                       if (!mounted) return;
                       _openLiveStream(streams[index]);
@@ -1347,22 +1347,22 @@ class _CommunityScreenState extends State<CommunityScreen> {
         // Green: Success (We'll show all three but highlight the active one)
 
         final Color redCol = (isOffline || isSyncing)
-            ? Color(0xFFFF5252)
+            ? const Color(0xFFFF5252)
             : C.dim;
         final Color yellowCol = isSyncing
-            ? Color(0xFFFFD740)
+            ? const Color(0xFFFFD740)
             : C.dim;
         final Color greenCol = (!isOffline && !isSyncing)
-            ? Color(0xFF69F0AE)
+            ? const Color(0xFF69F0AE)
             : C.dim;
 
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             _dot(redCol, sz: 3, isPulse: isOffline),
-            SizedBox(width: 2),
+            const SizedBox(width: 2),
             _dot(yellowCol, sz: 3, isPulse: isSyncing),
-            SizedBox(width: 2),
+            const SizedBox(width: 2),
             _dot(greenCol, sz: 3),
           ],
         );
@@ -1402,12 +1402,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
             size: 80,
             color: C.text.withOpacity(0.1),
           ),
-          SizedBox(height: 24),
+          const SizedBox(height: 24),
           Text(
             hasError ? 'Network Disconnected' : 'Feed is Empty',
             style: syne(sz: 20, w: FontWeight.w900, c: C.text),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             hasError
                 ? 'Please check your internet connection'
@@ -1415,7 +1415,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             style: dm(sz: 14, c: C.text.withOpacity(0.5)),
             textAlign: TextAlign.center,
           ),
-          SizedBox(height: 32),
+          const SizedBox(height: 32),
           GestureDetector(
             onTap: () {
               setState(() {
@@ -1425,7 +1425,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               });
             },
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               decoration: BoxDecoration(
                 color: C.brand.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(30),
@@ -1458,11 +1458,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
             ),
             child: Container(
               decoration: BoxDecoration(
-                color: Color(0xFF0D121B),
+                color: const Color(0xFF0D121B),
                 borderRadius: BorderRadius.circular(kIsWeb ? 24 : 28),
                 border: Border.all(color: C.dim),
               ),
-              padding: EdgeInsets.all(24),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1474,7 +1474,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
                   Text(
                     'CREATE CONTENT',
                     style: syne(
@@ -1484,7 +1484,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       ls: 1,
                     ),
                   ),
-                  SizedBox(height: 32),
+                  const SizedBox(height: 32),
                   _uploadOption(
                     icon: Icons.post_add_rounded,
                     title: 'New Post',
@@ -1494,7 +1494,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       widget.state.go('upload');
                     },
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   _uploadOption(
                     icon: Icons.live_tv_rounded,
                     title: 'Go Live',
@@ -1518,7 +1518,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       );
                     },
                   ),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -1538,7 +1538,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(20),
@@ -1547,14 +1547,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
         child: Row(
           children: [
             Container(
-              padding: EdgeInsets.all(12),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: (color ?? C.brand).withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: color ?? C.brand, size: 24),
             ),
-            SizedBox(width: 16),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1567,7 +1567,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ],
               ),
             ),
-            Icon(
+            const Icon(
               Icons.arrow_forward_ios_rounded,
               color: C.dim,
               size: 14,
@@ -1638,17 +1638,17 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
     _pulseController = AnimationController(
       vsync: this,
-      duration: Duration(seconds: 2),
+      duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
     _expandController = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 300),
     );
 
     _discController = AnimationController(
       vsync: this,
-      duration: Duration(seconds: 4),
+      duration: const Duration(seconds: 4),
     );
     if (_isPlaying) _discController.repeat();
   }
@@ -1710,7 +1710,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
     // Show a small loader or feedback
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      const SnackBar(
         content: Text('Opening Sound Hub...'),
         duration: Duration(milliseconds: 500),
       ),
@@ -1805,7 +1805,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
   void _startCollapseTimer() {
     _collapseTimer?.cancel();
-    _collapseTimer = Timer(Duration(seconds: 4), () {
+    _collapseTimer = Timer(const Duration(seconds: 4), () {
       if (mounted && _isExpanded) {
         setState(() {
           _isExpanded = false;
@@ -1827,7 +1827,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     widget.state.isFeedCleanMode = true;
     widget.state.notify();
 
-    Future.delayed(Duration(seconds: 3), () {
+    Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _showCleanHint = false);
     });
   }
@@ -1909,7 +1909,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                   child: Container(
-                    color: Color(0x660A0F2C),
+                    color: const Color(0x660A0F2C),
                   ), // 40% opacity Night Blue
                 ),
               ),
@@ -1955,7 +1955,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             CachedNetworkImage(
                               imageUrl: mediaUrl,
                               fit: BoxFit.contain,
-                              placeholder: (context, url) => Center(
+                              placeholder: (context, url) => const Center(
                                 child: CircularProgressIndicator(
                                   color: C.brand,
                                   strokeWidth: 2,
@@ -1964,7 +1964,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                               errorWidget: (context, url, error) => Stack(
                                 children: [
                                   _buildFallbackBackground(),
-                                  Center(
+                                  const Center(
                                     child: Icon(
                                       Icons.broken_image_outlined,
                                       color: C.dim,
@@ -1995,7 +1995,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             },
             onLongPress: () {
               setState(() => _isCleanMode = true);
-              Future.delayed(Duration(seconds: 3), () {
+              Future.delayed(const Duration(seconds: 3), () {
                 if (mounted) setState(() => _isCleanMode = false);
               });
             },
@@ -2006,7 +2006,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         // 3. UI Layer (TOP LAYER)
         AnimatedOpacity(
           opacity: _isCleanMode ? 0.0 : 1.0,
-          duration: Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 300),
           child: IgnorePointer(
             ignoring: _isCleanMode,
             child: Stack(
@@ -2014,7 +2014,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 // Scrim
                 IgnorePointer(
                   child: Container(
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
@@ -2052,7 +2052,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           c: C.text,
                         ),
                       ),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Text(
                         description,
                         style: dm(sz: 13, c: C.text.withOpacity(0.9)),
@@ -2060,7 +2060,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
                       // 🚀 SHOP REEL: Inline Buy Button if linked to a listing
                       if (widget.post['listings'] != null) ...[
-                        SizedBox(height: 12),
+                        const SizedBox(height: 12),
                         _buildMiniBuyCard(widget.post['listings']),
                       ],
                     ],
@@ -2096,7 +2096,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           bottom: MediaQuery.of(context).padding.bottom + 40,
           child: AnimatedOpacity(
             opacity: _isCleanMode ? 0.0 : 1.0,
-            duration: Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 300),
             child: IgnorePointer(
               ignoring: _isCleanMode,
               child: GestureDetector(
@@ -2113,7 +2113,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           bottom: MediaQuery.of(context).padding.bottom + 100,
           child: AnimatedOpacity(
             opacity: _isCleanMode ? 0.0 : 1.0,
-            duration: Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 300),
             child: IgnorePointer(
               ignoring: _isCleanMode,
               child: Column(
@@ -2125,25 +2125,25 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     iconColor: _isLiked ? Colors.redAccent : C.text,
                     onTap: _handleLike,
                   ),
-                  SizedBox(height: 14),
+                  const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.chat_bubble_outline,
                     label: kNum(_commentsCount),
                     onTap: _showComments,
                   ),
-                  SizedBox(height: 14),
+                  const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.card_giftcard,
                     label: 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
-                      widget.state.targetProfileId = widget.post['author_id'] ?? widget.post['user_id'];
+                      widget.state.targetProfileId = widget.post['author_id'];
                       widget.state.listingId = widget.post['id'];
                       widget.state.showGiftFloat = true;
                       widget.state.notify();
                     },
                   ),
-                  SizedBox(height: 14),
+                  const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.share_outlined,
                     label: 'Share',
@@ -2165,7 +2165,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       );
                     },
                   ),
-                  SizedBox(height: 14),
+                  const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.more_horiz,
                     label: 'More',
@@ -2190,15 +2190,15 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         decoration: BoxDecoration(
-          color: Color(0xFF0D121B),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          color: const Color(0xFF0D121B),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           border: Border.all(color: C.text.withOpacity(0.1)),
         ),
         child: SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Container(
                 width: 40,
                 height: 4,
@@ -2207,7 +2207,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
               if (postId != null)
                 ListTile(
                   leading: Icon(
@@ -2225,7 +2225,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(
+                  leading: const Icon(
                     Icons.visibility_off_outlined,
                     color: C.sub,
                   ),
@@ -2240,7 +2240,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (isOwner && postId != null)
                 ListTile(
-                  leading: Icon(
+                  leading: const Icon(
                     Icons.delete_outline_rounded,
                     color: Colors.redAccent,
                   ),
@@ -2253,7 +2253,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     final confirmed = await showDialog<bool>(
                       context: context,
                       builder: (dialogContext) => AlertDialog(
-                        backgroundColor: Color(0xFF0D121B),
+                        backgroundColor: const Color(0xFF0D121B),
                         title: Text(
                           'Delete this post?',
                           style: syne(c: C.text, w: FontWeight.w800),
@@ -2266,14 +2266,14 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           TextButton(
                             onPressed: () =>
                                 Navigator.pop(dialogContext, false),
-                            child: Text('Cancel'),
+                            child: const Text('Cancel'),
                           ),
                           FilledButton(
                             onPressed: () => Navigator.pop(dialogContext, true),
                             style: FilledButton.styleFrom(
                               backgroundColor: Colors.redAccent,
                             ),
-                            child: Text('Delete'),
+                            child: const Text('Delete'),
                           ),
                         ],
                       ),
@@ -2284,13 +2284,13 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       await widget.state.social.deletePost(postId);
                       if (mounted) {
                         messenger.showSnackBar(
-                          SnackBar(content: Text('Post deleted')),
+                          const SnackBar(content: Text('Post deleted')),
                         );
                       }
                     } catch (_) {
                       if (mounted) {
                         messenger.showSnackBar(
-                          SnackBar(
+                          const SnackBar(
                             content: Text(
                               'Could not delete this post. Try again.',
                             ),
@@ -2303,7 +2303,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(
+                  leading: const Icon(
                     Icons.report_problem_outlined,
                     color: C.text,
                   ),
@@ -2322,7 +2322,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       );
                       if (mounted) {
                         messenger.showSnackBar(
-                          SnackBar(
+                          const SnackBar(
                             content: Text('Post reported for review'),
                           ),
                         );
@@ -2330,7 +2330,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     } catch (_) {
                       if (mounted) {
                         messenger.showSnackBar(
-                          SnackBar(
+                          const SnackBar(
                             content: Text(
                               'Could not submit the report. Try again.',
                             ),
@@ -2341,7 +2341,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     }
                   },
                 ),
-              SizedBox(height: 20),
+              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -2353,7 +2353,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
-    Color? iconColor,
+    Color iconColor = C.text,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -2361,14 +2361,14 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: EdgeInsets.all(8),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.3),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: iconColor ?? C.text, size: 20),
+            child: Icon(icon, color: iconColor, size: 20),
           ),
-          SizedBox(height: 2),
+          const SizedBox(height: 2),
           Text(
             label.toUpperCase(),
             style: dm(sz: 8, w: FontWeight.w700, c: C.text, ls: 1),
@@ -2433,7 +2433,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               child: Container(
                 width: 52,
                 height: 52,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: Color(0xFF00E5FF),
                 ),
@@ -2447,7 +2447,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: Color(0xFF00E5FF), width: 1.5),
+              border: Border.all(color: const Color(0xFF00E5FF), width: 1.5),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x3300E5FF),
@@ -2471,7 +2471,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             },
             child: CircleAvatar(
               radius: 21,
-              backgroundColor: Color(0xFF0A0F2C),
+              backgroundColor: const Color(0xFF0A0F2C),
               backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
               child: photoUrl == null
                   ? Text(
@@ -2490,7 +2490,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               width: 10,
               height: 10,
               decoration: BoxDecoration(
-                color: Color(0xFF00E5FF),
+                color: const Color(0xFF00E5FF),
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.black, width: 2),
               ),
@@ -2510,7 +2510,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   scale: (isFollowed || authorId == widget.state.user?.id)
                       ? 0.0
                       : 1.0,
-                  duration: Duration(milliseconds: 300),
+                  duration: const Duration(milliseconds: 300),
                   curve: Curves.easeOutBack,
                   child: GestureDetector(
                     onTap: () {
@@ -2519,15 +2519,15 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       }
                     },
                     child: Container(
-                      padding: EdgeInsets.all(4),
-                      decoration: BoxDecoration(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
                         color: Color(0xFF00E5FF),
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(color: Colors.black26, blurRadius: 4),
                         ],
                       ),
-                      child: Icon(
+                      child: const Icon(
                         Icons.add,
                         color: Colors.black,
                         size: 14,
@@ -2549,11 +2549,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
     return Container(
       height: 46,
-      margin: EdgeInsets.only(left: 20), // Offset for avatar
-      padding: EdgeInsets.fromLTRB(28, 4, 12, 4),
-      constraints: BoxConstraints(maxWidth: 260),
+      margin: const EdgeInsets.only(left: 20), // Offset for avatar
+      padding: const EdgeInsets.fromLTRB(28, 4, 12, 4),
+      constraints: const BoxConstraints(maxWidth: 260),
       decoration: BoxDecoration(
-        color: Color(0xFF0A0F2C).withOpacity(0.5),
+        color: const Color(0xFF0A0F2C).withOpacity(0.5),
         borderRadius: BorderRadius.circular(23),
         border: Border.all(color: C.text.withOpacity(0.08)),
         boxShadow: [
@@ -2582,7 +2582,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ],
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
 
               // Follow Button
               _FollowButton(
@@ -2595,7 +2595,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 },
               ),
 
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
 
               // Creator Chat
               GestureDetector(
@@ -2622,12 +2622,12 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   }
                 },
                 child: Container(
-                  padding: EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: C.text.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.chat_bubble_outline_rounded,
                     color: Color(0xFF00E5FF),
                     size: 16,
@@ -2635,7 +2635,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               ),
 
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
 
               // Global Mute Toggle (Sync)
               ListenableBuilder(
@@ -2647,7 +2647,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       widget.state.setGlobalMute(!widget.state.isGlobalMuted);
                     },
                     child: Container(
-                      padding: EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: widget.state.isGlobalMuted
                             ? Colors.redAccent.withOpacity(0.2)
@@ -2660,7 +2660,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             : Icons.volume_up,
                         color: widget.state.isGlobalMuted
                             ? Colors.redAccent
-                            : Color(0xFF00E5FF),
+                            : const Color(0xFF00E5FF),
                         size: 16,
                       ),
                     ),
@@ -2668,7 +2668,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 },
               ),
 
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
 
               // Menu
               GestureDetector(
@@ -2676,7 +2676,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   _startCollapseTimer();
                   _showThreeDotMenu(context);
                 },
-                child: Icon(
+                child: const Icon(
                   Icons.more_horiz,
                   color: C.text,
                   size: 18,
@@ -2698,7 +2698,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       barrierDismissible: true,
       barrierLabel: 'Menu',
       barrierColor: Colors.transparent,
-      transitionDuration: Duration(milliseconds: 200),
+      transitionDuration: const Duration(milliseconds: 200),
       pageBuilder: (_, __, ___) {
         return Stack(
           children: [
@@ -2715,9 +2715,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
                     child: Container(
                       width: 180,
-                      padding: EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
                       decoration: BoxDecoration(
-                        color: Color(0xFF0A0F2C).withOpacity(0.8),
+                        color: const Color(0xFF0A0F2C).withOpacity(0.8),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: C.dim),
                       ),
@@ -2769,7 +2769,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                 'Inappropriate content',
                               );
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
+                                const SnackBar(
                                   content: Text('Post reported'),
                                   backgroundColor: Colors.redAccent,
                                 ),
@@ -2799,7 +2799,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
             Icon(
@@ -2807,9 +2807,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               size: 18,
               color:
                   color ??
-                  (isAccent ? Color(0xFF00E5FF) : C.sub),
+                  (isAccent ? const Color(0xFF00E5FF) : C.sub),
             ),
-            SizedBox(width: 12),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 label,
@@ -2817,7 +2817,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   sz: 13,
                   c:
                       color ??
-                      (isAccent ? Color(0xFF00E5FF) : C.text),
+                      (isAccent ? const Color(0xFF00E5FF) : C.text),
                 ),
               ),
             ),
@@ -2833,20 +2833,20 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       child: Container(
         width: 40,
         height: 40,
-        padding: EdgeInsets.all(10),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: SweepGradient(
+          gradient: const SweepGradient(
             colors: [Colors.black, Colors.grey, Colors.black],
           ),
           border: Border.all(color: C.dim, width: 2),
         ),
         child: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: Colors.black,
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.music_note, color: C.text, size: 12),
+          child: const Icon(Icons.music_note, color: C.text, size: 12),
         ),
       ),
     );
@@ -2861,7 +2861,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         fit: BoxFit.contain,
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
-          return Center(
+          return const Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: C.dim,
@@ -2887,7 +2887,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: C.text.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
@@ -2906,20 +2906,20 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                         ? Image.network(
                             url,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stack) => Icon(
+                            errorBuilder: (context, error, stack) => const Icon(
                               Icons.shopping_bag_outlined,
                               color: C.dim,
                               size: 14,
                             ),
                           )
-                        : Icon(
+                        : const Icon(
                             Icons.shopping_bag_outlined,
                             color: C.dim,
                             size: 14,
                           ),
                   ),
                 ),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -2938,13 +2938,13 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       style: dm(
                         sz: 11,
                         w: FontWeight.bold,
-                        c: Color(0xFF00E5FF),
+                        c: const Color(0xFF00E5FF),
                       ),
                     ),
                   ],
                 ),
-                SizedBox(width: 8),
-                Icon(
+                const SizedBox(width: 8),
+                const Icon(
                   Icons.arrow_forward_ios,
                   color: C.dim,
                   size: 10,
@@ -2968,7 +2968,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           colors: [C.cardDk, C.bg],
         ),
       ),
-      child: Center(
+      child: const Center(
         child: Icon(Icons.style_outlined, size: 100, color: C.dim),
       ),
     );
@@ -2997,13 +2997,13 @@ class _FollowButtonState extends State<_FollowButton> {
       },
       child: AnimatedScale(
         scale: 1.0,
-        duration: Duration(milliseconds: 100),
+        duration: const Duration(milliseconds: 100),
         child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(
             gradient: _following
                 ? null
-                : LinearGradient(
+                : const LinearGradient(
                     colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
                   ),
             color: _following ? C.dim : null,
@@ -3012,7 +3012,7 @@ class _FollowButtonState extends State<_FollowButton> {
                 ? null
                 : [
                     BoxShadow(
-                      color: Color(0xFF00E5FF).withOpacity(0.3),
+                      color: const Color(0xFF00E5FF).withOpacity(0.3),
                       blurRadius: 8,
                     ),
                   ],
@@ -3074,18 +3074,18 @@ class _ShopReelItemState extends State<_ShopReelItem>
     _commentsCount = widget.listing['comments_count'] ?? 0;
 
     // 🚀 CLEVER LOADING: Delay the buy panel by 4s to save data and focus on media
-    _buyPanelTimer = Timer(Duration(seconds: 4), () {
+    _buyPanelTimer = Timer(const Duration(seconds: 4), () {
       if (mounted) setState(() => _buyPanelVisible = true);
     });
 
     _pulseController = AnimationController(
       vsync: this,
-      duration: Duration(seconds: 2),
+      duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
     _expandController = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 300),
     );
   }
 
@@ -3113,7 +3113,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
 
   void _startCollapseTimer() {
     _collapseTimer?.cancel();
-    _collapseTimer = Timer(Duration(seconds: 4), () {
+    _collapseTimer = Timer(const Duration(seconds: 4), () {
       if (mounted && _isExpanded) {
         setState(() {
           _isExpanded = false;
@@ -3197,7 +3197,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
               ClipRect(
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: Container(color: Color(0x660A0F2C)),
+                  child: Container(color: const Color(0x660A0F2C)),
                 ),
               ),
               Container(color: Colors.black45),
@@ -3224,7 +3224,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     mediaUrl,
                     fit: BoxFit.contain,
                     errorBuilder: (context, error, stack) =>
-                        SizedBox.shrink(),
+                        const SizedBox.shrink(),
                   ),
           )
         else
@@ -3236,7 +3236,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
           onLongPress: () {
             widget.state.isFeedCleanMode = true;
             widget.state.notify();
-            Future.delayed(Duration(seconds: 3), () {
+            Future.delayed(const Duration(seconds: 3), () {
               widget.state.isFeedCleanMode = false;
               widget.state.notify();
             });
@@ -3256,11 +3256,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
         // 4. OVERLAY GRADIENT
         AnimatedOpacity(
           opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
-          duration: Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 300),
           child: IgnorePointer(
             ignoring: true,
             child: Container(
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -3277,7 +3277,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
           bottom: MediaQuery.of(context).padding.bottom + 120,
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
-            duration: Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 300),
             child: IgnorePointer(
               ignoring: widget.state.isFeedCleanMode,
               child: Column(
@@ -3289,18 +3289,18 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     iconColor: _isLiked ? Colors.redAccent : C.text,
                     onTap: _handleLike,
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.chat_bubble_outline,
                     label: kNum(_commentsCount),
                     onTap: () =>
                         _showCommentSheet(context, widget.listing['id']),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.message_outlined,
                     label: 'Chat',
-                    iconColor: Color(0xFF00E5FF),
+                    iconColor: const Color(0xFF00E5FF),
                     onTap: () {
                       final authorId =
                           widget.listing['author_id'] ??
@@ -3322,7 +3322,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       }
                     },
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.card_giftcard,
                     label: 'Gift',
@@ -3333,14 +3333,14 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       widget.state.notify();
                     },
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.star_outline,
                     label: 'Reviews',
                     iconColor: Colors.orangeAccent,
                     onTap: () => _showReviewSheet(context),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.share_outlined,
                     label: 'Share',
@@ -3372,7 +3372,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
           right: 80, // Leave space for side actions
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
-            duration: Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 300),
             child: IgnorePointer(
               ignoring: widget.state.isFeedCleanMode,
               child: Column(
@@ -3381,21 +3381,21 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 children: [
                   // 1. Creator Info Bubble
                   _buildExpandableBubble(),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
                   // 2. Product Description & Price (Always visible)
                   Text(
                     title,
                     style: syne(sz: 14, w: FontWeight.w900, c: C.text),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
                     description,
                     style: dm(sz: 12, c: C.sub),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
                   // 3. 4s DELAYED BUY OVERLAY
                   // This overlays on top but is fairly small as requested.
@@ -3413,7 +3413,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
     return Container(
       width: double.infinity,
       height: 90,
-      padding: EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.3),
         borderRadius: BorderRadius.circular(20),
@@ -3428,7 +3428,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
               color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Center(
+            child: const Center(
               child: SizedBox(
                 width: 16,
                 height: 16,
@@ -3439,13 +3439,13 @@ class _ShopReelItemState extends State<_ShopReelItem>
               ),
             ),
           ),
-          SizedBox(width: 16),
+          const SizedBox(width: 16),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(width: 120, height: 10, color: C.dim),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Container(width: 80, height: 10, color: C.dim),
             ],
           ),
@@ -3512,7 +3512,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
               child: Container(
                 width: 52,
                 height: 52,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: Color(0xFF00E5FF),
                 ),
@@ -3526,7 +3526,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: Color(0xFF00E5FF), width: 1.5),
+              border: Border.all(color: const Color(0xFF00E5FF), width: 1.5),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x3300E5FF),
@@ -3551,7 +3551,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
             },
             child: CircleAvatar(
               radius: 21,
-              backgroundColor: Color(0xFF0A0F2C),
+              backgroundColor: const Color(0xFF0A0F2C),
               backgroundImage: NetworkImage(photoUrl),
               child: null,
             ),
@@ -3571,7 +3571,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   scale: (isFollowed || authorId == widget.state.user?.id)
                       ? 0.0
                       : 1.0,
-                  duration: Duration(milliseconds: 300),
+                  duration: const Duration(milliseconds: 300),
                   curve: Curves.easeOutBack,
                   child: GestureDetector(
                     onTap: () {
@@ -3580,15 +3580,15 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       }
                     },
                     child: Container(
-                      padding: EdgeInsets.all(4),
-                      decoration: BoxDecoration(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
                         color: Color(0xFF00E5FF),
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(color: Colors.black26, blurRadius: 4),
                         ],
                       ),
-                      child: Icon(
+                      child: const Icon(
                         Icons.add,
                         color: Colors.black,
                         size: 14,
@@ -3613,11 +3613,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
 
     return Container(
       height: 46,
-      margin: EdgeInsets.only(left: 20),
-      padding: EdgeInsets.fromLTRB(28, 4, 12, 4),
-      constraints: BoxConstraints(maxWidth: 240),
+      margin: const EdgeInsets.only(left: 20),
+      padding: const EdgeInsets.fromLTRB(28, 4, 12, 4),
+      constraints: const BoxConstraints(maxWidth: 240),
       decoration: BoxDecoration(
-        color: Color(0xFF0A0F2C).withOpacity(0.5),
+        color: const Color(0xFF0A0F2C).withOpacity(0.5),
         borderRadius: BorderRadius.circular(23),
         border: Border.all(color: C.text.withOpacity(0.08)),
         boxShadow: [
@@ -3646,7 +3646,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   ],
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
 
               // Follow Button
               _FollowButton(
@@ -3658,7 +3658,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 },
               ),
 
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
 
               // Creator Chat
               GestureDetector(
@@ -3676,12 +3676,12 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   }
                 },
                 child: Container(
-                  padding: EdgeInsets.all(8),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: C.text.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.chat_bubble_outline_rounded,
                     color: Color(0xFF00E5FF),
                     size: 16,
@@ -3689,7 +3689,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 ),
               ),
 
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
 
               // Global Mute Toggle (Sync)
               ListenableBuilder(
@@ -3701,7 +3701,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       widget.state.setGlobalMute(!widget.state.isGlobalMuted);
                     },
                     child: Container(
-                      padding: EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: widget.state.isGlobalMuted
                             ? Colors.redAccent.withOpacity(0.2)
@@ -3714,7 +3714,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                             : Icons.volume_up,
                         color: widget.state.isGlobalMuted
                             ? Colors.redAccent
-                            : Color(0xFF00E5FF),
+                            : const Color(0xFF00E5FF),
                         size: 16,
                       ),
                     ),
@@ -3740,7 +3740,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
-          padding: EdgeInsets.all(8),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.5),
             borderRadius: BorderRadius.circular(16),
@@ -3770,7 +3770,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                               ),
                             );
                           },
-                          errorBuilder: (context, error, stack) => Center(
+                          errorBuilder: (context, error, stack) => const Center(
                             child: Icon(
                               Icons.shopping_bag_outlined,
                               color: C.dim,
@@ -3778,7 +3778,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                             ),
                           ),
                         )
-                      : Center(
+                      : const Center(
                           child: Icon(
                             Icons.shopping_bag_outlined,
                             color: C.dim,
@@ -3787,7 +3787,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                         ),
                 ),
               ),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -3799,16 +3799,16 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
                       ugx(num.tryParse(price.toString()) ?? 0),
                       style: dm(
                         sz: 14,
                         w: FontWeight.bold,
-                        c: Color(0xFF00E5FF),
+                        c: const Color(0xFF00E5FF),
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
                       'SKU: ${widget.listing['sku'] ?? 'N/A'}',
                       style: dm(sz: 9, c: C.dim),
@@ -3816,7 +3816,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   ],
                 ),
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               GestureDetector(
                 onTap: () {
                   widget.state.selectedListing = widget.listing;
@@ -3824,7 +3824,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   widget.state.notify();
                 },
                 child: Container(
-                  padding: EdgeInsets.symmetric(
+                  padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 8,
                   ),
@@ -3854,7 +3854,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
   Widget _shopAction({
     required IconData icon,
     required String label,
-    Color? iconColor,
+    Color iconColor = C.text,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
@@ -3864,11 +3864,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
           Stack(
             alignment: Alignment.center,
             children: [
-              Icon(Icons.circle, color: Colors.transparent, size: 34),
-              Icon(icon, color: iconColor ?? C.text, size: 22),
+              const Icon(Icons.circle, color: Colors.transparent, size: 34),
+              Icon(icon, color: iconColor, size: 22),
             ],
           ),
-          SizedBox(height: 2),
+          const SizedBox(height: 2),
           Text(
             label.toUpperCase(),
             style: syne(sz: 10, w: FontWeight.w800, c: C.text, ls: 0.5),
@@ -3880,7 +3880,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
 
   Widget _buildFallback() => Container(
     color: C.cardDk,
-    child: Center(
+    child: const Center(
       child: Icon(
         Icons.shopping_cart_outlined,
         size: 80,
@@ -3985,13 +3985,13 @@ class _CommentSheetState extends State<_CommentSheet> {
       );
       _ctrl.clear();
       _refreshComments();
-      Future.delayed(Duration(seconds: 1), _smartRefreshComments);
+      Future.delayed(const Duration(seconds: 1), _smartRefreshComments);
       if (mounted) FocusScope.of(context).unfocus();
     } catch (e) {
       debugPrint('Comment Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Comment could not be posted. Try again.'),
           ),
         );
@@ -4015,13 +4015,13 @@ class _CommentSheetState extends State<_CommentSheet> {
       maxChildSize: 0.95,
       builder: (_, scrollController) => Container(
         decoration: BoxDecoration(
-          color: Color(0xFF0D121B),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          color: const Color(0xFF0D121B),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
           border: Border.all(color: C.text.withOpacity(0.1)),
         ),
         child: Column(
           children: [
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             Container(
               width: 40,
               height: 4,
@@ -4030,18 +4030,18 @@ class _CommentSheetState extends State<_CommentSheet> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             Text(
               'NEURAL FEEDBACK',
               style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 4),
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             Expanded(
               child: FutureBuilder<List<Map<String, dynamic>>>(
                 future: _commentsFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Center(
+                    return const Center(
                       child: CircularProgressIndicator(
                         color: C.brand,
                         strokeWidth: 2,
@@ -4057,11 +4057,11 @@ class _CommentSheetState extends State<_CommentSheet> {
                             'Comments could not be loaded.',
                             style: dm(sz: 13, c: C.dim),
                           ),
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
                           IconButton(
                             onPressed: _refreshComments,
                             tooltip: 'Retry',
-                            icon: Icon(
+                            icon: const Icon(
                               Icons.refresh_rounded,
                               color: C.brand,
                             ),
@@ -4083,7 +4083,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                   return ListView.builder(
                     controller: scrollController,
                     itemCount: comments.length,
-                    padding: EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
                     itemBuilder: (context, i) {
                       final c = comments[i];
                       final iden = c['metadata']?['identity'] ?? c['identity'];
@@ -4152,12 +4152,12 @@ class _CommentSheetState extends State<_CommentSheet> {
     bool isPending = false,
   }) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.only(bottom: 24),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: EdgeInsets.all(2),
+            padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(color: C.brand.withOpacity(0.3), width: 1),
@@ -4174,7 +4174,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                   : null,
             ),
           ),
-          SizedBox(width: 14),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4186,16 +4186,16 @@ class _CommentSheetState extends State<_CommentSheet> {
                       style: dm(sz: 13, w: FontWeight.w800, c: C.sub),
                     ),
                     if (isVerified) ...[
-                      SizedBox(width: 4),
-                      Icon(
+                      const SizedBox(width: 4),
+                      const Icon(
                         Icons.verified,
                         size: 12,
                         color: Color(0xFF00E5FF),
                       ),
                     ],
                     if (isPending) ...[
-                      SizedBox(width: 6),
-                      Tooltip(
+                      const SizedBox(width: 6),
+                      const Tooltip(
                         message: 'Waiting to sync',
                         child: Icon(
                           Icons.schedule_rounded,
@@ -4206,7 +4206,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                     ],
                   ],
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Text(
                   content,
                   style: dm(sz: 15, c: C.text.withOpacity(0.9), h: 1.4),
@@ -4241,7 +4241,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                 hintText: 'Add a thought...',
                 hintStyle: dm(sz: 15, c: C.dim),
                 border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
               ),
               maxLines: null,
             ),
@@ -4249,7 +4249,7 @@ class _CommentSheetState extends State<_CommentSheet> {
           IconButton(
             onPressed: _sending ? null : _postComment,
             icon: _sending
-                ? SizedBox(
+                ? const SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
@@ -4257,7 +4257,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                       strokeWidth: 2,
                     ),
                   )
-                : Icon(Icons.arrow_upward_rounded, color: C.brand),
+                : const Icon(Icons.arrow_upward_rounded, color: C.brand),
             style: IconButton.styleFrom(
               backgroundColor: C.brand.withOpacity(0.1),
               shape: RoundedRectangleBorder(
@@ -4310,7 +4310,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
   void _scheduleSearch(String query) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(
-      Duration(milliseconds: 320),
+      const Duration(milliseconds: 320),
       () => _search(query),
     );
   }
@@ -4369,15 +4369,15 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
       minChildSize: 0.5,
       maxChildSize: 0.95,
       builder: (_, scrollController) => ClipRRect(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
-            color: Color(0xFF0D121B).withOpacity(0.97),
+            color: const Color(0xFF0D121B).withOpacity(0.97),
             child: Column(
               children: [
                 // Handle bar
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 Container(
                   width: 40,
                   height: 4,
@@ -4386,21 +4386,21 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
 
                 // Header
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Text(
                     'DISCOVER',
                     style: syne(sz: 20, w: FontWeight.w900, c: C.text),
                   ),
                 ),
-                SizedBox(height: 16),
+                const SizedBox(height: 16),
 
                 // Search Field
                 Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Container(
                     decoration: BoxDecoration(
                       color: C.text.withOpacity(0.07),
@@ -4418,13 +4418,13 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                             ? 'Search posts, users…'
                             : 'Search shop listings…',
                         hintStyle: dm(sz: 14, c: C.dim),
-                        prefixIcon: Icon(
+                        prefixIcon: const Icon(
                           Icons.search_rounded,
                           color: C.dim,
                           size: 18,
                         ),
                         suffixIcon: _loading
-                            ? Padding(
+                            ? const Padding(
                                 padding: EdgeInsets.all(14),
                                 child: SizedBox(
                                   width: 16,
@@ -4437,7 +4437,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                               )
                             : null,
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(
+                        contentPadding: const EdgeInsets.symmetric(
                           vertical: 16,
                         ),
                       ),
@@ -4447,9 +4447,9 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
 
                 // SHOP FILTERS (Only in Shop mode)
                 if (_searchMode == 1) ...[
-                  SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -4461,7 +4461,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                             c: C.sub,
                           ),
                         ),
-                        SizedBox(height: 4),
+                        const SizedBox(height: 4),
                         Container(
                           height: 40,
                           decoration: BoxDecoration(
@@ -4477,7 +4477,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                             decoration: InputDecoration(
                               hintText: 'e.g. fashion, electronics',
                               hintStyle: dm(sz: 13, c: C.dim),
-                              contentPadding: EdgeInsets.symmetric(
+                              contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 12,
                                 vertical: 10,
                               ),
@@ -4485,7 +4485,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                             ),
                           ),
                         ),
-                        SizedBox(height: 12),
+                        const SizedBox(height: 12),
                         Text(
                           'Price Range (UGX): ${_minPrice.toInt()} - ${_maxPrice >= 1000000 ? '1M+' : _maxPrice.toInt()}',
                           style: dm(
@@ -4499,7 +4499,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           min: 0,
                           max: 1000000,
                           divisions: 100,
-                          activeColor: Color(0xFF00E5FF),
+                          activeColor: const Color(0xFF00E5FF),
                           inactiveColor: C.dim,
                           onChanged: (vals) {
                             setState(() {
@@ -4513,7 +4513,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                     ),
                   ),
                 ],
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
 
                 // Results
                 Expanded(
@@ -4522,12 +4522,12 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.explore_outlined,
                                 color: C.dim,
                                 size: 52,
                               ),
-                              SizedBox(height: 12),
+                              const SizedBox(height: 12),
                               Text(
                                 _ctrl.text.isEmpty
                                     ? 'Start typing to discover'
@@ -4539,7 +4539,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                         )
                       : ListView.separated(
                           controller: scrollController,
-                          padding: EdgeInsets.symmetric(
+                          padding: const EdgeInsets.symmetric(
                             horizontal: 16,
                             vertical: 4,
                           ),
@@ -4572,7 +4572,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                         : null,
                                   ),
                                   child: mediaUrl == null
-                                      ? Icon(
+                                      ? const Icon(
                                           Icons.shopping_bag,
                                           color: C.dim,
                                         )
@@ -4592,10 +4592,10 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                   style: dm(
                                     sz: 12,
                                     w: FontWeight.bold,
-                                    c: Color(0xFF00E5FF),
+                                    c: const Color(0xFF00E5FF),
                                   ),
                                 ),
-                                trailing: Icon(
+                                trailing: const Icon(
                                   Icons.arrow_forward_ios,
                                   color: C.dim,
                                   size: 14,
@@ -4621,7 +4621,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                 '';
 
                             return ListTile(
-                              contentPadding: EdgeInsets.symmetric(
+                              contentPadding: const EdgeInsets.symmetric(
                                 vertical: 4,
                                 horizontal: 4,
                               ),
@@ -4658,7 +4658,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                 overflow: TextOverflow.ellipsis,
                                 style: dm(sz: 12, c: C.dim),
                               ),
-                              trailing: Icon(
+                              trailing: const Icon(
                                 Icons.arrow_forward_ios,
                                 color: C.dim,
                                 size: 14,
@@ -4778,7 +4778,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Color(0xFF121212),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -4787,7 +4787,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
           Container(
             width: 40,
             height: 4,
-            margin: EdgeInsets.symmetric(vertical: 12),
+            margin: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
               color: C.dim,
               borderRadius: BorderRadius.circular(2),
@@ -4797,10 +4797,10 @@ class _ReviewSheetState extends State<_ReviewSheet> {
             'VERIFIED REVIEWS',
             style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
           ),
-          Divider(color: C.dim, height: 30),
+          const Divider(color: C.dim, height: 30),
           Expanded(
             child: _isLoading
-                ? Center(
+                ? const Center(
                     child: CircularProgressIndicator(color: Colors.amberAccent),
                   )
                 : _reviews.isEmpty
@@ -4812,13 +4812,13 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                   )
                 : ListView.builder(
                     itemCount: _reviews.length,
-                    padding: EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
                     itemBuilder: (context, index) {
                       final r = _reviews[index];
                       final prof = r['buyer'] ?? {};
                       final avatarUrl = prof['avatar_url']?.toString() ?? '';
                       return Padding(
-                        padding: EdgeInsets.only(bottom: 24),
+                        padding: const EdgeInsets.only(bottom: 24),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -4830,10 +4830,10 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                                       ? null
                                       : NetworkImage(avatarUrl),
                                   child: avatarUrl.isEmpty
-                                      ? Icon(Icons.person, size: 14)
+                                      ? const Icon(Icons.person, size: 14)
                                       : null,
                                 ),
-                                SizedBox(width: 10),
+                                const SizedBox(width: 10),
                                 Text(
                                   prof['full_name'] ?? 'Buyer',
                                   style: syne(
@@ -4842,7 +4842,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                                     c: C.text,
                                   ),
                                 ),
-                                Spacer(),
+                                const Spacer(),
                                 Row(
                                   children: List.generate(
                                     5,
@@ -4857,17 +4857,17 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                                 ),
                               ],
                             ),
-                            SizedBox(height: 10),
+                            const SizedBox(height: 10),
                             Text(
                               r['comment'] ?? '',
                               style: dm(sz: 14, c: C.sub, h: 1.4),
                             ),
                             if (r['seller_response']?.toString().isNotEmpty ==
                                 true) ...[
-                              SizedBox(height: 10),
+                              const SizedBox(height: 10),
                               Container(
                                 width: double.infinity,
-                                padding: EdgeInsets.all(12),
+                                padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
                                   color: C.text.withAlpha(13),
                                   borderRadius: BorderRadius.circular(8),
@@ -4888,17 +4888,17 @@ class _ReviewSheetState extends State<_ReviewSheet> {
             TextButton.icon(
               onPressed: _isLoadingMore ? null : _loadMore,
               icon: _isLoadingMore
-                  ? SizedBox(
+                  ? const SizedBox(
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Icon(Icons.expand_more_rounded),
-              label: Text('LOAD MORE'),
+                  : const Icon(Icons.expand_more_rounded),
+              label: const Text('LOAD MORE'),
             ),
           if (_canReview)
             Padding(
-              padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
               child: _buildPrimaryButton(
                 text: 'WRITE A REVIEW',
                 onPressed: _openReviewForm,
@@ -4917,13 +4917,13 @@ class _ReviewSheetState extends State<_ReviewSheet> {
       onTap: onPressed,
       child: Container(
         width: double.infinity,
-        padding: EdgeInsets.symmetric(vertical: 18),
+        padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: Color(0xFF6C63FF),
+          color: const Color(0xFF6C63FF),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Color(0xFF6C63FF).withOpacity(0.3),
+              color: const Color(0xFF6C63FF).withOpacity(0.3),
               blurRadius: 15,
             ),
           ],
@@ -4990,8 +4990,8 @@ class _SubmitCommerceReviewSheetState
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Container(
-        padding: EdgeInsets.fromLTRB(24, 16, 24, 28),
-        decoration: BoxDecoration(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+        decoration: const BoxDecoration(
           color: Color(0xFF121212),
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
@@ -5011,12 +5011,12 @@ class _SubmitCommerceReviewSheetState
                   ),
                 ),
               ),
-              SizedBox(height: 22),
+              const SizedBox(height: 22),
               Text(
                 'RATE YOUR PURCHASE',
                 style: syne(sz: 15, w: FontWeight.w900, c: C.text),
               ),
-              SizedBox(height: 14),
+              const SizedBox(height: 14),
               Row(
                 children: List.generate(
                   5,
@@ -5030,7 +5030,7 @@ class _SubmitCommerceReviewSheetState
                   ),
                 ),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               TextField(
                 controller: _commentController,
                 minLines: 3,
@@ -5048,18 +5048,18 @@ class _SubmitCommerceReviewSheetState
                   ),
                 ),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: _submitting ? null : _submit,
                   child: _submitting
-                      ? SizedBox(
+                      ? const SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text('PUBLISH VERIFIED REVIEW'),
+                      : const Text('PUBLISH VERIFIED REVIEW'),
                 ),
               ),
             ],
@@ -5069,7 +5069,5 @@ class _SubmitCommerceReviewSheetState
     );
   }
 }
-
-
 
 

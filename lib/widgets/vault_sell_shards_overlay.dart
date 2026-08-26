@@ -7,7 +7,7 @@ import 'dart:async';
 
 class VaultSellShardsOverlay extends StatefulWidget {
   final AppState state;
-  const VaultSellShardsOverlay({super.key, required this.state});
+  VaultSellShardsOverlay({super.key, required this.state});
 
   @override
   State<VaultSellShardsOverlay> createState() => _VaultSellShardsOverlayState();
@@ -44,13 +44,13 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Color(0xFF070a0f),
         borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
         border: Border(top: BorderSide(color: Colors.yellow, width: 0.5)),
       ),
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(40)),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
           child: Column(
@@ -66,9 +66,9 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(28),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.white10)),
+      padding: EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: C.dim)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -87,7 +87,7 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white38),
+            icon: Icon(Icons.close, color: C.dim),
             onPressed: () => Navigator.pop(context),
           ),
         ],
@@ -106,13 +106,13 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
       case 4:
         return _buildSuccessStage();
       default:
-        return const SizedBox();
+        return SizedBox();
     }
   }
 
   void _fetchQuote() {
     _quoteDebounce?.cancel();
-    _quoteDebounce = Timer(const Duration(milliseconds: 500), () async {
+    _quoteDebounce = Timer(Duration(milliseconds: 500), () async {
       setState(() => _isFetchingQuote = true);
       try {
         final q = await widget.state.liquidation.getQuote(_sellAmount);
@@ -124,10 +124,10 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
     });
   }
 
-  // ── STAGE 1: LIQUIDATION SYNTHESIS ──────────────────────
+  // -- STAGE 1: LIQUIDATION SYNTHESIS ----------------------
   Widget _buildSynthesisStage() {
     return Padding(
-      padding: const EdgeInsets.all(28),
+      padding: EdgeInsets.all(28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -138,7 +138,7 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
               burnPercent: _quote!.burnPercentage,
             )
           else
-            const SizedBox(
+            SizedBox(
               height: 80,
               child: Center(
                 child: CircularProgressIndicator(
@@ -147,12 +147,12 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
                 ),
               ),
             ),
-          const SizedBox(height: 48),
+          SizedBox(height: 48),
           Text(
             'How many coins to sell',
-            style: dm(sz: 12, w: FontWeight.w600, c: Colors.white38),
+            style: dm(sz: 12, w: FontWeight.w600, c: C.dim),
           ),
-          const SizedBox(height: 20),
+          SizedBox(height: 20),
           _ShardSlider(
             value: _sellAmount,
             max: widget.state.shardBalance < 10
@@ -163,11 +163,11 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
               _fetchQuote();
             },
           ),
-          const Spacer(),
+          Spacer(),
           _BottomBtn(
             label: _isFetchingQuote ? 'SYNCING...' : 'CONFIRM SALE',
             icon: Icons.arrow_forward,
-            color: Colors.white,
+            color: C.text,
             onTap: _isFetchingQuote ? null : () => setState(() => _stage = 2),
           ),
         ],
@@ -175,18 +175,18 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
     );
   }
 
-  // ── STAGE 2: SAFE SIGN ──────────────────────────────────
+  // -- STAGE 2: SAFE SIGN ----------------------------------
   Widget _buildSafeSignStage() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         const _NodeBadge(label: 'Verify your identity', color: Colors.yellow),
-        const SizedBox(height: 60),
+        SizedBox(height: 60),
         _BiometricNode(onSuccess: () => _handleSafeSign()),
-        const SizedBox(height: 40),
+        SizedBox(height: 40),
         Text(
           'Press & hold to confirm',
-          style: dm(sz: 12, w: FontWeight.w600, c: Colors.white38),
+          style: dm(sz: 12, w: FontWeight.w600, c: C.dim),
         ),
       ],
     );
@@ -200,14 +200,14 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
       // Re-prompt or show error
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Biometric verification cancelled')),
+        SnackBar(content: Text('Biometric verification cancelled')),
       );
     }
   }
 
   void _startBridge() {
     setState(() => _stage = 3);
-    _timer = Timer.periodic(const Duration(milliseconds: 40), (t) {
+    _timer = Timer.periodic(Duration(milliseconds: 40), (t) {
       if (mounted) {
         setState(() {
           _progress += 0.02;
@@ -244,7 +244,7 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
     }
   }
 
-  // ── STAGE 3: ATOMIC BRIDGE ──────────────────────────────
+  // -- STAGE 3: ATOMIC BRIDGE ------------------------------
   Widget _buildBridgeStage() {
     final statuses = [
       'Confirming sale',
@@ -264,21 +264,21 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
           label: 'Processing your sale',
           color: Colors.blueAccent,
         ),
-        const SizedBox(height: 60),
+        SizedBox(height: 60),
         _DissolveCore(progress: _progress),
-        const SizedBox(height: 48),
+        SizedBox(height: 48),
         Text(
           statuses[idx],
           style: dm(sz: 13, w: FontWeight.w600, c: Colors.blueAccent),
         ),
-        const Spacer(),
+        Spacer(),
         _HashProtocol(hash: displayHash),
-        const SizedBox(height: 60),
+        SizedBox(height: 60),
       ],
     );
   }
 
-  // ── STAGE 4: ASSET SOLD ─────────────────────────────────
+  // -- STAGE 4: ASSET SOLD ---------------------------------
   Widget _buildSuccessStage() {
     final received =
         _result?.ugxReceived.toInt() ?? (_sellAmount * 0.5).toInt();
@@ -286,21 +286,21 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _SuccessHalo(),
-        const SizedBox(height: 32),
+        SizedBox(height: 32),
         Text(
           'Sold!',
-          style: syne(sz: 28, w: FontWeight.w700, c: Colors.white),
+          style: syne(sz: 28, w: FontWeight.w700, c: C.text),
         ),
-        const SizedBox(height: 24),
+        SizedBox(height: 24),
         _ArmorBoundConfirmation(amt: received.toString()),
-        const Spacer(),
+        Spacer(),
         _BottomBtn(
           label: 'Done',
           icon: Icons.sync,
-          color: Colors.white,
+          color: C.text,
           onTap: () => Navigator.pop(context),
         ),
-        const SizedBox(height: 60),
+        SizedBox(height: 60),
       ],
     );
   }
@@ -312,7 +312,7 @@ class _VaultSellShardsOverlayState extends State<VaultSellShardsOverlay> {
   }
 }
 
-// ── WIDGETS ──────────────────────────────────────────────
+// -- WIDGETS ----------------------------------------------
 
 class _HandshakeMath extends StatelessWidget {
   final int fee, injection, burnPercent;
@@ -333,7 +333,7 @@ class _HandshakeMath extends StatelessWidget {
           sub: '$burnPercent% of coins',
         ),
       ),
-      const SizedBox(width: 12),
+      SizedBox(width: 12),
       Expanded(
         child: _MathPane(
           label: 'You receive',
@@ -360,7 +360,7 @@ class _MathPane extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(20),
+    padding: EdgeInsets.all(20),
     decoration: BoxDecoration(
       color: color.withOpacity(.05),
       borderRadius: BorderRadius.circular(20),
@@ -372,17 +372,17 @@ class _MathPane extends StatelessWidget {
         Row(
           children: [
             Icon(icon, color: color, size: 12),
-            const SizedBox(width: 8),
+            SizedBox(width: 8),
             Text(
               label,
               style: dm(sz: 8, w: FontWeight.w900, ls: 1, c: color),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        SizedBox(height: 12),
         Text(val, style: syne(sz: 16, w: FontWeight.w900)),
-        const SizedBox(height: 4),
-        Text(sub, style: dm(sz: 8, c: Colors.white24)),
+        SizedBox(height: 4),
+        Text(sub, style: dm(sz: 8, c: C.dim)),
       ],
     ),
   );
@@ -406,15 +406,15 @@ class _ShardSlider extends StatelessWidget {
             '${value.toInt()} coins',
             style: syne(sz: 24, w: FontWeight.w700, c: Colors.yellow),
           ),
-          Text('Max: ${max.toInt()}', style: dm(sz: 11, c: Colors.white38)),
+          Text('Max: ${max.toInt()}', style: dm(sz: 11, c: C.dim)),
         ],
       ),
-      const SizedBox(height: 12),
+      SizedBox(height: 12),
       SliderTheme(
         data: SliderTheme.of(context).copyWith(
           activeTrackColor: Colors.yellow,
-          inactiveTrackColor: Colors.white10,
-          thumbColor: Colors.white,
+          inactiveTrackColor: C.dim,
+          thumbColor: C.text,
           trackHeight: 8,
         ),
         child: Slider(
@@ -439,7 +439,7 @@ class _BiometricNodeState extends State<_BiometricNode> {
   double _p = 0;
   Timer? _t;
   void _start() {
-    _t = Timer.periodic(const Duration(milliseconds: 20), (t) {
+    _t = Timer.periodic(Duration(milliseconds: 20), (t) {
       setState(() {
         _p += 0.02;
         if (_p >= 1) {
@@ -470,7 +470,7 @@ class _BiometricNodeState extends State<_BiometricNode> {
             value: _p,
             strokeWidth: 4,
             color: Colors.yellow,
-            backgroundColor: Colors.white10,
+            backgroundColor: C.dim,
           ),
         ),
         Container(
@@ -480,7 +480,7 @@ class _BiometricNodeState extends State<_BiometricNode> {
             color: Colors.yellow.withOpacity(.1),
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.fingerprint, color: Colors.yellow, size: 48),
+          child: Icon(Icons.fingerprint, color: Colors.yellow, size: 48),
         ),
       ],
     ),
@@ -498,9 +498,9 @@ class _DissolveCore extends StatelessWidget {
         width: 140,
         height: 140,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.02),
+          color: C.text.withOpacity(.02),
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: C.dim),
         ),
       ),
       Icon(
@@ -512,7 +512,7 @@ class _DissolveCore extends StatelessWidget {
         bottom: 20 * progress,
         child: Opacity(
           opacity: progress,
-          child: const Icon(
+          child: Icon(
             Icons.water_drop,
             color: Colors.blueAccent,
             size: 16,
@@ -526,12 +526,12 @@ class _DissolveCore extends StatelessWidget {
 class _SuccessHalo extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(40),
+    padding: EdgeInsets.all(40),
     decoration: BoxDecoration(
       color: Colors.blueAccent.withOpacity(.1),
       shape: BoxShape.circle,
     ),
-    child: const Icon(Icons.bolt, color: Colors.blueAccent, size: 80),
+    child: Icon(Icons.bolt, color: Colors.blueAccent, size: 80),
   );
 }
 
@@ -540,19 +540,19 @@ class _ArmorBoundConfirmation extends StatelessWidget {
   const _ArmorBoundConfirmation({required this.amt});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(28),
+    padding: EdgeInsets.all(28),
     decoration: BoxDecoration(
-      color: Colors.white.withOpacity(.02),
+      color: C.text.withOpacity(.02),
       borderRadius: BorderRadius.circular(28),
-      border: Border.all(color: Colors.white.withOpacity(.05)),
+      border: Border.all(color: C.text.withOpacity(.05)),
     ),
     child: Column(
       children: [
         Text(
           'Sale complete',
-          style: dm(sz: 11, w: FontWeight.w600, c: Colors.white38),
+          style: dm(sz: 11, w: FontWeight.w600, c: C.dim),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: 16),
         Text(
           'UGX $amt',
           style: syne(
@@ -562,8 +562,8 @@ class _ArmorBoundConfirmation extends StatelessWidget {
             c: Colors.blueAccent,
           ),
         ),
-        const SizedBox(height: 16),
-        Text('Added to your balance', style: dm(sz: 11, c: Colors.white38)),
+        SizedBox(height: 16),
+        Text('Added to your balance', style: dm(sz: 11, c: C.dim)),
       ],
     ),
   );
@@ -575,7 +575,7 @@ class _NodeBadge extends StatelessWidget {
   const _NodeBadge({required this.label, required this.color});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
     decoration: BoxDecoration(
       color: color.withOpacity(.1),
       borderRadius: BorderRadius.circular(20),
@@ -593,7 +593,7 @@ class _HashProtocol extends StatelessWidget {
   const _HashProtocol({required this.hash});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
     decoration: BoxDecoration(
       color: Colors.black,
       borderRadius: BorderRadius.circular(12),
@@ -620,7 +620,7 @@ class _BottomBtn extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: AnimatedOpacity(
-      duration: const Duration(milliseconds: 200),
+      duration: Duration(milliseconds: 200),
       opacity: onTap == null ? 0.3 : 1.0,
       child: Container(
         height: 64,
@@ -634,16 +634,16 @@ class _BottomBtn extends StatelessWidget {
           children: [
             Icon(
               icon,
-              color: color == Colors.white ? Colors.black : Colors.white,
+              color: color == C.text ? Colors.black : C.text,
               size: 20,
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Text(
               label,
               style: syne(
                 sz: 15,
                 w: FontWeight.w700,
-                c: color == Colors.white ? Colors.black : Colors.white,
+                c: color == C.text ? Colors.black : C.text,
               ),
             ),
           ],
@@ -652,3 +652,6 @@ class _BottomBtn extends StatelessWidget {
     ),
   );
 }
+
+
+

@@ -153,7 +153,7 @@ class _MusicManagementAdminState extends State<MusicManagementAdmin> {
         backgroundColor: Colors.black,
         appBar: AppBar(
           backgroundColor: Colors.black,
-          title: Text('MUSIC ADMIN', style: syne(sz: 18, w: FontWeight.w900, ls: 2, c: Colors.white)),
+          title: Text('MUSIC ADMIN', style: syne(sz: 18, w: FontWeight.w900, ls: 2, c: C.text)),
           bottom: TabBar(
             indicatorColor: C.brand,
             labelStyle: syne(sz: 12, w: FontWeight.bold),
@@ -190,7 +190,7 @@ class _MusicManagementAdminState extends State<MusicManagementAdmin> {
             DropdownButtonFormField<String>(
               initialValue: _licenseType,
               dropdownColor: Colors.grey[900],
-              style: dm(c: Colors.white),
+              style: dm(c: C.text),
               decoration: _inputDeco('License Type', Icons.gavel),
               items: ['platform_owned', 'licensed', 'artist_upload'].map((l) => DropdownMenuItem(value: l, child: Text(l.toUpperCase()))).toList(),
               onChanged: (v) => setState(() => _licenseType = v!),
@@ -231,16 +231,16 @@ class _MusicManagementAdminState extends State<MusicManagementAdmin> {
       child: Container(
         height: 100,
         decoration: BoxDecoration(
-          color: hasFile ? C.brand.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+          color: hasFile ? C.brand.withOpacity(0.1) : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: hasFile ? C.brand : Colors.white10),
+          border: Border.all(color: hasFile ? C.brand : C.dim),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: hasFile ? C.brand : Colors.white38),
+            Icon(icon, color: hasFile ? C.brand : C.dim),
             const SizedBox(height: 8),
-            Text(label, style: syne(sz: 10, w: FontWeight.bold, c: hasFile ? C.brand : Colors.white38)),
+            Text(label, style: syne(sz: 10, w: FontWeight.bold, c: hasFile ? C.brand : C.dim)),
           ],
         ),
       ),
@@ -252,7 +252,7 @@ class _MusicManagementAdminState extends State<MusicManagementAdmin> {
       padding: const EdgeInsets.only(bottom: 16),
       child: TextFormField(
         controller: ctrl,
-        style: dm(c: Colors.white),
+        style: dm(c: C.text),
         keyboardType: isNum ? TextInputType.number : TextInputType.text,
         decoration: _inputDeco(label, icon),
         validator: (v) => (req && (v == null || v.isEmpty)) ? 'Required' : null,
@@ -263,17 +263,17 @@ class _MusicManagementAdminState extends State<MusicManagementAdmin> {
   InputDecoration _inputDeco(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
-      labelStyle: dm(c: Colors.white38),
-      prefixIcon: Icon(icon, color: Colors.white24, size: 20),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.white10)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: C.brand)),
+      labelStyle: dm(c: C.dim),
+      prefixIcon: Icon(icon, color: C.dim, size: 20),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: C.dim)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: C.brand)),
       filled: true,
-      fillColor: Colors.white.withOpacity(0.05),
+      fillColor: C.text.withOpacity(0.05),
     );
   }
 
   Widget _buildCatalogTab() {
-    if (_isLoading) return const Center(child: CircularProgressIndicator(color: C.brand));
+    if (_isLoading) return Center(child: CircularProgressIndicator(color: C.brand));
     return ListView.builder(
       padding: const EdgeInsets.all(20),
       itemCount: _tracks.length,
@@ -282,20 +282,20 @@ class _MusicManagementAdminState extends State<MusicManagementAdmin> {
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(color: C.text.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
           child: Row(
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: t['album_art_url'] != null 
                   ? Image.network(t['album_art_url'], width: 48, height: 48, fit: BoxFit.cover)
-                  : Container(width: 48, height: 48, color: Colors.white12, child: const Icon(Icons.music_note, color: Colors.white24)),
+                  : Container(width: 48, height: 48, color: C.dim, child: Icon(Icons.music_note, color: C.dim)),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t['title'], style: syne(sz: 14, w: FontWeight.bold, c: Colors.white)),
-                  Text(t['artist_name'], style: dm(sz: 12, c: Colors.white38)),
+                  Text(t['title'], style: syne(sz: 14, w: FontWeight.bold, c: C.text)),
+                  Text(t['artist_name'], style: dm(sz: 12, c: C.dim)),
                 ]),
               ),
               Switch(
@@ -313,3 +313,5 @@ class _MusicManagementAdminState extends State<MusicManagementAdmin> {
     );
   }
 }
+
+

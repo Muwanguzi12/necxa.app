@@ -65,13 +65,13 @@ class _MusicDetailScreenState extends State<MusicDetailScreen> with SingleTicker
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.85),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: C.dim),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         child: Column(
           children: [
             // 1. Handle
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: C.dim, borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: 32),
 
             // 2. Album art (Animated)
@@ -87,7 +87,7 @@ class _MusicDetailScreenState extends State<MusicDetailScreen> with SingleTicker
                   borderRadius: BorderRadius.circular(24),
                   child: widget.track.albumArtUrl != null 
                     ? Image.network(widget.track.albumArtUrl!, fit: BoxFit.cover)
-                    : Container(color: Colors.white.withOpacity(0.05), child: const Icon(Icons.music_note, color: Colors.white24, size: 60)),
+                    : Container(color: C.text.withOpacity(0.05), child: Icon(Icons.music_note, color: C.dim, size: 60)),
                 ),
               ),
             ),
@@ -95,9 +95,9 @@ class _MusicDetailScreenState extends State<MusicDetailScreen> with SingleTicker
             const SizedBox(height: 32),
 
             // 3. Info
-            Text(widget.track.title, style: syne(sz: 24, w: FontWeight.w900, c: Colors.white), textAlign: TextAlign.center),
+            Text(widget.track.title, style: syne(sz: 24, w: FontWeight.w900, c: C.text), textAlign: TextAlign.center),
             const SizedBox(height: 8),
-            Text(widget.track.artistName, style: dm(sz: 16, c: Colors.white54)),
+            Text(widget.track.artistName, style: dm(sz: 16, c: C.dim)),
             
             const SizedBox(height: 40),
 
@@ -105,7 +105,7 @@ class _MusicDetailScreenState extends State<MusicDetailScreen> with SingleTicker
             if (_isPlaying)
               _buildVisualizer()
             else
-              Text('PREVIEW SOUND', style: syne(sz: 12, w: FontWeight.bold, c: Colors.white24, ls: 2)),
+              Text('PREVIEW SOUND', style: syne(sz: 12, w: FontWeight.bold, c: C.dim, ls: 2)),
 
             const Spacer(),
 
@@ -119,17 +119,17 @@ class _MusicDetailScreenState extends State<MusicDetailScreen> with SingleTicker
                     child: Container(
                       height: 56,
                       decoration: BoxDecoration(
-                        color: _isPlaying ? Colors.white : Colors.white.withOpacity(0.05),
+                        color: _isPlaying ? C.text : C.text.withOpacity(0.05),
                         borderRadius: BorderRadius.circular(28),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(color: C.dim),
                       ),
                       child: Center(
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: _isPlaying ? Colors.black : Colors.white),
+                            Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: _isPlaying ? Colors.black : C.text),
                             const SizedBox(width: 12),
-                            Text(_isPlaying ? 'PAUSE' : 'PLAY', style: syne(sz: 14, w: FontWeight.w900, c: _isPlaying ? Colors.black : Colors.white)),
+                            Text(_isPlaying ? 'PAUSE' : 'PLAY', style: syne(sz: 14, w: FontWeight.w900, c: _isPlaying ? Colors.black : C.text)),
                           ],
                         ),
                       ),
@@ -189,3 +189,5 @@ class _MusicDetailScreenState extends State<MusicDetailScreen> with SingleTicker
     );
   }
 }
+
+

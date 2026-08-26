@@ -1,3 +1,4 @@
+import '../theme.dart';
 import 'package:universal_io/io.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -55,7 +56,7 @@ class RenderOverlay {
   final double backgroundOpacity;
   final bool shadow;
 
-  const RenderOverlay({
+  RenderOverlay({
     required this.type,
     this.text,
     this.imagePath,
@@ -67,7 +68,7 @@ class RenderOverlay {
     this.rotation = 0.0,
     this.opacity = 1.0,
     this.fontSize = 28.0,
-    this.color = Colors.white,
+    this.color = const Color(0xFFF0F4FF),
     this.background = Colors.black,
     this.backgroundOpacity = 0.0,
     this.shadow = true,
@@ -713,3 +714,5 @@ class VideoEnhancementOptions {
     this.enhanceThumbnail = false,
   });
 }
+
+

@@ -11,9 +11,9 @@ import '../services/ai_service.dart';
 import '../utils/error_handler.dart';
 import '../main.dart' show cameras;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NECXA — 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// NECXA � 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
+// -----------------------------------------------------------------------------
 class ListingWizardScreen extends StatefulWidget {
   final AppState state;
   const ListingWizardScreen({super.key, required this.state});
@@ -28,7 +28,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   bool _identityAdvanceScheduled = false;
   late final String _submissionIdempotencyKey;
 
-  // ── Step 1: Basics ────────────────────────────────────────────────────────
+  // -- Step 1: Basics --------------------------------------------------------
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _districtCtrl = TextEditingController();
@@ -37,7 +37,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   String _purpose = 'rent';
   String _role = 'owner'; // 'owner' or 'agent'
 
-  // ── Step 2: Pricing ───────────────────────────────────────────────────────
+  // -- Step 2: Pricing -------------------------------------------------------
   final _priceCtrl = TextEditingController();
   String _priceType = 'monthly';
   int _bedrooms = 0;
@@ -45,10 +45,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   int _sqft = 0;
   Set<String> _amenities = {};
 
-  // ── Step 3: Identity Shard (ShieldSDK) ────────────────────────────────────
+  // -- Step 3: Identity Shard (ShieldSDK) ------------------------------------
   String? _identityShardId;
 
-  // ── Step 4: Utility Shard ──────────────────────────────────────────────────
+  // -- Step 4: Utility Shard --------------------------------------------------
   final _umemeCtrl = TextEditingController();
   final _nwscCtrl = TextEditingController();
   final _landBlockCtrl = TextEditingController();
@@ -60,17 +60,17 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   File? _brsLicensePhoto; // Extra slot for agents
   String? _utilityShardId;
 
-  // ── Step 5: GPS Lock ──────────────────────────────────────────────────────
+  // -- Step 5: GPS Lock ------------------------------------------------------
   Position? _gpsPosition;
   bool _gpsLocked = false;
   String? _gpsNodeId;
 
-  // ── Step 6: Photos ────────────────────────────────────────────────────────
+  // -- Step 6: Photos --------------------------------------------------------
   final List<File> _exteriorPhotos = [];
   final List<File> _interiorPhotos = [];
   final List<File> _bathroomPhotos = [];
 
-  // ── Step 7: Final ─────────────────────────────────────────────────────────
+  // -- Step 7: Final ---------------------------------------------------------
   bool _submitted = false;
   String? _mintEventId;
   final GlobalKey<_NeuralScannerOverlayState> _scannerKey = GlobalKey();
@@ -121,13 +121,13 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   static const _steps = [
-    ('Role & Basics', '🏠', 'Distinguish Agent vs Owner'),
-    ('Pricing & Specs', '💰', 'Price, bedrooms, size'),
-    ('Identity Shard', '🛡️', 'ShieldSDK Biometric Match'),
-    ('Utility Shard', '⚡', 'Utility & Authority Docs'),
-    ('GPS Node Lock', '📍', 'Lock physical coordinates'),
-    ('Property Photos', '📷', 'Upload visual assets'),
-    ('Review & Mint', '✅', 'Final neural synthesis'),
+    ('Role & Basics', '??', 'Distinguish Agent vs Owner'),
+    ('Pricing & Specs', '??', 'Price, bedrooms, size'),
+    ('Identity Shard', '???', 'ShieldSDK Biometric Match'),
+    ('Utility Shard', '?', 'Utility & Authority Docs'),
+    ('GPS Node Lock', '??', 'Lock physical coordinates'),
+    ('Property Photos', '??', 'Upload visual assets'),
+    ('Review & Mint', '?', 'Final neural synthesis'),
   ];
 
   bool get _canGoNext {
@@ -177,7 +177,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         elevation: 0,
         title: Text('List a Property', style: syne(sz: 17, w: FontWeight.w700)),
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
+          icon: Icon(Icons.close, color: C.text),
           onPressed: () => widget.state.go('home'),
         ),
       ),
@@ -813,7 +813,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 }
 
-// ── Components ─────────────────────────────────────────────────────────────
+// -- Components -------------------------------------------------------------
 
 class _Step1 extends StatelessWidget {
   final TextEditingController titleCtrl, districtCtrl, cityCtrl, descCtrl;
@@ -1194,7 +1194,7 @@ class _Step3Identity extends StatelessWidget {
             onPressed: loading ? null : onVerify,
             style: ElevatedButton.styleFrom(
               backgroundColor: C.brand,
-              foregroundColor: Colors.white,
+              foregroundColor: C.text,
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -1205,7 +1205,7 @@ class _Step3Identity extends StatelessWidget {
               loading
                   ? 'VERIFYING...'
                   : 'SCAN ${currentInstr.$1.toUpperCase()}',
-              style: syne(c: Colors.white, w: FontWeight.w800, ls: .5),
+              style: syne(c: C.text, w: FontWeight.w800, ls: .5),
             ),
           ),
         ),
@@ -1252,7 +1252,7 @@ class _IdentityCaptureProgress extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: complete
                       ? C.brand.withOpacity(.12)
-                      : Colors.white.withOpacity(.04),
+                      : C.text.withOpacity(.04),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: complete ? C.brand.withOpacity(.5) : C.border,
@@ -1541,7 +1541,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(.94),
+                  color: C.text.withOpacity(.94),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
@@ -1599,7 +1599,7 @@ class _PulsingLightState extends State<_PulsingLight>
     child: Container(
       width: 6,
       height: 6,
-      decoration: const BoxDecoration(color: C.brand, shape: BoxShape.circle),
+      decoration: BoxDecoration(color: C.brand, shape: BoxShape.circle),
     ),
   );
 }
@@ -1686,7 +1686,7 @@ class _Step4Utility extends StatelessWidget {
         if (utilityShardId != null)
           const Center(
             child: Text(
-              '✅ Utility Shard Synced',
+              '? Utility Shard Synced',
               style: TextStyle(color: C.brand),
             ),
           ),
@@ -1886,12 +1886,12 @@ class _Step7Review extends StatelessWidget {
       children: [
         _reviewCard(
           'Identity Shard',
-          idVerified && faceVerified ? 'Verified ✅' : 'Required ❌',
+          idVerified && faceVerified ? 'Verified ?' : 'Required ?',
         ),
-        _reviewCard('GPS Node', gpsLocked ? 'Locked ✅' : 'Required ❌'),
+        _reviewCard('GPS Node', gpsLocked ? 'Locked ?' : 'Required ?'),
         _reviewCard(
           'Photos',
-          photoCount > 0 ? '$photoCount Uploaded ✅' : 'Required ❌',
+          photoCount > 0 ? '$photoCount Uploaded ?' : 'Required ?',
         ),
         const SizedBox(height: 40),
         SizedBox(
@@ -1928,7 +1928,7 @@ class _Step7Review extends StatelessWidget {
     return Center(
       child: Column(
         children: [
-          const Icon(Icons.stars, size: 80, color: C.brand),
+          Icon(Icons.stars, size: 80, color: C.brand),
           const SizedBox(height: 24),
           Text(
             'Listing Minted!',
@@ -1949,7 +1949,7 @@ class _Step7Review extends StatelessWidget {
   }
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// -- Helpers -----------------------------------------------------------------
 
 Widget _label(String text) => Padding(
   padding: const EdgeInsets.only(bottom: 8),
@@ -2043,13 +2043,13 @@ class _ScannerOverlayPainter extends CustomPainter {
 
     if (documentMode) {
       final docBorderPaint = Paint()
-        ..color = Colors.white.withOpacity(0.9)
+        ..color = C.text.withOpacity(0.9)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.5;
       canvas.drawPath(cutoutPath, docBorderPaint);
     } else {
       final dimPaint = Paint()
-        ..color = Colors.white.withOpacity(0.2)
+        ..color = C.text.withOpacity(0.2)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.0;
       canvas.drawOval(cutoutRect, dimPaint);
@@ -2081,7 +2081,7 @@ class _ScannerOverlayPainter extends CustomPainter {
       final len = 22.0;
 
       final cornerPaint = Paint()
-        ..color = Colors.white.withOpacity(0.9)
+        ..color = C.text.withOpacity(0.9)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5
         ..strokeCap = StrokeCap.round;
@@ -2123,3 +2123,5 @@ class _ScannerOverlayPainter extends CustomPainter {
         oldDelegate.progress != progress;
   }
 }
+
+

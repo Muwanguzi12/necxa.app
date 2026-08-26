@@ -37,7 +37,7 @@ class _AiChatModalState extends State<AiChatModal> {
       decoration: BoxDecoration(
         color: C.bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
-        border: const Border(top: BorderSide(color: Colors.white12)),
+        border: Border(top: BorderSide(color: C.dim)),
       ),
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
@@ -58,7 +58,7 @@ class _AiChatModalState extends State<AiChatModal> {
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white10))),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: C.dim))),
       child: Row(
         children: [
           Container(
@@ -70,12 +70,12 @@ class _AiChatModalState extends State<AiChatModal> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('NECXA AI ASSISTANT', style: syne(sz: 14, w: FontWeight.w800, ls: 2, c: Colors.white)),
-              Text('Powered by Multilingual Linguistic Engine', style: dm(sz: 10, c: Colors.white38)),
+              Text('NECXA AI ASSISTANT', style: syne(sz: 14, w: FontWeight.w800, ls: 2, c: C.text)),
+              Text('Powered by Multilingual Linguistic Engine', style: dm(sz: 10, c: C.dim)),
             ],
           ),
           const Spacer(),
-          IconButton(icon: const Icon(Icons.close, color: Colors.white38), onPressed: () => Navigator.pop(context)),
+          IconButton(icon: Icon(Icons.close, color: C.dim), onPressed: () => Navigator.pop(context)),
         ],
       ),
     );
@@ -110,24 +110,24 @@ class _AiChatModalState extends State<AiChatModal> {
         children: [
           Icon(Icons.bolt, color: Colors.blue.withAlpha(51), size: 64),
           const SizedBox(height: 24),
-          Text('HOW CAN I ASSIST YOU?', style: syne(sz: 12, w: FontWeight.w800, ls: 4, c: Colors.white24)),
+          Text('HOW CAN I ASSIST YOU?', style: syne(sz: 12, w: FontWeight.w800, ls: 4, c: C.dim)),
           const SizedBox(height: 8),
-          Text('Verification • Listings • Market Insights', style: dm(sz: 10, c: Colors.white12)),
+          Text('Verification � Listings � Market Insights', style: dm(sz: 10, c: C.dim)),
           const SizedBox(height: 24),
           // Language Selector
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
-              color: Colors.white.withAlpha(13),
+              color: C.text.withAlpha(13),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: C.dim),
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: _selectedLang,
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white38),
+                icon: Icon(Icons.arrow_drop_down, color: C.dim),
                 dropdownColor: C.bg,
-                style: dm(sz: 12, c: Colors.white70),
+                style: dm(sz: 12, c: C.sub),
                 onChanged: (String? newValue) {
                   if (newValue != null) {
                     setState(() {
@@ -156,7 +156,7 @@ class _AiChatModalState extends State<AiChatModal> {
         children: [
           Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle)),
           const SizedBox(width: 8),
-          Text('Necxa is thinking...', style: dm(sz: 12, c: Colors.white38, fs: FontStyle.italic)),
+          Text('Necxa is thinking...', style: dm(sz: 12, c: C.dim, fs: FontStyle.italic)),
         ],
       ),
     );
@@ -165,25 +165,25 @@ class _AiChatModalState extends State<AiChatModal> {
   Widget _buildInputArea() {
     return Container(
       padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).viewInsets.bottom + 20),
-      decoration: const BoxDecoration(color: Colors.black, border: Border(top: BorderSide(color: Colors.white10))),
+      decoration: BoxDecoration(color: Colors.black, border: Border(top: BorderSide(color: C.dim))),
       child: Row(
         children: [
           Expanded(
             child: Container(
-              decoration: BoxDecoration(color: Colors.white.withAlpha(13), borderRadius: BorderRadius.circular(16)),
+              decoration: BoxDecoration(color: C.text.withAlpha(13), borderRadius: BorderRadius.circular(16)),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
                 controller: _msgCtrl,
                 style: dm(sz: 14),
                 onSubmitted: (_) => _send(),
-                decoration: InputDecoration(hintText: 'Type your message...', hintStyle: dm(sz: 14, c: Colors.white24), border: InputBorder.none),
+                decoration: InputDecoration(hintText: 'Type your message...', hintStyle: dm(sz: 14, c: C.dim), border: InputBorder.none),
               ),
             ),
           ),
           const SizedBox(width: 12),
           GestureDetector(
             onTap: _send,
-            child: Container(padding: const EdgeInsets.all(14), decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle), child: const Icon(Icons.send_rounded, color: Colors.white, size: 20)),
+            child: Container(padding: EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.blue, shape: BoxShape.circle), child: Icon(Icons.send_rounded, color: C.text, size: 20)),
           ),
         ],
       ),
@@ -205,15 +205,17 @@ class _ChatBubble extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
-          color: isUser ? Colors.blue.withAlpha(26) : Colors.white.withAlpha(13),
+          color: isUser ? Colors.blue.withAlpha(26) : C.text.withAlpha(13),
           borderRadius: BorderRadius.circular(18).copyWith(
             bottomRight: isUser ? const Radius.circular(0) : null,
             bottomLeft: !isUser ? const Radius.circular(0) : null,
           ),
-          border: Border.all(color: isUser ? Colors.blue.withAlpha(51) : Colors.white.withAlpha(13)),
+          border: Border.all(color: isUser ? Colors.blue.withAlpha(51) : C.text.withAlpha(13)),
         ),
-        child: Text(text, style: dm(sz: 14, h: 1.5, c: isUser ? Colors.white : Colors.white70)),
+        child: Text(text, style: dm(sz: 14, h: 1.5, c: isUser ? C.text : C.sub)),
       ),
     );
   }
 }
+
+

@@ -6,7 +6,7 @@ import '../widgets/gift_overlay.dart';
 
 class CreatorScreen extends StatelessWidget {
   final AppState state;
-  const CreatorScreen({super.key, required this.state});
+  CreatorScreen({super.key, required this.state});
 
   @override
   Widget build(BuildContext context) {
@@ -24,48 +24,48 @@ class CreatorScreen extends StatelessWidget {
   Widget _buildHeader() {
     return Container(
       color: C.card,
-      padding: const EdgeInsets.fromLTRB(16, 52, 16, 12),
+      padding: EdgeInsets.fromLTRB(16, 52, 16, 12),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: C.border)),
       ),
       child: Row(
         children: [
-          const NecxaLogo(size: 38, shadow: false),
-          const SizedBox(width: 8),
+          NecxaLogo(size: 38, shadow: false),
+          SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('NECXA Creator', style: syne(sz: 18)),
-              Text('Music · Art · Gifts · Monetize',
+              Text('Music � Art � Gifts � Monetize',
                   style: dm(sz: 10, c: C.dim)),
             ],
           ),
-          const Spacer(),
+          Spacer(),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: C.gold.withOpacity(.08),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: C.gold.withOpacity(.18)),
             ),
-            child: Text('💰 ${ugx(state.wallet)}',
+            child: Text('?? ${ugx(state.wallet)}',
                 style: dm(sz: 10, w: FontWeight.w700, c: C.gold)),
           ),
-          const SizedBox(width: 10),
+          SizedBox(width: 10),
           Container(
             padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
-              color: const Color(0xFF7F1D1D),
+              color: Color(0xFF7F1D1D),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
               children: [
                 _LiveDot(),
-                const SizedBox(width: 5),
+                SizedBox(width: 5),
                 Text('GO LIVE',
                     style: dm(sz: 10, w: FontWeight.w800,
-                        c: const Color(0xFFFCA5A5))),
+                        c: Color(0xFFFCA5A5))),
               ],
             ),
           ),
@@ -82,10 +82,10 @@ class CreatorScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          ('home', '🏠', 'Property'),
-          ('creator', '🎬', 'Creator'),
-          ('list', '📍', 'List'),
-          ('profile', '👤', 'Profile'),
+          ('home', '??', 'Property'),
+          ('creator', '??', 'Creator'),
+          ('list', '??', 'List'),
+          ('profile', '??', 'Profile'),
         ].map((t) {
           final active = t.$1 == 'creator';
           return Expanded(
@@ -95,7 +95,7 @@ class CreatorScreen extends StatelessWidget {
                 if (t.$1 == 'list') state.go('list');
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 11),
+                padding: EdgeInsets.symmetric(vertical: 11),
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
@@ -119,11 +119,11 @@ class CreatorScreen extends StatelessWidget {
   }
 
   Widget _buildCreatorTabs() {
-    const tabs = [
-      ('feed', '🏠 Feed'),
-      ('discover', '🌟 Discover'),
-      ('live', '🔴 Live'),
-      ('studio', '🎬 Studio'),
+    tabs = [
+      ('feed', '?? Feed'),
+      ('discover', '?? Discover'),
+      ('live', '?? Live'),
+      ('studio', '?? Studio'),
     ];
     return Container(
       decoration: BoxDecoration(
@@ -137,8 +137,8 @@ class CreatorScreen extends StatelessWidget {
             child: GestureDetector(
               onTap: () => state.setCreatorTab(t.$1),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                duration: Duration(milliseconds: 200),
+                padding: EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
@@ -170,7 +170,7 @@ class CreatorScreen extends StatelessWidget {
     }
   }
 
-  // ── Feed ──────────────────────────────────────────────────
+  // -- Feed --------------------------------------------------
   Widget _buildFeed(BuildContext context) {
     return SingleChildScrollView(
       child: Column(
@@ -179,21 +179,21 @@ class CreatorScreen extends StatelessWidget {
           _buildJoinBanner(),
           ...posts.map((p) => _PostCard(post: p, state: state,
               onGift: () => _openGifts(context, p))),
-          const SizedBox(height: 80),
+          SizedBox(height: 80),
         ],
       ),
     );
   }
 
   Widget _buildCatFilter() {
-    const cats = ['All','Music','Afrobeats','RnB','HipHop','Dance','Art'];
+    cats = ['All','Music','Afrobeats','RnB','HipHop','Dance','Art'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: cats.map((c) => Container(
-          margin: const EdgeInsets.only(right: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          margin: EdgeInsets.only(right: 8),
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
             color: C.gold.withOpacity(.09),
             borderRadius: BorderRadius.circular(20),
@@ -210,29 +210,29 @@ class CreatorScreen extends StatelessWidget {
     return GestureDetector(
       onTap: () {},
       child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-        padding: const EdgeInsets.all(12),
+        margin: EdgeInsets.fromLTRB(16, 0, 16, 10),
+        padding: EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1a1a0a),
+          color: Color(0xFF1a1a0a),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: C.gold.withOpacity(.25)),
         ),
         child: Row(
           children: [
-            const Text('🎤', style: TextStyle(fontSize: 20)),
-            const SizedBox(width: 10),
+            Text('??', style: TextStyle(fontSize: 20)),
+            SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Start earning today!',
                       style: dm(sz: 13, w: FontWeight.w800)),
-                  Text('Create account · Post content · Receive gifts',
+                  Text('Create account � Post content � Receive gifts',
                       style: dm(sz: 10, c: C.dim)),
                 ],
               ),
             ),
-            Text('JOIN →',
+            Text('JOIN ?',
                 style: dm(sz: 12, w: FontWeight.w800, c: C.gold)),
           ],
         ),
@@ -263,52 +263,52 @@ class CreatorScreen extends StatelessWidget {
     );
   }
 
-  // ── Discover ──────────────────────────────────────────────
+  // -- Discover ----------------------------------------------
   Widget _buildDiscover() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 80),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('🌟 Top Creators in Uganda', style: syne(sz: 16)),
-          const SizedBox(height: 12),
+          Text('?? Top Creators in Uganda', style: syne(sz: 16)),
+          SizedBox(height: 12),
           ...creators.map((c) => _CreatorCard(creator: c, state: state)),
         ],
       ),
     );
   }
 
-  // ── Live ──────────────────────────────────────────────────
+  // -- Live --------------------------------------------------
   Widget _buildLive() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 80),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('🔴 Live Now', style: syne(sz: 16)),
-          const SizedBox(height: 12),
+          Text('?? Live Now', style: syne(sz: 16)),
+          SizedBox(height: 12),
           ...[...posts, ...posts.take(2)].map((p) => _LiveCard(p)),
         ],
       ),
     );
   }
 
-  // ── Studio ────────────────────────────────────────────────
+  // -- Studio ------------------------------------------------
   Widget _buildStudio() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 80),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('🎬 My Creator Studio', style: syne(sz: 22)),
-          const SizedBox(height: 4),
+          Text('?? My Creator Studio', style: syne(sz: 22)),
+          SizedBox(height: 4),
           Text('Track earnings & upload content',
               style: dm(sz: 12, c: C.dim)),
-          const SizedBox(height: 18),
+          SizedBox(height: 18),
           _buildRevenueCard(),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           _buildUploadCard(),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           _buildAnalyticsCard(),
         ],
       ),
@@ -323,11 +323,11 @@ class CreatorScreen extends StatelessWidget {
       ('Pending Withdrawal', 'UGX 892,000', C.blue),
     ];
     return _StudioCard(
-      title: '💰 Revenue Breakdown',
+      title: '?? Revenue Breakdown',
       child: Column(
         children: [
           ...rows.map((r) => Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
+            padding: EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(color: C.border,
@@ -337,24 +337,24 @@ class CreatorScreen extends StatelessWidget {
             child: Row(
               children: [
                 Text(r.$1, style: dm(sz: 12, c: C.sub)),
-                const Spacer(),
+                Spacer(),
                 Text(r.$2,
                     style: syne(sz: 14, c: r.$3)),
               ],
             ),
           )),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
               color: C.green,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Text('💳 Withdraw to MTN MoMo',
+            child: Text('?? Withdraw to MTN MoMo',
                 textAlign: TextAlign.center,
                 style: dm(sz: 14, w: FontWeight.w800,
-                    c: Colors.white)),
+                    c: C.text)),
           ),
         ],
       ),
@@ -363,18 +363,18 @@ class CreatorScreen extends StatelessWidget {
 
   Widget _buildUploadCard() {
     final opts = [
-      ('🎬', 'Music Video', 'Upload full HD music video'),
-      ('📱', 'Short Reel', '15-60 second viral reel'),
-      ('🔴', 'Go Live', 'Start a live stream now'),
-      ('🖼️', 'Photo Post', 'Share artwork or photos'),
+      ('??', 'Music Video', 'Upload full HD music video'),
+      ('??', 'Short Reel', '15-60 second viral reel'),
+      ('??', 'Go Live', 'Start a live stream now'),
+      ('???', 'Photo Post', 'Share artwork or photos'),
     ];
     return _StudioCard(
-      title: '📤 Upload Content',
+      title: '?? Upload Content',
       child: Column(
         children: opts.map((o) {
           final isLast = o == opts.last;
           return Container(
-            padding: const EdgeInsets.symmetric(vertical: 13),
+            padding: EdgeInsets.symmetric(vertical: 13),
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(color: isLast ? Colors.transparent : C.border),
@@ -382,8 +382,8 @@ class CreatorScreen extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Text(o.$1, style: const TextStyle(fontSize: 26)),
-                const SizedBox(width: 12),
+                Text(o.$1, style: TextStyle(fontSize: 26)),
+                SizedBox(width: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -391,8 +391,8 @@ class CreatorScreen extends StatelessWidget {
                     Text(o.$3, style: dm(sz: 11, c: C.dim)),
                   ],
                 ),
-                const Spacer(),
-                Text('›', style: dm(sz: 18, c: C.dim)),
+                Spacer(),
+                Text('�', style: dm(sz: 18, c: C.dim)),
               ],
             ),
           );
@@ -403,13 +403,13 @@ class CreatorScreen extends StatelessWidget {
 
   Widget _buildAnalyticsCard() {
     final items = [
-      ('👁️', '4.2M', 'Total Views'),
-      ('❤️', '184K', 'Total Likes'),
-      ('🎁', '12.4K', 'Gifts Received'),
-      ('👥', '2.4M', 'Followers'),
+      ('???', '4.2M', 'Total Views'),
+      ('??', '184K', 'Total Likes'),
+      ('??', '12.4K', 'Gifts Received'),
+      ('??', '2.4M', 'Followers'),
     ];
     return _StudioCard(
-      title: '📊 This Month',
+      title: '?? This Month',
       child: LayoutBuilder(
         builder: (context, constraints) {
           final itemWidth = (constraints.maxWidth - 12) / 2;
@@ -418,15 +418,15 @@ class CreatorScreen extends StatelessWidget {
             children: items.map((i) => SizedBox(
               width: itemWidth,
               child: Container(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1F2937),
+                  color: Color(0xFF1F2937),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
                   children: [
-                    Text(i.$1, style: const TextStyle(fontSize: 22)),
-                    const SizedBox(height: 4),
+                    Text(i.$1, style: TextStyle(fontSize: 22)),
+                    SizedBox(height: 4),
                     Text(i.$2, style: syne(sz: 18, c: C.gold)),
                     Text(i.$3, style: dm(sz: 10, c: C.dim)),
                   ],
@@ -445,21 +445,21 @@ class CreatorScreen extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: C.border)),
       ),
-      padding: const EdgeInsets.fromLTRB(0, 12, 0, 28),
+      padding: EdgeInsets.fromLTRB(0, 12, 0, 28),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', false, () => state.go('home')),
-          _BotBtn('🎬', 'Creator', true, () {}),
-          _BotBtn('❤️', 'Saved', false, () {}),
-          _BotBtn('👤', 'Profile', false, () {}),
+          _BotBtn('??', 'Property', false, () => state.go('home')),
+          _BotBtn('??', 'Creator', true, () {}),
+          _BotBtn('??', 'Saved', false, () {}),
+          _BotBtn('??', 'Profile', false, () {}),
         ],
       ),
     );
   }
 }
 
-// ── Post Card ─────────────────────────────────────────────────
+// -- Post Card -------------------------------------------------
 class _PostCard extends StatelessWidget {
   final Post post;
   final AppState state;
@@ -471,9 +471,10 @@ class _PostCard extends StatelessWidget {
     final p = post;
     final liked = state.liked.contains(p.id);
     final following = state.followed.contains(p.creatorId);
+    final isFriend = state.isFriendSync(p.creatorId);
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+      margin: EdgeInsets.fromLTRB(16, 0, 16, 18),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(20),
@@ -484,7 +485,7 @@ class _PostCard extends StatelessWidget {
         children: [
           // Thumb
           ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             child: Container(
               height: 200,
               decoration: BoxDecoration(
@@ -498,13 +499,13 @@ class _PostCard extends StatelessWidget {
                 children: [
                   Center(
                     child: Text(p.avatar,
-                        style: const TextStyle(fontSize: 64)),
+                        style: TextStyle(fontSize: 64)),
                   ),
                   if (p.type == 'live')
                     Positioned(
                       top: 12, left: 12,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
+                        padding: EdgeInsets.symmetric(
                             horizontal: 10, vertical: 3),
                         decoration: BoxDecoration(
                           color: C.red,
@@ -514,12 +515,12 @@ class _PostCard extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             _LiveDot(),
-                            const SizedBox(width: 5),
-                            const Text('LIVE',
+                            SizedBox(width: 5),
+                            Text('LIVE',
                                 style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.w800,
-                                    color: Colors.white)),
+                                    color: C.text)),
                           ],
                         ),
                       ),
@@ -527,7 +528,7 @@ class _PostCard extends StatelessWidget {
                   Positioned(
                     top: 12, right: 12,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
+                      padding: EdgeInsets.symmetric(
                           horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: Colors.black.withOpacity(.7),
@@ -535,10 +536,10 @@ class _PostCard extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          Text('👁', style: dm(sz: 11)),
-                          const SizedBox(width: 4),
+                          Text('??', style: dm(sz: 11)),
+                          SizedBox(width: 4),
                           Text(p.views,
-                              style: dm(sz: 10, c: Colors.white)),
+                              style: dm(sz: 10, c: C.text)),
                         ],
                       ),
                     ),
@@ -550,10 +551,10 @@ class _PostCard extends StatelessWidget {
                         color: Colors.black.withOpacity(.6),
                         borderRadius: BorderRadius.circular(26),
                       ),
-                      child: const Center(
-                        child: Text('▶',
+                      child: Center(
+                        child: Text('?',
                             style: TextStyle(
-                                fontSize: 20, color: Colors.white)),
+                                fontSize: 20, color: C.text)),
                       ),
                     ),
                   ),
@@ -561,17 +562,17 @@ class _PostCard extends StatelessWidget {
                     Positioned(
                       bottom: 10, right: 10,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
+                        padding: EdgeInsets.symmetric(
                             horizontal: 7, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(.8),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(p.duration,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w700,
-                                color: Colors.white)),
+                                color: C.text)),
                       ),
                     ),
                 ],
@@ -580,7 +581,7 @@ class _PostCard extends StatelessWidget {
           ),
           // Body
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -589,15 +590,15 @@ class _PostCard extends StatelessWidget {
                     Container(
                       width: 38, height: 38,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1F2937),
+                        color: Color(0xFF1F2937),
                         borderRadius: BorderRadius.circular(19),
                       ),
                       child: Center(
                         child: Text(p.avatar,
-                            style: const TextStyle(fontSize: 20)),
+                            style: TextStyle(fontSize: 20)),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -607,8 +608,8 @@ class _PostCard extends StatelessWidget {
                               Text(p.creator,
                                   style: dm(sz: 14, w: FontWeight.w800)),
                               if (p.verified) ...[
-                                const SizedBox(width: 4),
-                                Text('✓',
+                                SizedBox(width: 4),
+                                Text('?',
                                     style: dm(sz: 11, c: C.gold,
                                         w: FontWeight.w700)),
                               ],
@@ -622,8 +623,8 @@ class _PostCard extends StatelessWidget {
                     GestureDetector(
                       onTap: () => state.toggleFollow(p.creatorId),
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(
+                        duration: Duration(milliseconds: 150),
+                        padding: EdgeInsets.symmetric(
                             horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: following
@@ -634,7 +635,7 @@ class _PostCard extends StatelessWidget {
                               color: C.gold.withOpacity(.31)),
                         ),
                         child: Text(
-                          following ? '✓ Following' : '+ Follow',
+                          isFriend ? 'Friends' : following ? '? Following' : '+ Follow',
                           style: dm(sz: 11, w: FontWeight.w700,
                               c: C.gold),
                         ),
@@ -642,45 +643,45 @@ class _PostCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                SizedBox(height: 10),
                 Text(p.title,
                     style: dm(sz: 14, w: FontWeight.w700, h: 1.4)),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
                   children: p.tags.map((t) => Text(t,
                       style: dm(sz: 11, w: FontWeight.w600,
                           c: C.blue))).toList(),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: EdgeInsets.only(top: 8),
                   decoration: BoxDecoration(
                     border: Border(top: BorderSide(color: C.border)),
                   ),
                   child: Row(
                     children: [
                       _ActionBtn(
-                        icon: liked ? '❤️' : '🤍',
+                        icon: liked ? '??' : '??',
                         label: kNum(p.likes + (liked ? 1 : 0)),
                         active: liked,
                         onTap: () => state.toggleLike(p.id),
                       ),
                       _ActionBtn(
-                        icon: '💬',
+                        icon: '??',
                         label: kNum(p.comments),
                         onTap: () {},
                       ),
                       _ActionBtn(
-                        icon: '↗',
+                        icon: '?',
                         label: 'Share',
                         onTap: () {},
                       ),
-                      const Spacer(),
+                      Spacer(),
                       GestureDetector(
                         onTap: onGift,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
+                          padding: EdgeInsets.symmetric(
                               horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: C.gold.withOpacity(.12),
@@ -690,9 +691,9 @@ class _PostCard extends StatelessWidget {
                           ),
                           child: Row(
                             children: [
-                              const Text('🎁',
+                              Text('??',
                                   style: TextStyle(fontSize: 14)),
-                              const SizedBox(width: 4),
+                              SizedBox(width: 4),
                               Text(kNum(p.gifts),
                                   style: dm(sz: 12, w: FontWeight.w700,
                                       c: C.gold)),
@@ -703,19 +704,19 @@ class _PostCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
+                  padding: EdgeInsets.symmetric(
                       horizontal: 12, vertical: 7),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0d1f14),
+                    color: Color(0xFF0d1f14),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
                     children: [
-                      Text('💰 Creator earned',
+                      Text('?? Creator earned',
                           style: dm(sz: 11, c: C.green)),
-                      const Spacer(),
+                      Spacer(),
                       Text(ugx(p.earned),
                           style: syne(sz: 13, c: C.gold)),
                     ],
@@ -741,11 +742,11 @@ class _ActionBtn extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.only(right: 4),
+        padding: EdgeInsets.only(right: 4),
         child: Row(
           children: [
-            Text(icon, style: const TextStyle(fontSize: 16)),
-            const SizedBox(width: 4),
+            Text(icon, style: TextStyle(fontSize: 16)),
+            SizedBox(width: 4),
             Text(label,
                 style: dm(sz: 12,
                     c: active ? C.red : C.dim)),
@@ -756,7 +757,7 @@ class _ActionBtn extends StatelessWidget {
   }
 }
 
-// ── Creator Card ──────────────────────────────────────────────
+// -- Creator Card ----------------------------------------------
 class _CreatorCard extends StatelessWidget {
   final Creator creator;
   final AppState state;
@@ -766,9 +767,10 @@ class _CreatorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = creator;
     final following = state.followed.contains(c.id);
+    final isFriend = state.isFriendSync(c.id);
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      margin: EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(16),
@@ -780,15 +782,15 @@ class _CreatorCard extends StatelessWidget {
           Container(
             width: 56, height: 56,
             decoration: BoxDecoration(
-              color: const Color(0xFF1F2937),
+              color: Color(0xFF1F2937),
               borderRadius: BorderRadius.circular(28),
             ),
             child: Center(
               child: Text(c.avatar,
-                  style: const TextStyle(fontSize: 32)),
+                  style: TextStyle(fontSize: 32)),
             ),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -798,9 +800,9 @@ class _CreatorCard extends StatelessWidget {
                     Text(c.name,
                         style: dm(sz: 15, w: FontWeight.w800)),
                     if (c.verified) ...[
-                      const SizedBox(width: 6),
+                      SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(
+                        padding: EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: C.gold.withOpacity(.12),
@@ -808,7 +810,7 @@ class _CreatorCard extends StatelessWidget {
                           border: Border.all(
                               color: C.gold.withOpacity(.25)),
                         ),
-                        child: Text('✓ PRO',
+                        child: Text('? PRO',
                             style: dm(sz: 9, w: FontWeight.w800,
                                 c: C.gold)),
                       ),
@@ -817,19 +819,19 @@ class _CreatorCard extends StatelessWidget {
                 ),
                 Text(c.username,
                     style: dm(sz: 11, c: C.dim)),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text(c.bio, style: dm(sz: 12, c: C.sub)),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Wrap(
                   spacing: 10,
                   children: [
-                    Text('👥 ${c.followers}',
+                    Text('?? ${c.followers}',
                         style: dm(sz: 11, w: FontWeight.w600,
                             c: C.sub)),
-                    Text('💰 ${ugx(c.totalEarned)}',
+                    Text('?? ${ugx(c.totalEarned)}',
                         style: dm(sz: 11, w: FontWeight.w600,
                             c: C.gold)),
-                    Text('🎵 ${c.category}',
+                    Text('?? ${c.category}',
                         style: dm(sz: 11, w: FontWeight.w600,
                             c: C.blue)),
                   ],
@@ -837,13 +839,13 @@ class _CreatorCard extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          SizedBox(width: 8),
           GestureDetector(
             onTap: () => state.toggleFollow(c.id),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: Duration(milliseconds: 150),
               padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
                 color: following
                     ? C.gold.withOpacity(.25)
@@ -853,7 +855,7 @@ class _CreatorCard extends StatelessWidget {
                     Border.all(color: C.gold.withOpacity(.31)),
               ),
               child: Text(
-                following ? '✓ Following' : '+ Follow',
+                isFriend ? 'Friends' : following ? '? Following' : '+ Follow',
                 style: dm(sz: 12, w: FontWeight.w700, c: C.gold),
               ),
             ),
@@ -864,15 +866,15 @@ class _CreatorCard extends StatelessWidget {
   }
 }
 
-// ── Live Card ─────────────────────────────────────────────────
+// -- Live Card -------------------------------------------------
 class _LiveCard extends StatelessWidget {
   final Post p;
   const _LiveCard(this.p);
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      margin: EdgeInsets.only(bottom: 12),
+      padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(16),
@@ -880,8 +882,8 @@ class _LiveCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(p.avatar, style: const TextStyle(fontSize: 40)),
-          const SizedBox(width: 14),
+          Text(p.avatar, style: TextStyle(fontSize: 40)),
+          SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -889,24 +891,24 @@ class _LiveCard extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
+                      padding: EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: C.red.withOpacity(.12),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Text('🔴 LIVE',
+                      child: Text('?? LIVE',
                           style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.w800,
                               color: C.red)),
                     ),
-                    const SizedBox(width: 6),
+                    SizedBox(width: 6),
                     Text('${p.views} watching',
                         style: dm(sz: 10, c: C.dim)),
                   ],
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text(p.creator,
                     style: dm(sz: 13, w: FontWeight.w800)),
                 Text(p.title, style: dm(sz: 11, c: C.dim)),
@@ -914,7 +916,7 @@ class _LiveCard extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
+            padding: EdgeInsets.symmetric(
                 horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
               color: C.red,
@@ -922,7 +924,7 @@ class _LiveCard extends StatelessWidget {
             ),
             child: Text('Join',
                 style: dm(sz: 12, w: FontWeight.w800,
-                    c: Colors.white)),
+                    c: C.text)),
           ),
         ],
       ),
@@ -930,7 +932,7 @@ class _LiveCard extends StatelessWidget {
   }
 }
 
-// ── Studio Card ───────────────────────────────────────────────
+// -- Studio Card -----------------------------------------------
 class _StudioCard extends StatelessWidget {
   final String title;
   final Widget child;
@@ -938,7 +940,7 @@ class _StudioCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(20),
@@ -948,7 +950,7 @@ class _StudioCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title, style: syne(sz: 15)),
-          const SizedBox(height: 14),
+          SizedBox(height: 14),
           child,
         ],
       ),
@@ -956,7 +958,7 @@ class _StudioCard extends StatelessWidget {
   }
 }
 
-// ── Live dot animation ────────────────────────────────────────
+// -- Live dot animation ----------------------------------------
 class _LiveDot extends StatefulWidget {
   @override
   State<_LiveDot> createState() => _LiveDotState();
@@ -964,7 +966,7 @@ class _LiveDot extends StatefulWidget {
 class _LiveDotState extends State<_LiveDot>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl =
-      AnimationController(vsync: this, duration: const Duration(seconds: 1))
+      AnimationController(vsync: this, duration: Duration(seconds: 1))
         ..repeat(reverse: true);
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
@@ -974,7 +976,7 @@ class _LiveDotState extends State<_LiveDot>
       opacity: Tween(begin: 0.3, end: 1.0).animate(_ctrl),
       child: Container(
         width: 7, height: 7,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: C.red, shape: BoxShape.circle,
         ),
       ),
@@ -994,8 +996,8 @@ class _BotBtn extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: const TextStyle(fontSize: 22)),
-          const SizedBox(height: 3),
+          Text(icon, style: TextStyle(fontSize: 22)),
+          SizedBox(height: 3),
           Text(label,
               style: dm(sz: 9, w: FontWeight.w600,
                   c: active ? C.gold : C.dim)),
@@ -1004,3 +1006,5 @@ class _BotBtn extends StatelessWidget {
     );
   }
 }
+
+

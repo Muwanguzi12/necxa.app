@@ -197,7 +197,7 @@ class _TransportScreenState extends State<TransportScreen> {
                 ),
                 _buildModularBottomNav(),
 
-                // 🚀 SMART SYNC INDICATOR (Transport Edition)
+                // ?? SMART SYNC INDICATOR (Transport Edition)
                 Positioned(
                   top: 10,
                   left: 0,
@@ -236,7 +236,7 @@ class _TransportScreenState extends State<TransportScreen> {
                                 style: dm(
                                   sz: 10,
                                   w: FontWeight.bold,
-                                  c: Colors.white,
+                                  c: C.text,
                                 ),
                               ),
                             ],
@@ -254,7 +254,7 @@ class _TransportScreenState extends State<TransportScreen> {
     );
   }
 
-  // ── Modular Header (Matches Home/Profile) ──
+  // -- Modular Header (Matches Home/Profile) --
   Widget _buildModularHeader() {
     return Container(
       color: C.card,
@@ -334,13 +334,13 @@ class _TransportScreenState extends State<TransportScreen> {
     );
   }
 
-  // ── Shared App Tabs ──
+  // -- Shared App Tabs --
   Widget _buildAppTabs() {
     final tabs = [
-      ('home', '🏠', 'Property'),
-      ('transport', '🚚', 'Transport'),
-      ('upload', '➕', 'Upload'),
-      ('profile', '👤', 'Profile'),
+      ('home', '??', 'Property'),
+      ('transport', '??', 'Transport'),
+      ('upload', '?', 'Upload'),
+      ('profile', '??', 'Profile'),
     ];
     return Container(
       decoration: BoxDecoration(
@@ -394,7 +394,7 @@ class _TransportScreenState extends State<TransportScreen> {
                             style: syne(
                               sz: 8,
                               w: FontWeight.bold,
-                              c: Colors.white,
+                              c: C.text,
                             ),
                           ),
                         ),
@@ -409,7 +409,7 @@ class _TransportScreenState extends State<TransportScreen> {
     );
   }
 
-  // ── Transport Sub-Tabs ──
+  // -- Transport Sub-Tabs --
   Widget _buildSubTabs() {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 16, 20, 8),
@@ -463,7 +463,7 @@ class _TransportScreenState extends State<TransportScreen> {
                 style: dm(
                   sz: 11,
                   w: active ? FontWeight.w700 : FontWeight.w500,
-                  c: active ? Colors.white : C.dim,
+                  c: active ? C.text : C.dim,
                 ),
               ),
               if (hasBadge) ...[
@@ -581,7 +581,7 @@ class _TransportScreenState extends State<TransportScreen> {
               child: Center(
                 child: Text(
                   'EXPLORE ROUTES',
-                  style: syne(sz: 12, w: FontWeight.w800, c: Colors.white),
+                  style: syne(sz: 12, w: FontWeight.w800, c: C.text),
                 ),
               ),
             ),
@@ -696,7 +696,7 @@ class _TransportScreenState extends State<TransportScreen> {
         const SizedBox(height: 12),
         ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          leading: const Icon(Icons.storefront_outlined, color: C.brand),
+          leading: Icon(Icons.storefront_outlined, color: C.brand),
           title: Text(
             'Open Vendor Dashboard',
             style: syne(sz: 13, w: FontWeight.w700),
@@ -839,7 +839,7 @@ class _TransportScreenState extends State<TransportScreen> {
             children: [
               CircleAvatar(
                 backgroundColor: C.brand,
-                child: Text(d.name[0], style: syne(sz: 18, c: Colors.white)),
+                child: Text(d.name[0], style: syne(sz: 18, c: C.text)),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -848,7 +848,7 @@ class _TransportScreenState extends State<TransportScreen> {
                   children: [
                     Text(d.name, style: syne(sz: 16, w: FontWeight.w700)),
                     Text(
-                      '${d.vehicleType.name.toUpperCase()} • ${d.numberPlate}',
+                      '${d.vehicleType.name.toUpperCase()} � ${d.numberPlate}',
                       style: dm(sz: 11, c: C.dim),
                     ),
                   ],
@@ -903,7 +903,7 @@ class _TransportScreenState extends State<TransportScreen> {
             padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: BoxDecoration(
               color: C.card.withAlpha(217),
-              border: Border.all(color: Colors.white.withAlpha(26)),
+              border: Border.all(color: C.text.withAlpha(26)),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
@@ -983,7 +983,7 @@ class _DriverCard extends StatelessWidget {
               children: [
                 Text(driver.name, style: syne(sz: 13, w: FontWeight.w700)),
                 Text(
-                  '${driver.vehicleType.name.toUpperCase()} • Verified',
+                  '${driver.vehicleType.name.toUpperCase()} � Verified',
                   style: dm(sz: 10, c: C.dim),
                 ),
               ],
@@ -1005,7 +1005,7 @@ class _DriverCard extends StatelessWidget {
                     horizontal: 10,
                     vertical: 4,
                   ),
-                  child: Text('BOOK', style: syne(sz: 9, c: Colors.white)),
+                  child: Text('BOOK', style: syne(sz: 9, c: C.text)),
                 ),
               ),
             ],
@@ -1058,7 +1058,7 @@ class _DriverCard extends StatelessWidget {
                 child: Center(
                   child: Text(
                     'AUTHORIZE',
-                    style: syne(sz: 14, c: Colors.white),
+                    style: syne(sz: 14, c: C.text),
                   ),
                 ),
               ),
@@ -1370,7 +1370,7 @@ class _BuyerCommerceOrderCardState extends State<_BuyerCommerceOrderCard> {
             border: Border.all(color: complete ? C.brand : C.border),
           ),
           child: complete
-              ? const Icon(Icons.check_rounded, size: 12, color: Colors.white)
+              ? Icon(Icons.check_rounded, size: 12, color: C.text)
               : null,
         ),
         const SizedBox(width: 10),
@@ -1378,7 +1378,7 @@ class _BuyerCommerceOrderCardState extends State<_BuyerCommerceOrderCard> {
           label,
           style: dm(
             sz: 12,
-            c: complete ? Colors.white : C.dim,
+            c: complete ? C.text : C.dim,
             w: current ? FontWeight.w800 : FontWeight.w500,
           ),
         ),
@@ -1497,7 +1497,7 @@ class _OrderCard extends StatelessWidget {
               if (isDriver && order.status == OrderStatus.pending)
                 GestureDetector(
                   onTap: () async {
-                    // 🚚 DRIVER HANDSHAKE: Lock mission and assign driver info
+                    // ?? DRIVER HANDSHAKE: Lock mission and assign driver info
                     final driver = state.currentDriverProfile;
                     if (driver == null) return;
 
@@ -1514,7 +1514,7 @@ class _OrderCard extends StatelessWidget {
                     ),
                     child: Text(
                       'ACCEPT MISSION',
-                      style: syne(sz: 10, c: Colors.white, w: FontWeight.bold),
+                      style: syne(sz: 10, c: C.text, w: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -1889,12 +1889,12 @@ class _EcomOrderCardState extends State<_EcomOrderCard> {
                           fit: BoxFit.cover,
                         )
                       : null,
-                  color: Colors.white10,
+                  color: C.dim,
                 ),
                 child: data['product_thumbnail'] == null
                     ? const Icon(
                         Icons.inventory_2_outlined,
-                        color: Colors.white38,
+                        color: C.dim,
                       )
                     : null,
               ),
@@ -1923,9 +1923,9 @@ class _EcomOrderCardState extends State<_EcomOrderCard> {
             ],
           ),
 
-          // 🚚 LOGISTICS PARTNER (Vendor Side)
+          // ?? LOGISTICS PARTNER (Vendor Side)
           if (data['driver_id'] != null) ...[
-            const Divider(height: 24, color: Colors.white10),
+            Divider(height: 24, color: C.dim),
             Row(
               children: [
                 const Icon(
@@ -1985,7 +1985,7 @@ class _EcomOrderCardState extends State<_EcomOrderCard> {
             ),
           ],
 
-          const Divider(height: 24, color: Colors.white10),
+          Divider(height: 24, color: C.dim),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1996,7 +1996,7 @@ class _EcomOrderCardState extends State<_EcomOrderCard> {
               if (isPending)
                 GestureDetector(
                   onTap: () async {
-                    // 🚀 VENDOR HANDSHAKE: Trigger Logistics Engine
+                    // ?? VENDOR HANDSHAKE: Trigger Logistics Engine
                     final orderId = data['order_id'];
                     await CommerceService().transitionOrder(
                       orderId,
@@ -2016,7 +2016,7 @@ class _EcomOrderCardState extends State<_EcomOrderCard> {
                     ),
                     child: Text(
                       'READY FOR PICKUP',
-                      style: syne(sz: 10, w: FontWeight.bold, c: Colors.white),
+                      style: syne(sz: 10, w: FontWeight.bold, c: C.text),
                     ),
                   ),
                 ),
@@ -2027,3 +2027,5 @@ class _EcomOrderCardState extends State<_EcomOrderCard> {
     );
   }
 }
+
+

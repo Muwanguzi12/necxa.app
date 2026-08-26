@@ -40,7 +40,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Nav ──
+  // -- Nav --
   Widget _buildNav(BuildContext context) {
     return Container(
       color: C.card,
@@ -62,7 +62,7 @@ class HomeScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: C.green.withOpacity(.25)),
                   ),
-                  child: Text('🇺🇬 UGX', style: dm(sz: 9, w: FontWeight.w700, c: C.green)),
+                  child: Text('???? UGX', style: dm(sz: 9, w: FontWeight.w700, c: C.green)),
                 ),
               ],
             ),
@@ -100,7 +100,7 @@ class HomeScreen extends StatelessWidget {
                     border: Border.all(color: C.brand, width: 1.5),
                     image: url != null ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover) : null,
                   ),
-                  child: url == null ? const Icon(Icons.person, color: C.brand, size: 20) : null,
+                  child: url == null ? Icon(Icons.person, color: C.brand, size: 20) : null,
                 );
               }
             ),
@@ -119,7 +119,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── App Tabs ──
+  // -- App Tabs --
   Widget _buildAppTabs() {
     return _AppTabs(current: 'home', state: state, onTap: (t) {
       if (t == 'transport') state.go('transport');
@@ -128,7 +128,7 @@ class HomeScreen extends StatelessWidget {
     });
   }
 
-  // ── Hero ──
+  // -- Hero --
   Widget _buildHero() {
     return Container(
       decoration: BoxDecoration(
@@ -189,7 +189,7 @@ class HomeScreen extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Text(state.isSearching ? '⏳' : '🔍', style: dm(sz: 16)),
+                Text(state.isSearching ? '?' : '??', style: dm(sz: 16)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
@@ -237,7 +237,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Stats row ──
+  // -- Stats row --
   Widget _buildStats(int count) {
     return Container(
       decoration: BoxDecoration(
@@ -245,17 +245,17 @@ class HomeScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _StatCell(icon: '🏠', val: '$count+', lab: 'Listings'),
+          _StatCell(icon: '??', val: '$count+', lab: 'Listings'),
           Container(width: 1, height: 60, color: C.border),
-          const _StatCell(icon: '✅', val: '100%', lab: 'AI Verified'),
+          const _StatCell(icon: '?', val: '100%', lab: 'AI Verified'),
           Container(width: 1, height: 60, color: C.border),
-          const _StatCell(icon: '🔐', val: '5%', lab: 'Broker Fee'),
+          const _StatCell(icon: '??', val: '5%', lab: 'Broker Fee'),
         ],
       ),
     );
   }
 
-  // ── Filters ──
+  // -- Filters --
   Widget _buildFilterRow() {
     return Container(
       decoration: BoxDecoration(
@@ -291,7 +291,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Listings ──
+  // -- Listings --
   Widget _buildListings(List<PropertyContainer> filtered) {
     if (state.isLoadingProperties) {
       return const Padding(
@@ -321,7 +321,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Bottom Nav ──
+  // -- Bottom Nav --
   Widget _buildBottomNav() {
     return _BottomNav(
       current: 'home',
@@ -336,7 +336,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-// ── Property Card ─────────────────────────────────────────────
+// -- Property Card ---------------------------------------------
 class _PropertyCard extends StatelessWidget {
   final PropertyContainer p;
   final AppState state;
@@ -374,7 +374,7 @@ class _PropertyCard extends StatelessWidget {
                 child: Stack(
                   children: [
                     if (p.core.images.isEmpty)
-                      Center(child: Text(p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡', style: const TextStyle(fontSize: 50))),
+                      Center(child: Text(p.core.propertyType == PropertyType.apartment ? '??' : '??', style: const TextStyle(fontSize: 50))),
                     
                     Positioned(
                       top: 10, left: 10,
@@ -387,7 +387,7 @@ class _PropertyCard extends StatelessWidget {
                     if (p.shadow.isUnlockedByCurrentUser)
                       const Positioned(
                         bottom: 10, right: 10,
-                        child: _Badge('🔓 Unlocked', C.green, Colors.white),
+                        child: _Badge('?? Unlocked', C.green, C.text),
                       ),
                     if (isReserved)
                        Positioned.fill(
@@ -397,7 +397,7 @@ class _PropertyCard extends StatelessWidget {
                              child: Container(
                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
-                               child: Text('RESERVED', style: syne(sz: 10, c: Colors.white, w: FontWeight.w800)),
+                               child: Text('RESERVED', style: syne(sz: 10, c: C.text, w: FontWeight.w800)),
                              ),
                            ),
                          ),
@@ -420,23 +420,23 @@ class _PropertyCard extends StatelessWidget {
                       ),
                       GestureDetector(
                         onTap: () => state.toggleSave(p.core.id),
-                        child: Text(saved ? '❤️' : '🤍',
+                        child: Text(saved ? '??' : '??',
                             style: const TextStyle(fontSize: 18)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text('📍 ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: C.dim)),
+                  Text('?? ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: C.dim)),
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Text('🛏 ${p.core.bedrooms} Bed', style: dm(sz: 11, c: C.sub)),
+                      Text('?? ${p.core.bedrooms} Bed', style: dm(sz: 11, c: C.sub)),
                       const SizedBox(width: 12),
-                      Text('🚿 ${p.core.bathrooms} Bath', style: dm(sz: 11, c: C.sub)),
+                      Text('?? ${p.core.bathrooms} Bath', style: dm(sz: 11, c: C.sub)),
                       const SizedBox(width: 12),
-                      Text('📐 ${p.core.sizeSqft}m²', style: dm(sz: 11, c: C.sub)),
+                      Text('?? ${p.core.sizeSqft}m�', style: dm(sz: 11, c: C.sub)),
                       const SizedBox(width: 12),
-                      Text('⭐ 4.8',
+                      Text('? 4.8',
                           style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
                     ],
                   ),
@@ -454,7 +454,7 @@ class _PropertyCard extends StatelessWidget {
                               Text(p.financial.priceType == PriceType.monthly ? '/mo' : '/night', style: dm(sz: 10, c: C.dim)),
                               const SizedBox(width: 8),
                               if (!p.shadow.isUnlockedByCurrentUser)
-                                Text('•  Unlock: ${ugx(p.financial.unlockCost)}', 
+                                Text('�  Unlock: ${ugx(p.financial.unlockCost)}', 
                                   style: dm(sz: 10, c: C.gold, w: FontWeight.w700)),
                             ],
                           ),
@@ -470,7 +470,7 @@ class _PropertyCard extends StatelessWidget {
                           border: Border.all(
                               color: isReserved ? C.red : C.brand.withOpacity(.22)),
                         ),
-                        child: Text(isReserved ? 'Reserved' : 'View →',
+                        child: Text(isReserved ? 'Reserved' : 'View ?',
                             style: dm(sz: 11, w: FontWeight.w700,
                                 c: isReserved ? C.red : C.brand)),
                       ),
@@ -486,7 +486,7 @@ class _PropertyCard extends StatelessWidget {
   }
 }
 
-// ── Shared Widgets ────────────────────────────────────────────
+// -- Shared Widgets --------------------------------------------
 class _TrustBadge extends StatelessWidget {
   final TrustStatus status;
   const _TrustBadge({required this.status});
@@ -497,11 +497,11 @@ class _TrustBadge extends StatelessWidget {
     String label;
     switch (status) {
       case TrustStatus.titan_trust:
-        bg = const Color(0xFFB8860B); label = '💎 TITAN TRUST'; break;
+        bg = const Color(0xFFB8860B); label = '?? TITAN TRUST'; break;
       case TrustStatus.verified:
-        bg = C.green; label = '✓ VERIFIED'; break;
+        bg = C.green; label = '? VERIFIED'; break;
       case TrustStatus.limited:
-        bg = Colors.orange; label = '⚠️ LIMITED'; break;
+        bg = Colors.orange; label = '?? LIMITED'; break;
       default:
         bg = Colors.blueGrey; label = 'STANDARD';
     }
@@ -516,7 +516,7 @@ class _TrustBadge extends StatelessWidget {
         ],
       ),
       child: Text(label, style: const TextStyle(
-        fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
+        fontSize: 9, fontWeight: FontWeight.w900, color: C.text, letterSpacing: 0.5)),
     );
   }
 }
@@ -600,12 +600,12 @@ class _PulsingDotState extends State<_PulsingDot>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _anim,
-      child: const Text('●', style: TextStyle(color: C.brand, fontSize: 10)),
+      child: Text('?', style: TextStyle(color: C.brand, fontSize: 10)),
     );
   }
 }
 
-// ── App Tabs (shared) ─────────────────────────────────────────
+// -- App Tabs (shared) -----------------------------------------
 class _AppTabs extends StatelessWidget {
   final String current;
   final void Function(String) onTap;
@@ -613,10 +613,10 @@ class _AppTabs extends StatelessWidget {
   const _AppTabs({required this.current, required this.onTap, required this.state});
 
   static final _tabs = [
-    ('home', '🏠', 'Property'),
-    ('transport', '🚚', 'Transport'),
-    ('upload', '➕', 'Upload'),
-    ('profile', '👤', 'Profile'),
+    ('home', '??', 'Property'),
+    ('transport', '??', 'Transport'),
+    ('upload', '?', 'Upload'),
+    ('profile', '??', 'Profile'),
   ];
 
   @override
@@ -688,7 +688,7 @@ class _AppTabs extends StatelessWidget {
   }
 }
 
-// ── Bottom Nav (shared) ───────────────────────────────────────
+// -- Bottom Nav (shared) ---------------------------------------
 class _BottomNav extends StatelessWidget {
   final String current;
   final int savedCount;
@@ -707,10 +707,10 @@ class _BottomNav extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', current == 'home', () => onTap('home')),
-          _BotBtn('⚡', 'Community', current == 'community', () => onTap('community')),
-          _BotBtn('📋', 'Listings', current == 'list', () => onTap('list')),
-          _BotBtn('💬', 'Chat', current == 'chat', () => onTap('chat')),
+          _BotBtn('??', 'Property', current == 'home', () => onTap('home')),
+          _BotBtn('?', 'Community', current == 'community', () => onTap('community')),
+          _BotBtn('??', 'Listings', current == 'list', () => onTap('list')),
+          _BotBtn('??', 'Chat', current == 'chat', () => onTap('chat')),
         ],
       ),
     );
@@ -739,3 +739,5 @@ class _BotBtn extends StatelessWidget {
     );
   }
 }
+
+

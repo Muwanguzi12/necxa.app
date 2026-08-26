@@ -127,8 +127,18 @@ class LiveStreamingService {
 
   Future<void> init() async {}
 
-  Future<void> _ensurePublishingPermissions() async {
-    final statuses = await [Permission.camera, Permission.microphone]
+  Future<void> _ensurePublishingPermissions({
+    bool camera = true,
+    bool microphone = true,
+  }) async {
+    if (!camera && !microphone) {
+      throw ArgumentError('Enable camera or microphone before joining as a guest.');
+    }
+    final permissions = <Permission>[
+      if (camera) Permission.camera,
+      if (microphone) Permission.microphone,
+    ];
+    final statuses = await permissions
         .request()
         .timeout(
           _permissionTimeout,
@@ -136,11 +146,15 @@ class LiveStreamingService {
             'Camera and microphone permission request timed out.',
           ),
         );
-    final cameraGranted = statuses[Permission.camera]?.isGranted ?? false;
+    final cameraGranted = !camera || (statuses[Permission.camera]?.isGranted ?? false);
     final microphoneGranted =
-        statuses[Permission.microphone]?.isGranted ?? false;
+        !microphone || (statuses[Permission.microphone]?.isGranted ?? false);
     if (!cameraGranted || !microphoneGranted) {
-      throw 'Camera and microphone permissions are required to go live.';
+      throw camera && microphone
+          ? 'Camera and microphone permission are required to go live.'
+          : camera
+          ? 'Camera permission is required for video guest mode.'
+          : 'Microphone permission is required for audio guest mode.';
     }
   }
 
@@ -234,6 +248,8 @@ class LiveStreamingService {
     required String url,
     required String token,
     required bool publish,
+    bool publishVideo = true,
+    bool publishAudio = true,
   }) async {
     final previousRoom = _room;
     final previousListener = _roomEventsListener;
@@ -268,20 +284,24 @@ class LiveStreamingService {
           );
       _listenForControlEvents(nextRoom, channelName);
       if (publish) {
-        await nextRoom.localParticipant
-            ?.setCameraEnabled(true)
-            .timeout(
-              _trackTimeout,
-              onTimeout: () =>
-                  throw TimeoutException('The camera did not start.'),
-            );
-        await nextRoom.localParticipant
-            ?.setMicrophoneEnabled(true)
-            .timeout(
-              _trackTimeout,
-              onTimeout: () =>
-                  throw TimeoutException('The microphone did not start.'),
-            );
+        if (publishVideo) {
+          await nextRoom.localParticipant
+              ?.setCameraEnabled(true)
+              .timeout(
+                _trackTimeout,
+                onTimeout: () =>
+                    throw TimeoutException('The camera did not start.'),
+              );
+        }
+        if (publishAudio) {
+          await nextRoom.localParticipant
+              ?.setMicrophoneEnabled(true)
+              .timeout(
+                _trackTimeout,
+                onTimeout: () =>
+                    throw TimeoutException('The microphone did not start.'),
+              );
+        }
       }
       _activeChannelName = channelName;
     } catch (_) {
@@ -570,11 +590,17 @@ class LiveStreamingService {
     });
   }
 
-  Future<void> switchRoleToBroadcaster() async {
+  Future<void> switchRoleToBroadcaster({
+    bool videoEnabled = true,
+    bool audioEnabled = true,
+  }) async {
     final channelName = _activeChannelName;
     if (channelName == null) throw 'No active live channel.';
 
-    await _ensurePublishingPermissions();
+    await _ensurePublishingPermissions(
+      camera: videoEnabled,
+      microphone: audioEnabled,
+    );
     final creds = await _fetchCredentials(
       action: 'join',
       channelName: channelName,
@@ -588,6 +614,8 @@ class LiveStreamingService {
         url: creds.url,
         token: creds.token,
         publish: true,
+        publishVideo: videoEnabled,
+        publishAudio: audioEnabled,
       );
       await _confirmJoin(canonicalChannelId, role: 'publisher');
       _currentRole = 'publisher';
@@ -818,6 +846,14 @@ class LiveStreamingService {
       destinationIdentity: request['hostId']?.toString(),
     );
     return request;
+  }
+
+  Future<void> setCameraEnabled(bool enabled) async {
+    await _room?.localParticipant?.setCameraEnabled(enabled);
+  }
+
+  Future<void> setMicrophoneEnabled(bool enabled) async {
+    await _room?.localParticipant?.setMicrophoneEnabled(enabled);
   }
 
   Future<Map<String, dynamic>> setGuestModerator(

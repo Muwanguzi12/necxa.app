@@ -347,6 +347,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   TimelineClip? _compositionVisualClip;
   bool _isSynchronizingComposition = false;
   bool _compositionSyncPending = false;
+  int _playbackCommandGeneration = 0;
   int _videoLoadGeneration = 0;
   DateTime _lastAudioSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastVideoSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -553,6 +554,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _playback.state.currentTime,
         force: true,
       );
+      controller.addListener(_syncVideoState);
       if (mounted) setState(() => _isVideoReady = true);
     } on TimeoutException catch (_) {
       if (loadGeneration == _videoLoadGeneration && mounted) {
@@ -2025,43 +2027,26 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final playheadOffset = (_currentTime.inMilliseconds / 1000.0) * scale;
 
     return Positioned(
-      left: playheadOffset - 20, // 40 width hit area centered on playheadOffset
+      left: playheadOffset,
       top: 0,
       bottom: 0,
-      width: 40,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: (details) {
-          if (_isPlaying) {
-            _togglePlayback();
-          }
-        },
-        onPanUpdate: (details) {
-          final currentOffset = (_currentTime.inMilliseconds / 1000.0) * scale;
-          final newOffset = currentOffset + details.delta.dx;
-          final newTimeInSeconds = newOffset / scale;
-          final newTime = Duration(milliseconds: (newTimeInSeconds * 1000).round());
-          final clampedTime = _clampDuration(newTime, Duration.zero, _totalDuration);
-          
-          _playback.seek(clampedTime, _tracks);
-        },
-        child: Column(
-          children: [
-            Container(
-              width: 14,
-              height: 14,
-              decoration: const BoxDecoration(
-                color: C.brand,
-                shape: BoxShape.circle,
+      child: IgnorePointer(
+        child: Container(
+          width: 2,
+          color: C.brand,
+          child: Column(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: C.brand,
+                  shape: BoxShape.circle,
+                ),
+                transform: Matrix4.translationValues(-4, 0, 0),
               ),
-            ),
-            Expanded(
-              child: Container(
-                width: 2,
-                color: C.brand,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -3816,7 +3801,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Future<void> _togglePlayback() async {
     if (_playback.state.isPlaying) {
-      _playback.pause();
+      await _pauseComposition();
     } else {
       // A library preview is intentionally separate from composition audio.
       // Stop it before starting the shared timeline transport.
@@ -3824,6 +3809,22 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       if (!mounted) return;
       _playback.play(_tracks);
     }
+  }
+
+  Future<void> _pauseComposition() async {
+    // Stop every preview source immediately. The timeline notification below
+    // then reconciles positions without allowing a stale sync to restart it.
+    _playbackCommandGeneration++;
+    _playback.pause();
+    _reversePlaybackTimer?.cancel();
+
+    final pauses = <Future<void>>[
+      if (_videoController?.value.isPlaying == true) _videoController!.pause(),
+      for (final player in _timelineAudioPlayers.values)
+        if (player.state == PlayerState.playing) player.pause(),
+    ];
+    await Future.wait(pauses);
+    if (mounted) setState(() => _isPlaying = false);
   }
 
   void _onPlaybackStateChanged() {
@@ -3866,6 +3867,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Future<void> _synchronizeCompositionOnce() async {
+    final commandGeneration = _playbackCommandGeneration;
     final state = _playback.state;
     final active = TimelinePlaybackController.resolve(
       _tracks,
@@ -3911,7 +3913,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         await _seekVideoToTimeline(visual, state.currentTime, force: true);
         _lastVideoSyncAt = now;
       }
-      if (state.isPlaying && !visual.isReversed) {
+      final shouldPlay =
+          commandGeneration == _playbackCommandGeneration &&
+          _playback.state.isPlaying;
+      if (shouldPlay && !visual.isReversed) {
         if (!controller.value.isPlaying) await controller.play();
       } else if (controller.value.isPlaying) {
         await controller.pause();
@@ -3963,7 +3968,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         final mediaSource = source.startsWith('http')
             ? UrlSource(source)
             : DeviceFileSource(source);
-        if (state.isPlaying) {
+        final shouldPlay =
+            commandGeneration == _playbackCommandGeneration &&
+            _playback.state.isPlaying;
+        if (shouldPlay) {
           await player.play(mediaSource, position: local);
         } else {
           await player.setSource(mediaSource);
@@ -3976,9 +3984,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           await player.seek(local);
         }
       }
-      if (state.isPlaying && player.state != PlayerState.playing) {
+      final shouldPlay =
+          commandGeneration == _playbackCommandGeneration &&
+          _playback.state.isPlaying;
+      if (shouldPlay && player.state != PlayerState.playing) {
         await player.resume();
-      } else if (!state.isPlaying && player.state == PlayerState.playing) {
+      } else if (!shouldPlay && player.state == PlayerState.playing) {
         await player.pause();
       }
     }
@@ -4081,11 +4092,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
   }
 
-  void _previousFrame() {
+  Future<void> _previousFrame() async {
+    await _pauseComposition();
     _playback.seek(_playback.state.currentTime - _frameDuration, _tracks);
   }
 
-  void _nextFrame() {
+  Future<void> _nextFrame() async {
+    await _pauseComposition();
     _playback.seek(_playback.state.currentTime + _frameDuration, _tracks);
   }
 
@@ -4443,17 +4456,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _deleteClip() {
     if (_selectedClipIds.isEmpty) return;
     _captureTimeline();
-
-    // Snap playhead to nearest valid position (the start of the deleted clip)
-    Duration? snapTime;
-    final deletedClip = _tracks
-        .expand((t) => t.clips)
-        .where((c) => _selectedClipIds.contains(c.id))
-        .firstOrNull;
-    if (deletedClip != null) {
-      snapTime = deletedClip.start;
-    }
-
     setState(() {
       for (final track in _tracks) {
         track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
@@ -4465,12 +4467,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _selectedTrackIndex = null;
       TimelineModelUtils.pruneEmptyTracks(_tracks);
     });
-    
     _playback.updateProject(_tracks);
-    
-    if (snapTime != null) {
-      _playback.seek(snapTime, _tracks);
-    }
   }
 
   void _duplicateSelectedClips() {

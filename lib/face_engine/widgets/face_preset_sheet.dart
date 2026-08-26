@@ -63,7 +63,7 @@ class _FacePresetSheetState extends State<FacePresetSheet> {
           children: [
             Row(
               children: [
-                const Icon(Icons.face_retouching_natural, color: C.brand),
+                Icon(Icons.face_retouching_natural, color: C.brand),
                 const SizedBox(width: 10),
                 Text(
                   'NECXA Face Engine',
@@ -190,3 +190,4 @@ class _FacePresetSheetState extends State<FacePresetSheet> {
     );
   }
 }
+

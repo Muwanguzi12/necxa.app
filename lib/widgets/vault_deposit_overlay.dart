@@ -55,7 +55,7 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
         decoration: BoxDecoration(
           color: const Color(0xFF0D121B),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
+          border: Border.all(color: C.text.withOpacity(0.1)),
         ),
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
@@ -75,22 +75,22 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
                         height: 4,
                         margin: const EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
-                          color: Colors.white24,
+                          color: C.dim,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Text('DEPOSIT FIAT (UGX)', style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 1)),
+                    Text('DEPOSIT FIAT (UGX)', style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 1)),
                     const SizedBox(height: 24),
 
                     // Amount
-                    Text('AMOUNT (UGX)', style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38, ls: 1)),
+                    Text('AMOUNT (UGX)', style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1)),
                     const SizedBox(height: 12),
                     _buildAmountInput(),
 
                     const SizedBox(height: 20),
-                    // Name row — required by Pesapal billing
+                    // Name row � required by Pesapal billing
                     Row(
                       children: [
                         Expanded(child: _buildTextField(_firstNameController, 'FIRST NAME', 'John', Icons.person_outline)),
@@ -109,12 +109,12 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
                     ),
 
                     const SizedBox(height: 16),
-                    Text('PHONE NUMBER FOR PAYMENT', style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38, ls: 1)),
+                    Text('PHONE NUMBER FOR PAYMENT', style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1)),
                     const SizedBox(height: 12),
                     _buildPhoneInput(),
 
                     const SizedBox(height: 24),
-                    Text('PAYMENT METHOD', style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38, ls: 1)),
+                    Text('PAYMENT METHOD', style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1)),
                     const SizedBox(height: 12),
                     _payOption('Mobile Money', 'MTN / Airtel', 'momo', Icons.phone_android_outlined),
                     const SizedBox(height: 12),
@@ -136,16 +136,16 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
     return TextFormField(
       controller: _amountController,
       keyboardType: TextInputType.number,
-      style: syne(sz: 24, w: FontWeight.bold, c: Colors.white),
+      style: syne(sz: 24, w: FontWeight.bold, c: C.text),
       decoration: InputDecoration(
         hintText: '0',
-        hintStyle: syne(sz: 24, w: FontWeight.bold, c: Colors.white24),
+        hintStyle: syne(sz: 24, w: FontWeight.bold, c: C.dim),
         prefixText: 'UGX ',
-        prefixStyle: syne(sz: 14, w: FontWeight.bold, c: Colors.white38),
+        prefixStyle: syne(sz: 14, w: FontWeight.bold, c: C.dim),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.05),
+        fillColor: C.text.withOpacity(0.05),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: C.brand)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: C.brand)),
       ),
       validator: (value) {
         if (value == null || value.isEmpty) return 'Please enter an amount';
@@ -160,15 +160,15 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
     return TextFormField(
       controller: _phoneController,
       keyboardType: TextInputType.phone,
-      style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+      style: syne(sz: 16, w: FontWeight.bold, c: C.text),
       decoration: InputDecoration(
         hintText: 'e.g. 0700000000',
-        hintStyle: syne(sz: 16, w: FontWeight.bold, c: Colors.white24),
-        prefixIcon: const Icon(Icons.phone_outlined, color: C.brand, size: 20),
+        hintStyle: syne(sz: 16, w: FontWeight.bold, c: C.dim),
+        prefixIcon: Icon(Icons.phone_outlined, color: C.brand, size: 20),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.05),
+        fillColor: C.text.withOpacity(0.05),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: C.brand)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: C.brand)),
       ),
       validator: (value) {
         if (value == null || value.isEmpty) return 'Phone number is required';
@@ -188,20 +188,20 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: syne(sz: 10, w: FontWeight.w900, c: Colors.white38, ls: 1)),
+        Text(label, style: syne(sz: 10, w: FontWeight.w900, c: C.dim, ls: 1)),
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
           keyboardType: keyboardType,
-          style: syne(sz: 14, w: FontWeight.bold, c: Colors.white),
+          style: syne(sz: 14, w: FontWeight.bold, c: C.text),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: syne(sz: 14, w: FontWeight.bold, c: Colors.white24),
+            hintStyle: syne(sz: 14, w: FontWeight.bold, c: C.dim),
             prefixIcon: Icon(icon, color: C.brand, size: 18),
             filled: true,
-            fillColor: Colors.white.withOpacity(0.05),
+            fillColor: C.text.withOpacity(0.05),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: C.brand)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: C.brand)),
             contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           ),
           validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
@@ -218,25 +218,25 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: active ? C.brand.withOpacity(0.15) : Colors.white.withOpacity(0.05),
+          color: active ? C.brand.withOpacity(0.15) : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: active ? C.brand : Colors.white10),
+          border: Border.all(color: active ? C.brand : C.dim),
         ),
         child: Row(
           children: [
-            Icon(icon, color: active ? C.brand : Colors.white38, size: 24),
+            Icon(icon, color: active ? C.brand : C.dim, size: 24),
             const SizedBox(width: 16),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: syne(sz: 14, w: FontWeight.bold, c: Colors.white)),
-                Text(sub, style: dm(sz: 11, c: Colors.white38)),
+                Text(label, style: syne(sz: 14, w: FontWeight.bold, c: C.text)),
+                Text(sub, style: dm(sz: 11, c: C.dim)),
               ],
             ),
             const Spacer(),
             Icon(
               active ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: active ? C.brand : Colors.white10,
+              color: active ? C.brand : C.dim,
             ),
           ],
         ),
@@ -369,7 +369,7 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
     }
   }
 
-  /// Background poller — auto-credits via deposit_status polling (5 min timeout).
+  /// Background poller � auto-credits via deposit_status polling (5 min timeout).
   void _backgroundReconcile(FinanceDepositService svc, String paymentId) {
     svc.waitForCompletion(paymentId, timeout: const Duration(minutes: 5)).then((completed) async {
       if (!mounted) return;
@@ -383,3 +383,5 @@ class _VaultDepositOverlayState extends State<VaultDepositOverlay> {
     });
   }
 }
+
+
