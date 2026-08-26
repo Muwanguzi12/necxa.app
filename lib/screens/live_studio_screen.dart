@@ -105,6 +105,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _isLeaving = false;
   bool _coHostTransitioning = false;
   bool _inviteDialogVisible = false;
+  bool _hostInGreenRoom = false;
+  bool _startingBroadcast = false;
+  DateTime? _plannedBroadcastTime;
+  final Set<String> _moderatorGuestIds = <String>{};
   final List<Map<String, dynamic>> _reactionBursts = [];
 
   // -- Smart Live Verification State --------------------------------------
@@ -292,6 +296,33 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         guestId: guestId,
       );
       if (mounted) setState(() {});
+    } else if (type == 'guest_moderator_changed') {
+      final moderatorIds = (data['moderatorIds'] as List? ?? const [])
+          .map((id) => id.toString())
+          .toSet();
+      if (mounted) setState(() {
+        _moderatorGuestIds
+          ..clear()
+          ..addAll(moderatorIds);
+      });
+      if (guestId == widget.state.user?.id) {
+        _showToast(
+          data['isModerator'] == true
+              ? 'You are now a live moderator.'
+              : 'Your live moderator role was removed.',
+        );
+      }
+    } else if (type == 'guest_removed') {
+      if (widget.isHost) {
+        widget.state.removeLiveGuestRequest(
+          _channelName,
+          requestId: data['requestId']?.toString(),
+          guestId: guestId,
+        );
+      }
+      if (guestId == widget.state.user?.id) {
+        unawaited(_returnToAudienceAfterRemoval());
+      }
     } else if (type == 'product_pinned') {
       if (!widget.isHost) {
         _showToast('A product was pinned to this live.');
@@ -435,7 +466,28 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         _reactionBursts.clear();
       }
       _liveSummary = summary;
+      _moderatorGuestIds
+        ..clear()
+        ..addAll(
+          (summary['moderatorIds'] as List? ?? const [])
+              .map((id) => id.toString()),
+        );
     });
+  }
+
+  Future<void> _returnToAudienceAfterRemoval() async {
+    try {
+      await widget.state.live.switchRoleToAudience();
+      if (!mounted) return;
+      setState(() {
+        _isCoHosting = false;
+        _isRequestPending = false;
+        _moderatorGuestIds.remove(widget.state.user?.id);
+      });
+      _showToast('The host removed you from the guest stage.');
+    } catch (error) {
+      debugPrint('Necxa Live: Could not return removed guest to audience: $error');
+    }
   }
 
   void _startGiftStatsSync() {
@@ -772,7 +824,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (failed)
               ListTile(
                 leading: Icon(Icons.sync_rounded, color: C.text),
-                title: Text(
+                title: const Text(
                   'Retry',
                   style: TextStyle(color: C.text),
                 ),
@@ -788,7 +840,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (isMine)
               ListTile(
                 leading: Icon(Icons.edit_rounded, color: C.text),
-                title: Text(
+                title: const Text(
                   'Edit',
                   style: TextStyle(color: C.text),
                 ),
@@ -815,7 +867,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (!isMine && !isLocal)
               ListTile(
                 leading: Icon(Icons.flag_outlined, color: C.text),
-                title: Text(
+                title: const Text(
                   'Report',
                   style: TextStyle(color: C.text),
                 ),
@@ -830,7 +882,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   _showToast('Report queued for review.');
                 },
               ),
-            if (widget.isHost && !isMine && !isLocal)
+            if (_canModerateLive && !isMine && !isLocal)
               ListTile(
                 leading: const Icon(
                   Icons.visibility_off_outlined,
@@ -879,20 +931,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       await liveService.init();
 
       if (widget.isHost) {
-        _channelName = await liveService.startStreaming(widget.channelName);
+        _channelName = await liveService.prepareStreaming(widget.channelName);
       } else {
         await liveService.joinAsViewer(_channelName);
       }
 
       if (!mounted) return;
       widget.state.setLiveChannel(_channelName, isHosting: widget.isHost);
-      _startChannelSync();
       setState(() {
         _localUserJoined = true;
+        _hostInGreenRoom = widget.isHost;
       });
-      await _syncLiveState();
-      _eventCursor ??= '0';
-      _startLiveEventSync();
+      if (!widget.isHost) {
+        _startChannelSync();
+        await _syncLiveState();
+        _eventCursor ??= '0';
+        _startLiveEventSync();
+      }
       _automaticAuthRetries = 0;
 
       // Setup room event listeners to trigger UI updates
@@ -900,7 +955,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       liveService.room?.addListener(_onRoomDidUpdate);
 
       // Once confirmed live as host, start silent periodic face pulse.
-      if (widget.isHost) _startSilentFacePulse();
+      if (widget.isHost && !_hostInGreenRoom) _startSilentFacePulse();
     } catch (e, stackTrace) {
       debugPrint('Necxa Live: Startup failed: $e\n$stackTrace');
       if (!mounted) return;
@@ -1221,6 +1276,142 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (mounted) Navigator.pop(context);
   }
 
+  String _plannedBroadcastLabel() {
+    final scheduled = _plannedBroadcastTime;
+    if (scheduled == null) return 'Start whenever you are ready';
+    final localizations = MaterialLocalizations.of(context);
+    final today = DateUtils.isSameDay(scheduled, DateTime.now());
+    return '${today ? 'Today' : localizations.formatMediumDate(scheduled)} at '
+        '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(scheduled))}';
+  }
+
+  Future<void> _pickBroadcastTime() async {
+    final now = DateTime.now();
+    final initial = _plannedBroadcastTime?.isAfter(now) == true
+        ? _plannedBroadcastTime!
+        : now.add(const Duration(minutes: 5));
+    final date = await showDatePicker(
+      context: context,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 30)),
+      initialDate: initial,
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    final selected = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (!selected.isAfter(now) ||
+        selected.difference(now) > const Duration(minutes: 30)) {
+      _showToast('Choose a start time within the next 30 minutes.');
+      return;
+    }
+    setState(() => _plannedBroadcastTime = selected);
+  }
+
+  Future<void> _startBroadcast() async {
+    if (_startingBroadcast || !_hostInGreenRoom) return;
+    setState(() => _startingBroadcast = true);
+    try {
+      await widget.state.live.beginBroadcast();
+      if (!mounted) return;
+      setState(() {
+        _hostInGreenRoom = false;
+        _plannedBroadcastTime = null;
+      });
+      _startChannelSync();
+      await _syncLiveState();
+      _eventCursor ??= '0';
+      _startLiveEventSync();
+      _startSilentFacePulse();
+      _showToast('You are live. Your audience can now join.');
+    } catch (error) {
+      if (mounted) {
+        _showToast('Could not start the broadcast: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _startingBroadcast = false);
+    }
+  }
+
+  Widget _buildHostGreenRoom() {
+    return Positioned.fill(
+      child: ColoredBox(
+        color: const Color(0xA8000000),
+        child: SafeArea(
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: const Color(0xFF12151C),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: C.brand.withOpacity(0.7)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.video_settings_rounded, color: C.brand, size: 34),
+                  const SizedBox(height: 12),
+                  Text('HOST GREEN ROOM', style: syne(sz: 16, w: FontWeight.w900, c: C.text, ls: 1)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your camera and microphone are ready. Viewers cannot see or join until you start the broadcast. This private setup is held for 30 minutes.',
+                    textAlign: TextAlign.center,
+                    style: dm(sz: 12, c: C.sub),
+                  ),
+                  const SizedBox(height: 18),
+                  InkWell(
+                    onTap: _pickBroadcastTime,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: C.text.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.schedule_rounded, color: C.brand, size: 19),
+                          const SizedBox(width: 9),
+                          Expanded(child: Text(_plannedBroadcastLabel(), style: dm(sz: 12, c: C.text))),
+                          Icon(Icons.edit_calendar_rounded, color: C.sub, size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _startingBroadcast ? null : _startBroadcast,
+                      icon: _startingBroadcast
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                          : const Icon(Icons.wifi_tethering_rounded),
+                      label: Text(_startingBroadcast ? 'STARTING…' : 'START BROADCAST'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: C.brand,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _startingBroadcast ? null : _closeLiveStudio,
+                    child: Text('Discard setup', style: dm(sz: 12, c: C.sub)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   // -- SAFETY ENFORCEMENT UI --------------------------------------------------
 
   // Enforcement card moved to lib/widgets/live_studio/live_enforcement_overlay.dart
@@ -1271,8 +1462,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           // -- Glass Overlay Layer --
           _buildCompactHUD(),
 
+          if (widget.isHost && _hostInGreenRoom) _buildHostGreenRoom(),
+
           // -- Interaction Layer --
-          _buildInteractionUI(),
+          if (!_hostInGreenRoom) _buildInteractionUI(),
         ],
       ),
     );
@@ -1319,7 +1512,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       width: 2,
                     ),
                   ),
-                  child: Center(
+                  child: const Center(
                     child: Icon(
                       Icons.videocam_outlined,
                       color: C.dim,
@@ -1387,7 +1580,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final room = widget.state.live.room!;
     final participants = _videoParticipants(room);
     if (participants.isEmpty) {
-      return Center(
+      return const Center(
         child: Icon(
           Icons.videocam_off_outlined,
           color: C.dim,
@@ -1494,6 +1687,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')
           .hasMatch(value);
 
+  bool get _canModerateLive =>
+      widget.isHost || _moderatorGuestIds.contains(widget.state.user?.id);
+
   Future<void> _toggleGuestFollow(String guestId, String displayName) async {
     if (!_isUserId(guestId) || guestId == widget.state.user?.id) return;
     final updated = await widget.state.toggleFollow(guestId);
@@ -1511,6 +1707,125 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               : 'Unfollowed $displayName.',
         ),
         duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _showGuestActions(Participant participant) async {
+    final guestId = participant.identity;
+    if (guestId.isEmpty || guestId == _hostUserId) return;
+    final displayName = participant.name.trim().isNotEmpty
+        ? participant.name.trim()
+        : guestId;
+    final canFollow = guestId != widget.state.user?.id && _isUserId(guestId);
+    final isModerator = _moderatorGuestIds.contains(guestId);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0C0E14),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(displayName, style: syne(sz: 16, w: FontWeight.w900, c: C.text)),
+              const SizedBox(height: 12),
+              if (guestId != widget.state.user?.id)
+                ListTile(
+                  leading: const Icon(Icons.card_giftcard_rounded, color: Color(0xFFFFA000)),
+                  title: Text('Gift $displayName', style: dm(sz: 14, c: C.text)),
+                  subtitle: Text('Send NCX directly to this guest', style: dm(sz: 11, c: C.sub)),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_showGiftPicker(receiverId: guestId, receiverName: displayName));
+                  },
+                ),
+              if (canFollow)
+                ListTile(
+                  leading: Icon(
+                    widget.state.isFollowingSync(guestId)
+                        ? Icons.person_remove_alt_1_rounded
+                        : Icons.person_add_alt_1_rounded,
+                    color: C.brand,
+                  ),
+                  title: Text(
+                    widget.state.isFollowingSync(guestId) ? 'Unfollow' : 'Follow',
+                    style: dm(sz: 14, c: C.text),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_toggleGuestFollow(guestId, displayName));
+                  },
+                ),
+              if (widget.isHost && _isUserId(guestId)) ...[
+                const Divider(color: C.dim),
+                ListTile(
+                  leading: Icon(
+                    isModerator
+                        ? Icons.admin_panel_settings_outlined
+                        : Icons.admin_panel_settings_rounded,
+                    color: const Color(0xFF62F5EA),
+                  ),
+                  title: Text(
+                    isModerator ? 'Remove live moderator' : 'Make live moderator',
+                    style: dm(sz: 14, c: C.text),
+                  ),
+                  subtitle: Text(
+                    isModerator
+                        ? 'Revokes moderation controls for this guest'
+                        : 'Lets this active guest moderate the live chat',
+                    style: dm(sz: 11, c: C.sub),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    try {
+                      await widget.state.live.setGuestModerator(
+                        _channelName,
+                        guestId,
+                        isModerator: !isModerator,
+                      );
+                      if (!mounted) return;
+                      setState(() {
+                        if (isModerator) {
+                          _moderatorGuestIds.remove(guestId);
+                        } else {
+                          _moderatorGuestIds.add(guestId);
+                        }
+                      });
+                      _showToast(
+                        isModerator
+                            ? '$displayName is no longer a moderator.'
+                            : '$displayName is now a live moderator.',
+                      );
+                    } catch (error) {
+                      _showToast('Could not update moderator: $error');
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.person_remove_rounded, color: Colors.redAccent),
+                  title: Text('Remove from live', style: dm(sz: 14, c: Colors.redAccent)),
+                  subtitle: Text('Returns this guest to the audience', style: dm(sz: 11, c: C.sub)),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    try {
+                      await widget.state.live.removeGuest(_channelName, guestId);
+                      if (!mounted) return;
+                      setState(() => _moderatorGuestIds.remove(guestId));
+                      _showToast('$displayName was removed from the live.');
+                    } catch (error) {
+                      _showToast('Could not remove guest: $error');
+                    }
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1536,7 +1851,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final isFriend = canFollowGuest && widget.state.isFriendSync(guestId);
     final isFollowing = canFollowGuest && widget.state.isFollowingSync(guestId);
 
-    return ClipRRect(
+    final tile = ClipRRect(
       borderRadius: showChrome ? BorderRadius.circular(8) : BorderRadius.zero,
       child: DecoratedBox(
         decoration: BoxDecoration(
@@ -1549,7 +1864,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (videoTrack is VideoTrack)
               VideoTrackRenderer(videoTrack, fit: VideoViewFit.cover)
             else
-              ColoredBox(
+              const ColoredBox(
                 color: Color(0xFF17151F),
                 child: Center(
                   child: Icon(Icons.person, color: C.dim, size: 40),
@@ -1559,10 +1874,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               Positioned(
                 top: 7,
                 left: 7,
-                child: _videoTileBadge(isHostTile ? 'HOST' : 'GUEST'),
+                child: _videoTileBadge(
+                  isHostTile
+                      ? 'HOST'
+                      : _moderatorGuestIds.contains(guestId)
+                      ? 'MOD'
+                      : 'GUEST',
+                ),
               ),
               if (isMuted)
-                Positioned(
+                const Positioned(
                   top: 8,
                   right: 8,
                   child: Icon(
@@ -1630,6 +1951,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         ),
       ),
     );
+    return isHostTile
+        ? tile
+        : GestureDetector(
+            onTap: () => unawaited(_showGuestActions(participant)),
+            child: tile,
+          );
   }
 
   Widget _videoTileBadge(String label) {
@@ -2103,7 +2430,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                   ),
                                   Row(
                                     children: [
-                                      Icon(
+                                      const Icon(
                                         Icons.visibility_outlined,
                                         color: C.sub,
                                         size: 10,
@@ -2279,7 +2606,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         border: Border.all(color: C.dim),
       ),
       child: loading
-          ? Padding(
+          ? const Padding(
               padding: EdgeInsets.all(10),
               child: CircularProgressIndicator(
                 strokeWidth: 2,
@@ -3077,7 +3404,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             width: 40,
                             height: 40,
                             color: C.dim,
-                            child: Icon(
+                            child: const Icon(
                               Icons.shopping_bag_outlined,
                               color: C.dim,
                               size: 18,
@@ -3120,7 +3447,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-  Future<void> _showGiftPicker() async {
+  Future<void> _showGiftPicker({
+    String? receiverId,
+    String? receiverName,
+  }) async {
     final gifts = await widget.state.financeGifting.fetchGiftItems();
     if (!mounted) return;
     var sending = false;
@@ -3136,8 +3466,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           Future<void> sendGift(GiftItem gift) async {
             if (sending) return;
             final senderId = widget.state.user?.id;
-            final receiverId = _hostUserId;
-            if (senderId == null || receiverId == null) {
+            final giftReceiverId = receiverId ?? _hostUserId;
+            final giftReceiverName = receiverName ?? _hostDisplayName;
+            if (senderId == null || giftReceiverId == null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
@@ -3148,7 +3479,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               );
               return;
             }
-            if (senderId == receiverId) {
+            if (senderId == giftReceiverId) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
@@ -3209,12 +3540,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             setModalState(() => sending = true);
             final result = await widget.state.financeGifting.sendGift(
               senderId: senderId,
-              receiverId: receiverId,
+              receiverId: giftReceiverId,
               giftItemId: gift.id,
               ncxAmount: gift.ncxValue,
               contextType: 'live_stream',
               contextId: _channelName,
-              contextNote: 'Live gift: ${gift.name}',
+              contextNote: 'Live gift for $giftReceiverName: ${gift.name}',
               senderName: widget.state.myDisplayName ?? 'Viewer',
               senderAvatar: widget.state.myAvatarUrl,
             );
@@ -3249,7 +3580,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Send a gift to support the streamer!',
+                      'Send a gift to support $giftReceiverName!',
                       style: syne(sz: 12, w: FontWeight.bold, c: C.text),
                     ),
                     if (sending)
@@ -3519,7 +3850,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     padding: const EdgeInsets.symmetric(vertical: 40),
                     child: Column(
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.people_outline,
                           color: C.dim,
                           size: 40,
@@ -3570,7 +3901,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                 child:
                                     req['avatar'] == null ||
                                         (req['avatar'] as String).isEmpty
-                                    ? Icon(
+                                    ? const Icon(
                                         Icons.person,
                                         size: 18,
                                         color: C.dim,

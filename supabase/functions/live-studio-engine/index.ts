@@ -14,7 +14,7 @@ const SUPABASE_SERVICE_ROLE_KEY =
 const LIVE_REACTIONS = new Set(["like", "love", "laugh", "wow", "fire", "applause"]);
 const VIEWER_ACTIVE_WINDOW_MS = 15_000;
 const HOST_ACTIVE_WINDOW_MS = 45_000;
-const START_CONFIRM_WINDOW_MS = 90_000;
+const START_CONFIRM_WINDOW_MS = 1000 * 60 * 30;
 const MONGO_DATABASE_NAME = "necxalive";
 const COMMENT_PAGE_LIMIT = 50;
 const COMMENT_MAX_PAGE_LIMIT = 100;
@@ -611,6 +611,7 @@ async function liveSummary(
           likes: 1,
           shares: 1,
           reactionCounts: 1,
+          moderatorIds: 1,
         },
       },
     ),
@@ -666,6 +667,9 @@ async function liveSummary(
     likes: Number(stream?.likes ?? 0),
     shares: Number(stream?.shares ?? 0),
     reactionCounts: stream?.reactionCounts ?? {},
+    moderatorIds: Array.isArray(stream?.moderatorIds)
+      ? stream.moderatorIds.map((id: unknown) => String(id))
+      : [],
     viewers: activeViewers,
   };
 }
@@ -710,6 +714,8 @@ const VALID_ACTIONS = [
   "cohost_invite",
   "cohost_invite_response",
   "cohost_leave",
+  "set_guest_moderator",
+  "remove_guest",
   "send_comment",
   "fetch_comments",
   "edit_comment",
@@ -821,6 +827,12 @@ serve(async (req) => {
       return json({ error: "guestId is required for a co-host decision" }, 400);
     }
     if (
+      ["set_guest_moderator", "remove_guest"].includes(action) &&
+      !guestId?.trim()
+    ) {
+      return json({ error: "guestId is required for guest controls" }, 400);
+    }
+    if (
       action === "cohost_invite" &&
       !guestId?.trim() &&
       !userName?.trim()
@@ -927,6 +939,7 @@ serve(async (req) => {
               likes: 0,
               shares: 0,
               reactionCounts: {},
+              moderatorIds: [],
               recording: false,
               recordingId: null,
               playbackUrl: null,
@@ -1916,6 +1929,109 @@ serve(async (req) => {
             event: streamEventPayload(leaveEvent, eventResult),
           };
           mongoSuccess = true;
+        } else if (action === "set_guest_moderator") {
+          const liveStream = await streams.findOne({
+            channelId,
+            hostId: userId,
+            status: "live",
+          });
+          if (!liveStream) {
+            return json({ error: "Only the live host can manage moderators" }, 403);
+          }
+          const activeGuest = await db.collection("stream_guest_requests")
+            .findOne({
+              channelId,
+              hostId: userId,
+              guestId,
+              status: "active",
+            });
+          if (!activeGuest) {
+            return json({ error: "Only active guests can become live moderators" }, 409);
+          }
+          const isModerator = metadata.isModerator === true;
+          const changedAt = new Date();
+          await streams.updateOne(
+            { _id: liveStream._id },
+            isModerator
+              ? { $addToSet: { moderatorIds: guestId }, $set: { updatedAt: changedAt } }
+              : { $pull: { moderatorIds: guestId }, $set: { updatedAt: changedAt } },
+          );
+          const updated = await streams.findOne(
+            { _id: liveStream._id },
+            { projection: { moderatorIds: 1 } },
+          );
+          const moderatorIds = Array.isArray(updated?.moderatorIds)
+            ? updated!.moderatorIds.map((id: unknown) => String(id))
+            : [];
+          const moderatorEvent = {
+            channelId,
+            userId: guestId,
+            type: "guest_moderator_changed",
+            data: { guestId, isModerator, moderatorIds },
+            timestamp: changedAt,
+          };
+          const eventResult = await insertStreamEvent(db, moderatorEvent);
+          actionResult = {
+            moderatorIds,
+            event: streamEventPayload(moderatorEvent, eventResult),
+            summary: await liveSummary(db, channelId!),
+          };
+          mongoSuccess = true;
+        } else if (action === "remove_guest") {
+          const liveStream = await streams.findOne({
+            channelId,
+            hostId: userId,
+            status: "live",
+          });
+          if (!liveStream) {
+            return json({ error: "Only the live host can remove a guest" }, 403);
+          }
+          const removedAt = new Date();
+          const request = await db.collection("stream_guest_requests")
+            .findOneAndUpdate(
+              {
+                channelId,
+                hostId: userId,
+                guestId,
+                status: { $in: ["accepted", "active"] },
+              },
+              {
+                $set: {
+                  status: "removed",
+                  removedAt,
+                  updatedAt: removedAt,
+                  expiresAt: new Date(removedAt.getTime() + GUEST_REQUEST_TTL_MS),
+                },
+              },
+              { returnDocument: "after" },
+            );
+          if (!request) {
+            return json({ error: "This guest is no longer on the live" }, 409);
+          }
+          await Promise.all([
+            streams.updateOne(
+              { _id: liveStream._id },
+              { $pull: { moderatorIds: guestId }, $set: { updatedAt: removedAt } },
+            ),
+            db.collection("stream_viewers").updateOne(
+              { channelId, userId: guestId },
+              { $set: { role: "viewer", lastSeenAt: removedAt } },
+            ),
+          ]);
+          const removeEvent = {
+            channelId,
+            userId: guestId,
+            type: "guest_removed",
+            data: { guestId, requestId: request.requestId, status: "removed" },
+            timestamp: removedAt,
+          };
+          const eventResult = await insertStreamEvent(db, removeEvent);
+          actionResult = {
+            request: serializeGuestRequest(request),
+            event: streamEventPayload(removeEvent, eventResult),
+            summary: await liveSummary(db, channelId!),
+          };
+          mongoSuccess = true;
         } else if (action === "send_comment") {
           const cleanText = text?.trim() ?? "";
           if (!cleanText) {
@@ -2244,13 +2360,17 @@ serve(async (req) => {
         } else if (action === "moderate_comment") {
           const stream = await streams.findOne(
             { channelId },
-            { projection: { hostId: 1 } },
+            { projection: { hostId: 1, moderatorIds: 1 } },
           );
+          const isModerator = Array.isArray(stream?.moderatorIds) &&
+            stream.moderatorIds.some((id: unknown) => String(id) === userId);
           if (!stream || stream.hostId !== userId) {
-            return json(
-              { error: "Only the stream host can moderate comments" },
-              403,
-            );
+            if (!isModerator) {
+              return json(
+                { error: "Only the host or a live moderator can moderate comments" },
+                403,
+              );
+            }
           }
           const moderatedAt = new Date();
           const nextStatus = moderationAction === "hide" ? "hidden" : "active";
@@ -2623,6 +2743,8 @@ serve(async (req) => {
         "cohost_invite",
         "cohost_invite_response",
         "cohost_leave",
+        "set_guest_moderator",
+        "remove_guest",
         "send_comment",
         "fetch_comments",
         "edit_comment",

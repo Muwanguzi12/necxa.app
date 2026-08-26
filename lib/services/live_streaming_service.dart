@@ -109,6 +109,7 @@ class LiveStreamingService {
   Room? get room => _room;
   String? get activeStreamId => _activeStreamId;
   bool get isCoHostPublishing => _currentRole == 'publisher';
+  bool get isHostPrepared => _currentRole == 'prepared_host';
 
   Map<String, dynamic> _identityMetadata({String fallbackName = 'Viewer'}) {
     return {
@@ -408,7 +409,9 @@ class LiveStreamingService {
     }
   }
 
-  Future<String> startStreaming(String channelName) async {
+  /// Opens the host's private green room. The stream remains undiscoverable
+  /// until [beginBroadcast] confirms the session with the live backend.
+  Future<String> prepareStreaming(String channelName) async {
     await _ensurePublishingPermissions();
     final creds = await _fetchCredentials(
       action: 'start',
@@ -423,15 +426,8 @@ class LiveStreamingService {
         token: creds.token,
         publish: true,
       );
-      await _invokeLifecycleBackend({
-        'action': 'confirm_start',
-        'channelId': canonicalChannelId,
-        'userId': state.user?.id,
-        if (creds.streamId.isNotEmpty) 'streamId': creds.streamId,
-        'metadata': _identityMetadata(fallbackName: 'Necxa Creator'),
-      });
-      _hostingActiveChannel = true;
-      _currentRole = 'host';
+      _hostingActiveChannel = false;
+      _currentRole = 'prepared_host';
       return canonicalChannelId;
     } catch (error) {
       try {
@@ -449,6 +445,46 @@ class LiveStreamingService {
       await _disconnectRoom();
       rethrow;
     }
+  }
+
+  /// Makes a previously prepared host session visible to viewers.
+  Future<void> beginBroadcast() async {
+    final channelName = _activeChannelName;
+    if (channelName == null || _currentRole != 'prepared_host') {
+      throw StateError('Prepare your live studio before starting the broadcast.');
+    }
+    await _invokeLifecycleBackend({
+      'action': 'confirm_start',
+      'channelId': channelName,
+      'userId': state.user?.id,
+      if (_activeStreamId != null) 'streamId': _activeStreamId,
+      'metadata': _identityMetadata(fallbackName: 'Necxa Creator'),
+    });
+    _hostingActiveChannel = true;
+    _currentRole = 'host';
+  }
+
+  Future<void> cancelPreparedStreaming() async {
+    final channelName = _activeChannelName;
+    if (channelName == null) return;
+    try {
+      await _invokeLifecycleBackend({
+        'action': 'abort_start',
+        'channelId': channelName,
+        'userId': state.user?.id,
+        if (_activeStreamId != null) 'streamId': _activeStreamId,
+      });
+    } finally {
+      await _disconnectRoom();
+    }
+  }
+
+  /// Preserves the original one-step API for callers that do not need a green
+  /// room, while hosts in the studio use prepareStreaming/beginBroadcast.
+  Future<String> startStreaming(String channelName) async {
+    final canonicalChannelId = await prepareStreaming(channelName);
+    await beginBroadcast();
+    return canonicalChannelId;
   }
 
   Future<List<Map<String, dynamic>>> getActiveStreams() async {
@@ -500,6 +536,10 @@ class LiveStreamingService {
 
   Future<void> leaveChannel() async {
     final channelName = _activeChannelName;
+    if (_currentRole == 'prepared_host') {
+      await cancelPreparedStreaming();
+      return;
+    }
     final shouldStop = _hostingActiveChannel && channelName != null;
     Object? lifecycleError;
     try {
@@ -568,9 +608,15 @@ class LiveStreamingService {
   }
 
   Future<void> switchRoleToAudience() async {
-    await _room?.localParticipant?.setCameraEnabled(false);
-    await _room?.localParticipant?.setMicrophoneEnabled(false);
-    _currentRole = 'viewer';
+    final channelName = _activeChannelName;
+    if (channelName == null) {
+      throw StateError('No active live channel.');
+    }
+    // A publisher token keeps an existing video publication alive even after
+    // tracks are disabled. Reconnect with an audience token so a removed guest
+    // is genuinely off stage and cannot resume publishing locally.
+    await _disconnectRoom();
+    await joinAsViewer(channelName);
   }
 
   Future<void> setAVEnabled(bool enabled) async {
@@ -772,6 +818,56 @@ class LiveStreamingService {
       destinationIdentity: request['hostId']?.toString(),
     );
     return request;
+  }
+
+  Future<Map<String, dynamic>> setGuestModerator(
+    String channelId,
+    String guestId, {
+    required bool isModerator,
+  }) async {
+    final response = await _invokeLiveBackend({
+      'action': 'set_guest_moderator',
+      'channelId': channelId,
+      'userId': state.user?.id,
+      'guestId': guestId,
+      'metadata': {'isModerator': isModerator},
+    });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: guestId,
+    );
+    return data;
+  }
+
+  Future<Map<String, dynamic>> removeGuest(
+    String channelId,
+    String guestId,
+  ) async {
+    final response = await _invokeLiveBackend({
+      'action': 'remove_guest',
+      'channelId': channelId,
+      'userId': state.user?.id,
+      'guestId': guestId,
+    });
+    final data = Map<String, dynamic>.from(
+      response is Map && response['data'] is Map
+          ? response['data'] as Map
+          : const {},
+    );
+    await _publishControlEvent(
+      data['event'] is Map
+          ? Map<String, dynamic>.from(data['event'] as Map)
+          : null,
+      destinationIdentity: guestId,
+    );
+    return data;
   }
 
   String _newCommentRequestId(String prefix) {
