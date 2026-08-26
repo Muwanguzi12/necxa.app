@@ -1,8 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:necxa_flutter/models/edit_models.dart';
+import 'package:necxa_flutter/services/timeline_playback_controller.dart';
 
 void main() {
+  group('Timeline playback', () {
+    test('keeps playhead in project time across clip boundaries', () {
+      final tracks = <TimelineTrack>[
+        TimelineTrack(
+          id: 'video-1',
+          type: TrackType.video,
+          label: 'Video',
+          icon: Icons.videocam,
+          clips: [
+            TimelineClip(
+              id: 'clip-1',
+              start: Duration.zero,
+              duration: const Duration(seconds: 3),
+              operation: TrimOperation(
+                start: Duration.zero,
+                end: const Duration(seconds: 3),
+                maxDuration: const Duration(seconds: 3),
+              ),
+            ),
+            TimelineClip(
+              id: 'clip-2',
+              start: const Duration(seconds: 3),
+              duration: const Duration(seconds: 2),
+              operation: TrimOperation(
+                start: Duration.zero,
+                end: const Duration(seconds: 2),
+                maxDuration: const Duration(seconds: 2),
+              ),
+            ),
+          ],
+        ),
+      ];
+
+      expect(
+        TimelinePlaybackController.projectDuration(tracks),
+        const Duration(seconds: 5),
+      );
+      expect(
+        TimelinePlaybackController.resolve(tracks, const Duration(seconds: 3))
+            .ofType(TrackType.video)
+            .single
+            .id,
+        'clip-2',
+      );
+    });
+  });
+
   group('Timeline model helpers', () {
     test('creates a track when a clip of that type is added', () {
       final tracks = <TimelineTrack>[

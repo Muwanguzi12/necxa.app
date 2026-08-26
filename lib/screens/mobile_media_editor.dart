@@ -6148,32 +6148,16 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   void _syncVideoState() {
     if (!mounted || _videoController == null) return;
-    final clip = _selectedClip;
+    final clip = TimelinePlaybackController.resolve(
+      _tracks,
+      _playback.state.currentTime,
+    ).ofType(TrackType.video).lastOrNull;
     if (clip != null && clip.file != null && !clip.isReversed) {
       final sourceEnd = clip.sourceEnd ?? _videoController!.value.duration;
       if (_videoController!.value.position >= sourceEnd) {
         _videoController!.seekTo(clip.sourceStart);
       }
     }
-    setState(() {
-      final sourcePosition = _videoController!.value.position;
-      final sourceStart = clip?.sourceStart ?? Duration.zero;
-      final elapsedMs = math.max(
-        0,
-        sourcePosition.inMilliseconds - sourceStart.inMilliseconds,
-      );
-      _currentTime = Duration(
-        milliseconds: (elapsedMs / (clip?.speed ?? 1.0)).round(),
-      );
-      _totalDuration = clip?.duration ?? _videoController!.value.duration;
-      _isPlaying = clip?.isReversed == true
-          ? (_reversePlaybackTimer?.isActive ?? false)
-          : _videoController!.value.isPlaying;
-      if (_totalDuration.inMilliseconds > 0) {
-        _playheadPosition =
-            (_currentTime.inMilliseconds / _totalDuration.inMilliseconds) * 200;
-      }
-    });
   }
 
   String _formatDuration(Duration duration) {
