@@ -8,7 +8,9 @@ const PESAPAL_CONSUMER_KEY = Deno.env.get("PESAPAL_CONSUMER_KEY")?.trim() || "";
 const PESAPAL_CONSUMER_SECRET = Deno.env.get("PESAPAL_CONSUMER_SECRET")?.trim() || "";
 const PESAPAL_ENV = Deno.env.get("PESAPAL_ENVIRONMENT")?.trim() || "sandbox";
 const PESAPAL_IPN_ID = Deno.env.get("PESAPAL_IPN_ID")?.trim() || ""; // set after IPN registration
-const COMMERCE_OTP_SECRET = Deno.env.get("COMMERCE_OTP_SECRET")?.trim() || SUPABASE_SERVICE_KEY;
+// This must be a dedicated secret. A service-role key must never double as an
+// OTP signing key because rotating either secret would invalidate the other.
+const COMMERCE_OTP_SECRET = Deno.env.get("COMMERCE_OTP_SECRET")?.trim() || "";
 const PRIMARY_SUPABASE_URL = Deno.env.get("PRIMARY_SUPABASE_URL")?.trim() ||
   Deno.env.get("SUPABASE_AUTH_URL")?.trim() || Deno.env.get("AUTH_PROJECT_URL")?.trim() || "";
 const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE_ROLE_KEY")?.trim() || "";
@@ -17,16 +19,135 @@ const PESAPAL_BASE = PESAPAL_ENV === "production"
   ? "https://pay.pesapal.com/v3"
   : "https://cybqa.pesapal.com/pesapalv3";
 
+// MTN Disbursement config
+const MTN_DISBURSEMENT_ENV = Deno.env.get("MTN_DISBURSEMENT_ENV")?.trim() || "sandbox";
+const MTN_BASE = MTN_DISBURSEMENT_ENV === "production"
+  ? "https://momodeveloper.mtn.com/disbursement"
+  : "https://sandbox.momodeveloper.mtn.com/disbursement";
+// MTN calls these an API user and API key. The older CLIENT_ID/CLIENT_SECRET
+// names remain as a temporary compatibility fallback during credential rollout.
+const MTN_API_USER = Deno.env.get("MTN_DISBURSEMENT_API_USER")?.trim() ||
+  Deno.env.get("MTN_DISBURSEMENT_CLIENT_ID")?.trim() || "";
+const MTN_API_KEY = Deno.env.get("MTN_DISBURSEMENT_API_KEY")?.trim() ||
+  Deno.env.get("MTN_DISBURSEMENT_CLIENT_SECRET")?.trim() || "";
+const MTN_SUBSCRIPTION_KEY = Deno.env.get("MTN_DISBURSEMENT_SUBSCRIPTION_KEY")?.trim() ||
+  Deno.env.get("mtn primary key")?.trim() || Deno.env.get("mtn secondary key")?.trim() || "";
+const MTN_TARGET_ENV = Deno.env.get("MTN_DISBURSEMENT_TARGET_ENV")?.trim() || (MTN_DISBURSEMENT_ENV === 'production' ? 'production' : 'sandbox');
+const MTN_RECONCILIATION_SECRET = Deno.env.get("MTN_RECONCILIATION_SECRET")?.trim() || "";
+const WITHDRAWAL_DESTINATION_ENCRYPTION_KEY = Deno.env.get("WITHDRAWAL_DESTINATION_ENCRYPTION_KEY")?.trim() || "";
+
+async function getMtnAccessToken(): Promise<string> {
+  if (!MTN_API_USER || !MTN_API_KEY || !MTN_SUBSCRIPTION_KEY) {
+    throw new Error('MTN disbursement credentials are not configured');
+  }
+  const tokenUrl = `${MTN_BASE}/token/`;
+  const body = new URLSearchParams({ grant_type: 'client_credentials' });
+  const basic = btoa(`${MTN_API_USER}:${MTN_API_KEY}`);
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${basic}`,
+      'Ocp-Apim-Subscription-Key': MTN_SUBSCRIPTION_KEY,
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`MTN token fetch failed: ${res.status} ${txt}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!data.access_token) throw new Error('MTN token response missing access_token');
+  return String(data.access_token);
+}
+
+async function makeMtnDeposit(token: string, withdrawal: Record<string, any>, amount: number, msisdn: string) {
+  const url = `${MTN_BASE}/v2_0/deposit`;
+  const externalId = withdrawal.id ?? `wd-${Date.now()}`;
+  const referenceId = crypto.randomUUID();
+  const payload = {
+    amount: String(amount),
+    currency: 'UGX',
+    externalId,
+    payee: { partyIdType: 'MSISDN', partyId: msisdn },
+    payerMessage: 'Necxa withdrawal',
+    payeeNote: 'Necxa payout',
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'Ocp-Apim-Subscription-Key': MTN_SUBSCRIPTION_KEY,
+      'X-Target-Environment': MTN_TARGET_ENV,
+      'X-Reference-Id': referenceId,
+    },
+    body: JSON.stringify(payload),
+  });
+  const responseText = await res.text();
+  const response = responseText ? JSON.parse(responseText) : {};
+  // MTN disbursements are asynchronous. 202 means only that the request was
+  // accepted, not that the recipient has received the funds.
+  if (res.status !== 202) {
+    throw new Error(`MTN deposit failed: ${res.status} ${JSON.stringify(response)}`);
+  }
+  return { accepted: true, referenceId, statusCode: res.status, response };
+}
+
+async function getMtnDepositStatus(token: string, referenceId: string) {
+  const url = `${MTN_BASE}/v1_0/deposit/${encodeURIComponent(referenceId)}`;
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Ocp-Apim-Subscription-Key': MTN_SUBSCRIPTION_KEY,
+      'X-Target-Environment': MTN_TARGET_ENV,
+    },
+  });
+  const responseText = await res.text();
+  const response = responseText ? JSON.parse(responseText) : {};
+  if (!res.ok) throw new Error(`MTN deposit status failed: ${res.status} ${JSON.stringify(response)}`);
+  return response as Record<string, unknown>;
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function bytesToBase64Url(value: Uint8Array): string {
+  let binary = "";
+  for (const byte of value) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function encryptWithdrawalDestination(destination: Record<string, string>): Promise<string> {
+  if (!WITHDRAWAL_DESTINATION_ENCRYPTION_KEY) {
+    throw new Error("WITHDRAWAL_DESTINATION_ENCRYPTION_KEY is not configured.");
+  }
+  const rawKey = base64UrlToBytes(WITHDRAWAL_DESTINATION_ENCRYPTION_KEY);
+  if (rawKey.length !== 32) {
+    throw new Error("WITHDRAWAL_DESTINATION_ENCRYPTION_KEY must be a base64url-encoded 32-byte key.");
+  }
+  const key = await crypto.subtle.importKey("raw", rawKey, { name: "AES-GCM" }, false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(JSON.stringify(destination)),
+  ));
+  return `v1.${bytesToBase64Url(iv)}.${bytesToBase64Url(encrypted)}`;
+}
+
 // Redirect URL after payment — deep links back to the app
 const CALLBACK_URL = "https://www.necxa.uk/payment-callback";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-mtn-reconciliation-secret",
 };
 
-// IDs and prices are the payment contract. Image URLs deliberately do not live
-// here: clients resolve PNGs for the picker and JPEGs for notifications by ID.
 const GIFT_CATALOGUE = [
   { id: "rose", name: "Rose", emoji: "🌹", ncx_value: 1, ugx_value: 100, category: "standard", sort_order: 1, is_active: true },
   { id: "clap", name: "Clap", emoji: "👏", ncx_value: 2, ugx_value: 200, category: "standard", sort_order: 2, is_active: true },
@@ -157,6 +278,49 @@ function mapPesapalStatus(statusData: Record<string, unknown>): PesapalStatus {
   return "PENDING";
 }
 
+function commerceLifecycleUnavailable(message: string): boolean {
+  const value = message.toLowerCase();
+  return value.includes("fund_commerce_order_from_external_payment") ||
+    value.includes("commerce_escrows") ||
+    value.includes("commerce_delivery_jobs") ||
+    value.includes("settlement_status") ||
+    value.includes("schema cache");
+}
+
+async function confirmExternallyHeldCommerceOrder(
+  financeClient: ReturnType<typeof createClient>,
+  order: Record<string, any>,
+  payment: Record<string, any>,
+  statusData: Record<string, unknown>,
+) {
+  const { error: inventoryError } = await financeClient.rpc("finalize_commerce_inventory", {
+    p_idempotency_key: `${payment.idempotency_key}-inv`,
+    p_finance_order_id: order.id,
+    p_commit: true,
+  });
+  if (inventoryError) {
+    throw new Error(`Inventory confirmation failed: ${inventoryError.message}`);
+  }
+
+  const metadata = (order.metadata ?? {}) as Record<string, unknown>;
+  const { error: orderUpdateError } = await financeClient.from("commerce_orders").update({
+    payment_status: "COMPLETED",
+    status: "confirmed",
+    metadata: {
+      ...metadata,
+      payment_verified_at: new Date().toISOString(),
+      payment_provider: "pesapal",
+      payment_provider_reference: payment.provider_reference,
+      payment_verification: statusData,
+      funds_state: "external_held_pending_lifecycle",
+    },
+    updated_at: new Date().toISOString(),
+  }).eq("id", order.id);
+  if (orderUpdateError) {
+    throw new Error(`Order confirmation failed: ${orderUpdateError.message}`);
+  }
+}
+
 async function settleVerifiedPesapalPayment(
   financeClient: ReturnType<typeof createClient>,
   payment: Record<string, any>,
@@ -236,7 +400,7 @@ async function settleVerifiedPesapalPayment(
   if (paymentType === "shop_purchase") {
     const { data: order, error: orderError } = await financeClient
       .from("commerce_orders")
-      .select("id, listing_id, payment_method")
+      .select("id, listing_id, payment_method, metadata")
       .eq("payment_id", payment.idempotency_key)
       .single();
     if (orderError || !order) throw new Error(orderError?.message ?? "Shop order not found.");
@@ -245,7 +409,15 @@ async function settleVerifiedPesapalPayment(
       p_payment_id: payment.idempotency_key,
       p_funding_source: order.payment_method === "card" ? "card" : "pesapal",
     });
-    if (fundingError) throw new Error(fundingError.message);
+    if (fundingError) {
+      if (!commerceLifecycleUnavailable(fundingError.message)) {
+        throw new Error(fundingError.message);
+      }
+      // Compatibility path for the currently deployed legacy commerce schema.
+      // PesaPal is verified server-to-server, stock is committed, and the order
+      // becomes visible, but no vendor payout is released without escrow tables.
+      await confirmExternallyHeldCommerceOrder(financeClient, order, payment, statusData);
+    }
     await mirrorFinanceInventoryToPrimary(financeClient, String(order.listing_id));
     const { error: completedPaymentError } = await financeClient.from("payments").update({
       status: "completed",
@@ -337,6 +509,49 @@ async function reconcileUserPesapalPayments(
   return { checked: payments.length, settled };
 }
 
+async function reconcileSellerPesapalPayments(
+  financeClient: ReturnType<typeof createClient>,
+  sellerId: string,
+) {
+  const { data: orders, error: ordersError } = await financeClient
+    .from("commerce_orders")
+    .select("payment_id")
+    .eq("seller_id", sellerId)
+    .eq("payment_status", "PENDING")
+    .not("payment_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (ordersError) throw new Error(ordersError.message);
+
+  const paymentIds = [...new Set((orders ?? []).map((order) => String(order.payment_id)).filter(Boolean))];
+  if (paymentIds.length === 0) return { checked: 0, settled: 0 };
+
+  const { data: payments, error: paymentsError } = await financeClient
+    .from("payments")
+    .select("*")
+    .eq("provider", "pesapal")
+    .in("idempotency_key", paymentIds)
+    .not("provider_reference", "is", null);
+  if (paymentsError) throw new Error(paymentsError.message);
+  if (!payments?.length) return { checked: 0, settled: 0 };
+
+  const token = await getPesapalToken();
+  let settled = 0;
+  for (const payment of payments) {
+    try {
+      const statusData = await getPesapalTransactionStatus(
+        token,
+        String(payment.provider_reference),
+      ) as Record<string, unknown>;
+      const status = await settleVerifiedPesapalPayment(financeClient, payment, statusData);
+      if (status === "COMPLETED") settled += 1;
+    } catch (error) {
+      console.error(`Seller PesaPal recovery failed for payment ${payment.id}:`, error);
+    }
+  }
+  return { checked: payments.length, settled };
+}
+
 function asFiniteNumber(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -387,6 +602,7 @@ function calculateDeliveryFeeUgx(
 }
 
 async function commerceVerificationCode(orderId: string, purpose: "pickup" | "delivery"): Promise<string> {
+  if (!COMMERCE_OTP_SECRET) throw new Error("COMMERCE_OTP_SECRET is not configured.");
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(COMMERCE_OTP_SECRET),
@@ -401,6 +617,151 @@ async function commerceVerificationCode(orderId: string, purpose: "pickup" | "de
   ));
   const number = signature.slice(0, 4).reduce((value, byte) => (value * 256 + byte) >>> 0, 0);
   return String(number % 1000000).padStart(6, "0");
+}
+
+async function hmacSha256Hex(message: string): Promise<string> {
+  if (!COMMERCE_OTP_SECRET) throw new Error("COMMERCE_OTP_SECRET is not configured.");
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(COMMERCE_OTP_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message)));
+  return Array.from(signature).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function createWithdrawalOtp(): string {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(bytes[0] % 1000000).padStart(6, "0");
+}
+
+function normalizeUgandanMsisdn(value: string): string | null {
+  let digits = value.replace(/[^0-9+]/g, "");
+  if (digits.startsWith("+")) digits = digits.slice(1);
+  if (digits.startsWith("0")) digits = `256${digits.slice(1)}`;
+  return /^256\d{9}$/.test(digits) ? digits : null;
+}
+
+function mtnProviderOutcome(response: Record<string, unknown>): "paid" | "failed" | "pending" {
+  const status = String(
+    response.status ?? response.financialTransactionStatus ?? response.statusCode ?? "",
+  ).toUpperCase();
+  if (["SUCCESSFUL", "SUCCESS", "COMPLETED"].includes(status)) return "paid";
+  if (["FAILED", "FAILURE", "REJECTED", "CANCELLED"].includes(status)) return "failed";
+  return "pending";
+}
+
+async function reconcileMtnWithdrawal(
+  financeClient: ReturnType<typeof createClient>,
+  withdrawal: Record<string, any>,
+  accessToken?: string,
+): Promise<Record<string, any>> {
+  if (withdrawal.method !== "mtn" || withdrawal.workflow_status !== "processing" || !withdrawal.provider_reference) {
+    return withdrawal;
+  }
+
+  const providerResponse = await getMtnDepositStatus(
+    accessToken ?? await getMtnAccessToken(),
+    String(withdrawal.provider_reference),
+  );
+  const metadata = { ...(withdrawal.metadata ?? {}), provider_status_response: providerResponse };
+  const { error: metadataError } = await financeClient
+    .from("withdrawals")
+    .update({ metadata })
+    .eq("id", withdrawal.id);
+  if (metadataError) throw new Error(`Could not record MTN status: ${metadataError.message}`);
+
+  const outcome = mtnProviderOutcome(providerResponse);
+  if (outcome === "paid") {
+    const { error } = await financeClient.rpc("transition_withdrawal_status", {
+      p_withdrawal_id: withdrawal.id,
+      p_new_status: "paid",
+      p_operator_id: "mtn-status-reconciliation",
+      p_provider_reference: withdrawal.provider_reference,
+    });
+    if (error) throw new Error(error.message);
+  } else if (outcome === "failed") {
+    const { error: transitionError } = await financeClient.rpc("transition_withdrawal_status", {
+      p_withdrawal_id: withdrawal.id,
+      p_new_status: "failed",
+      p_operator_id: "mtn-status-reconciliation",
+      p_note: JSON.stringify(providerResponse),
+    });
+    if (transitionError) throw new Error(transitionError.message);
+    const { error: refundError } = await financeClient.rpc("refund_failed_withdrawal", {
+      p_withdrawal_id: withdrawal.id,
+      p_reason: "MTN marked the disbursement as failed.",
+    });
+    if (refundError) throw new Error(refundError.message);
+  }
+
+  const { data: refreshed, error: refreshError } = await financeClient
+    .from("withdrawals")
+    .select("*")
+    .eq("id", withdrawal.id)
+    .single();
+  if (refreshError) throw new Error(refreshError.message);
+  return refreshed ?? withdrawal;
+}
+
+async function reconcilePendingMtnWithdrawals(financeClient: ReturnType<typeof createClient>) {
+  const { data: withdrawals, error } = await financeClient
+    .from("withdrawals")
+    .select("*")
+    .eq("method", "mtn")
+    .eq("workflow_status", "processing")
+    .not("provider_reference", "is", null)
+    .order("updated_at", { ascending: true })
+    .limit(50);
+  if (error) throw new Error(error.message);
+  if (!withdrawals?.length) return { checked: 0, reconciled: 0, errors: 0 };
+
+  const accessToken = await getMtnAccessToken();
+  let reconciled = 0;
+  let errors = 0;
+  for (const withdrawal of withdrawals) {
+    try {
+      await reconcileMtnWithdrawal(financeClient, withdrawal, accessToken);
+      reconciled += 1;
+    } catch (error) {
+      errors += 1;
+      console.error(`MTN reconciliation failed for withdrawal ${withdrawal.id}:`, error);
+    }
+  }
+  return { checked: withdrawals.length, reconciled, errors };
+}
+
+function isValidWithdrawalOtp(value: string): boolean {
+  return /^\d{6}$/.test(String(value ?? "").trim());
+}
+
+async function queueWithdrawalOtpDelivery(userEmail: string, otp: string): Promise<void> {
+  const deliveryProvider = Deno.env.get("OTP_DELIVERY_PROVIDER")?.trim().toLowerCase();
+  const resendApiKey = Deno.env.get("RESEND_API_KEY")?.trim();
+  const fromEmail = Deno.env.get("OTP_FROM_EMAIL")?.trim();
+  if (deliveryProvider !== "resend" || !resendApiKey || !fromEmail) {
+    throw new Error("Withdrawal OTP delivery requires OTP_DELIVERY_PROVIDER=resend, RESEND_API_KEY, and OTP_FROM_EMAIL.");
+  }
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: [userEmail],
+      subject: "Your Necxa withdrawal code",
+      text: `Your Necxa withdrawal code is ${otp}. It expires in 10 minutes. Do not share this code.`,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Withdrawal OTP email could not be sent: ${response.status} ${await response.text()}`);
+  }
 }
 
 async function mirrorFinanceInventoryToPrimary(
@@ -483,22 +844,45 @@ async function syncPrimaryIdentityToFinance(
   financeClient: ReturnType<typeof createClient>,
   user: PrimaryAuthUser,
 ) {
+  // Auth is the identity authority. The public profile is optional enrichment:
+  // a missing profile row or a temporarily stale profile schema must never
+  // make an authenticated user's canonical finance wallet unavailable.
   const { data: primaryProfile, error: profileError } = await primaryClient
     .from("profiles")
     .select("id, email, phone, full_name, avatar_url")
     .eq("id", user.id)
     .maybeSingle();
   if (profileError) {
-    throw new Error(`Primary profile sync failed: ${profileError.message}`);
+    console.error("Deferred primary profile enrichment:", profileError.message);
   }
 
   const metadata = user.user_metadata ?? {};
   const syncedAt = new Date().toISOString();
+  const email = primaryProfile?.email ?? user.email ?? null;
+  const displayName = primaryProfile?.full_name ?? metadata.full_name ?? metadata.name ?? null;
+
+  // This SECURITY DEFINER function performs an idempotent finance-user and
+  // wallet upsert in one short transaction. It preserves every existing
+  // balance and closes the first-login race between simultaneous clients.
+  const { error: walletProvisionError } = await financeClient.rpc(
+    "ensure_finance_wallet",
+    {
+      p_user_id: user.id,
+      p_email: email,
+      p_display_name: displayName,
+    },
+  );
+  if (walletProvisionError) {
+    throw new Error(`Finance wallet provisioning failed: ${walletProvisionError.message}`);
+  }
+
+  // Some commerce tables still use the legacy profile projection. Keep it in
+  // sync when available, but do not couple a wallet read to this projection.
   const financeProfile = {
     id: user.id,
-    email: primaryProfile?.email ?? user.email ?? null,
+    email,
     phone: primaryProfile?.phone ?? user.phone ?? null,
-    full_name: primaryProfile?.full_name ?? metadata.full_name ?? metadata.name ?? null,
+    full_name: displayName,
     avatar_url: primaryProfile?.avatar_url ?? metadata.avatar_url ?? null,
     updated_at: syncedAt,
   };
@@ -506,7 +890,7 @@ async function syncPrimaryIdentityToFinance(
     .from("profiles")
     .upsert(financeProfile, { onConflict: "id" });
   if (financeProfileError) {
-    throw new Error(`Finance profile sync failed: ${financeProfileError.message}`);
+    console.error("Deferred legacy finance profile projection:", financeProfileError.message);
   }
 
   return {
@@ -514,6 +898,8 @@ async function syncPrimaryIdentityToFinance(
     target: "supabase2",
     userId: user.id,
     syncedAt,
+    profileEnriched: !profileError,
+    legacyProfileProjected: !financeProfileError,
   };
 }
 
@@ -560,6 +946,25 @@ serve(async (req) => {
     }
   }
 
+  // Called by a protected scheduler every few minutes. MTN sends transaction
+  // results asynchronously, so user-driven polling alone is not sufficient to
+  // settle or refund every payout.
+  if (
+    req.method === "POST" &&
+    MTN_RECONCILIATION_SECRET &&
+    req.headers.get("x-mtn-reconciliation-secret") === MTN_RECONCILIATION_SECRET
+  ) {
+    try {
+      return json({ success: true, ...(await reconcilePendingMtnWithdrawals(supabase)) });
+    } catch (reconciliationError) {
+      console.error("Scheduled MTN reconciliation failed:", reconciliationError);
+      return json({
+        success: false,
+        message: reconciliationError instanceof Error ? reconciliationError.message : "MTN reconciliation failed.",
+      }, 500);
+    }
+  }
+
   // ── Authentication (Cross-Project Support) ────────────────────────────────
   // Authenticate the user against Supabase 1 (Auth Project) if configured,
   // otherwise default to local Supabase 2
@@ -597,25 +1002,34 @@ serve(async (req) => {
   }
 
   const syncCommerceListing = async (listingId: string, forceStock = false) => {
-    const fields = "id, title, price, stock_count, status, user_id, lister_id, category, media_url, weight_kg, length_cm, width_cm, height_cm, latitude, longitude, pickup_address";
-    let { data: sourceListing } = await userSupabase
+    // SP1 owns listings. Checkout only requires the columns shared by both
+    // projects. Selecting one optional shipping column that is absent from a
+    // live SP1 schema makes PostgREST reject the whole row and used to be
+    // misreported below as "Listing not found".
+    const commerceListingFields =
+      "id,title,price,stock_count,status,user_id,lister_id,category,media_url";
+    const { data: userListing, error: userListingError } = await userSupabase
       .from("listings")
-      .select(fields)
+      .select(commerceListingFields)
       .eq("id", listingId)
       .maybeSingle();
+    let sourceListing = userListing as Record<string, unknown> | null;
 
     if (!sourceListing) {
       const authAnonClient = createClient(AUTH_PROJECT_URL, AUTH_PROJECT_ANON_KEY);
-      const { data: publicListing } = await authAnonClient
+      const { data: publicListing, error: publicListingError } = await authAnonClient
         .from("listings")
-        .select(fields)
+        .select(commerceListingFields)
         .eq("id", listingId)
         .maybeSingle();
-      sourceListing = publicListing;
+      sourceListing = publicListing as Record<string, unknown> | null;
+      if (!sourceListing && userListingError && publicListingError) {
+        throw new Error(`Could not load listing: ${userListingError.message}`);
+      }
     }
 
     if (!sourceListing) return null;
-    const sellerId = sourceListing.user_id ?? sourceListing.lister_id;
+    const sellerId = (sourceListing.user_id ?? sourceListing.lister_id) as string | null | undefined;
     if (sellerId) {
       await supabase.from("profiles").upsert(
         { id: sellerId, updated_at: new Date().toISOString() },
@@ -627,10 +1041,19 @@ serve(async (req) => {
       .select("stock_count")
       .eq("id", listingId)
       .maybeSingle();
+    // SP2 needs a stable minimal projection for checkout. Keeping optional SP1
+    // shipping/display fields out also supports an older SP2 schema safely.
     const financeListing = {
-      ...sourceListing,
+      id: sourceListing.id,
+      title: sourceListing.title ?? null,
+      price: sourceListing.price ?? 0,
+      status: sourceListing.status ?? "active",
+      user_id: sourceListing.user_id ?? null,
+      lister_id: sourceListing.lister_id ?? null,
+      category: sourceListing.category ?? null,
+      media_url: sourceListing.media_url ?? null,
       stock_count: forceStock || !existingFinanceListing
-        ? sourceListing.stock_count
+        ? Number(sourceListing.stock_count ?? 0)
         : existingFinanceListing.stock_count,
     };
     const { error: syncError } = await supabase.from("listings").upsert(financeListing, { onConflict: "id" });
@@ -638,19 +1061,25 @@ serve(async (req) => {
     return financeListing as Record<string, unknown>;
   };
 
-  const attachCommerceDetails = async (orders: Record<string, unknown>[]) => {
+  const attachCommerceDetails = async (
+    orders: Record<string, unknown>[],
+    includeParticipantContact = false,
+  ) => {
     if (orders.length === 0) return [];
     const orderIds = orders.map((order) => String(order.id));
     const participantIds = new Set<string>();
+    const listingIds = new Set<string>();
     for (const order of orders) {
       participantIds.add(String(order.buyer_id));
       participantIds.add(String(order.seller_id));
+      listingIds.add(String(order.listing_id));
     }
 
-    const [{ data: deliveries }, { data: escrows }, { data: settlements }] = await Promise.all([
+    const [{ data: deliveries }, { data: escrows }, { data: settlements }, { data: listings }] = await Promise.all([
       supabase.from("commerce_delivery_jobs").select("*").in("order_id", orderIds),
       supabase.from("commerce_escrows").select("*").in("order_id", orderIds),
       supabase.from("commerce_settlements").select("*").in("order_id", orderIds),
+      supabase.from("listings").select("id,title,media_url").in("id", [...listingIds]),
     ]);
     for (const delivery of deliveries ?? []) {
       if (delivery.driver_id) participantIds.add(String(delivery.driver_id));
@@ -658,23 +1087,32 @@ serve(async (req) => {
 
     const { data: profiles } = await userSupabase
       .from("profiles")
-      .select("id, full_name, username, avatar_url, phone")
+      .select(includeParticipantContact
+        ? "id, full_name, username, avatar_url, phone"
+        : "id, full_name, username, avatar_url")
       .in("id", [...participantIds]);
     const profileById = new Map((profiles ?? []).map((profile) => [String(profile.id), profile]));
     const deliveryByOrder = new Map((deliveries ?? []).map((delivery) => [String(delivery.order_id), delivery]));
     const escrowByOrder = new Map((escrows ?? []).map((escrow) => [String(escrow.order_id), escrow]));
+    const listingById = new Map((listings ?? []).map((listing) => [String(listing.id), listing]));
 
-    return orders.map((order) => ({
-      ...order,
-      delivery: deliveryByOrder.get(String(order.id)) ?? null,
-      escrow: escrowByOrder.get(String(order.id)) ?? null,
-      settlements: (settlements ?? []).filter((settlement) => String(settlement.order_id) === String(order.id)),
-      buyer: profileById.get(String(order.buyer_id)) ?? null,
-      seller: profileById.get(String(order.seller_id)) ?? null,
-      driver: deliveryByOrder.get(String(order.id))?.driver_id
-        ? profileById.get(String(deliveryByOrder.get(String(order.id))!.driver_id)) ?? null
-        : null,
-    }));
+    return orders.map((order) => {
+      const metadata = (order.metadata ?? {}) as Record<string, unknown>;
+      const listing = listingById.get(String(order.listing_id));
+      return {
+        ...order,
+        product_title: order.product_title ?? metadata.product_title ?? listing?.title ?? "Product",
+        product_media_url: order.product_media_url ?? metadata.product_media_url ?? listing?.media_url ?? null,
+        delivery: deliveryByOrder.get(String(order.id)) ?? null,
+        escrow: escrowByOrder.get(String(order.id)) ?? null,
+        settlements: (settlements ?? []).filter((settlement) => String(settlement.order_id) === String(order.id)),
+        buyer: profileById.get(String(order.buyer_id)) ?? null,
+        seller: profileById.get(String(order.seller_id)) ?? null,
+        driver: deliveryByOrder.get(String(order.id))?.driver_id
+          ? profileById.get(String(deliveryByOrder.get(String(order.id))!.driver_id)) ?? null
+          : null,
+      };
+    });
   };
 
   let body: Record<string, unknown> = {};
@@ -1053,8 +1491,6 @@ serve(async (req) => {
           buyer_id: user.id,
           listing_id: listingId,
           seller_id: listing.user_id ?? listing.lister_id,
-          product_title: listing.title,
-          product_media_url: listing.media_url,
           quantity,
           unit_price_ugx: unitPriceUgx,
           delivery_fee_ugx: deliveryFeeUgx,
@@ -1070,12 +1506,23 @@ serve(async (req) => {
           status: "pending_payment",
           idempotency_key: idempotencyKey,
           reservation_id: reservation?.id ?? null,
-          metadata: { order_tracking_id: orderResult.order_tracking_id },
+          metadata: {
+            order_tracking_id: orderResult.order_tracking_id,
+            product_title: listing.title,
+            product_media_url: listing.media_url,
+          },
         }, { onConflict: "idempotency_key" })
         .select("id, order_number")
         .single();
 
-      if (orderErr) throw new Error(orderErr.message);
+      if (orderErr) {
+        await supabase.rpc("finalize_commerce_inventory", {
+          p_idempotency_key: idempotencyKey + "-inv",
+          p_finance_order_id: null,
+          p_commit: false,
+        });
+        throw new Error(orderErr.message);
+      }
 
       // Also upsert a payments row for the pesapal-ipn webhook to find
       const { error: paymentRecordError } = await supabase.from("payments").upsert({
@@ -1287,35 +1734,91 @@ serve(async (req) => {
     }
 
     if (action === "commerce_dashboard") {
-      const { data: sourceListings, error: listingsError } = await userSupabase
+      try {
+        await reconcileSellerPesapalPayments(supabase, user.id);
+      } catch (reconciliationError) {
+        console.error("Vendor payment reconciliation failed:", reconciliationError);
+      }
+
+      const syncCursor = new Date().toISOString();
+      const requestedCursor = body.updatedSince ? String(body.updatedSince) : null;
+      const updatedSince = requestedCursor && !Number.isNaN(Date.parse(requestedCursor))
+        ? requestedCursor
+        : null;
+      const listingOwnerFilter = `user_id.eq.${user.id},lister_id.eq.${user.id}`;
+      let listingsQuery = userSupabase
         .from("listings")
-        .select("id, title, media_url, price, stock_count, status, created_at")
-        .or(`user_id.eq.${user.id},lister_id.eq.${user.id}`)
-        .order("created_at", { ascending: false });
-      if (listingsError) throw new Error(listingsError.message);
-      const inventoryListings = (await Promise.all(
-        (sourceListings ?? []).map((listing) => syncCommerceListing(String(listing.id))),
-      )).filter((listing): listing is Record<string, unknown> => listing !== null);
+        .select("id, title, media_url, price, stock_count, status, created_at, updated_at")
+        .or(listingOwnerFilter)
+        .order(updatedSince ? "updated_at" : "created_at", { ascending: false })
+        .limit(300);
+      if (updatedSince) {
+        listingsQuery = listingsQuery.gt("updated_at", updatedSince).lte("updated_at", syncCursor);
+      }
+
+      const [listingsResult, activeListingsResult, lowStockResult] = await Promise.all([
+        listingsQuery,
+        userSupabase
+          .from("listings")
+          .select("id", { count: "exact", head: true })
+          .or(listingOwnerFilter)
+          .eq("status", "active"),
+        userSupabase
+          .from("listings")
+          .select("id", { count: "exact", head: true })
+          .or(listingOwnerFilter)
+          .lte("stock_count", 5),
+      ]);
+      if (listingsResult.error) throw new Error(listingsResult.error.message);
+      if (activeListingsResult.error) throw new Error(activeListingsResult.error.message);
+      if (lowStockResult.error) throw new Error(lowStockResult.error.message);
+      const inventoryListings = (listingsResult.data ?? []) as Record<string, unknown>[];
 
       const { data: orders, error: ordersError } = await supabase
         .from("commerce_orders")
-        .select("*")
+        .select("id, status, payment_status, unit_price_ugx, quantity, created_at, updated_at")
         .eq("seller_id", user.id)
         .order("created_at", { ascending: false });
       if (ordersError) throw new Error(ordersError.message);
 
-      const { data: settlements, error: settlementsError } = await supabase
+      const { data: recentOrders, error: recentOrdersError } = await supabase
+        .from("commerce_orders")
+        .select("*")
+        .eq("seller_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (recentOrdersError) throw new Error(recentOrdersError.message);
+
+      const { data: settlementRows, error: settlementsError } = await supabase
         .from("commerce_settlements")
         .select("net_amount_ugx, status, created_at")
         .eq("beneficiary_id", user.id)
         .eq("beneficiary_type", "seller");
-      if (settlementsError) throw new Error(settlementsError.message);
+      let settlements = settlementRows ?? [];
+      if (settlementsError) {
+        if (!commerceLifecycleUnavailable(settlementsError.message)) {
+          throw new Error(settlementsError.message);
+        }
+        console.warn("Commerce settlement table is not installed; showing orders without payout totals.");
+        settlements = [];
+      }
 
-      const { data: reviews } = await supabase
+      const { data: lifecycleReviews, error: reviewsError } = await supabase
         .from("commerce_reviews")
         .select("rating")
         .eq("seller_id", user.id)
         .eq("status", "published");
+      let reviews = lifecycleReviews ?? [];
+      if (reviewsError && commerceLifecycleUnavailable(reviewsError.message)) {
+        const compatibilityReviews = await supabase
+          .from("commerce_reviews")
+          .select("rating")
+          .eq("vendor_id", user.id);
+        if (compatibilityReviews.error) throw new Error(compatibilityReviews.error.message);
+        reviews = compatibilityReviews.data ?? [];
+      } else if (reviewsError) {
+        throw new Error(reviewsError.message);
+      }
 
       const sellerOrders = orders ?? [];
       const paidOrders = sellerOrders.filter((order) => order.payment_status === "COMPLETED");
@@ -1330,16 +1833,18 @@ serve(async (req) => {
       const heldEarningsUgx = paidOrders
         .filter((order) => order.settlement_status !== "released" && order.settlement_status !== "refunded")
         .reduce((total, order) => total + Number(order.unit_price_ugx) * Number(order.quantity), 0);
-      const ratingCount = reviews?.length ?? 0;
+      const ratingCount = reviews.length;
       const ratingAverage = ratingCount === 0
         ? 0
-        : reviews!.reduce((total, review) => total + Number(review.rating), 0) / ratingCount;
+        : reviews.reduce((total, review) => total + Number(review.rating), 0) / ratingCount;
 
       return json({
         success: true,
+        isDelta: updatedSince !== null,
+        syncCursor,
         dashboard: {
-          activeListings: inventoryListings.filter((listing) => listing.status === "active").length,
-          lowStockListings: inventoryListings.filter((listing) => Number(listing.stock_count) <= 5).length,
+          activeListings: activeListingsResult.count ?? 0,
+          lowStockListings: lowStockResult.count ?? 0,
           totalOrders: sellerOrders.length,
           openOrders: sellerOrders.filter((order) => !["completed", "cancelled", "refunded"].includes(order.status)).length,
           grossSalesUgx,
@@ -1348,7 +1853,7 @@ serve(async (req) => {
           ratingAverage,
           ratingCount,
           listings: inventoryListings,
-          recentOrders: await attachCommerceDetails(sellerOrders.slice(0, 10)),
+          recentOrders: await attachCommerceDetails((recentOrders ?? []) as Record<string, unknown>[]),
         },
       });
     }
@@ -1357,8 +1862,21 @@ serve(async (req) => {
       const role = String(body.role ?? "buyer");
       const limit = Math.max(1, Math.min(50, Number(body.limit) || 20));
       const cursor = body.cursor ? String(body.cursor) : null;
+      const syncCursor = new Date().toISOString();
+      const requestedUpdateCursor = body.updatedSince ? String(body.updatedSince) : null;
+      const updatedSince = requestedUpdateCursor && !Number.isNaN(Date.parse(requestedUpdateCursor))
+        ? requestedUpdateCursor
+        : null;
       if (!["buyer", "seller", "driver"].includes(role)) {
         return json({ success: false, message: "Invalid order role." }, 400);
+      }
+
+      if (role === "seller") {
+        try {
+          await reconcileSellerPesapalPayments(supabase, user.id);
+        } catch (reconciliationError) {
+          console.error("Seller order reconciliation failed:", reconciliationError);
+        }
       }
 
       let orders: Record<string, unknown>[] = [];
@@ -1381,17 +1899,21 @@ serve(async (req) => {
           .from("commerce_orders")
           .select("*")
           .eq(role === "seller" ? "seller_id" : "buyer_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(limit + 1);
-        if (cursor) query = query.lt("created_at", cursor);
+          .order(updatedSince ? "updated_at" : "created_at", { ascending: false })
+          .limit(updatedSince ? 200 : limit + 1);
+        if (updatedSince) {
+          query = query.gt("updated_at", updatedSince).lte("updated_at", syncCursor);
+        } else if (cursor) {
+          query = query.lt("created_at", cursor);
+        }
         const { data, error } = await query;
         if (error) throw new Error(error.message);
         orders = (data ?? []) as Record<string, unknown>[];
       }
 
       orders.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-      const hasMore = orders.length > limit;
-      const page = orders.slice(0, limit);
+      const hasMore = updatedSince === null && orders.length > limit;
+      const page = updatedSince ? orders : orders.slice(0, limit);
       const detailedOrders = await attachCommerceDetails(page);
       const roleSafeOrders = await Promise.all(detailedOrders.map(async (order) => ({
         ...order,
@@ -1402,6 +1924,7 @@ serve(async (req) => {
       return json({
         success: true,
         orders: roleSafeOrders,
+        syncCursor,
         nextCursor: hasMore ? page[page.length - 1]?.created_at ?? null : null,
       });
     }
@@ -1441,7 +1964,7 @@ serve(async (req) => {
         .limit(100);
       if (eventsError) throw new Error(eventsError.message);
 
-      const [detailedOrder] = await attachCommerceDetails([order]);
+      const [detailedOrder] = await attachCommerceDetails([order], true);
       return json({
         success: true,
         role,
@@ -1683,17 +2206,55 @@ serve(async (req) => {
     if (action === "list_vendor_reviews") {
       const limit = Math.max(1, Math.min(50, Number(body.limit) || 20));
       const cursor = body.cursor ? String(body.cursor) : null;
+      const syncCursor = new Date().toISOString();
+      const requestedUpdateCursor = body.updatedSince ? String(body.updatedSince) : null;
+      const updatedSince = requestedUpdateCursor && !Number.isNaN(Date.parse(requestedUpdateCursor))
+        ? requestedUpdateCursor
+        : null;
       let query = supabase
         .from("commerce_reviews")
-        .select("id, listing_id, buyer_id, rating, comment, media_urls, seller_response, seller_responded_at, created_at")
+        .select("id, listing_id, buyer_id, rating, comment, media_urls, seller_response, seller_responded_at, created_at, updated_at")
         .eq("seller_id", user.id)
         .eq("status", "published")
-        .order("created_at", { ascending: false })
-        .limit(limit + 1);
-      if (cursor) query = query.lt("created_at", cursor);
-      const { data: reviews, error: reviewsError } = await query;
-      if (reviewsError) throw new Error(reviewsError.message);
-      const page = (reviews ?? []).slice(0, limit);
+        .order(updatedSince ? "updated_at" : "created_at", { ascending: false })
+        .limit(updatedSince ? 100 : limit + 1);
+      if (updatedSince) {
+        query = query.gt("updated_at", updatedSince).lte("updated_at", syncCursor);
+      } else if (cursor) {
+        query = query.lt("created_at", cursor);
+      }
+      const { data: lifecycleReviews, error: reviewsError } = await query;
+      let reviews = (lifecycleReviews ?? []) as Record<string, unknown>[];
+      let compatibilitySchema = false;
+      if (reviewsError) {
+        if (!commerceLifecycleUnavailable(reviewsError.message)) {
+          throw new Error(reviewsError.message);
+        }
+        compatibilitySchema = true;
+        let compatibilityQuery = supabase
+          .from("commerce_reviews")
+          .select("id, listing_id, customer_id, vendor_id, rating, comment, created_at")
+          .eq("vendor_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(updatedSince ? 100 : limit + 1);
+        if (updatedSince) {
+          compatibilityQuery = compatibilityQuery.gt("created_at", updatedSince).lte("created_at", syncCursor);
+        } else if (cursor) {
+          compatibilityQuery = compatibilityQuery.lt("created_at", cursor);
+        }
+        const { data: compatibilityReviews, error: compatibilityError } = await compatibilityQuery;
+        if (compatibilityError) throw new Error(compatibilityError.message);
+        reviews = (compatibilityReviews ?? []).map((review) => ({
+          ...review,
+          buyer_id: review.customer_id,
+          seller_id: review.vendor_id,
+          media_urls: [],
+          seller_response: null,
+          seller_responded_at: null,
+          updated_at: review.created_at,
+        }));
+      }
+      const page = updatedSince ? reviews : reviews.slice(0, limit);
       const buyerIds = [...new Set(page.map((review) => review.buyer_id))];
       const listingIds = [...new Set(page.map((review) => review.listing_id))];
       const [{ data: buyers }, { data: listings }] = await Promise.all([
@@ -1714,7 +2275,11 @@ serve(async (req) => {
           listing: listingById.get(review.listing_id) ?? null,
           verifiedPurchase: true,
         })),
-        nextCursor: (reviews?.length ?? 0) > limit ? page[page.length - 1]?.created_at ?? null : null,
+        syncCursor,
+        compatibilitySchema,
+        nextCursor: updatedSince === null && reviews.length > limit
+          ? page[page.length - 1]?.created_at ?? null
+          : null,
       });
     }
 
@@ -1736,21 +2301,39 @@ serve(async (req) => {
     }
 
     if (action === "list_coin_packs") {
-      return json({
-        success: true,
-        coinPacks: [
-          { id: "spark",   ncx_amount: 10,   fiat_price: 1000,   fiat_currency: "UGX", color_hex: "#64FFDA", emoji: "⚡", name: "Spark Pack",   tagline: "Try it out" },
-          { id: "starter", ncx_amount: 50,   fiat_price: 5000,   fiat_currency: "UGX", color_hex: "#00E5FF", emoji: "🌟", name: "Starter Pack", tagline: "Get started" },
-          { id: "pro",     ncx_amount: 150,  fiat_price: 15000,  fiat_currency: "UGX", color_hex: "#2979FF", emoji: "🔵", name: "Pro Pack",     tagline: "Most popular" },
-          { id: "elite",   ncx_amount: 500,  fiat_price: 50000,  fiat_currency: "UGX", color_hex: "#D500F9", emoji: "💜", name: "Elite Pack",   tagline: "Power user" },
-          { id: "whale",   ncx_amount: 1200, fiat_price: 100000, fiat_currency: "UGX", color_hex: "#FFC400", emoji: "🐋", name: "Whale Pack",   tagline: "Go all in" },
-        ],
-      });
+      const { data: coinPacks, error } = await supabase
+        .from("coin_packs")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) {
+        // Fallback to hardcoded list if table doesn't exist yet
+        return json({
+          success: true,
+          coinPacks: [
+            { id: "spark",   ncx_amount: 10,   fiat_price: 1000,   fiat_currency: "UGX", color_hex: "#64FFDA", emoji: "⚡", name: "Spark Pack",   tagline: "Try it out" },
+            { id: "starter", ncx_amount: 50,   fiat_price: 5000,   fiat_currency: "UGX", color_hex: "#00E5FF", emoji: "🌟", name: "Starter Pack", tagline: "Get started" },
+            { id: "pro",     ncx_amount: 150,  fiat_price: 15000,  fiat_currency: "UGX", color_hex: "#2979FF", emoji: "🔵", name: "Pro Pack",     tagline: "Most popular" },
+            { id: "elite",   ncx_amount: 500,  fiat_price: 50000,  fiat_currency: "UGX", color_hex: "#D500F9", emoji: "💜", name: "Elite Pack",   tagline: "Power user" },
+            { id: "whale",   ncx_amount: 1200, fiat_price: 100000, fiat_currency: "UGX", color_hex: "#FFC400", emoji: "🐋", name: "Whale Pack",   tagline: "Go all in" },
+          ],
+        });
+      }
+      return json({ success: true, coinPacks });
     }
 
     // ── Action: purchase_coins ──────────────────────────────────────────────
     if (action === "purchase_coins") {
       const packId = body.packId as string;
+      const { data: packRecord, error: packError } = await supabase
+        .from("coin_packs")
+        .select("ncx_amount, fiat_price")
+        .eq("id", packId)
+        .single();
+      if (packError || !packRecord) {
+        return json({ success: false, message: "Invalid pack ID." }, 400);
+      }
+      const pack = { ncx: Number(packRecord.ncx_amount), fiat: Number(packRecord.fiat_price) };
       const method = body.method as string;
       const idempotencyKey = (body.idempotencyKey as string) || `coin-purchase-${user.id}-${Date.now()}`;
 
@@ -1765,15 +2348,6 @@ serve(async (req) => {
         return json({ success: false, message: "Purchase already processed." }, 409);
       }
 
-      // Hardcoded mapping matching list_coin_packs
-      const packDetails: Record<string, { ncx: number, fiat: number }> = {
-        starter: { ncx: 50, fiat: 5000 },
-        pro: { ncx: 150, fiat: 15000 },
-        elite: { ncx: 500, fiat: 50000 },
-        whale: { ncx: 1200, fiat: 100000 },
-      };
-
-      const pack = packDetails[packId];
       if (!pack) return json({ success: false, message: "Invalid pack selected." }, 400);
 
       // If fiat_balance, atomically deduct and credit NCX
@@ -1784,7 +2358,7 @@ serve(async (req) => {
           p_ncx_to_receive:  pack.ncx,
           p_fiat_currency:   "UGX",
           p_idempotency_key: idempotencyKey,
-          p_payment_id:      null,                   // wallet purchase — no external payment
+          p_payment_id:      null,
           p_issuance_type:   "WALLET_PURCHASE",
           p_metadata:        { pack_id: packId, method },
         });
@@ -1816,11 +2390,11 @@ serve(async (req) => {
         }
 
         return json({
-          success:           true,
-          issuanceId:        rpcResult?.issuance_id   ?? null,
-          originHash:        rpcResult?.origin_hash   ?? null,
-          coinBalanceAfter:  rpcResult?.coin_balance_after ?? null,
-          fiatBalanceAfter:  rpcResult?.fiat_balance_after ?? null,
+          success:          true,
+          issuanceId:       rpcResult?.issuance_id        ?? null,
+          originHash:       rpcResult?.origin_hash        ?? null,
+          coinBalanceAfter: rpcResult?.coin_balance_after ?? null,
+          fiatBalanceAfter: rpcResult?.fiat_balance_after ?? null,
         });
       }
 
@@ -1909,10 +2483,13 @@ serve(async (req) => {
 
     // ── Action: list_gift_items ──────────────────────────────────────────────
     if (action === "list_gift_items") {
-      return json({
-        success: true,
-        giftItems: GIFT_CATALOGUE,
-      });
+      const { data: giftItems, error } = await supabase
+        .from("gift_items")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) throw new Error(error.message);
+      return json({ success: true, giftItems });
     }
 
     // ── Action: send_gift ────────────────────────────────────────────────────
@@ -1926,10 +2503,6 @@ serve(async (req) => {
       const isAnonymous = Boolean(body.isAnonymous);
       const idempotencyKey = (body.idempotencyKey as string) || `gift-${user.id}-${Date.now()}`;
       const metadata = (body.metadata ?? {}) as Record<string, unknown>;
-      const giftDef = GIFT_CATALOGUE.find((gift) => gift.id === giftItemId);
-      if (!giftDef || ncxAmount !== giftDef.ncx_value) {
-        return json({ success: false, message: "Gift is unavailable or its price has changed." }, 400);
-      }
 
       const isLiveGift = contextType === "live_stream" || contextType === "live";
       const rpcName = isLiveGift ? "process_live_gift_ncx" : "process_gift_ncx";
@@ -1980,35 +2553,16 @@ serve(async (req) => {
         return json({ success: false, message: resData.message }, 400);
       }
 
-      // A gift notification stores just the immutable gift ID. The app resolves
-      // the matching JPEG only if the recipient opens the notification, keeping
-      // payment requests, realtime payloads, and local storage media-free.
-      const senderName = String(
-        user.user_metadata?.full_name ?? user.user_metadata?.name ?? user.email ?? "Someone",
-      );
-      const { error: notificationError } = await supabase.from("notifications").upsert({
-        user_id: receiverId,
-        actor_id: user.id,
-        notification_type: "gift_received",
-        type: "financial",
-        title: "You received a gift",
-        body: `${senderName} sent you ${giftDef.emoji} ${giftDef.name}.`,
-        target_id: resData?.gift_id || idempotencyKey,
-        target_type: "system",
-        dedupe_key: `gift:${resData?.gift_id || idempotencyKey}`,
-        metadata: {
-          gift_item_id: giftItemId,
-          ncx_amount: ncxAmount,
-          context_type: contextType,
-          context_id: contextId,
-          actor_name: senderName,
-        },
-      }, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
-      if (notificationError) {
-        // The financial transfer has already succeeded; notifications are best
-        // effort and must never turn a completed gift into an apparent failure.
-        console.error("Gift notification error:", notificationError.message);
-      }
+      // Fetch gift details to enrich response
+      const giftItems = [
+        { id: "rose", name: "Rose", emoji: "🌹" },
+        { id: "coffee", name: "Coffee", emoji: "☕" },
+        { id: "heart", name: "Heart", emoji: "💖" },
+        { id: "diamond", name: "Diamond", emoji: "💎" },
+        { id: "crown", name: "Crown", emoji: "👑" },
+        { id: "rocket", name: "Rocket", emoji: "🚀" },
+      ];
+      const giftDef = giftItems.find(g => g.id === giftItemId) || { name: "Gift", emoji: "🎁" };
 
       return json({
         success: true,
@@ -2093,13 +2647,15 @@ serve(async (req) => {
     // Called by Flutter _syncVault() every time the UI needs to refresh balances.
     if (action === "get_wallet") {
       // Recover delayed IPNs and payments completed while the app was closed.
-      const reconciliation = await reconcileUserPesapalPayments(supabase, user.id);
-
-      // Ensure wallet row exists (0 balance if first request)
-      await supabase.from("wallets").upsert(
-        { user_id: user.id, fiat_balance: 0, coin_balance: 0, escrow_balance: 0 },
-        { onConflict: "user_id", ignoreDuplicates: true }
-      );
+      // Reconciliation is a recovery enhancement. Provider or legacy-schema
+      // trouble must not suppress a valid locally committed wallet balance.
+      let reconciliation: Record<string, unknown>;
+      try {
+        reconciliation = await reconcileUserPesapalPayments(supabase, user.id);
+      } catch (reconciliationError) {
+        console.error("Deferred wallet payment reconciliation:", reconciliationError);
+        reconciliation = { checked: 0, settled: 0, deferred: true };
+      }
 
       const { data: wallet, error: walletErr } = await supabase
         .from("wallets")
@@ -2129,6 +2685,9 @@ serve(async (req) => {
 
       return json({
         success: true,
+        authoritative: true,
+        source: "necxa-finance-ledger",
+        syncedAt: new Date().toISOString(),
         wallet: {
           id: wallet.id,
           user_id: wallet.user_id,
@@ -2228,6 +2787,252 @@ serve(async (req) => {
       }
 
       return json({ success: true, status: "pending", message: "Payment is still processing. Please wait." });
+    }
+
+    // ── Action: check_withdrawal_eligibility ──────────────────────────────
+    // This is a user-facing preview. The same rule is enforced again by the
+    // database trigger when the withdrawal is created.
+    if (action === "check_withdrawal_eligibility") {
+      const amount = Number(body.amount ?? 0);
+      if (!Number.isSafeInteger(amount) || amount <= 0) {
+        return json({ success: false, message: "Invalid withdrawal amount." }, 400);
+      }
+      const { data: assessment, error } = await supabase.rpc("assert_withdrawal_eligible", {
+        p_user_id: user.id,
+        p_amount: amount,
+      });
+      if (error) {
+        return json({
+          success: false,
+          code: "withdrawal_not_eligible",
+          message: error.message,
+        }, 403);
+      }
+      return json({ success: true, eligibility: assessment });
+    }
+
+    // ── Action: send_withdrawal_otp ───────────────────────────────────────
+    if (action === "send_withdrawal_otp") {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const email = profile?.email || user.email || null;
+      if (!email) return json({ success: false, message: "No email available for OTP delivery." }, 400);
+
+      const otp = createWithdrawalOtp();
+      const codeHash = await hmacSha256Hex(otp);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+      try {
+        await queueWithdrawalOtpDelivery(email, otp);
+      } catch (deliveryErr) {
+        return json({
+          success: false,
+          message: deliveryErr instanceof Error ? deliveryErr.message : "OTP delivery is unavailable.",
+        }, 503);
+      }
+
+      const { error: upsertErr } = await supabase.from("withdrawal_otps").upsert({
+        user_id: user.id,
+        code_hash: codeHash,
+        expires_at: expiresAt,
+        attempts: 0,
+        consumed_at: null,
+      }, { onConflict: "user_id" });
+      if (upsertErr) throw new Error(upsertErr.message);
+
+      return json({ success: true, sent: true, expiresAt });
+    }
+
+    // ── Action: request_withdrawal ────────────────────────────────────────
+    if (action === "request_withdrawal") {
+      const amount = Number(body.amount ?? 0);
+      const method = String(body.method ?? "mtn").trim().toLowerCase();
+      const accountNumber = String(body.accountNumber ?? "").trim();
+      const recipientName = String(body.recipientName ?? "").trim();
+      const idempotencyKey = String(body.idempotencyKey ?? `withdraw-${user.id}-${Date.now()}`).trim();
+      const securityMetadata = body.securityMetadata ?? {};
+      const emailOtp = String(body.emailOtp ?? "").trim();
+
+      if (!amount || amount <= 0) return json({ success: false, message: "Invalid amount." }, 400);
+      if (!idempotencyKey) return json({ success: false, message: "A valid idempotency key is required." }, 400);
+      // Airtel and bank rails have no provider implementation yet. Reject them
+      // before the wallet is debited rather than leaving a user with a payout
+      // that can never be completed.
+      if (method !== "mtn") {
+        return json({ success: false, message: "Only MTN Mobile Money withdrawals are available right now." }, 400);
+      }
+      if (!accountNumber || !recipientName) return json({ success: false, message: "Account number and recipient name are required." }, 400);
+      if (!isValidWithdrawalOtp(emailOtp)) return json({ success: false, message: "A valid 6-digit OTP is required." }, 400);
+
+      const otpHash = await hmacSha256Hex(emailOtp);
+      const destinationCiphertext = await encryptWithdrawalDestination({ accountNumber, recipientName });
+
+      // If MTN method, run conservative device/fraud reservation guard first.
+      if (method === 'mtn') {
+        const normalizedMsisdn = normalizeUgandanMsisdn(accountNumber);
+        if (!normalizedMsisdn) {
+          return json({ success: false, message: "Enter a valid Ugandan mobile-money number." }, 400);
+        }
+        const deviceFingerprint = securityMetadata?.device_fingerprint ?? null;
+        const riskScore = securityMetadata && securityMetadata.risk_score != null ? Number(securityMetadata.risk_score) : null;
+        const isDeviceTrusted = securityMetadata && securityMetadata.is_device_trusted != null ? Boolean(securityMetadata.is_device_trusted) : null;
+
+        const { error: reserveErr } = await supabase.rpc('reserve_mtn_withdrawal', {
+          p_user_id: user.id,
+          p_amount: amount,
+          p_device_fingerprint: deviceFingerprint,
+          p_risk_score: riskScore,
+          p_is_device_trusted: isDeviceTrusted,
+          p_idempotency_key: idempotencyKey,
+        });
+        if (reserveErr) {
+          // Forward reservation failure (e.g., blocked by risk rules)
+          return json({ success: false, message: reserveErr.message }, 403);
+        }
+      }
+
+      const { data, error: rpcErr } = await supabase.rpc("create_withdrawal_request", {
+        p_user_id: user.id,
+        p_amount: amount,
+        p_method: method,
+        p_destination_ciphertext: destinationCiphertext,
+        p_recipient_name: recipientName,
+        p_otp_hash: otpHash,
+        p_idempotency_key: idempotencyKey,
+        p_metadata: securityMetadata,
+      });
+      if (rpcErr) return json({ success: false, message: rpcErr.message }, 400);
+
+      const withdrawal = Array.isArray(data) ? data[0] ?? data : data; // handle rpc single/maybeSingle shapes
+
+      // If MTN, attempt external disbursement and update workflow status accordingly.
+      if (method === 'mtn') {
+        const withdrawalId = String(withdrawal?.id ?? "");
+        if (!withdrawalId) return json({ success: false, message: "Withdrawal could not be created." }, 500);
+
+        // Only one request may submit a particular withdrawal to MTN. This is
+        // an atomic database claim, so retried HTTP requests cannot pay twice.
+        const { data: claimed, error: claimErr } = await supabase.rpc('claim_mtn_disbursement', {
+          p_withdrawal_id: withdrawalId,
+        });
+        if (claimErr) throw new Error(claimErr.message);
+        if (!claimed) {
+          return json({
+            success: true,
+            withdrawal,
+            withdrawalId,
+            status: withdrawal.workflow_status ?? "processing",
+            message: "Withdrawal is already being processed.",
+          });
+        }
+
+        try {
+          const token = await getMtnAccessToken();
+          const msisdn = normalizeUgandanMsisdn(accountNumber)!;
+          const depositResult = await makeMtnDeposit(token, withdrawal, amount, msisdn);
+
+          // Persist provider response into withdrawals.metadata for audit/debugging
+          try {
+            const existingMeta = (withdrawal && (withdrawal.metadata ?? {})) || {};
+            const newMeta = { ...existingMeta, provider_response: depositResult };
+            const { error: metaErr } = await supabase
+              .from('withdrawals')
+              .update({ metadata: newMeta })
+              .eq('id', withdrawalId)
+              .select()
+              .single();
+            if (metaErr) console.error('Failed to persist withdrawal metadata:', metaErr.message || metaErr);
+          } catch (mErr) {
+            console.error('Exception while persisting metadata:', mErr);
+          }
+
+          const providerRef = depositResult.referenceId;
+          await supabase.rpc('transition_withdrawal_status', {
+            p_withdrawal_id: withdrawalId,
+            p_new_status: 'processing',
+            p_operator_id: 'mtn-disbursement',
+            p_provider_reference: providerRef,
+          });
+
+          return json({
+            success: true,
+            withdrawal,
+            withdrawalId,
+            status: 'processing',
+            providerReference: providerRef,
+          });
+        } catch (err) {
+          const errMsg = (err as Error).message || String(err);
+          try {
+            await supabase.rpc('transition_withdrawal_status', {
+              p_withdrawal_id: withdrawalId,
+              p_new_status: 'failed',
+              p_operator_id: 'mtn-disbursement',
+              p_note: errMsg,
+            });
+          } catch (tErr) {
+            console.error('Failed to mark withdrawal failed:', tErr);
+          }
+          try {
+            // Save provider error into metadata for later inspection
+            const existingMeta = (withdrawal && (withdrawal.metadata ?? {})) || {};
+            const newMeta = { ...existingMeta, provider_response: { error: errMsg } };
+            const { error: metaErr } = await supabase
+              .from('withdrawals')
+              .update({ metadata: newMeta })
+              .eq('id', withdrawalId)
+              .select()
+              .single();
+            if (metaErr) console.error('Failed to persist failure metadata:', metaErr.message || metaErr);
+          } catch (mErr) {
+            console.error('Exception while persisting failure metadata:', mErr);
+          }
+          try {
+            await supabase.rpc('refund_failed_withdrawal', { p_withdrawal_id: withdrawalId, p_reason: errMsg });
+          } catch (rErr) {
+            console.error('Refund failed after MTN error:', rErr);
+          }
+          return json({ success: false, message: 'Disbursement failed: ' + errMsg }, 500);
+        }
+      }
+
+      return json({
+        success: true,
+        withdrawal,
+        withdrawalId: withdrawal?.id,
+        status: withdrawal?.workflow_status ?? withdrawal?.status,
+      });
+    }
+
+    // ── Action: withdrawal_status ─────────────────────────────────────────
+    if (action === "withdrawal_status") {
+      const withdrawalId = String(body.withdrawalId ?? "");
+      if (!withdrawalId) return json({ success: false, message: "withdrawalId required." }, 400);
+      const { data, error } = await supabase.from("withdrawals")
+        .select("*").eq("id", withdrawalId).eq("user_id", user.id).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return json({ success: false, message: "Withdrawal not found." }, 404);
+
+      // A callback can be missed, so the status endpoint also reconciles any
+      // in-flight MTN request with MTN before reporting its state to the user.
+      let withdrawal = data;
+      if (data.method === "mtn" && data.workflow_status === "processing" && data.provider_reference) {
+        try {
+          withdrawal = await reconcileMtnWithdrawal(supabase, data);
+        } catch (statusError) {
+          console.error("MTN withdrawal reconciliation failed:", statusError);
+        }
+      }
+      return json({
+        success: true,
+        withdrawal,
+        withdrawalId: withdrawal.id,
+        status: withdrawal.workflow_status ?? withdrawal.status,
+      });
     }
 
     return json({ success: false, message: `Unknown action: ${action}` }, 400);

@@ -120,7 +120,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
+                Icon(
                   Icons.forum_outlined,
                   size: 60,
                   color: C.dim,
@@ -166,7 +166,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.notifications_none_rounded,
                           size: 54,
                           color: C.dim,
