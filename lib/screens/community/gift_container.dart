@@ -40,6 +40,7 @@ class _GiftContainerState extends State<GiftContainer> {
   double _rechargeUGX = 10000;
   String? _paymentRef;
   String? _rechargeIdempotencyKey;
+  String? _giftIdempotencyKey;
 
   @override
   void initState() {
@@ -82,6 +83,10 @@ class _GiftContainerState extends State<GiftContainer> {
 
   Future<void> _sendGift(GiftItem preset) async {
     if (widget.receiverId.isEmpty) { _showError('No recipient selected.'); return; }
+    if (!widget.state.isOnline) {
+      _showError('Connect to the internet before sending a gift.');
+      return;
+    }
 
     if (widget.state.coinBalance < preset.ncxValue) {
       if (widget.state.isDataSaverMode) {
@@ -109,10 +114,15 @@ class _GiftContainerState extends State<GiftContainer> {
         ncxAmount: preset.ncxValue,
         contextType: widget.postId != null ? 'creator_post' : 'direct',
         contextId: widget.postId,
+        idempotencyKey: _giftIdempotencyKey ??= _newGiftIdempotencyKey(),
       );
 
       if (res.success) {
-        await widget.state.syncVault();
+        try {
+          await widget.state.syncVault();
+        } catch (error) {
+          debugPrint('Gift wallet refresh failed after successful send: $error');
+        }
         await SoundService().playWithFade(
           soundPath: SoundService.SOUND_SUCCESS,
           targetVolume: 0.9,
@@ -120,6 +130,7 @@ class _GiftContainerState extends State<GiftContainer> {
           curve: Curves.bounceOut,
         );
         _next(3);
+        _giftIdempotencyKey = null;
       } else {
         _showError(res.message);
       }
@@ -128,6 +139,9 @@ class _GiftContainerState extends State<GiftContainer> {
     }
     setState(() => _sending = false);
   }
+
+  String _newGiftIdempotencyKey() =>
+      'community-gift-${widget.receiverId}-${widget.postId ?? 'direct'}-${DateTime.now().microsecondsSinceEpoch}';
 
   Future<void> _initiateRecharge(String method) async {
     if (widget.state.user == null) { _showError('Sync error: User not authenticated.'); return; }

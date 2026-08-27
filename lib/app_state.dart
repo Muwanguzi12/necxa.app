@@ -132,6 +132,7 @@ class AppState extends ChangeNotifier {
   ConnectivityResult _connectionType = ConnectivityResult.none;
   ConnectivityResult get connectionType => _connectionType;
   bool get isWifi => _connectionType == ConnectivityResult.wifi;
+  bool get isOnline => _connectionType != ConnectivityResult.none;
   bool get isDataSaverMode => !isWifi; // Optimize for Mobile Data
 
   void _initConnectivity() {
