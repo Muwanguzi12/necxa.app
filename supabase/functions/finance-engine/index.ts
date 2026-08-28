@@ -2583,7 +2583,8 @@ serve(async (req) => {
         return json({ success: false, message: error.message }, 500);
       }
 
-      // The RPC returns { success, message, platform_fee_paid, receiver_amount_credited }
+      // The RPC returns { success, message, platform_fee_paid,
+      // receiver_amount_credited, gift_id }.
       // Due to how Supabase returns tabular RPCs it's an array of length 1
       const resData = Array.isArray(data) ? data[0] : data;
       if (resData && resData.success === false) {

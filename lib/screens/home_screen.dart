@@ -62,7 +62,7 @@ class HomeScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: C.green.withOpacity(.25)),
                   ),
-                  child: Text('???? UGX', style: dm(sz: 9, w: FontWeight.w700, c: C.green)),
+                  child: Text('UGX 1 = 100 NCX', style: dm(sz: 9, w: FontWeight.w700, c: C.green)),
                 ),
               ],
             ),
@@ -72,7 +72,7 @@ class HomeScreen extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E2631),
+                color: C.surface,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.blue.withOpacity(.3)),
               ),
@@ -81,7 +81,7 @@ class HomeScreen extends StatelessWidget {
                 children: [
                    Image.asset('assets/images/logo.png', width: 14, height: 14),
                    const SizedBox(width: 6),
-                   Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
+                   Text('Necxa AI', style: syne(sz: 11, c: C.blue)),
                 ],
               ),
             ),
@@ -135,7 +135,9 @@ class HomeScreen extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [const Color(0xFF0c1628), C.bg],
+          colors: C.isDark
+              ? [const Color(0xFF0c1628), C.bg]
+              : [const Color(0xFFE8F8FC), C.bg],
         ),
         border: Border(bottom: BorderSide(color: C.border)),
       ),
@@ -189,7 +191,11 @@ class HomeScreen extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Text(state.isSearching ? '?' : '??', style: dm(sz: 16)),
+                Icon(
+                  state.isSearching ? Icons.search : Icons.location_on_outlined,
+                  size: 19,
+                  color: C.brandDk,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
@@ -245,11 +251,11 @@ class HomeScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _StatCell(icon: '??', val: '$count+', lab: 'Listings'),
+          _StatCell(icon: Icons.home_work_outlined, val: '$count+', lab: 'Listings'),
           Container(width: 1, height: 60, color: C.border),
-          const _StatCell(icon: '?', val: '100%', lab: 'AI Verified'),
+          const _StatCell(icon: Icons.verified_outlined, val: '100%', lab: 'AI Verified'),
           Container(width: 1, height: 60, color: C.border),
-          const _StatCell(icon: '??', val: '5%', lab: 'Broker Fee'),
+          const _StatCell(icon: Icons.percent, val: '5%', lab: 'Broker Fee'),
         ],
       ),
     );
@@ -374,7 +380,15 @@ class _PropertyCard extends StatelessWidget {
                 child: Stack(
                   children: [
                     if (p.core.images.isEmpty)
-                      Center(child: Text(p.core.propertyType == PropertyType.apartment ? '??' : '??', style: const TextStyle(fontSize: 50))),
+                      Center(
+                        child: Icon(
+                          p.core.propertyType == PropertyType.apartment
+                              ? Icons.apartment
+                              : Icons.home_work_outlined,
+                          size: 50,
+                          color: C.dim,
+                        ),
+                      ),
                     
                     Positioned(
                       top: 10, left: 10,
@@ -387,7 +401,7 @@ class _PropertyCard extends StatelessWidget {
                     if (p.shadow.isUnlockedByCurrentUser)
                       const Positioned(
                         bottom: 10, right: 10,
-                        child: _Badge('?? Unlocked', C.green, C.text),
+                        child: _Badge('Unlocked', C.green, Colors.white),
                       ),
                     if (isReserved)
                        Positioned.fill(
@@ -420,23 +434,26 @@ class _PropertyCard extends StatelessWidget {
                       ),
                       GestureDetector(
                         onTap: () => state.toggleSave(p.core.id),
-                        child: Text(saved ? '??' : '??',
-                            style: const TextStyle(fontSize: 18)),
+                        child: Icon(
+                          saved ? Icons.favorite : Icons.favorite_border,
+                          size: 20,
+                          color: saved ? C.red : C.dim,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text('?? ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: C.dim)),
+                  Text('📍 ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: C.dim)),
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Text('?? ${p.core.bedrooms} Bed', style: dm(sz: 11, c: C.sub)),
+                      Text('🛏 ${p.core.bedrooms} Bed', style: dm(sz: 11, c: C.sub)),
                       const SizedBox(width: 12),
-                      Text('?? ${p.core.bathrooms} Bath', style: dm(sz: 11, c: C.sub)),
+                      Text('🛁 ${p.core.bathrooms} Bath', style: dm(sz: 11, c: C.sub)),
                       const SizedBox(width: 12),
-                      Text('?? ${p.core.sizeSqft}m�', style: dm(sz: 11, c: C.sub)),
+                      Text('📐 ${p.core.sizeSqft}m²', style: dm(sz: 11, c: C.sub)),
                       const SizedBox(width: 12),
-                      Text('? 4.8',
+                      Text('⭐ 4.8',
                           style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
                     ],
                   ),
@@ -454,7 +471,7 @@ class _PropertyCard extends StatelessWidget {
                               Text(p.financial.priceType == PriceType.monthly ? '/mo' : '/night', style: dm(sz: 10, c: C.dim)),
                               const SizedBox(width: 8),
                               if (!p.shadow.isUnlockedByCurrentUser)
-                                Text('�  Unlock: ${ugx(p.financial.unlockCost)}', 
+                                Text('🔓 Unlock: ${ugx(p.financial.unlockCost)}',
                                   style: dm(sz: 10, c: C.gold, w: FontWeight.w700)),
                             ],
                           ),
@@ -470,7 +487,7 @@ class _PropertyCard extends StatelessWidget {
                           border: Border.all(
                               color: isReserved ? C.red : C.brand.withOpacity(.22)),
                         ),
-                        child: Text(isReserved ? 'Reserved' : 'View ?',
+                        child: Text(isReserved ? 'Reserved' : 'View details',
                             style: dm(sz: 11, w: FontWeight.w700,
                                 c: isReserved ? C.red : C.brand)),
                       ),
@@ -496,12 +513,12 @@ class _TrustBadge extends StatelessWidget {
     Color bg;
     String label;
     switch (status) {
-      case TrustStatus.titan_trust:
-        bg = const Color(0xFFB8860B); label = '?? TITAN TRUST'; break;
+       case TrustStatus.titan_trust:
+        bg = const Color(0xFFB8860B); label = '★ TITAN TRUST'; break;
       case TrustStatus.verified:
-        bg = C.green; label = '? VERIFIED'; break;
+        bg = C.green; label = '✓ VERIFIED'; break;
       case TrustStatus.limited:
-        bg = Colors.orange; label = '?? LIMITED'; break;
+        bg = Colors.orange; label = '⚠ LIMITED'; break;
       default:
         bg = Colors.blueGrey; label = 'STANDARD';
     }
@@ -515,7 +532,7 @@ class _TrustBadge extends StatelessWidget {
             BoxShadow(color: bg.withOpacity(.4), blurRadius: 8, spreadRadius: 1),
         ],
       ),
-      child: Text(label, style: const TextStyle(
+      child: Text(label, style: TextStyle(
         fontSize: 9, fontWeight: FontWeight.w900, color: C.text, letterSpacing: 0.5)),
     );
   }
@@ -560,7 +577,8 @@ class _PurposeBadge extends StatelessWidget {
 }
 
 class _StatCell extends StatelessWidget {
-  final String icon, val, lab;
+  final IconData icon;
+  final String val, lab;
   const _StatCell({required this.icon, required this.val, required this.lab});
   @override
   Widget build(BuildContext context) {
@@ -570,7 +588,7 @@ class _StatCell extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           children: [
-            Text(icon, style: const TextStyle(fontSize: 20)),
+            Icon(icon, size: 21, color: C.brand),
             const SizedBox(height: 2),
             Text(val, style: syne(sz: 17, c: C.brand)),
             Text(lab, style: dm(sz: 10, c: C.dim)),
@@ -600,7 +618,7 @@ class _PulsingDotState extends State<_PulsingDot>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _anim,
-      child: Text('?', style: TextStyle(color: C.brand, fontSize: 10)),
+      child: Icon(Icons.circle, color: C.brand, size: 8),
     );
   }
 }
@@ -613,10 +631,10 @@ class _AppTabs extends StatelessWidget {
   const _AppTabs({required this.current, required this.onTap, required this.state});
 
   static final _tabs = [
-    ('home', '??', 'Property'),
-    ('transport', '??', 'Transport'),
-    ('upload', '?', 'Upload'),
-    ('profile', '??', 'Profile'),
+    ('home', Icons.home_work_outlined, 'Property'),
+    ('transport', Icons.local_shipping_outlined, 'Transport'),
+    ('upload', Icons.add_circle_outline, 'Upload'),
+    ('profile', Icons.person_outline, 'Profile'),
   ];
 
   @override
@@ -666,7 +684,7 @@ class _AppTabs extends StatelessWidget {
                         }
                       )
                     else 
-                      Text(t.$2, style: const TextStyle(fontSize: 10)),
+                      Icon(t.$2, size: 16, color: active ? C.brand : C.dim),
                     
                     if (!isProfile) const SizedBox(width: 4),
                     
@@ -707,10 +725,10 @@ class _BottomNav extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('??', 'Property', current == 'home', () => onTap('home')),
-          _BotBtn('?', 'Community', current == 'community', () => onTap('community')),
-          _BotBtn('??', 'Listings', current == 'list', () => onTap('list')),
-          _BotBtn('??', 'Chat', current == 'chat', () => onTap('chat')),
+          _BotBtn(Icons.home_work_outlined, 'Property', current == 'home', () => onTap('home')),
+          _BotBtn(Icons.people_outline, 'Community', current == 'community', () => onTap('community')),
+          _BotBtn(Icons.list_alt_outlined, 'Listings', current == 'list', () => onTap('list')),
+          _BotBtn(Icons.chat_bubble_outline, 'Chat', current == 'chat', () => onTap('chat')),
         ],
       ),
     );
@@ -718,7 +736,8 @@ class _BottomNav extends StatelessWidget {
 }
 
 class _BotBtn extends StatelessWidget {
-  final String icon, label;
+  final IconData icon;
+  final String label;
   final bool active;
   final VoidCallback onTap;
   const _BotBtn(this.icon, this.label, this.active, this.onTap);
@@ -729,7 +748,7 @@ class _BotBtn extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: const TextStyle(fontSize: 22)),
+          Icon(icon, size: 22, color: active ? C.brand : C.dim),
           const SizedBox(height: 3),
           Text(label,
               style: dm(sz: 9, w: FontWeight.w600,
@@ -739,5 +758,3 @@ class _BotBtn extends StatelessWidget {
     );
   }
 }
-
-
