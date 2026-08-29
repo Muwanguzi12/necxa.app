@@ -29,6 +29,49 @@ class GiftContainer extends StatefulWidget {
   State<GiftContainer> createState() => _GiftContainerState();
 }
 
+class _GiftCategoryChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+
+  const _GiftCategoryChip({
+    required this.label,
+    required this.icon,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? const Color(0xFF12B9FF) : const Color(0xFF8D9ABD);
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 13),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFF075BA8) : const Color(0xFF111D35),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: selected ? const Color(0xFF12B9FF) : const Color(0xFF344769),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : color,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _GiftContainerState extends State<GiftContainer> {
   int _step = 0; // 0: Selection, 1: Recharge, 2: Payment, 3: Success
 
@@ -82,7 +125,10 @@ class _GiftContainerState extends State<GiftContainer> {
   void _next(int step) => setState(() => _step = step);
 
   Future<void> _sendGift(GiftItem preset) async {
-    if (widget.receiverId.isEmpty) { _showError('No recipient selected.'); return; }
+    if (widget.receiverId.isEmpty) {
+      _showError('No recipient selected.');
+      return;
+    }
     if (!widget.state.isOnline) {
       _showError('Connect to the internet before sending a gift.');
       return;
@@ -96,12 +142,17 @@ class _GiftContainerState extends State<GiftContainer> {
 
     if (widget.state.coinBalance < preset.ncxValue) {
       _selectedPreset = preset;
-      _rechargeUGX = ((preset.ncxValue - widget.state.coinBalance) * 100).clamp(5000, 500000).toDouble();
+      _rechargeUGX = ((preset.ncxValue - widget.state.coinBalance) * 100)
+          .clamp(5000, 500000)
+          .toDouble();
       _next(1);
       return;
     }
 
-    if (widget.state.user == null) { _showError('Please sign in to send gifts.'); return; }
+    if (widget.state.user == null) {
+      _showError('Please sign in to send gifts.');
+      return;
+    }
 
     setState(() => _sending = true);
     await SoundService().playGiftSound();
@@ -121,7 +172,9 @@ class _GiftContainerState extends State<GiftContainer> {
         try {
           await widget.state.syncVault();
         } catch (error) {
-          debugPrint('Gift wallet refresh failed after successful send: $error');
+          debugPrint(
+            'Gift wallet refresh failed after successful send: $error',
+          );
         }
         await SoundService().playWithFade(
           soundPath: SoundService.SOUND_SUCCESS,
@@ -144,32 +197,47 @@ class _GiftContainerState extends State<GiftContainer> {
       'community-gift-${widget.receiverId}-${widget.postId ?? 'direct'}-${DateTime.now().microsecondsSinceEpoch}';
 
   Future<void> _initiateRecharge(String method) async {
-    if (widget.state.user == null) { _showError('Sync error: User not authenticated.'); return; }
+    if (widget.state.user == null) {
+      _showError('Sync error: User not authenticated.');
+      return;
+    }
     setState(() => _sending = true);
     try {
       // Route recharge through the Supabase 2 coin purchase flow.
       final packId = FinanceCoinPurchaseService.packIdForUgx(_rechargeUGX);
-      _rechargeIdempotencyKey ??= 'gift-recharge-${DateTime.now().microsecondsSinceEpoch}';
+      _rechargeIdempotencyKey ??=
+          'gift-recharge-${DateTime.now().microsecondsSinceEpoch}';
       final result = await widget.state.buyShards(
         packId,
         method: method,
         idempotencyKey: _rechargeIdempotencyKey!,
       );
-      final redirectUrl = result['redirectUrl']?.toString() ?? result['redirect_url']?.toString();
+      final redirectUrl =
+          result['redirectUrl']?.toString() ??
+          result['redirect_url']?.toString();
       final paymentId = result['paymentId']?.toString();
       if (redirectUrl != null) {
-        if (!await canLaunchUrlString(redirectUrl)) throw Exception('Unable to open Pesapal checkout');
-        await launchUrlString(redirectUrl, mode: LaunchMode.externalApplication);
+        if (!await canLaunchUrlString(redirectUrl))
+          throw Exception('Unable to open Pesapal checkout');
+        await launchUrlString(
+          redirectUrl,
+          mode: LaunchMode.externalApplication,
+        );
         if (paymentId == null) throw Exception('Payment reference is missing');
-        final completed = await widget.state.financeCoinPurchases.waitForCompletion(paymentId);
-        if (!completed) throw Exception('Payment is not confirmed. Coins will only be added after Pesapal confirms payment.');
+        final completed = await widget.state.financeCoinPurchases
+            .waitForCompletion(paymentId);
+        if (!completed)
+          throw Exception(
+            'Payment is not confirmed. Coins will only be added after Pesapal confirms payment.',
+          );
         await widget.state.syncVault();
       }
       _rechargeIdempotencyKey = null;
       _next(0);
     } catch (e) {
       if (e is FinanceBackendException &&
-          (e.code == 'payment_final' || e.code == 'payment_initialization_failed')) {
+          (e.code == 'payment_final' ||
+              e.code == 'payment_initialization_failed')) {
         _rechargeIdempotencyKey = null;
       }
       _showError(getUserFriendlyError(e));
@@ -187,18 +255,13 @@ class _GiftContainerState extends State<GiftContainer> {
   Widget build(BuildContext context) {
     final maxHeight = MediaQuery.of(context).size.height * 0.70;
     return Container(
-      constraints: BoxConstraints(
-        maxHeight: maxHeight,
-      ),
+      constraints: BoxConstraints(maxHeight: maxHeight),
       width: double.infinity,
       decoration: BoxDecoration(
         color: const Color(0xFF0B111D),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(
-          top: BorderSide(
-            color: Colors.white.withOpacity(0.1),
-            width: 1.0,
-          ),
+          top: BorderSide(color: Colors.white.withOpacity(0.1), width: 1.0),
         ),
         boxShadow: [
           BoxShadow(
@@ -244,14 +307,23 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildStepContent() {
-    if (_loading) return const SizedBox(height: 300, child: Center(child: CircularProgressIndicator(color: C.brand)));
+    if (_loading)
+      return const SizedBox(
+        height: 300,
+        child: Center(child: CircularProgressIndicator(color: C.brand)),
+      );
 
     switch (_step) {
-      case 0: return _buildSelection();
-      case 1: return _buildRecharge();
-      case 2: return _buildPaymentConfirmation();
-      case 3: return _buildSuccess();
-      default: return _buildSelection();
+      case 0:
+        return _buildSelection();
+      case 1:
+        return _buildRecharge();
+      case 2:
+        return _buildPaymentConfirmation();
+      case 3:
+        return _buildSuccess();
+      default:
+        return _buildSelection();
     }
   }
 
@@ -263,7 +335,11 @@ class _GiftContainerState extends State<GiftContainer> {
           if (onBack != null)
             GestureDetector(
               onTap: onBack,
-              child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+              child: const Icon(
+                Icons.arrow_back_ios_new,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
           if (onBack == null) const SizedBox(width: 20),
           Expanded(
@@ -280,10 +356,11 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildGiftIcon(GiftItem p) {
-    final url = p.imageUrl;
+    final url = giftPickerImageUrlFor(_normalizedGiftId(p.id)) ?? p.imageUrl;
     if (url == null || url.isEmpty) {
       return Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32)));
     }
+
     if (url.startsWith('assets/')) {
       return Image.asset(url, fit: BoxFit.contain);
     }
@@ -295,14 +372,28 @@ class _GiftContainerState extends State<GiftContainer> {
       child: CachedNetworkImage(
         imageUrl: url,
         fit: BoxFit.contain,
-        placeholder: (_, __) => Center(
-          child: Text(p.emoji, style: const TextStyle(fontSize: 32)),
-        ),
-        errorWidget: (_, __, ___) => Center(
-          child: Text(p.emoji, style: const TextStyle(fontSize: 32)),
-        ),
+        placeholder: (_, __) =>
+            Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32))),
+        errorWidget: (_, __, ___) =>
+            Center(child: Text(p.emoji, style: const TextStyle(fontSize: 32))),
       ),
     );
+  }
+
+  String _normalizedGiftId(String id) {
+    switch (id.toLowerCase().replaceAll('-', '_')) {
+      case 'money_bag':
+        return 'moneybag';
+      case 'sports_car':
+        return 'sportscar';
+      case 'private_jet':
+        return 'jet';
+      case 'necxa_palace':
+      case 'palace':
+        return 'palace';
+      default:
+        return id.toLowerCase();
+    }
   }
 
   Widget _buildSelection() {
@@ -319,7 +410,10 @@ class _GiftContainerState extends State<GiftContainer> {
               GestureDetector(
                 onTap: () => _next(1),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF131D2D),
                     borderRadius: BorderRadius.circular(20),
@@ -351,11 +445,19 @@ class _GiftContainerState extends State<GiftContainer> {
                       const SizedBox(width: 6),
                       Text(
                         'NCX ',
-                        style: dm(sz: 11, w: FontWeight.bold, c: Colors.white70),
+                        style: dm(
+                          sz: 11,
+                          w: FontWeight.bold,
+                          c: Colors.white70,
+                        ),
                       ),
                       Text(
                         '${balance.toInt()}',
-                        style: syne(sz: 13, w: FontWeight.bold, c: const Color(0xFF38BDF8)),
+                        style: syne(
+                          sz: 13,
+                          w: FontWeight.bold,
+                          c: const Color(0xFF38BDF8),
+                        ),
                       ),
                     ],
                   ),
@@ -364,15 +466,34 @@ class _GiftContainerState extends State<GiftContainer> {
 
               // Title (Center)
               Expanded(
-                child: Text(
-                  'GIFT COINS',
-                  textAlign: TextAlign.center,
-                  style: syne(
-                    sz: 16,
-                    w: FontWeight.w900,
-                    ls: 1.2,
-                    c: Colors.white,
-                  ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.card_giftcard_rounded,
+                      color: Color(0xFF12B9FF),
+                      size: 25,
+                    ),
+                    const SizedBox(width: 7),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Gift Coins',
+                          style: syne(
+                            sz: 16,
+                            w: FontWeight.w900,
+                            c: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          'Send gifts · Support creators',
+                          style: dm(sz: 9, c: Colors.white54),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
 
@@ -397,6 +518,36 @@ class _GiftContainerState extends State<GiftContainer> {
           ),
         ),
 
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+          child: SizedBox(
+            height: 32,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: const [
+                _GiftCategoryChip(
+                  label: 'All',
+                  icon: Icons.favorite_rounded,
+                  selected: true,
+                ),
+                _GiftCategoryChip(
+                  label: 'Popular',
+                  icon: Icons.local_fire_department,
+                ),
+                _GiftCategoryChip(
+                  label: 'Premium',
+                  icon: Icons.workspace_premium,
+                ),
+                _GiftCategoryChip(label: 'Luxury', icon: Icons.auto_awesome),
+                _GiftCategoryChip(
+                  label: 'Big Gifts',
+                  icon: Icons.directions_car,
+                ),
+              ],
+            ),
+          ),
+        ),
+
         // ── Gifts Grid (Scrollable) ──
         Expanded(
           child: Padding(
@@ -411,9 +562,9 @@ class _GiftContainerState extends State<GiftContainer> {
                 physics: const BouncingScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 4,
-                  childAspectRatio: 0.76,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 10,
+                  childAspectRatio: 0.78,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 8,
                 ),
                 itemCount: _presets.length,
                 itemBuilder: (context, i) {
@@ -429,78 +580,84 @@ class _GiftContainerState extends State<GiftContainer> {
                         onTap: _sending ? null : () => _sendGift(p),
                         borderRadius: BorderRadius.circular(12),
                         child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 180),
-                      opacity: canAfford ? 1.0 : 0.45,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // Gift Image / Icon (Un-encased, clean floating)
-                          SizedBox(
-                            width: 44,
-                            height: 44,
-                            child: _buildGiftIcon(p),
-                          ),
-                          const SizedBox(height: 6),
-                          // Name Label
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
-                            child: Text(
-                              p.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: dm(sz: 11, w: FontWeight.w600, c: Colors.white),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          // Price Badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
+                          duration: const Duration(milliseconds: 180),
+                          opacity: canAfford ? 1.0 : 0.45,
+                          child: Container(
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0B243B),
-                              borderRadius: BorderRadius.circular(10),
+                              color: const Color(0xFF101B30),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(
-                                color: const Color(0xFF38BDF8).withOpacity(0.25),
+                                color: const Color(
+                                  0xFF4D6A97,
+                                ).withOpacity(0.45),
                               ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
+                            padding: const EdgeInsets.fromLTRB(6, 6, 6, 7),
+                            child: Column(
                               children: [
-                                Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF0284C7),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Center(
-                                    child: Text(
-                                      'T',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 7,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
+                                Expanded(child: _buildGiftIcon(p)),
+                                Text(
+                                  p.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: dm(
+                                    sz: 11,
+                                    w: FontWeight.w600,
+                                    c: Colors.white,
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${p.ncxValue}',
-                                  style: dm(
-                                    sz: 10,
-                                    w: FontWeight.w800,
-                                    c: const Color(0xFF38BDF8),
+                                const SizedBox(height: 5),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF071A2C),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(
+                                        0xFF12B9FF,
+                                      ).withOpacity(0.35),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 15,
+                                        height: 15,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF08B8F5),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Center(
+                                          child: Text(
+                                            'N',
+                                            style: TextStyle(
+                                              color: Color(0xFF06223B),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${p.ncxValue}',
+                                        style: dm(
+                                          sz: 10,
+                                          w: FontWeight.w800,
+                                          c: const Color(0xFF16C8FF),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ],
-                      ),
                         ),
                       ),
                     ),
@@ -519,9 +676,7 @@ class _GiftContainerState extends State<GiftContainer> {
             decoration: BoxDecoration(
               color: const Color(0xFF0F1A2E),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.08),
-              ),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
             ),
             child: Row(
               children: [
@@ -558,15 +713,19 @@ class _GiftContainerState extends State<GiftContainer> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildHeader('RECHARGE NCX', onBack: () => _next(0)),
-        
-        Text('INSUFFICIENT BALANCE', style: syne(sz: 12, w: FontWeight.w900, c: Colors.redAccent, ls: 1)),
-        const SizedBox(height: 8),
-        Text('You need ${(_selectedPreset!.ncxValue - widget.state.coinBalance).toInt()} more NCX coins to send this gift.',
-          style: dm(sz: 14, c: Colors.white70)
+
+        Text(
+          'INSUFFICIENT BALANCE',
+          style: syne(sz: 12, w: FontWeight.w900, c: Colors.redAccent, ls: 1),
         ),
-        
+        const SizedBox(height: 8),
+        Text(
+          'You need ${(_selectedPreset!.ncxValue - widget.state.coinBalance).toInt()} more NCX coins to send this gift.',
+          style: dm(sz: 14, c: Colors.white70),
+        ),
+
         const SizedBox(height: 24),
-        
+
         // Amount Selector
         Container(
           padding: const EdgeInsets.all(20),
@@ -581,7 +740,10 @@ class _GiftContainerState extends State<GiftContainer> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Recharge Amount', style: dm(sz: 13, c: Colors.white38)),
-                  Text(ugx(_rechargeUGX), style: syne(sz: 18, w: FontWeight.bold, c: Colors.white)),
+                  Text(
+                    ugx(_rechargeUGX),
+                    style: syne(sz: 18, w: FontWeight.bold, c: Colors.white),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -594,25 +756,56 @@ class _GiftContainerState extends State<GiftContainer> {
                 inactiveColor: Colors.white10,
                 onChanged: (v) => setState(() => _rechargeUGX = v),
               ),
-              Text('Yields ${(_rechargeUGX / 100).toInt()} NCX Coins', style: dm(sz: 12, c: C.brand, w: FontWeight.bold)),
+              Text(
+                'Yields ${(_rechargeUGX / 100).toInt()} NCX Coins',
+                style: dm(sz: 12, c: C.brand, w: FontWeight.bold),
+              ),
             ],
           ),
         ),
-        
+
         const SizedBox(height: 24),
-        
-        Text('SELECT PAYMENT METHOD', style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 1)),
+
+        Text(
+          'SELECT PAYMENT METHOD',
+          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 1),
+        ),
         const SizedBox(height: 16),
-        
-        _paymentOption('Vault Balance', Icons.account_balance_wallet, Colors.cyan[600]!, () => _initiateRecharge('fiat_balance')),
-        _paymentOption('MTN MoMo via Pesapal', Icons.phone_android, Colors.yellow[700]!, () => _initiateRecharge('mtn')),
-        _paymentOption('Airtel Money via Pesapal', Icons.phone_android, Colors.red[600]!, () => _initiateRecharge('airtel')),
-        _paymentOption('Visa / Mastercard via Pesapal', Icons.credit_card, Colors.blue[600]!, () => _initiateRecharge('card')),
+
+        _paymentOption(
+          'Vault Balance',
+          Icons.account_balance_wallet,
+          Colors.cyan[600]!,
+          () => _initiateRecharge('fiat_balance'),
+        ),
+        _paymentOption(
+          'MTN MoMo via Pesapal',
+          Icons.phone_android,
+          Colors.yellow[700]!,
+          () => _initiateRecharge('mtn'),
+        ),
+        _paymentOption(
+          'Airtel Money via Pesapal',
+          Icons.phone_android,
+          Colors.red[600]!,
+          () => _initiateRecharge('airtel'),
+        ),
+        _paymentOption(
+          'Visa / Mastercard via Pesapal',
+          Icons.credit_card,
+          Colors.blue[600]!,
+          () => _initiateRecharge('card'),
+        ),
       ],
     );
   }
 
-  Widget _paymentOption(String label, IconData icon, Color color, VoidCallback onTap) {
+  Widget _paymentOption(
+    String label,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: _sending ? null : onTap,
       child: Container(
@@ -627,11 +820,17 @@ class _GiftContainerState extends State<GiftContainer> {
           children: [
             Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
               child: Icon(icon, color: color, size: 20),
             ),
             const SizedBox(width: 16),
-            Text(label, style: dm(sz: 14, w: FontWeight.bold, c: Colors.white)),
+            Text(
+              label,
+              style: dm(sz: 14, w: FontWeight.bold, c: Colors.white),
+            ),
             const Spacer(),
             const Icon(Icons.chevron_right, color: Colors.white24),
           ],
@@ -645,29 +844,39 @@ class _GiftContainerState extends State<GiftContainer> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildHeader('COMPLETE PAYMENT', onBack: () => _next(1)),
-        
+
         const Icon(Icons.hourglass_top_rounded, color: C.brand, size: 64),
         const SizedBox(height: 24),
-        Text('Payment Initiated', style: syne(sz: 20, w: FontWeight.bold, c: Colors.white)),
+        Text(
+          'Payment Initiated',
+          style: syne(sz: 20, w: FontWeight.bold, c: Colors.white),
+        ),
         const SizedBox(height: 12),
-        Text('Please check your phone for a push notification or follow the instructions in your provider app.',
+        Text(
+          'Please check your phone for a push notification or follow the instructions in your provider app.',
           textAlign: TextAlign.center,
-          style: dm(sz: 14, c: Colors.white70)
+          style: dm(sz: 14, c: Colors.white70),
         ),
         const SizedBox(height: 32),
-        
+
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: Column(
             children: [
               Text('REFERENCE ID', style: dm(sz: 10, c: Colors.white38)),
               const SizedBox(height: 4),
-              SelectableText(_paymentRef ?? 'REF-XXXX', style: syne(sz: 16, w: FontWeight.w900, c: C.brand)),
+              SelectableText(
+                _paymentRef ?? 'REF-XXXX',
+                style: syne(sz: 16, w: FontWeight.w900, c: C.brand),
+              ),
             ],
           ),
         ),
-        
+
         const SizedBox(height: 32),
         GestureDetector(
           onTap: () async {
@@ -677,15 +886,23 @@ class _GiftContainerState extends State<GiftContainer> {
               _next(0); // Go back to selection with new balance
             } else {
               _showError('Payment not yet detected. Please wait.');
-              _next(0); 
+              _next(0);
             }
             setState(() => _loading = false);
           },
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 16),
-            decoration: BoxDecoration(gradient: brandGrad, borderRadius: BorderRadius.circular(16)),
-            child: Center(child: Text('CHECK STATUS', style: dm(sz: 14, w: FontWeight.w900, c: Colors.black))),
+            decoration: BoxDecoration(
+              gradient: brandGrad,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Center(
+              child: Text(
+                'CHECK STATUS',
+                style: dm(sz: 14, w: FontWeight.w900, c: Colors.black),
+              ),
+            ),
           ),
         ),
       ],
@@ -703,15 +920,23 @@ class _GiftContainerState extends State<GiftContainer> {
           curve: Curves.elasticOut,
           builder: (context, val, child) => Transform.scale(
             scale: val,
-            child: const Icon(Icons.check_circle, color: Colors.greenAccent, size: 100),
+            child: const Icon(
+              Icons.check_circle,
+              color: Colors.greenAccent,
+              size: 100,
+            ),
           ),
         ),
         const SizedBox(height: 24),
-        Text('GIFT DELIVERED!', style: syne(sz: 24, w: FontWeight.w900, c: Colors.white, ls: 2)),
+        Text(
+          'GIFT DELIVERED!',
+          style: syne(sz: 24, w: FontWeight.w900, c: Colors.white, ls: 2),
+        ),
         const SizedBox(height: 12),
-        Text('Your ${_selectedPreset?.name ?? 'Gift'} was successfully received. The creator has been notified.',
+        Text(
+          'Your ${_selectedPreset?.name ?? 'Gift'} was successfully received. The creator has been notified.',
           textAlign: TextAlign.center,
-          style: dm(sz: 15, c: Colors.white70)
+          style: dm(sz: 15, c: Colors.white70),
         ),
         const SizedBox(height: 40),
         GestureDetector(
@@ -723,10 +948,19 @@ class _GiftContainerState extends State<GiftContainer> {
               gradient: brandGrad,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                BoxShadow(color: C.brand.withOpacity(0.2), blurRadius: 20, spreadRadius: 2),
+                BoxShadow(
+                  color: C.brand.withOpacity(0.2),
+                  blurRadius: 20,
+                  spreadRadius: 2,
+                ),
               ],
             ),
-            child: Center(child: Text('AWESOME', style: dm(sz: 14, w: FontWeight.w900, c: Colors.black))),
+            child: Center(
+              child: Text(
+                'AWESOME',
+                style: dm(sz: 14, w: FontWeight.w900, c: Colors.black),
+              ),
+            ),
           ),
         ),
       ],
