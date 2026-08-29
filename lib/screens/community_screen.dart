@@ -2137,8 +2137,18 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     label: 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
-                      widget.state.targetProfileId = widget.post['author_id'];
-                      widget.state.listingId = widget.post['id'];
+                      final receiverId = widget.post['author_id'] ??
+                          widget.post['user_id'] ??
+                          widget.post['lister_id'];
+                      final postId = widget.post['id']?.toString();
+                      if (receiverId == null ||
+                          receiverId.toString().isEmpty ||
+                          postId == null ||
+                          postId.isEmpty) {
+                        return;
+                      }
+                      widget.state.targetProfileId = receiverId.toString();
+                      widget.state.listingId = postId;
                       widget.state.showGiftFloat = true;
                       widget.state.notify();
                     },
@@ -5069,5 +5079,4 @@ class _SubmitCommerceReviewSheetState
     );
   }
 }
-
 

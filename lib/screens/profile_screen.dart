@@ -996,7 +996,11 @@ class _HUDButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: C.text.withOpacity(.1)),
       ),
-      child: Icon(icon, color: C.text, size: 18),
+      child: Icon(
+        icon,
+        color: C.isDark ? C.text : Colors.black,
+        size: 18,
+      ),
     ),
   );
 }
@@ -1627,5 +1631,4 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
       minHeight != oldDelegate.minHeight ||
       child != oldDelegate.child;
 }
-
 

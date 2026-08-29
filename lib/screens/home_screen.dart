@@ -42,6 +42,14 @@ class HomeScreen extends StatelessWidget {
 
   // -- Nav --
   Widget _buildNav(BuildContext context) {
+    final locale = Localizations.localeOf(context);
+    final country = state.myProfile?['country_code']?.toString() ??
+        state.myProfile?['country']?.toString() ??
+        locale.countryCode ??
+        'UG';
+    final countryCode = _countryCode(country);
+    final currency = _currencyForCountry(countryCode);
+
     return Container(
       color: C.card,
       padding: const EdgeInsets.fromLTRB(18, 52, 18, 12),
@@ -62,7 +70,8 @@ class HomeScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: C.green.withOpacity(.25)),
                   ),
-                  child: Text('UGX 1 = 100 NCX', style: dm(sz: 9, w: FontWeight.w700, c: C.green)),
+                  child: Text('${currency.flag} ${currency.code}',
+                      style: dm(sz: 9, w: FontWeight.w700, c: C.green)),
                 ),
               ],
             ),
@@ -102,12 +111,52 @@ class HomeScreen extends StatelessWidget {
                   ),
                   child: url == null ? Icon(Icons.person, color: C.brand, size: 20) : null,
                 );
-              }
+              },
             ),
           ),
         ],
       ),
     );
+  }
+
+  ({String flag, String code}) _currencyForCountry(String countryCode) {
+    const currencies = <String, ({String flag, String code})>{
+      'UG': (flag: '🇺🇬', code: 'UGX'),
+      'KE': (flag: '🇰🇪', code: 'KES'),
+      'TZ': (flag: '🇹🇿', code: 'TZS'),
+      'RW': (flag: '🇷🇼', code: 'RWF'),
+      'NG': (flag: '🇳🇬', code: 'NGN'),
+      'GH': (flag: '🇬🇭', code: 'GHS'),
+      'ZA': (flag: '🇿🇦', code: 'ZAR'),
+      'GB': (flag: '🇬🇧', code: 'GBP'),
+      'US': (flag: '🇺🇸', code: 'USD'),
+      'CA': (flag: '🇨🇦', code: 'CAD'),
+      'AU': (flag: '🇦🇺', code: 'AUD'),
+      'IN': (flag: '🇮🇳', code: 'INR'),
+      'AE': (flag: '🇦🇪', code: 'AED'),
+      'EU': (flag: '🇪🇺', code: 'EUR'),
+    };
+    return currencies[countryCode] ?? (flag: '🌐', code: 'USD');
+  }
+
+  String _countryCode(String value) {
+    const names = <String, String>{
+      'UGANDA': 'UG',
+      'KENYA': 'KE',
+      'TANZANIA': 'TZ',
+      'RWANDA': 'RW',
+      'NIGERIA': 'NG',
+      'GHANA': 'GH',
+      'SOUTH AFRICA': 'ZA',
+      'UNITED KINGDOM': 'GB',
+      'UNITED STATES': 'US',
+      'CANADA': 'CA',
+      'AUSTRALIA': 'AU',
+      'INDIA': 'IN',
+      'UNITED ARAB EMIRATES': 'AE',
+    };
+    final normalized = value.trim().toUpperCase();
+    return names[normalized] ?? normalized;
   }
 
   void _showAiChat(BuildContext context, AppState state) {
