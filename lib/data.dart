@@ -165,13 +165,14 @@ const Map<String, String> giftPickerImageUrls = {
   'yacht': 'assets/gifts/yacht.png',
   'villa': 'assets/gifts/villa.png',
   'jet': 'assets/gifts/jet.png',
-  'palace': 'assets/gifts/villa.png',
-  'galaxy': 'assets/gifts/diamond.png',
+  'dragon': 'assets/gifts/dragon.png',
 
   // Compatibility aliases for catalogues cached by older app versions.
   'money_bag': 'assets/gifts/moneybag.png',
   'sports_car': 'assets/gifts/sportscar.png',
   'mansion': 'assets/gifts/villa.png',
+  'palace': 'assets/gifts/villa.png',
+  'galaxy': 'assets/gifts/diamond.png',
 };
 
 const Set<String> _builtInGiftIds = {
@@ -190,8 +191,7 @@ const Set<String> _builtInGiftIds = {
   'yacht',
   'villa',
   'jet',
-  'palace',
-  'galaxy',
+  'dragon',
 };
 
 /// Resolve a notification image only at display time. This prevents media URLs
@@ -219,8 +219,7 @@ final List<Gift> gifts = [
   Gift(id: 'yacht',      emoji: '🛥️', name: 'Yacht',       price: 300,   fee: 33,   imageUrl: giftPickerImageUrls['yacht'], notificationImageUrl: '$_giftCdn/yacht.jpeg'),
   Gift(id: 'villa',      emoji: '🏡', name: 'Villa',       price: 500,   fee: 55,   imageUrl: giftPickerImageUrls['villa']),
   Gift(id: 'jet',        emoji: '✈️', name: 'Private Jet', price: 1000,  fee: 110,  imageUrl: giftPickerImageUrls['jet'], notificationImageUrl: '$_giftCdn/jet.jpeg'),
-  Gift(id: 'palace',     emoji: '🏰', name: 'NECXA Palace', price: 5000,  fee: 550,  imageUrl: giftPickerImageUrls['palace']),
-  Gift(id: 'galaxy',     emoji: '🌌', name: 'Galaxy',       price: 10000, fee: 1100, imageUrl: giftPickerImageUrls['galaxy']),
+  Gift(id: 'dragon',     emoji: '🐉', name: 'Dragon',       price: 5000, fee: 550,  imageUrl: giftPickerImageUrls['dragon']),
 ];
 
 const List<Post> posts = [
