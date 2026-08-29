@@ -96,10 +96,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Duration? _dragOriginalDuration;
   double _dragCumulativeDx = 0;
   final Map<String, Duration> _dragRippleOriginalStarts = <String, Duration>{};
-  double _clipHandleWidth = 12.0; // hit area for handles in pixels
+  double _clipHandleWidth = 18.0; // generous touch target for clip handles
   bool _isRippleMode = false; // when true, edits ripple following clips
   bool _isStretchMode = false; // when true, resize changes speed (stretch)
   bool _isSnappingEnabled = true;
+  bool _wasPlayingBeforeClipEdit = false;
 
   // Timeline pinch/zoom helpers
   double? _timelineScaleStartZoom;
@@ -149,6 +150,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return;
     }
     _activeDragClipId = clip.id;
+    _wasPlayingBeforeClipEdit = _playback.state.isPlaying;
+    _playback.beginClipEdit();
     _dragStartLocalX = details.localPosition.dx;
     _dragOriginalStart = clip.start;
     _dragOriginalDuration = clip.duration;
@@ -190,7 +193,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final scale = _pixelsPerSecond * _timelineZoom;
     _dragCumulativeDx += details.delta.dx;
     final rawDelta = Duration(
-      milliseconds: (_dragCumulativeDx / scale * 1000.0).round(),
+      microseconds: (_dragCumulativeDx / scale * Duration.microsecondsPerSecond)
+          .round(),
     );
     final delta = _isSnappingEnabled ? _snapToFrame(rawDelta) : rawDelta;
     setState(() {
@@ -221,6 +225,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               trim.start = newSourceStart;
               clip.sourceStart = trim.start;
               final available = (trim.end - trim.start);
+              clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
               clip.duration = Duration(
                 milliseconds: (available.inMilliseconds / clip.speed).round(),
               );
@@ -297,6 +302,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _onClipPanEnd(DragEndDetails details) {
+    _playback.endClipEdit();
+    if (_wasPlayingBeforeClipEdit) {
+      _playback.play(_tracks);
+    }
+    _wasPlayingBeforeClipEdit = false;
     _activeDragClipId = null;
     _clipDragMode = _ClipDragMode.none;
     _dragStartLocalX = null;
@@ -307,9 +317,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     // finalize history capture already taken at start
   }
 
+  void _onClipPanCancel() {
+    _playback.endClipEdit();
+    if (_wasPlayingBeforeClipEdit) {
+      _playback.play(_tracks);
+    }
+    _wasPlayingBeforeClipEdit = false;
+    _activeDragClipId = null;
+    _clipDragMode = _ClipDragMode.none;
+    _dragStartLocalX = null;
+    _dragOriginalStart = null;
+    _dragOriginalDuration = null;
+    _dragCumulativeDx = 0;
+    _dragRippleOriginalStarts.clear();
+  }
+
   bool _isPlaying = false;
   Duration _currentTime = Duration.zero;
   Duration _totalDuration = Duration(seconds: 30);
+  bool _wasPlayingBeforeScrub = false;
 
   // ── Canvas State ─────────────────────────────────────────────
   double _canvasScale = 1.0;
@@ -2025,31 +2051,92 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Widget _buildGlobalPlayhead(double timelineWidth) {
     final scale = _pixelsPerSecond * _timelineZoom;
     final playheadOffset = (_currentTime.inMilliseconds / 1000.0) * scale;
+    final timecode = _formatPlayheadTime(_currentTime);
 
     return Positioned(
-      left: playheadOffset,
+      left: (playheadOffset - 22).clamp(0.0, math.max(0.0, timelineWidth - 44)),
       top: 0,
       bottom: 0,
-      child: IgnorePointer(
-        child: Container(
-          width: 2,
-          color: C.brand,
-          child: Column(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => _scrubTo(_currentTime),
+        onHorizontalDragStart: (_) {
+          _wasPlayingBeforeScrub = _playback.state.isPlaying;
+          if (_wasPlayingBeforeScrub) _playback.pause();
+        },
+        onHorizontalDragUpdate: (details) {
+          final nextX = playheadOffset + details.delta.dx;
+          final seconds = nextX / scale;
+          _scrubTo(
+            Duration(
+              microseconds: (seconds * Duration.microsecondsPerSecond).round(),
+            ),
+          );
+        },
+        onHorizontalDragEnd: (_) {
+          if (_wasPlayingBeforeScrub) _playback.play(_tracks);
+          _wasPlayingBeforeScrub = false;
+        },
+        child: SizedBox(
+          width: 44,
+          child: Stack(
+            alignment: Alignment.topCenter,
             children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: C.brand,
-                  shape: BoxShape.circle,
+              Positioned(
+                top: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: C.brand,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    timecode,
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
-                transform: Matrix4.translationValues(-4, 0, 0),
+              ),
+              Positioned(
+                top: 25,
+                bottom: 0,
+                child: Container(width: 2, color: C.brand),
+              ),
+              Positioned(
+                top: 20,
+                child: CustomPaint(
+                  size: const Size(12, 8),
+                  painter: const _PlayheadHandlePainter(C.brand),
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _scrubTo(Duration time) {
+    if (!mounted) return;
+    final duration = _totalDuration;
+    final clamped = Duration(
+      microseconds: time.inMicroseconds.clamp(0, duration.inMicroseconds),
+    );
+    _playback.seek(clamped, _tracks);
+    setState(() => _currentTime = clamped);
+  }
+
+  String _formatPlayheadTime(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    final centiseconds = (duration.inMilliseconds % 1000) ~/ 10;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}.${centiseconds.toString().padLeft(2, '0')}';
   }
 
   Widget _buildTrackClips(TimelineTrack track) {
@@ -2078,6 +2165,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                   _onClipPanStart(track, clip, details, width),
               onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
               onPanEnd: (details) => _onClipPanEnd(details),
+              onPanCancel: () => _onClipPanCancel(),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -2098,7 +2186,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                               width: 6,
                               height: 36,
                               decoration: BoxDecoration(
-                                color: Colors.white24,
+                                color: C.brand,
                                 borderRadius: BorderRadius.circular(3),
                               ),
                             ),
@@ -2121,7 +2209,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                               width: 6,
                               height: 36,
                               decoration: BoxDecoration(
-                                color: Colors.white24,
+                                color: C.brand,
                                 borderRadius: BorderRadius.circular(3),
                               ),
                             ),
@@ -2139,7 +2227,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                         child: Container(
                           width: 2,
                           height: 28,
-                          color: Colors.white12,
+                          color: C.brand.withAlpha(110),
                         ),
                       ),
                     ),
@@ -6333,6 +6421,25 @@ class _SingleThumbnailState extends State<_SingleThumbnail> {
     }
     return Image.memory(_bytes!, fit: BoxFit.cover);
   }
+}
+
+class _PlayheadHandlePainter extends CustomPainter {
+  final Color color;
+  const _PlayheadHandlePainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PlayheadHandlePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _WaveformPainter extends CustomPainter {

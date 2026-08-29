@@ -124,6 +124,19 @@ class TimelinePlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void beginClipEdit() {
+    pause();
+    if (_state.isSeeking) return;
+    _state = _state.copyWith(isSeeking: true);
+    notifyListeners();
+  }
+
+  void endClipEdit() {
+    if (!_state.isSeeking) return;
+    _state = _state.copyWith(isSeeking: false);
+    notifyListeners();
+  }
+
   void stop(List<TimelineTrack> tracks) {
     pause();
     seek(Duration.zero, tracks);
