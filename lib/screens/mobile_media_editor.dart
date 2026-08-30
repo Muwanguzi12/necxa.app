@@ -293,7 +293,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           break;
       }
       _playback.updateProject(_tracks);
+
+      // Magnetic Snapping for Video Track
+      if (track.type == TrackType.video) {
+        _applyMagneticTimeline(track);
+      }
     });
+  }
+
+  void _applyMagneticTimeline(TimelineTrack track) {
+    // Sort clips by start time to ensure logical order
+    track.clips.sort((a, b) => a.start.compareTo(b.start));
+
+    var cursor = Duration.zero;
+    for (final clip in track.clips) {
+      if (clip.start != cursor) {
+        clip.start = cursor;
+      }
+      cursor += clip.duration;
+    }
   }
 
   void _onClipPanEnd(DragEndDetails details) {
@@ -628,31 +646,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     return Scaffold(
-      backgroundColor: C.bg,
+      backgroundColor: Colors.black, // Neon Stealth: Pure black
       body: SafeArea(
         child: Stack(
           children: [
             Column(
               children: [
                 _buildMobileHeader(screenSize),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _buildPreviewCanvas(screenSize),
-                      _buildPlaybackControls(screenSize),
-                      Expanded(child: _buildEditorPanel(screenSize)),
-                    ],
-                  ),
-                ),
-                _buildContextToolbar(screenSize),
+                _buildPreviewCanvas(screenSize),
+                _buildPlaybackControls(screenSize),
+                _buildContextToolRibbon(screenSize),
+                Expanded(child: _buildTimelineWorkspace(screenSize)),
                 _buildBottomNavigation(screenSize),
               ],
             ),
             if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
+            if (_isExporting) _buildExportProgressOverlay(),
           ],
         ),
       ),
-      // Floating actions replaced by canvas toolbar for contextual tools
     );
   }
 
@@ -804,85 +816,75 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // ═══════════════════════════════════════════════════════════
   Widget _buildMobileHeader(Size screenSize) {
     return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: C.card,
-        border: Border(bottom: BorderSide(color: C.border)),
+        color: Colors.black,
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              IconButton(
-                onPressed: () => Navigator.maybePop(context),
-                icon: const Icon(Icons.arrow_back_ios_new, size: 16),
-                tooltip: 'Back',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'NECXA',
-                style: syne(sz: 15, w: FontWeight.w900, c: C.brand),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Row(
-                  children: [
-                    Text(
-                      'New Project',
-                      style: dm(sz: 13, c: C.text, w: FontWeight.w700),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.keyboard_arrow_down,
-                      size: 18,
-                      color: Colors.white70,
-                    ),
-                  ],
-                ),
-              ),
-              _buildProButton(),
-              const SizedBox(width: 10),
-              _buildExportButton(),
-            ],
+          IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _buildSettingsChip(
-                _selectedAspectRatio,
-                () => _showSelectionSheet(
-                  'Aspect ratio',
-                  ['9:16', '16:9', '1:1', '4:5'],
-                  (value) => setState(() => _selectedAspectRatio = value),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _buildSettingsChip(
-                _selectedResolution,
-                () => _showSelectionSheet(
-                  'Resolution',
-                  ['480p', '720p', '1080p', '4K'],
-                  (value) => setState(() => _selectedResolution = value),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _buildSettingsChip(
-                _selectedFps,
-                () => _showSelectionSheet('FPS', [
-                  '24fps',
-                  '30fps',
-                  '60fps',
-                ], (value) => setState(() => _selectedFps = value)),
-              ),
-              const Spacer(),
-              _buildIconButton(Icons.undo, () => _undo(), size: 16),
-              const SizedBox(width: 8),
-              _buildIconButton(Icons.redo, () => _redo(), size: 16),
-            ],
+          const SizedBox(width: 8),
+          Text(
+            'NECXA',
+            style: syne(sz: 16, w: FontWeight.w900, c: const Color(0xFF00E5FF)),
           ),
+          const Spacer(),
+          _buildProBadge(),
+          const SizedBox(width: 12),
+          _buildExportButton(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProBadge() {
+    if (_isProEnabled) return const SizedBox.shrink();
+    return GestureDetector(
+      onTap: () => _showSnack('Go Pro for advanced AI effects'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFFA855F7)]),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.bolt_rounded, size: 14, color: Colors.black),
+            const SizedBox(width: 4),
+            Text('PRO', style: syne(sz: 10, w: FontWeight.w900, c: Colors.black)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExportButton() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF00E5FF),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 10),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _showExportSheet,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              'EXPORT',
+              style: syne(sz: 12, w: FontWeight.w900, c: Colors.black),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -947,56 +949,67 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           onTap: _showProSheet,
           borderRadius: BorderRadius.circular(10),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.star, size: 14, color: fg),
-                const SizedBox(width: 6),
-                Text(
-                  'Pro',
-                  style: dm(sz: 11, w: FontWeight.w800, c: fg),
-                ),
-              ],
-            ),
-          ),
-        ),
+  Widget _buildContextToolRibbon(Size screenSize) {
+    return Container(
+      height: 64,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.9),
+        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
+      child: _selectedClipIds.isEmpty
+          ? _buildGeneralToolRibbon()
+          : _buildClipToolRibbon(),
     );
   }
 
-  Widget _buildExportButton() {
-    final enabled = !_isExporting;
-    return Container(
-      constraints: const BoxConstraints(minWidth: 84, minHeight: 34),
-      decoration: BoxDecoration(
-        color: enabled ? C.brand : C.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: enabled ? Colors.transparent : C.border),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: enabled ? _showExportSheet : null,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  enabled ? Icons.upload : Icons.hourglass_top,
-                  size: 14,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  enabled ? 'Export' : 'Working',
-                  style: dm(sz: 11, w: FontWeight.w800, c: Colors.white),
-                ),
-              ],
+  Widget _buildGeneralToolRibbon() {
+    return ListView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      children: [
+        _ribbonAction(Icons.video_library_outlined, 'Media', () => setState(() => _activeToolPanel = 1)),
+        _ribbonAction(Icons.music_note_outlined, 'Audio', () => setState(() => _activeToolPanel = 2)),
+        _ribbonAction(Icons.text_fields_rounded, 'Text', () => setState(() => _activeToolPanel = 3)),
+        _ribbonAction(Icons.auto_awesome_outlined, 'Effects', () => setState(() => _activeToolPanel = 4)),
+        _ribbonAction(Icons.layers_outlined, 'Overlay', () => setState(() => _activeToolPanel = 5)),
+        _ribbonAction(Icons.aspect_ratio_rounded, 'Format', _showAspectRatioMenu),
+      ],
+    );
+  }
+
+  Widget _buildClipToolRibbon() {
+    return ListView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      children: [
+        _ribbonAction(Icons.content_cut_rounded, 'Split', _splitClip, color: const Color(0xFF00E5FF)),
+        _ribbonAction(Icons.speed_rounded, 'Speed', _showSpeedMenu),
+        _ribbonAction(Icons.volume_up_rounded, 'Volume', _showVolumeMenu),
+        _ribbonAction(Icons.crop_rounded, 'Crop', _showCropMenu),
+        _ribbonAction(Icons.copy_rounded, 'Duplicate', _duplicateClip),
+        _ribbonAction(Icons.delete_outline_rounded, 'Delete', _deleteSelectedClips, color: Colors.redAccent),
+      ],
+    );
+  }
+
+  Widget _ribbonAction(IconData icon, String label, VoidCallback onTap, {Color? color}) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 22, color: color ?? Colors.white),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: dm(sz: 10, w: FontWeight.w600, c: color ?? Colors.white70),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -1006,16 +1019,27 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // B. PREVIEW CANVAS (30–35% of screen)
   // ═══════════════════════════════════════════════════════════
   Widget _buildPreviewCanvas(Size screenSize) {
-    final canvasHeight = screenSize.height * 0.32;
-    final aspectRatio = 9 / 16;
+    final canvasHeight = screenSize.height * 0.35;
+    final aspectRatio = _getAspectRatioValue();
     final maxCanvasWidth = canvasHeight * aspectRatio;
 
     return Container(
       height: canvasHeight,
+      width: double.infinity,
       color: Colors.black,
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // Pro Monitor Frame
+          Container(
+            width: maxCanvasWidth + 4,
+            height: canvasHeight + 4,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.white12, width: 2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+
           GestureDetector(
             onDoubleTap: () => setState(() {
               _canvasScale = _canvasScale == 1.0 ? 1.8 : 1.0;
@@ -1046,10 +1070,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                   child: Container(
                     width: maxCanvasWidth,
                     height: canvasHeight,
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      border: Border.all(color: C.dim.withAlpha(51)),
-                    ),
+                    color: Colors.black,
                     child: _buildCanvasContent(),
                   ),
                 ),
@@ -1057,36 +1078,35 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             ),
           ),
 
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: C.brand.withAlpha(26), width: 2),
-                ),
+          // Aspect Ratio Overlay
+          Positioned(
+            top: 12,
+            left: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                _selectedAspectRatio,
+                style: syne(sz: 10, w: FontWeight.bold, c: const Color(0xFF00E5FF)),
               ),
             ),
           ),
-
-          if (_canvasScale > 1.0)
-            Positioned(
-              top: 8,
-              right: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withAlpha(204),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: C.brand.withAlpha(77)),
-                ),
-                child: Text(
-                  '${(_canvasScale * 100).toStringAsFixed(0)}%',
-                  style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
-                ),
-              ),
-            ),
         ],
       ),
     );
+  }
+
+  double _getAspectRatioValue() {
+    switch (_selectedAspectRatio) {
+      case '9:16': return 9/16;
+      case '16:9': return 16/9;
+      case '1:1':  return 1/1;
+      case '4:5':  return 4/5;
+      default:     return 9/16;
+    }
   }
 
   Widget _buildCanvasContent() {
@@ -1431,71 +1451,65 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // C. PLAYBACK CONTROLS
   // ═══════════════════════════════════════════════════════════
   Widget _buildPlaybackControls(Size screenSize) {
-    final height = 56.0;
-
+   Widget _buildPlaybackControls(Size screenSize) {
     return Container(
-      height: height,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: C.card,
-        border: Border(bottom: BorderSide(color: C.border)),
+        color: Colors.black,
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            _formatDuration(_currentTime),
-            style: dm(sz: 12, w: FontWeight.w600, c: C.brand),
-          ),
+          _playbackTimeDisplay(_currentTime),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildPlaybackButton(Icons.skip_previous, () => _previousFrame()),
-              const SizedBox(width: 8),
-              _buildPlaybackButton(
-                _isPlaying ? Icons.pause : Icons.play_arrow,
-                () => _togglePlayback(),
+              _playbackAction(Icons.skip_previous_rounded, _previousFrame),
+              const SizedBox(width: 20),
+              _playbackAction(
+                _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                _togglePlayback,
                 isLarge: true,
               ),
-              const SizedBox(width: 8),
-              _buildPlaybackButton(Icons.skip_next, () => _nextFrame()),
-              const SizedBox(width: 8),
-              // Expand belongs directly after the forward control.
-              _buildPlaybackButton(
-                Icons.fullscreen_outlined,
-                () => setState(() => _showFullscreenPreview = true),
-              ),
+              const SizedBox(width: 20),
+              _playbackAction(Icons.skip_next_rounded, _nextFrame),
             ],
           ),
-          Text(_formatDuration(_totalDuration), style: dm(sz: 12, c: C.dim)),
+          _playbackTimeDisplay(_totalDuration, isDim: true),
         ],
       ),
     );
   }
 
-  Widget _buildPlaybackButton(
-    IconData icon,
-    VoidCallback onTap, {
-    bool isLarge = false,
-  }) {
-    return Container(
-      width: isLarge ? 48 : 40,
-      height: isLarge ? 48 : 40,
-      decoration: BoxDecoration(
-        color: isLarge ? C.brand : C.surface,
-        borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
-        border: Border.all(color: C.border),
+  Widget _playbackTimeDisplay(Duration duration, {bool isDim = false}) {
+    return Text(
+      _formatDuration(duration),
+      style: syne(
+        sz: 12,
+        w: FontWeight.w700,
+        c: isDim ? Colors.white38 : const Color(0xFF00E5FF),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
-          child: Icon(
-            icon,
-            size: isLarge ? 24 : 20,
-            color: isLarge ? Colors.white : C.brand,
-          ),
+    );
+  }
+
+  Widget _playbackAction(IconData icon, VoidCallback onTap, {bool isLarge = false}) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        onTap();
+      },
+      child: Container(
+        width: isLarge ? 56 : 40,
+        height: isLarge ? 56 : 40,
+        decoration: BoxDecoration(
+          color: isLarge ? const Color(0xFF00E5FF) : Colors.white.withOpacity(0.05),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          color: isLarge ? Colors.black : Colors.white,
+          size: isLarge ? 32 : 24,
         ),
       ),
     );
@@ -1801,152 +1815,139 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildTimelineWorkspace(Size screenSize) {
     final visibleTracks = TimelineModelUtils.visibleTracks(_tracks);
-    final timelineWidth =
-        (_totalDuration.inMilliseconds / 1000.0) *
-            (_pixelsPerSecond * _timelineZoom) +
-        screenSize.width / 2;
+    final scale = _pixelsPerSecond * _timelineZoom;
+    final timelineWidth = (_totalDuration.inMilliseconds / 1000.0) * scale;
+    final viewportWidth = screenSize.width;
+    final centerX = viewportWidth / 2;
 
     return Container(
-      color: C.bg,
+      color: Colors.black,
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-            child: Row(
+          _buildTimelineToolbar(visibleTracks.length),
+          Expanded(
+            child: Stack(
               children: [
-                Text(
-                  'Timeline',
-                  style: syne(sz: 12, w: FontWeight.w800, c: C.text),
-                ),
-                const Spacer(),
-                Material(
-                  color: C.brand.withOpacity(0.16),
-                  borderRadius: BorderRadius.circular(999),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(999),
-                    onTap: _showTimelineInsertMenu,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
+                GestureDetector(
+                  onScaleStart: (_) {
+                    _timelineScaleStartZoom = _timelineZoom;
+                  },
+                  onScaleUpdate: (details) {
+                    if (details.scale != 1.0 && _timelineScaleStartZoom != null) {
+                      setState(() {
+                        _timelineZoom = (_timelineScaleStartZoom! * details.scale).clamp(0.5, 5.0);
+                      });
+                    }
+                  },
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: (notification) {
+                      if (!_isPlaying && notification is ScrollUpdateNotification) {
+                        final offset = notification.metrics.pixels;
+                        final newTimeMs = (offset / scale) * 1000.0;
+                        _playback.seek(Duration(milliseconds: newTimeMs.round()), _tracks);
+                      }
+                      return false;
+                    },
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      controller: _timelineScrollController,
+                      physics: const BouncingScrollPhysics(),
+                      child: Padding(
+                        // Add padding so the timeline can be scrolled to the very end with playhead at center
+                        padding: EdgeInsets.symmetric(horizontal: centerX),
+                        child: SizedBox(
+                          width: timelineWidth,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              ListView.builder(
+                                controller: _verticalScrollController,
+                                padding: const EdgeInsets.only(bottom: 40),
+                                itemCount: visibleTracks.length + 1,
+                                itemBuilder: (context, index) {
+                                  if (index == 0) return _buildTimelineRuler(timelineWidth);
+                                  return _buildTrackClips(visibleTracks[index - 1]);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      child: Row(
+                    ),
+                  ),
+                ),
+                // Center-Locked Playhead Marker
+                IgnorePointer(
+                  child: Center(
+                    child: Container(
+                      width: 2,
+                      color: const Color(0xFF00E5FF), // Neon Cyan
+                      child: Column(
                         children: [
-                          const Icon(Icons.add, size: 14, color: Colors.white),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Add',
-                            style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF00E5FF),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(color: Color(0xAA00E5FF), blurRadius: 8),
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: C.brand.withOpacity(0.16),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '${visibleTracks.length} Tracks',
-                    style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
-                  ),
-                ),
               ],
             ),
           ),
-          Expanded(
-            child: GestureDetector(
-              onScaleStart: (_) {},
-              onScaleUpdate: (details) {
-                if (details.scale != 1.0) {
-                  setState(
-                    () => _timelineZoom = (_timelineZoom * details.scale).clamp(
-                      0.5,
-                      3.0,
-                    ),
-                  );
-                }
-              },
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Left Pane: Track Headers
-                  Container(
-                    width: 56,
-                    decoration: BoxDecoration(
-                      color: C.surface,
-                      border: Border(right: BorderSide(color: C.border)),
-                    ),
-                    child: ListView.builder(
-                      controller: _sidebarScrollController,
-                      padding: const EdgeInsets.only(
-                        top: 28,
-                        bottom: 8,
-                      ), // 28 is ruler height
-                      itemCount: visibleTracks.length,
-                      itemBuilder: (context, index) {
-                        final track = visibleTracks[index];
-                        final isSelected = _selectedTrackId == track.id;
-                        return GestureDetector(
-                          onTap: () => setState(() {
-                            _selectedTrackId = track.id;
-                            _selectedTrackIndex = _tracks.indexWhere(
-                              (candidate) => candidate.id == track.id,
-                            );
-                          }),
-                          child: Container(
-                            height: 72,
-                            margin: const EdgeInsets.only(bottom: 4),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? C.brand.withOpacity(0.1)
-                                  : Colors.transparent,
-                              border: Border(
-                                left: BorderSide(
-                                  color: isSelected
-                                      ? C.brand
-                                      : Colors.transparent,
-                                  width: 2,
-                                ),
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  _getTrackIcon(track.type),
-                                  style: const TextStyle(fontSize: 18),
-                                ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _buildTrackButton(
-                                      Icons.visibility,
-                                      () => _toggleTrackVisibility(track),
-                                      size: 12,
-                                    ),
-                                    _buildTrackButton(
-                                      Icons.lock,
-                                      () => _toggleTrackLock(track),
-                                      size: 12,
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineToolbar(int trackCount) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.8),
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+      ),
+      child: Row(
+        children: [
+          Text(
+            _formatDuration(_currentTime),
+            style: syne(sz: 14, w: FontWeight.w900, c: const Color(0xFF00E5FF)),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '/ ${_formatDuration(_totalDuration)}',
+            style: dm(sz: 11, c: Colors.white38),
+          ),
+          const Spacer(),
+          _timelineToolIcon(Icons.history, _history.canUndo ? _history.undo : null),
+          const SizedBox(width: 12),
+          _timelineToolIcon(Icons.update, _history.canRedo ? _history.redo : null),
+          const SizedBox(width: 12),
+          _timelineToolIcon(Icons.add_box_outlined, _showTimelineInsertMenu),
+        ],
+      ),
+    );
+  }
+
+  Widget _timelineToolIcon(IconData icon, VoidCallback? onTap) {
+    final enabled = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Icon(
+        icon,
+        size: 20,
+        color: enabled ? Colors.white : Colors.white24,
+      ),
+    );
+  }
 
                   // Right Pane: Timeline Area
                   Expanded(
@@ -2054,102 +2055,81 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildTrackClips(TimelineTrack track) {
     final scale = _pixelsPerSecond * _timelineZoom;
+    final isMainTrack = track.type == TrackType.video;
+
+    final widgets = <Widget>[];
+
+    for (int i = 0; i < track.clips.length; i++) {
+      final clip = track.clips[i];
+      final left = (clip.start.inMilliseconds / 1000.0) * scale;
+      final width = (clip.duration.inMilliseconds / 1000.0) * scale;
+      final isSelected = _selectedClipIds.contains(clip.id);
+
+      widgets.add(
+        Positioned(
+          left: left,
+          top: 4,
+          bottom: 4,
+          width: width,
+          child: GestureDetector(
+            onTap: () => _selectClip(track, clip),
+            onDoubleTap: () => _trimClip(),
+            onLongPress: () => _enterMultiSelect(track, clip),
+            onPanStart: (details) => _onClipPanStart(track, clip, details, width),
+            onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
+            onPanEnd: (details) => _onClipPanEnd(details),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: isSelected ? const Color(0xFF00E5FF) : Colors.transparent,
+                  width: 2,
+                ),
+                boxShadow: isSelected
+                    ? [BoxShadow(color: const Color(0x6600E5FF), blurRadius: 8)]
+                    : null,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(isSelected ? 2 : 4),
+                child: _buildClipContent(track, clip, width, isSelected),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Add Transition Node between clips on the main track
+      if (isMainTrack && i < track.clips.length - 1) {
+        final nextClip = track.clips[i + 1];
+        final transitionX = ((clip.start + clip.duration).inMilliseconds / 1000.0) * scale;
+
+        widgets.add(
+          Positioned(
+            left: transitionX - 12,
+            top: 24,
+            width: 24,
+            height: 24,
+            child: GestureDetector(
+              onTap: () => _showTransitionMenu(clip, nextClip),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white30),
+                ),
+                child: const Icon(Icons.add, size: 14, color: Colors.white),
+              ),
+            ),
+          ),
+        );
+      }
+    }
 
     return Container(
       height: 72,
       margin: const EdgeInsets.only(bottom: 4),
-      decoration: BoxDecoration(color: C.surface.withAlpha(128)),
-      child: Stack(
-        children: track.clips.map((clip) {
-          final left = (clip.start.inMilliseconds / 1000.0) * scale;
-          final width = (clip.duration.inMilliseconds / 1000.0) * scale;
-          final isSelected = _selectedClipIds.contains(clip.id);
-
-          return Positioned(
-            left: left,
-            top: 4,
-            bottom: 4,
-            width: width,
-            child: GestureDetector(
-              onTap: () => _selectClip(track, clip),
-              onDoubleTap: () => _trimClip(),
-              onLongPress: () => _enterMultiSelect(track, clip),
-              onPanStart: (details) =>
-                  _onClipPanStart(track, clip, details, width),
-              onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
-              onPanEnd: (details) => _onClipPanEnd(details),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _buildClipContent(track, clip, width, isSelected),
-                  if (isSelected) ...[
-                    // left handle
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 6,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // right handle
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 6,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // center drag hint
-                    Positioned(
-                      left: width / 2 - 10,
-                      top: 0,
-                      bottom: 0,
-                      width: 20,
-                      child: Center(
-                        child: Container(
-                          width: 2,
-                          height: 28,
-                          color: Colors.white12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+      decoration: BoxDecoration(color: Colors.white.withOpacity(0.02)),
+      child: Stack(children: widgets),
     );
   }
 
@@ -2836,62 +2816,68 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // ═══════════════════════════════════════════════════════════
   Widget _buildBottomNavigation(Size screenSize) {
     final navItems = [
-      (Icons.timeline, 'Timeline'),
-      (Icons.photo_library, 'Media'),
-      (Icons.music_note, 'Audio'),
-      (Icons.text_fields, 'Text'),
-      (Icons.auto_awesome, 'Effects'),
-      (Icons.face_retouching_natural, 'Face'),
-      (Icons.swap_horiz, 'Transitions'),
-      (Icons.settings, 'Settings'),
+      (Icons.timeline, 'Edit'),
+      (Icons.photo_library_outlined, 'Media'),
+      (Icons.music_note_outlined, 'Audio'),
+      (Icons.text_fields_rounded, 'Text'),
+      (Icons.auto_awesome_outlined, 'Effects'),
+      (Icons.face_retouching_natural_rounded, 'Retouch'),
+      (Icons.swap_horiz_rounded, 'Transitions'),
+      (Icons.tune_rounded, 'Adjust'),
     ];
 
     return Container(
-      height: 62,
+      height: 72,
+      padding: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: C.card,
-        border: Border(top: BorderSide(color: C.border)),
+        color: Colors.black,
+        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: List.generate(navItems.length, (index) {
           final item = navItems[index];
           final active = index == _activeToolPanel;
+          final accent = const Color(0xFF00E5FF);
+
           return GestureDetector(
             onTap: () {
+              HapticFeedback.selectionClick();
               setState(() {
                 _activeToolPanel = index;
                 _bottomNavController.index = index;
               });
+              // ... existing panel logic ...
               if (index == 3) {
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _showTextHubSheet(),
-                );
+                WidgetsBinding.instance.addPostFrameCallback((_) => _showTextHubSheet());
               } else if (index == 4) {
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _showEffectLibrarySheet(),
-                );
+                WidgetsBinding.instance.addPostFrameCallback((_) => _showEffectLibrarySheet());
               } else if (index == 5) {
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _showFaceEngineSheet(),
-                );
+                WidgetsBinding.instance.addPostFrameCallback((_) => _showFaceEngineSheet());
               } else if (index == 6) {
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _showTransitionLibrarySheet(),
-                );
+                WidgetsBinding.instance.addPostFrameCallback((_) => _showTransitionLibrarySheet());
               } else if (index == 7) {
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _showEditorSettingsSheet(),
-                );
+                WidgetsBinding.instance.addPostFrameCallback((_) => _showEditorSettingsSheet());
               }
             },
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(item.$1, color: active ? C.brand : C.dim, size: 22),
-                const SizedBox(height: 4),
-                Text(item.$2, style: dm(sz: 8, c: active ? C.brand : C.dim)),
-              ],
+            child: Container(
+              width: (screenSize.width / navItems.length) - 4,
+              color: Colors.transparent,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(item.$1, color: active ? accent : Colors.white60, size: 22),
+                  const SizedBox(height: 6),
+                  Text(
+                    item.$2,
+                    style: dm(
+                      sz: 8,
+                      w: active ? FontWeight.w800 : FontWeight.w500,
+                      c: active ? accent : Colors.white38,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }),
@@ -4076,20 +4062,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     if (!mounted || !_timelineScrollController.hasClients) return;
     final scale = _pixelsPerSecond * _timelineZoom;
     final playheadPosition = (_currentTime.inMilliseconds / 1000.0) * scale;
-    final viewport = _timelineScrollController.position.viewportDimension;
-    if (viewport <= 0) return;
-    final offset = _timelineScrollController.offset;
-    const margin = 80.0;
-    final visibleStart = offset + margin;
-    final visibleEnd = offset + viewport - margin;
 
-    if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
-      final target = math.min(
-        math.max(playheadPosition - viewport / 2, 0.0),
-        _timelineScrollController.position.maxScrollExtent,
-      );
-      _timelineScrollController.jumpTo(target);
-    }
+    // In Center-Locked mode, the target offset is simply the playhead position
+    // because we have horizontal padding equal to half the screen width.
+    _timelineScrollController.jumpTo(playheadPosition);
   }
 
   Future<void> _previousFrame() async {
@@ -4127,107 +4103,151 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
     final minSplit = const Duration(milliseconds: 100);
     final maxSplit = clip.duration - const Duration(milliseconds: 100);
-    if (clipPosition <= minSplit || clipPosition >= maxSplit) {
-      _showSnack('Move the playhead inside the selected clip to split');
-      return;
-    }
+  void _showSpeedMenu() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black,
+      builder: (context) => _buildToolSheet('Playback Speed', [
+        _sheetAction('0.5x', () => _setClipSpeed(0.5)),
+        _sheetAction('1.0x', () => _setClipSpeed(1.0)),
+        _sheetAction('1.5x', () => _setClipSpeed(1.5)),
+        _sheetAction('2.0x', () => _setClipSpeed(2.0)),
+      ]),
+    );
+  }
 
-    final splitAt = clipPosition;
-    _captureTimeline();
-    final track = _tracks.firstWhere(
-      (candidate) => candidate.clips.contains(clip),
-    );
-    final sourceSplit =
-        clip.sourceStart +
-        Duration(milliseconds: (splitAt.inMilliseconds * clip.speed).round());
-    final right = clip.copyWith(
-      id: '${clip.id}-split-${DateTime.now().microsecondsSinceEpoch}',
-      start: clip.start + splitAt,
-      duration: clip.duration - splitAt,
-      sourceStart: sourceSplit,
-    );
+  void _setClipSpeed(double speed) {
+    if (_selectedClip == null) return;
     setState(() {
-      clip.duration = splitAt;
-      clip.sourceEnd = sourceSplit;
-      TimelineModelUtils.insertClip(_tracks, right, track.type);
-      _selectedClip = right;
-      _selectedClipIds
-        ..clear()
-        ..add(right.id);
+      _selectedClip!.speed = speed;
+      _selectedClip!.duration = Duration(milliseconds: (_selectedClip!.sourceDuration.inMilliseconds / speed).round());
+      final track = _tracks.firstWhere((t) => t.clips.contains(_selectedClip));
+      if (track.type == TrackType.video) _applyMagneticTimeline(track);
+    });
+    _playback.updateProject(_tracks);
+    Navigator.pop(context);
+  }
+
+  void _showVolumeMenu() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => _buildToolSheet('Volume', [
+          Slider(
+            value: clip.volume,
+            min: 0, max: 2,
+            activeColor: const Color(0xFF00E5FF),
+            onChanged: (v) {
+              setModalState(() => clip.volume = v);
+              setState(() {});
+            },
+          ),
+          Text('${(clip.volume * 100).toInt()}%', style: syne(c: Colors.white)),
+        ]),
+      ),
+    );
+  }
+
+  void _showCropMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black,
+      builder: (context) => _buildToolSheet('Crop Ratio', [
+        _sheetAction('Original', () => _setClipCrop('Original')),
+        _sheetAction('9:16', () => _setClipCrop('9:16')),
+        _sheetAction('16:9', () => _setClipCrop('16:9')),
+        _sheetAction('1:1', () => _setClipCrop('1:1')),
+      ]),
+    );
+  }
+
+  void _setClipCrop(String ratio) {
+    if (_selectedClip == null) return;
+    setState(() => _selectedClip!.cropAspectRatio = ratio);
+    Navigator.pop(context);
+  }
+
+  void _duplicateClip() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    final track = _tracks.firstWhere((t) => t.clips.contains(clip));
+    final dup = clip.copyWith(id: '${clip.id}-dup-${DateTime.now().microsecondsSinceEpoch}');
+    setState(() {
+      track.clips.add(dup);
+      if (track.type == TrackType.video) _applyMagneticTimeline(track);
     });
     _playback.updateProject(_tracks);
   }
 
-  void _trimClip() {
-    final clip = _selectedClip;
-    if (clip == null) return;
-    _captureTimeline();
-    final selectedTrack = _tracks.firstWhere(
-      (candidate) => candidate.clips.contains(clip),
-    );
-    final controllerDuration = selectedTrack.type == TrackType.video
-        ? _videoController?.value.duration
-        : null;
-    final maxSource =
-        controllerDuration ??
-        clip.sourceEnd ??
-        (clip.sourceStart + clip.sourceDuration);
-    var range = RangeValues(
-      clip.sourceStart.inMilliseconds.toDouble(),
-      (clip.sourceEnd ?? maxSource).inMilliseconds.toDouble(),
-    );
-    showModalBottomSheet<void>(
+  void _showTransitionMenu(TimelineClip clip, TimelineClip next) {
+    showModalBottomSheet(
       context: context,
-      backgroundColor: C.card,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Trim clip',
-                style: syne(sz: 14, w: FontWeight.w800, c: C.text),
-              ),
-              RangeSlider(
-                values: range,
-                min: 0,
-                max: math.max(200, maxSource.inMilliseconds).toDouble(),
-                activeColor: C.brand,
-                labels: RangeLabels(
-                  _formatDuration(Duration(milliseconds: range.start.round())),
-                  _formatDuration(Duration(milliseconds: range.end.round())),
-                ),
-                onChanged: (value) {
-                  setModalState(() => range = value);
-                  final start = Duration(milliseconds: value.start.round());
-                  final end = Duration(milliseconds: value.end.round());
-                  setState(() {
-                    clip.sourceStart = start;
-                    clip.sourceEnd = end;
-                    clip.duration = Duration(
-                      milliseconds: ((end - start).inMilliseconds / clip.speed)
-                          .round(),
-                    );
-                    if (clip.operation is TrimOperation) {
-                      final trim = clip.operation as TrimOperation;
-                      trim.start = start;
-                      trim.end = end;
-                    }
-                  });
-                  _playback.updateProject(_tracks);
-                  _videoController?.seekTo(start);
-                },
-              ),
-              Text(
-                '${_formatDuration(Duration(milliseconds: range.start.round()))} – ${_formatDuration(Duration(milliseconds: range.end.round()))}',
-                style: dm(sz: 11, c: C.dim),
-              ),
-            ],
-          ),
-        ),
+      backgroundColor: Colors.black,
+      builder: (context) => _buildToolSheet('Add Transition',
+        TransitionPreset.presets.map((p) => _sheetAction(p.icon + ' ' + p.name, () {
+          // Transition logic integration
+          Navigator.pop(context);
+        })).toList()
       ),
     );
+  }
+
+  Widget _buildToolSheet(String title, List<Widget> children) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D121B),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title, style: syne(sz: 16, w: FontWeight.w900, c: Colors.white)),
+          const SizedBox(height: 24),
+          ...children,
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  void _deleteSelectedClips() {
+    if (_selectedClipIds.isEmpty) return;
+    _captureTimeline();
+    setState(() {
+      for (final track in _tracks) {
+        track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
+        if (track.type == TrackType.video) _applyMagneticTimeline(track);
+      }
+      _selectedClipIds.clear();
+      _selectedClip = null;
+    });
+    _playback.updateProject(_tracks);
+  }
+
+  void _showAspectRatioMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black,
+      builder: (context) => _buildToolSheet('Aspect Ratio', [
+        _sheetAction('9:16 (TikTok/Reels)', () => _setAspectRatio('9:16')),
+        _sheetAction('16:9 (YouTube)', () => _setAspectRatio('16:9')),
+        _sheetAction('1:1 (Instagram)', () => _setAspectRatio('1:1')),
+        _sheetAction('4:5 (Vertical)', () => _setAspectRatio('4:5')),
+      ]),
+    );
+  }
+
+  void _setAspectRatio(String ratio) {
+    setState(() => _selectedAspectRatio = ratio);
+    Navigator.pop(context);
+  }
   }
 
   void _adjustSpeed() {

@@ -75,6 +75,7 @@ class _GiftFloatState extends State<GiftFloat> with SingleTickerProviderStateMix
                   state: widget.state,
                   receiverId: widget.state.targetProfileId ?? '',
                   postId: widget.state.listingId,
+                  contextType: widget.state.listingId != null ? 'listing' : 'creator_post',
                   onDismiss: _dismiss,
                 ),
               ),

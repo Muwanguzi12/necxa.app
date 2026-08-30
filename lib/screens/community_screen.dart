@@ -3329,6 +3329,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     iconColor: Colors.amberAccent,
                     onTap: () {
                       widget.state.targetProfileId = authorId;
+                      widget.state.listingId = widget.listing['id'];
                       widget.state.showGiftFloat = true;
                       widget.state.notify();
                     },

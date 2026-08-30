@@ -246,19 +246,9 @@ class CreatorScreen extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => GiftOverlay(
         state: state,
-        onSend: (emoji, name, price, fee) {
-          Navigator.pop(context);
-          final cType = p.type == 'live' ? 'live_stream' : 'creator_post';
-          state.sendGift(
-            emoji, 
-            name, 
-            price, 
-            fee, 
-            receiverId: p.creatorId, 
-            contextType: cType, 
-            contextId: p.id
-          );
-        },
+        receiverId: p.creatorId,
+        postId: p.id,
+        contextType: p.type == 'live' ? 'live_stream' : 'creator_post',
       ),
     );
   }
