@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -788,6 +789,47 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
+  Widget _buildExportProgressOverlay() {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black87,
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: CircularProgressIndicator(
+                    color: Color(0xFF00E5FF),
+                    strokeWidth: 6,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Text(
+                  'EXPORTING MEDIA',
+                  style: syne(sz: 18, w: FontWeight.w900, c: Colors.white, ls: 2),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _exportStatus,
+                  style: dm(sz: 13, c: Colors.white70),
+                ),
+                const SizedBox(height: 40),
+                TextButton(
+                  onPressed: () => setState(() => _isExporting = false),
+                  child: const Text('CANCEL', style: TextStyle(color: Colors.redAccent)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFullscreenControl(
     IconData icon,
     VoidCallback onTap, {
@@ -827,11 +869,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           IconButton(
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'NECXA',
-            style: syne(sz: 16, w: FontWeight.w900, c: const Color(0xFF00E5FF)),
           ),
           const Spacer(),
           _buildProBadge(),
@@ -889,66 +926,40 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  Widget _buildSettingsChip(String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(
-          color: C.surface,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: C.border),
-        ),
-        child: Text(label, style: dm(sz: 7.5, w: FontWeight.w600)),
-      ),
-    );
-  }
-
-  Widget _buildIconButton(
-    IconData icon,
-    VoidCallback onTap, {
-    double size = 24,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Icon(icon, size: size, color: C.brand),
-        ),
-      ),
-    );
-  }
-
   Widget _buildProButton() {
-    final bg = _isProEnabled ? C.brand : C.surface;
-    final fg = _isProEnabled ? Colors.white : C.brand;
+    final bg = _isProEnabled ? const Color(0xFF00E5FF) : Colors.white.withOpacity(0.05);
+    final fg = _isProEnabled ? Colors.black : const Color(0xFF00E5FF);
     return Container(
       constraints: const BoxConstraints(minWidth: 64, minHeight: 34),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(10),
-        boxShadow: _isProEnabled
-            ? [
-                BoxShadow(
-                  color: C.brand.withOpacity(0.18),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ]
-            : null,
-        border: Border.all(
-          color: _isProEnabled ? Colors.transparent : C.border,
-        ),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: _showProSheet,
+          onTap: () => _showSnack('Go Pro for advanced AI effects'),
           borderRadius: BorderRadius.circular(10),
           child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.bolt_rounded, size: 14, color: fg),
+                const SizedBox(width: 6),
+                Text(
+                  'Pro',
+                  style: syne(sz: 11, w: FontWeight.w800, c: fg),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildContextToolRibbon(Size screenSize) {
     return Container(
       height: 64,
@@ -1451,7 +1462,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   // C. PLAYBACK CONTROLS
   // ═══════════════════════════════════════════════════════════
   Widget _buildPlaybackControls(Size screenSize) {
-   Widget _buildPlaybackControls(Size screenSize) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -1945,46 +1955,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         icon,
         size: 20,
         color: enabled ? Colors.white : Colors.white24,
-      ),
-    );
-  }
-
-                  // Right Pane: Timeline Area
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      controller: _timelineScrollController,
-                      child: SizedBox(
-                        width: timelineWidth > screenSize.width
-                            ? timelineWidth
-                            : screenSize.width,
-                        child: Stack(
-                          children: [
-                            ListView.builder(
-                              controller: _verticalScrollController,
-                              padding: const EdgeInsets.only(bottom: 8),
-                              itemCount:
-                                  visibleTracks.length + 1, // +1 for Ruler
-                              itemBuilder: (context, index) {
-                                if (index == 0)
-                                  return _buildTimelineRuler(timelineWidth);
-                                return _buildTrackClips(
-                                  visibleTracks[index - 1],
-                                );
-                              },
-                            ),
-                            // Global Playhead
-                            _buildGlobalPlayhead(timelineWidth),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -4103,6 +4073,102 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
     final minSplit = const Duration(milliseconds: 100);
     final maxSplit = clip.duration - const Duration(milliseconds: 100);
+
+    if (clipPosition <= minSplit || clipPosition >= maxSplit) {
+      _showSnack('Move the playhead inside the selected clip to split');
+      return;
+    }
+
+    final splitAt = clipPosition;
+    _captureTimeline();
+    final track = _tracks.firstWhere(
+      (candidate) => candidate.clips.contains(clip),
+    );
+    final sourceSplit =
+        clip.sourceStart +
+        Duration(milliseconds: (splitAt.inMilliseconds * clip.speed).round());
+    final right = clip.copyWith(
+      id: '${clip.id}-split-${DateTime.now().microsecondsSinceEpoch}',
+      start: clip.start + splitAt,
+      duration: clip.duration - splitAt,
+      sourceStart: sourceSplit,
+    );
+    setState(() {
+      clip.duration = splitAt;
+      clip.sourceEnd = sourceSplit;
+      TimelineModelUtils.insertClip(_tracks, right, track.type);
+      _selectedClip = right;
+      _selectedClipIds
+        ..clear()
+        ..add(right.id);
+      if (track.type == TrackType.video) _applyMagneticTimeline(track);
+    });
+    _playback.updateProject(_tracks);
+  }
+
+  void _trimClip() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    _captureTimeline();
+    final selectedTrack = _tracks.firstWhere(
+      (candidate) => candidate.clips.contains(clip),
+    );
+    final controllerDuration = selectedTrack.type == TrackType.video
+        ? _videoController?.value.duration
+        : null;
+    final maxSource =
+        controllerDuration ??
+        clip.sourceEnd ??
+        (clip.sourceStart + clip.sourceDuration);
+    var range = RangeValues(
+      clip.sourceStart.inMilliseconds.toDouble(),
+      (clip.sourceEnd ?? maxSource).inMilliseconds.toDouble(),
+    );
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.black,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => _buildToolSheet('Trim Clip', [
+          RangeSlider(
+            values: range,
+            min: 0,
+            max: math.max(200, maxSource.inMilliseconds).toDouble(),
+            activeColor: const Color(0xFF00E5FF),
+            labels: RangeLabels(
+              _formatDuration(Duration(milliseconds: range.start.round())),
+              _formatDuration(Duration(milliseconds: range.end.round())),
+            ),
+            onChanged: (value) {
+              setModalState(() => range = value);
+              final start = Duration(milliseconds: value.start.round());
+              final end = Duration(milliseconds: value.end.round());
+              setState(() {
+                clip.sourceStart = start;
+                clip.sourceEnd = end;
+                clip.duration = Duration(
+                  milliseconds: ((end - start).inMilliseconds / clip.speed)
+                      .round(),
+                );
+                if (clip.operation is TrimOperation) {
+                  final trim = clip.operation as TrimOperation;
+                  trim.start = start;
+                  trim.end = end;
+                }
+                if (selectedTrack.type == TrackType.video) _applyMagneticTimeline(selectedTrack);
+              });
+              _playback.updateProject(_tracks);
+              _videoController?.seekTo(start);
+            },
+          ),
+          Text(
+            '${_formatDuration(Duration(milliseconds: range.start.round()))} – ${_formatDuration(Duration(milliseconds: range.end.round()))}',
+            style: syne(sz: 12, c: Colors.white70),
+          ),
+        ]),
+      ),
+    );
+  }
+
   void _showSpeedMenu() {
     final clip = _selectedClip;
     if (clip == null) return;
@@ -4197,26 +4263,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  Widget _buildToolSheet(String title, List<Widget> children) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D121B),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(title, style: syne(sz: 16, w: FontWeight.w900, c: Colors.white)),
-          const SizedBox(height: 24),
-          ...children,
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
   void _deleteSelectedClips() {
     if (_selectedClipIds.isEmpty) return;
     _captureTimeline();
@@ -4248,6 +4294,32 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     setState(() => _selectedAspectRatio = ratio);
     Navigator.pop(context);
   }
+
+  Widget _buildToolSheet(String title, List<Widget> children) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D121B),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title, style: syne(sz: 16, w: FontWeight.w900, c: Colors.white)),
+          const SizedBox(height: 24),
+          ...children,
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheetAction(String label, VoidCallback onTap) {
+    return ListTile(
+      title: Text(label, style: dm(c: Colors.white)),
+      onTap: onTap,
+    );
   }
 
   void _adjustSpeed() {
