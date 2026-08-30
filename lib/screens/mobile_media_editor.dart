@@ -6041,7 +6041,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                               children: [
                                 IconButton(
                                   onPressed: () {
-                                    setState(() {
+                                    setModalState(() {
                                       if (isFavorite) {
                                         _favoriteTransitionIds.remove(
                                           preset.id,
@@ -6050,7 +6050,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                                         _favoriteTransitionIds.add(preset.id);
                                       }
                                     });
-                                    setModalState(() {});
                                   },
                                   icon: Icon(
                                     isFavorite
@@ -6061,19 +6060,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                                 ),
                                 IconButton(
                                   onPressed: () {
-                                    setState(() {
+                                    setModalState(() {
                                       _selectedTransitionId = preset.id;
                                       _recentTransitionIds.remove(preset.id);
                                       _recentTransitionIds.insert(0, preset.id);
                                     });
-                                    setModalState(() {});
                                   },
                                   icon: const Icon(Icons.play_arrow),
                                 ),
                               ],
                             ),
                             onTap: () {
-                              setState(() => _selectedTransitionId = preset.id);
+                              _selectedTransitionId = preset.id;
                               Navigator.pop(context);
                               _applySelectedTransition();
                             },
@@ -6227,6 +6225,16 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showToolPanel(String toolName) => _showSnack('$toolName panel opened');
+
+  void _setAspectRatio(String ratio) {
+    setState(() => _selectedAspectRatio = ratio);
+    _showSnack('Aspect ratio set to $ratio');
+  }
+
+  void _sheetAction(String label, VoidCallback action) {
+    action();
+    Navigator.pop(context);
+  }
 
   void _showSnack(String message) {
     ScaffoldMessenger.of(
