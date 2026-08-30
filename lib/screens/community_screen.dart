@@ -2139,6 +2139,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     onTap: () {
                       widget.state.targetProfileId = widget.post['author_id'];
                       widget.state.listingId = widget.post['id'];
+                      widget.state.giftContextType = 'creator_post';
                       widget.state.showGiftFloat = true;
                       widget.state.notify();
                     },
@@ -3330,6 +3331,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     onTap: () {
                       widget.state.targetProfileId = authorId;
                       widget.state.listingId = widget.listing['id'];
+                      widget.state.giftContextType = 'listing';
                       widget.state.showGiftFloat = true;
                       widget.state.notify();
                     },

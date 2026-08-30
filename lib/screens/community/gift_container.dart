@@ -136,6 +136,8 @@ class _GiftContainerState extends State<GiftContainer> {
             widget.contextType ??
             (widget.postId != null ? 'creator_post' : 'direct'),
         contextId: widget.postId,
+        senderName: widget.state.myDisplayName,
+        senderAvatar: widget.state.myAvatarUrl,
         idempotencyKey: _giftIdempotencyKey ??= _newGiftIdempotencyKey(),
       );
 
@@ -319,15 +321,15 @@ class _GiftContainerState extends State<GiftContainer> {
             return ['rose', 'fire', 'rocket', 'heart', 'clap'].contains(gift.id);
           }
           if (_category == 'Premium') {
-            return ['crown', 'diamond', 'trophy', 'moneybag', 'star'].contains(
+            return ['crown', 'diamond', 'trophy', 'money_bag', 'star'].contains(
               gift.id,
             );
           }
           if (_category == 'Luxury') {
-            return ['sportscar', 'yacht', 'villa'].contains(gift.id);
+            return ['sports_car', 'yacht', 'villa', 'mansion'].contains(gift.id);
           }
           if (_category == 'Big Gifts') {
-            return ['jet', 'dragon'].contains(gift.id);
+            return ['jet', 'dragon', 'globe', 'stadium', 'ressort'].contains(gift.id);
           }
           return true;
         }).toList();

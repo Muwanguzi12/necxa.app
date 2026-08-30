@@ -40,6 +40,7 @@ class _GiftFloatState extends State<GiftFloat> with SingleTickerProviderStateMix
     await _ctrl.reverse();
     widget.state.targetProfileId = null;
     widget.state.listingId = null;
+    widget.state.giftContextType = null;
     widget.state.showGiftFloat = false;
     widget.state.notify();
   }
@@ -75,7 +76,7 @@ class _GiftFloatState extends State<GiftFloat> with SingleTickerProviderStateMix
                   state: widget.state,
                   receiverId: widget.state.targetProfileId ?? '',
                   postId: widget.state.listingId,
-                  contextType: widget.state.listingId != null ? 'listing' : 'creator_post',
+                  contextType: widget.state.giftContextType ?? (widget.state.listingId != null ? 'listing' : 'creator_post'),
                   onDismiss: _dismiss,
                 ),
               ),

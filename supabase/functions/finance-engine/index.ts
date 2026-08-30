@@ -862,6 +862,7 @@ async function syncCommunityGiftToPrimary(
     p_platform_fee_ncx: platformFeeNcx,
     p_idempotency_key: idempotencyKey,
     p_metadata: metadata,
+    p_context_type: metadata.context_type || "creator_post",
   });
   if (error) throw new Error(`Primary community gift sync failed: ${error.message}`);
   return { synced: true, result: data };
@@ -2598,8 +2599,8 @@ serve(async (req) => {
       const receiverNcx = Number(resData?.receiver_amount_credited || (ncxAmount * 0.89));
       const platformFeeNcx = Number(resData?.platform_fee_paid || (ncxAmount * 0.11));
       const financeGiftId = resData?.gift_id?.toString();
-      let communitySync: Record<string, unknown> = { synced: false, reason: "not_a_community_post" };
-      if (contextType === "creator_post" && contextId && financeGiftId && !contextId.startsWith("direct")) {
+      let communitySync: Record<string, unknown> = { synced: false, reason: "not_supported_context" };
+      if ((contextType === "creator_post" || contextType === "listing") && contextId && financeGiftId && !contextId.startsWith("direct")) {
         try {
           communitySync = await syncCommunityGiftToPrimary(
             financeGiftId,
@@ -2611,7 +2612,7 @@ serve(async (req) => {
             receiverNcx,
             platformFeeNcx,
             idempotencyKey,
-            metadata,
+            { ...metadata, context_type: contextType },
           );
         } catch (syncError) {
           // Finance remains authoritative; a failed social projection must be

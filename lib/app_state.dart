@@ -806,6 +806,7 @@ class AppState extends ChangeNotifier {
   String? listingId;
   String? targetProfileId;
   String? communityPostId;
+  String? giftContextType; // e.g. 'creator_post', 'listing', 'live_stream'
   String creatorTab = 'feed';
 
   /// Set by upload wizard — CommunityScreen consumes this once to auto-switch tabs
