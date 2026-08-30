@@ -97,7 +97,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Duration? _dragOriginalDuration;
   double _dragCumulativeDx = 0;
   final Map<String, Duration> _dragRippleOriginalStarts = <String, Duration>{};
-  double _clipHandleWidth = 12.0; // hit area for handles in pixels
+  double _clipHandleWidth = 24.0; // Hit area for handles (invisible but reachable)
   bool _isRippleMode = false; // when true, edits ripple following clips
   bool _isStretchMode = false; // when true, resize changes speed (stretch)
   bool _isSnappingEnabled = true;
@@ -201,7 +201,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
 
           if (track.type == TrackType.video) {
-            // Reorder based on center position during drag
+            // Magnetic reordering based on center position
             final centerTime = clip.start + (clip.duration ~/ 2);
             track.clips.sort((a, b) {
               if (a.id == clip.id) return 0;
@@ -216,41 +216,47 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           }
           break;
         case _ClipDragMode.resizeLeft:
-          final origStart = _dragOriginalStart ?? clip.start;
           final origDur = _dragOriginalDuration ?? clip.duration;
           final newDur = origDur - delta;
-          if (newDur >= const Duration(milliseconds: 200)) {
+          if (newDur >= const Duration(milliseconds: 100)) {
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              trim.start = _clampDuration(trim.start + delta, Duration.zero, trim.end - const Duration(milliseconds: 200));
+              final newSourceStart = _clampDuration(trim.start + delta, Duration.zero, trim.end - const Duration(milliseconds: 100));
+              trim.start = newSourceStart;
               clip.sourceStart = trim.start;
               clip.duration = Duration(milliseconds: ((trim.end - trim.start).inMilliseconds / clip.speed).round());
             } else {
-              clip.start = origStart + delta;
               clip.duration = newDur;
             }
-            if (track.type == TrackType.video) _applyMagneticTimeline(track);
+            if (track.type == TrackType.video) {
+              _applyMagneticTimeline(track);
+              HapticFeedback.lightImpact();
+            }
           }
           break;
         case _ClipDragMode.resizeRight:
           final origDur = _dragOriginalDuration ?? clip.duration;
           final newDur = origDur + delta;
-          if (newDur >= const Duration(milliseconds: 200)) {
+          if (newDur >= const Duration(milliseconds: 100)) {
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              trim.end = _clampDuration(trim.end + delta, trim.start + const Duration(milliseconds: 200), const Duration(days: 1));
+              final newEnd = _clampDuration(trim.end + delta, trim.start + const Duration(milliseconds: 100), const Duration(days: 1000));
+              trim.end = newEnd;
               clip.sourceEnd = trim.end;
               clip.duration = Duration(milliseconds: ((trim.end - trim.start).inMilliseconds / clip.speed).round());
             } else {
               clip.duration = newDur;
             }
-            if (track.type == TrackType.video) _applyMagneticTimeline(track);
+            if (track.type == TrackType.video) {
+              _applyMagneticTimeline(track);
+              HapticFeedback.lightImpact();
+            }
           }
           break;
         case _ClipDragMode.stretch:
           final origDur = _dragOriginalDuration ?? clip.duration;
           final newDur = origDur + delta;
-          if (newDur >= const Duration(milliseconds: 200)) {
+          if (newDur >= const Duration(milliseconds: 100)) {
             final sourceDurMs = clip.sourceDuration.inMilliseconds;
             clip.speed = (sourceDurMs / newDur.inMilliseconds).clamp(0.1, 10.0);
             clip.duration = newDur;
@@ -2178,7 +2184,46 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(isSelected ? 2 : 4),
-                child: _buildClipContent(track, clip, width, isSelected),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _buildClipContent(track, clip, width, isSelected),
+                    if (isSelected) ...[
+                      // Left Handle Visual (Magnetic)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 10,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.horizontal(left: Radius.circular(2)),
+                          ),
+                          child: Center(
+                            child: Container(width: 1.5, height: 16, color: Colors.black45),
+                          ),
+                        ),
+                      ),
+                      // Right Handle Visual (Magnetic)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 10,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.horizontal(right: Radius.circular(2)),
+                          ),
+                          child: Center(
+                            child: Container(width: 1.5, height: 16, color: Colors.black45),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),
