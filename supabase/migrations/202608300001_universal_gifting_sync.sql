@@ -29,8 +29,8 @@ security definer
 set search_path = public
 as $$
 declare
-  v_post public.community_posts;
-  v_listing public.listings;
+  v_post record;
+  v_listing record;
   v_gift_id uuid;
   v_listing_id uuid := null;
   v_final_post_id uuid := null;
@@ -47,15 +47,15 @@ begin
 
   if p_context_type = 'listing' then
     v_listing_id := p_post_id;
-    select * into v_listing from public.listings where id = v_listing_id for share;
-    if not found then raise exception 'Listing not found'; end if;
+    execute format('select * from public.listings where id = %L', v_listing_id) into v_listing;
+    if v_listing is null then raise exception 'Listing not found'; end if;
     if coalesce(v_listing.lister_id, v_listing.user_id) <> p_receiver_id then
       raise exception 'Gift receiver does not own this listing';
     end if;
   else
     v_final_post_id := p_post_id;
-    select * into v_post from public.community_posts where id = v_final_post_id for share;
-    if not found then raise exception 'Community post not found'; end if;
+    execute format('select * from public.community_posts where id = %L', v_final_post_id) into v_post;
+    if v_post is null then raise exception 'Community post not found'; end if;
     if v_post.author_id <> p_receiver_id then
       raise exception 'Gift receiver does not own the community post';
     end if;
@@ -81,17 +81,9 @@ begin
   end if;
 
   if p_context_type = 'listing' then
-    update public.listings
-    set gifts_count = coalesce(gifts_count, 0) + 1,
-        gifts_fiat_value = coalesce(gifts_fiat_value, 0) + (p_ncx_amount * 100),
-        updated_at = now()
-    where id = v_listing_id;
+    execute format('update public.listings set gifts_count = coalesce(gifts_count, 0) + 1, gifts_fiat_value = coalesce(gifts_fiat_value, 0) + (%L * 100), updated_at = now() where id = %L', p_ncx_amount, v_listing_id);
   else
-    update public.community_posts
-    set gifts_count = coalesce(gifts_count, 0) + 1,
-        gifts_fiat_value = coalesce(gifts_fiat_value, 0) + (p_ncx_amount * 100),
-        updated_at = now()
-    where id = v_final_post_id;
+    execute format('update public.community_posts set gifts_count = coalesce(gifts_count, 0) + 1, gifts_fiat_value = coalesce(gifts_fiat_value, 0) + (%L * 100), updated_at = now() where id = %L', p_ncx_amount, v_final_post_id);
   end if;
 
   insert into public.notifications (
