@@ -294,25 +294,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           break;
       }
       _playback.updateProject(_tracks);
-
-      // Magnetic Snapping for Video Track
-      if (track.type == TrackType.video) {
-        _applyMagneticTimeline(track);
-      }
     });
-  }
-
-  void _applyMagneticTimeline(TimelineTrack track) {
-    // Sort clips by start time to ensure logical order
-    track.clips.sort((a, b) => a.start.compareTo(b.start));
-
-    var cursor = Duration.zero;
-    for (final clip in track.clips) {
-      if (clip.start != cursor) {
-        clip.start = cursor;
-      }
-      cursor += clip.duration;
-    }
   }
 
   void _onClipPanEnd(DragEndDetails details) {
@@ -654,11 +636,16 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             Column(
               children: [
                 _buildMobileHeader(screenSize),
-                _buildPreviewCanvas(screenSize),
-                _buildPlaybackControls(screenSize),
-                _buildContextToolRibbon(screenSize),
-                Expanded(child: _buildTimelineWorkspace(screenSize)),
-                _buildBottomNavigation(screenSize),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _buildPreviewCanvas(screenSize),
+                      _buildPlaybackControls(screenSize),
+                      Expanded(child: _buildEditorPanel(screenSize)),
+                    ],
+                  ),
+                ),
+                _buildIntelligentRibbon(screenSize),
               ],
             ),
             if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
@@ -667,6 +654,114 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ),
       ),
     );
+  }
+
+  Widget _buildIntelligentRibbon(Size screenSize) {
+    return Container(
+      height: 72,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0A0A), // Slightly off-black for the bar
+        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+      ),
+      child: _selectedClipIds.isEmpty
+          ? _buildGlobalRibbon()
+          : _buildClipRibbon(),
+    );
+  }
+
+  Widget _buildGlobalRibbon() {
+    final tools = [
+      (Icons.movie_edit, 'Edit', 0),
+      (Icons.music_note_rounded, 'Audio', 2),
+      (Icons.text_fields_rounded, 'Text', 3),
+      (Icons.layers_rounded, 'Overlay', 1),
+      (Icons.auto_awesome_rounded, 'Effects', 4),
+      (Icons.filter_vintage_rounded, 'Filters', 5),
+      (Icons.tune_rounded, 'Adjust', 7),
+      (Icons.aspect_ratio_rounded, 'Ratio', 6),
+    ];
+
+    return ListView.builder(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      itemCount: tools.length,
+      itemBuilder: (context, index) {
+        final tool = tools[index];
+        return _ribbonAction(tool.$1, tool.$2, () {
+          setState(() {
+            _activeToolPanel = tool.$3;
+            _bottomNavController.index = tool.$3;
+          });
+          _handleGlobalToolTap(tool.$3);
+        });
+      },
+    );
+  }
+
+  Widget _buildClipRibbon() {
+    final clip = _selectedClip;
+    if (clip == null) return _buildGlobalRibbon();
+
+    // Contextual tools based on clip type
+    final tools = _buildToolsForClip(clip);
+
+    return Row(
+      children: [
+        // Prominent Back/Deselect button for clip mode
+        InkWell(
+          onTap: () => setState(() {
+            _selectedClipIds.clear();
+            _selectedClip = null;
+          }),
+          child: Container(
+            width: 50,
+            alignment: Alignment.center,
+            child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white70),
+          ),
+        ),
+        VerticalDivider(width: 1, color: Colors.white.withOpacity(0.1), indent: 16, endIndent: 16),
+        Expanded(
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            children: tools,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _ribbonAction(IconData icon, String label, VoidCallback onTap, {Color? color}) {
+    return InkWell(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 24, color: color ?? Colors.white),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: dm(sz: 10, w: FontWeight.w600, c: color ?? Colors.white70),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleGlobalToolTap(int index) {
+    switch (index) {
+      case 3: _showTextHubSheet(); break;
+      case 4: _showEffectLibrarySheet(); break;
+      case 5: _showFilterSheet(); break;
+      case 6: _showAspectRatioMenu(); break;
+      case 7: _showEditorSettingsSheet(); break;
+    }
   }
 
   Widget _buildFullscreenPreviewOverlay() {
@@ -867,11 +962,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Row(
         children: [
           IconButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.maybePop(context),
             icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
           ),
           const Spacer(),
-          _buildProBadge(),
+          // Resolution/FPS Selector
+          _buildProjectConfigButton(),
           const SizedBox(width: 12),
           _buildExportButton(),
         ],
@@ -879,21 +975,23 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  Widget _buildProBadge() {
-    if (_isProEnabled) return const SizedBox.shrink();
-    return GestureDetector(
-      onTap: () => _showSnack('Go Pro for advanced AI effects'),
+  Widget _buildProjectConfigButton() {
+    return InkWell(
+      onTap: () => _showEditorSettingsSheet(),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFFA855F7)]),
-          borderRadius: BorderRadius.circular(20),
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
-            const Icon(Icons.bolt_rounded, size: 14, color: Colors.black),
+            Text(
+              '${_selectedResolution.toUpperCase()} · ${_selectedFps}',
+              style: syne(sz: 11, w: FontWeight.w700, c: const Color(0xFF00E5FF)),
+            ),
             const SizedBox(width: 4),
-            Text('PRO', style: syne(sz: 10, w: FontWeight.w900, c: Colors.black)),
+            const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: Color(0xFF00E5FF)),
           ],
         ),
       ),
@@ -912,115 +1010,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: _showExportSheet,
+          onTap: _isExporting ? null : _showExportSheet,
           borderRadius: BorderRadius.circular(8),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Text(
-              'EXPORT',
+              _isExporting ? 'EXPORTING...' : 'EXPORT',
               style: syne(sz: 12, w: FontWeight.w900, c: Colors.black),
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProButton() {
-    final bg = _isProEnabled ? const Color(0xFF00E5FF) : Colors.white.withOpacity(0.05);
-    final fg = _isProEnabled ? Colors.black : const Color(0xFF00E5FF);
-    return Container(
-      constraints: const BoxConstraints(minWidth: 64, minHeight: 34),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _showSnack('Go Pro for advanced AI effects'),
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.bolt_rounded, size: 14, color: fg),
-                const SizedBox(width: 6),
-                Text(
-                  'Pro',
-                  style: syne(sz: 11, w: FontWeight.w800, c: fg),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildContextToolRibbon(Size screenSize) {
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.9),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
-      ),
-      child: _selectedClipIds.isEmpty
-          ? _buildGeneralToolRibbon()
-          : _buildClipToolRibbon(),
-    );
-  }
-
-  Widget _buildGeneralToolRibbon() {
-    return ListView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      children: [
-        _ribbonAction(Icons.video_library_outlined, 'Media', () => setState(() => _activeToolPanel = 1)),
-        _ribbonAction(Icons.music_note_outlined, 'Audio', () => setState(() => _activeToolPanel = 2)),
-        _ribbonAction(Icons.text_fields_rounded, 'Text', () => setState(() => _activeToolPanel = 3)),
-        _ribbonAction(Icons.auto_awesome_outlined, 'Effects', () => setState(() => _activeToolPanel = 4)),
-        _ribbonAction(Icons.layers_outlined, 'Overlay', () => setState(() => _activeToolPanel = 5)),
-        _ribbonAction(Icons.aspect_ratio_rounded, 'Format', _showAspectRatioMenu),
-      ],
-    );
-  }
-
-  Widget _buildClipToolRibbon() {
-    return ListView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      children: [
-        _ribbonAction(Icons.content_cut_rounded, 'Split', _splitClip, color: const Color(0xFF00E5FF)),
-        _ribbonAction(Icons.speed_rounded, 'Speed', _showSpeedMenu),
-        _ribbonAction(Icons.volume_up_rounded, 'Volume', _showVolumeMenu),
-        _ribbonAction(Icons.crop_rounded, 'Crop', _showCropMenu),
-        _ribbonAction(Icons.copy_rounded, 'Duplicate', _duplicateClip),
-        _ribbonAction(Icons.delete_outline_rounded, 'Delete', _deleteSelectedClips, color: Colors.redAccent),
-      ],
-    );
-  }
-
-  Widget _ribbonAction(IconData icon, String label, VoidCallback onTap, {Color? color}) {
-    return InkWell(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 22, color: color ?? Colors.white),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: dm(sz: 10, w: FontWeight.w600, c: color ?? Colors.white70),
-            ),
-          ],
         ),
       ),
     );
@@ -1484,6 +1482,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               ),
               const SizedBox(width: 20),
               _playbackAction(Icons.skip_next_rounded, _nextFrame),
+              const SizedBox(width: 20),
+              _playbackAction(Icons.fullscreen_rounded, () => setState(() => _showFullscreenPreview = true)),
             ],
           ),
           _playbackTimeDisplay(_totalDuration, isDim: true),
@@ -1510,8 +1510,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         onTap();
       },
       child: Container(
-        width: isLarge ? 56 : 40,
-        height: isLarge ? 56 : 40,
+        width: isLarge ? 48 : 36,
+        height: isLarge ? 48 : 36,
         decoration: BoxDecoration(
           color: isLarge ? const Color(0xFF00E5FF) : Colors.white.withOpacity(0.05),
           shape: BoxShape.circle,
@@ -1519,7 +1519,35 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         child: Icon(
           icon,
           color: isLarge ? Colors.black : Colors.white,
-          size: isLarge ? 32 : 24,
+          size: isLarge ? 28 : 20,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaybackButton(
+    IconData icon,
+    VoidCallback onTap, {
+    bool isLarge = false,
+  }) {
+    return Container(
+      width: isLarge ? 48 : 40,
+      height: isLarge ? 48 : 40,
+      decoration: BoxDecoration(
+        color: isLarge ? C.brand : C.surface,
+        borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
+        border: Border.all(color: C.border),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
+          child: Icon(
+            icon,
+            size: isLarge ? 24 : 20,
+            color: isLarge ? Colors.white : C.brand,
+          ),
         ),
       ),
     );
@@ -1826,12 +1854,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Widget _buildTimelineWorkspace(Size screenSize) {
     final visibleTracks = TimelineModelUtils.visibleTracks(_tracks);
     final scale = _pixelsPerSecond * _timelineZoom;
-    final timelineWidth = (_totalDuration.inMilliseconds / 1000.0) * scale;
-    final viewportWidth = screenSize.width;
-    final centerX = viewportWidth / 2;
+    final timelineWidth = (_totalDuration.inMilliseconds / 1000.0) * scale + screenSize.width;
 
     return Container(
-      color: Colors.black,
+      color: Colors.black, // Neon Stealth
       child: Column(
         children: [
           _buildTimelineToolbar(visibleTracks.length),
@@ -1845,69 +1871,45 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                   onScaleUpdate: (details) {
                     if (details.scale != 1.0 && _timelineScaleStartZoom != null) {
                       setState(() {
-                        _timelineZoom = (_timelineScaleStartZoom! * details.scale).clamp(0.5, 5.0);
+                        _timelineZoom = (_timelineScaleStartZoom! * details.scale).clamp(0.5, 4.0);
                       });
                     }
                   },
-                  child: NotificationListener<ScrollNotification>(
-                    onNotification: (notification) {
-                      if (!_isPlaying && notification is ScrollUpdateNotification) {
-                        final offset = notification.metrics.pixels;
-                        final newTimeMs = (offset / scale) * 1000.0;
-                        _playback.seek(Duration(milliseconds: newTimeMs.round()), _tracks);
-                      }
-                      return false;
-                    },
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      controller: _timelineScrollController,
-                      physics: const BouncingScrollPhysics(),
-                      child: Padding(
-                        // Add padding so the timeline can be scrolled to the very end with playhead at center
-                        padding: EdgeInsets.symmetric(horizontal: centerX),
-                        child: SizedBox(
-                          width: timelineWidth,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              ListView.builder(
-                                controller: _verticalScrollController,
-                                padding: const EdgeInsets.only(bottom: 40),
-                                itemCount: visibleTracks.length + 1,
-                                itemBuilder: (context, index) {
-                                  if (index == 0) return _buildTimelineRuler(timelineWidth);
-                                  return _buildTrackClips(visibleTracks[index - 1]);
-                                },
+                  child: Row(
+                    children: [
+                      // Sidebar: Track Icons
+                      _buildTimelineSidebar(visibleTracks),
+                      // Timeline Area
+                      Expanded(
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: (notification) {
+                            return false;
+                          },
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            controller: _timelineScrollController,
+                            physics: const BouncingScrollPhysics(),
+                            child: SizedBox(
+                              width: timelineWidth,
+                              child: Stack(
+                                children: [
+                                  ListView.builder(
+                                    controller: _verticalScrollController,
+                                    padding: const EdgeInsets.only(top: 28, bottom: 40),
+                                    itemCount: visibleTracks.length,
+                                    itemBuilder: (context, index) {
+                                      return _buildTrackClips(visibleTracks[index]);
+                                    },
+                                  ),
+                                  _buildTimelineRuler(timelineWidth),
+                                  _buildGlobalPlayhead(timelineWidth),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-                // Center-Locked Playhead Marker
-                IgnorePointer(
-                  child: Center(
-                    child: Container(
-                      width: 2,
-                      color: const Color(0xFF00E5FF), // Neon Cyan
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 12,
-                            height: 12,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF00E5FF),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(color: Color(0xAA00E5FF), blurRadius: 8),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    ],
                   ),
                 ),
               ],
@@ -1920,26 +1922,33 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildTimelineToolbar(int trackCount) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.8),
+        color: const Color(0xFF0D0D0D),
         border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
       ),
       child: Row(
         children: [
           Text(
-            _formatDuration(_currentTime),
-            style: syne(sz: 14, w: FontWeight.w900, c: const Color(0xFF00E5FF)),
+            'Timeline',
+            style: syne(sz: 12, w: FontWeight.w900, c: const Color(0xFF00E5FF)),
           ),
-          const SizedBox(width: 4),
-          Text(
-            '/ ${_formatDuration(_totalDuration)}',
-            style: dm(sz: 11, c: Colors.white38),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E5FF).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              '$trackCount Tracks',
+              style: dm(sz: 9, w: FontWeight.w700, c: const Color(0xFF00E5FF)),
+            ),
           ),
           const Spacer(),
-          _timelineToolIcon(Icons.history, _history.canUndo ? _undo : null),
+          _timelineToolIcon(Icons.undo_rounded, _undo),
           const SizedBox(width: 12),
-          _timelineToolIcon(Icons.update, _history.canRedo ? _redo : null),
+          _timelineToolIcon(Icons.redo_rounded, _redo),
           const SizedBox(width: 12),
           _timelineToolIcon(Icons.add_box_outlined, _showTimelineInsertMenu),
         ],
@@ -1947,14 +1956,110 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  Widget _timelineToolIcon(IconData icon, VoidCallback? onTap) {
-    final enabled = onTap != null;
+  Widget _buildTimelineSidebar(List<TimelineTrack> visibleTracks) {
+    return Container(
+      width: 48,
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0A0A),
+        border: Border(right: BorderSide(color: Colors.white.withOpacity(0.05))),
+      ),
+      child: ListView.builder(
+        controller: _sidebarScrollController,
+        padding: const EdgeInsets.only(top: 28, bottom: 40),
+        itemCount: visibleTracks.length,
+        itemBuilder: (context, index) {
+          final track = visibleTracks[index];
+          final isSelected = _selectedTrackId == track.id;
+          return InkWell(
+            onTap: () => setState(() {
+              _selectedTrackId = track.id;
+              _selectedTrackIndex = _tracks.indexOf(track);
+            }),
+            child: Container(
+              height: 72,
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFF00E5FF).withOpacity(0.05) : Colors.transparent,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(track.icon ?? Icons.movie_outlined,
+                       size: 18,
+                       color: isSelected ? const Color(0xFF00E5FF) : Colors.white38),
+                  const SizedBox(height: 6),
+                  _buildTrackTinyAction(track.isVisible ? Icons.visibility : Icons.visibility_off,
+                                       () => _toggleTrackVisibility(track)),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTrackTinyAction(IconData icon, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
-      child: Icon(
-        icon,
-        size: 20,
-        color: enabled ? Colors.white : Colors.white24,
+      child: Icon(icon, size: 10, color: Colors.white24),
+    );
+  }
+
+  Widget _timelineToolIcon(IconData icon, VoidCallback? onTap) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18, color: onTap != null ? Colors.white70 : Colors.white12),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    );
+  }
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  // Right Pane: Timeline Area
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      controller: _timelineScrollController,
+                      child: SizedBox(
+                        width: timelineWidth > screenSize.width
+                            ? timelineWidth
+                            : screenSize.width,
+                        child: Stack(
+                          children: [
+                            ListView.builder(
+                              controller: _verticalScrollController,
+                              padding: const EdgeInsets.only(bottom: 8),
+                              itemCount:
+                                  visibleTracks.length + 1, // +1 for Ruler
+                              itemBuilder: (context, index) {
+                                if (index == 0)
+                                  return _buildTimelineRuler(timelineWidth);
+                                return _buildTrackClips(
+                                  visibleTracks[index - 1],
+                                );
+                              },
+                            ),
+                            // Global Playhead
+                            _buildGlobalPlayhead(timelineWidth),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1978,12 +2083,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 Container(
                   width: 1,
                   height: isMajor ? 6 : 4,
-                  color: C.dim.withAlpha(128),
+                  color: Colors.white.withOpacity(0.2),
                 ),
                 if (isMajor)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text('${i}s', style: dm(sz: 7, c: C.dim)),
+                    child: Text('${i}s', style: dm(sz: 7, c: Colors.white38)),
                   ),
               ],
             ),
@@ -2004,17 +2109,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: IgnorePointer(
         child: Container(
           width: 2,
-          color: C.brand,
+          color: const Color(0xFF00E5FF), // Neon Cyan
           child: Column(
             children: [
               Container(
-                width: 10,
-                height: 10,
+                width: 12,
+                height: 12,
                 decoration: const BoxDecoration(
-                  color: C.brand,
+                  color: Color(0xFF00E5FF),
                   shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(color: Color(0xAA00E5FF), blurRadius: 8),
+                  ],
                 ),
-                transform: Matrix4.translationValues(-4, 0, 0),
+                transform: Matrix4.translationValues(-5, -6, 0),
               ),
             ],
           ),
@@ -2025,81 +2133,102 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildTrackClips(TimelineTrack track) {
     final scale = _pixelsPerSecond * _timelineZoom;
-    final isMainTrack = track.type == TrackType.video;
-
-    final widgets = <Widget>[];
-
-    for (int i = 0; i < track.clips.length; i++) {
-      final clip = track.clips[i];
-      final left = (clip.start.inMilliseconds / 1000.0) * scale;
-      final width = (clip.duration.inMilliseconds / 1000.0) * scale;
-      final isSelected = _selectedClipIds.contains(clip.id);
-
-      widgets.add(
-        Positioned(
-          left: left,
-          top: 4,
-          bottom: 4,
-          width: width,
-          child: GestureDetector(
-            onTap: () => _selectClip(track, clip),
-            onDoubleTap: () => _trimClip(),
-            onLongPress: () => _enterMultiSelect(track, clip),
-            onPanStart: (details) => _onClipPanStart(track, clip, details, width),
-            onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
-            onPanEnd: (details) => _onClipPanEnd(details),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: isSelected ? const Color(0xFF00E5FF) : Colors.transparent,
-                  width: 2,
-                ),
-                boxShadow: isSelected
-                    ? [BoxShadow(color: const Color(0x6600E5FF), blurRadius: 8)]
-                    : null,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(isSelected ? 2 : 4),
-                child: _buildClipContent(track, clip, width, isSelected),
-              ),
-            ),
-          ),
-        ),
-      );
-
-      // Add Transition Node between clips on the main track
-      if (isMainTrack && i < track.clips.length - 1) {
-        final nextClip = track.clips[i + 1];
-        final transitionX = ((clip.start + clip.duration).inMilliseconds / 1000.0) * scale;
-
-        widgets.add(
-          Positioned(
-            left: transitionX - 12,
-            top: 24,
-            width: 24,
-            height: 24,
-            child: GestureDetector(
-              onTap: () => _showTransitionMenu(clip, nextClip),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white30),
-                ),
-                child: const Icon(Icons.add, size: 14, color: Colors.white),
-              ),
-            ),
-          ),
-        );
-      }
-    }
 
     return Container(
       height: 72,
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(color: Colors.white.withOpacity(0.02)),
-      child: Stack(children: widgets),
+      child: Stack(
+        children: track.clips.map((clip) {
+          final left = (clip.start.inMilliseconds / 1000.0) * scale;
+          final width = (clip.duration.inMilliseconds / 1000.0) * scale;
+          final isSelected = _selectedClipIds.contains(clip.id);
+
+          return Positioned(
+            left: left,
+            top: 4,
+            bottom: 4,
+            width: width,
+            child: GestureDetector(
+              onTap: () => _selectClip(track, clip),
+              onDoubleTap: () => _trimClip(),
+              onLongPress: () => _enterMultiSelect(track, clip),
+              onPanStart: (details) =>
+                  _onClipPanStart(track, clip, details, width),
+              onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
+              onPanEnd: (details) => _onClipPanEnd(details),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildClipContent(track, clip, width, isSelected),
+                  if (isSelected) ...[
+                    // left handle
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: _clipHandleWidth,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.resizeLeftRight,
+                        child: Container(
+                          color: Colors.transparent,
+                          child: Center(
+                            child: Container(
+                              width: 6,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // right handle
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: _clipHandleWidth,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.resizeLeftRight,
+                        child: Container(
+                          color: Colors.transparent,
+                          child: Center(
+                            child: Container(
+                              width: 6,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // center drag hint
+                    Positioned(
+                      left: width / 2 - 10,
+                      top: 0,
+                      bottom: 0,
+                      width: 20,
+                      child: Center(
+                        child: Container(
+                          width: 2,
+                          height: 28,
+                          color: Colors.white12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -2617,86 +2746,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         return 'SFX';
     }
   }
-
-  // ═══════════════════════════════════════════════════════════
-  // E. CONTEXT TOOLBAR (shown when a clip is selected)
-  // ═══════════════════════════════════════════════════════════
-  Widget _buildContextToolbar(Size screenSize) {
-    if (_selectedClipIds.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: C.card,
-        border: Border(top: BorderSide(color: C.border)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      child: _buildContextualTools(),
-    );
-  }
-
-  Widget _buildContextualTools() {
-    if (_selectedClipIds.length > 1) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: _buildToolsForMultiSelection()),
-      );
-    }
-    if (_selectedClip == null) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: _buildToolsForSelection()),
-      );
-    }
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(children: _buildToolsForClip(_selectedClip!)),
-    );
-  }
-
-  List<Widget> _buildToolsForSelection() {
-    switch (_activeToolPanel) {
-      case 1:
-        return [
-          _buildToolButton('Media', () => _pickMediaFromLibrary()),
-          _buildToolButton('Trim', () => _trimClip()),
-          _buildToolButton('Crop', _cropClip),
-          _buildToolButton('Speed', () => _adjustSpeed()),
-          _buildToolButton('Volume', _adjustVolume),
-          _buildToolButton('Reverse', _toggleReverse),
-        ];
-      case 2:
-        return [
-          _buildToolButton('Music', () => _showAudioPicker()),
-          _buildToolButton('Voice', _showVoiceoverRecorder),
-          _buildToolButton('SFX', () => _addSoundEffect()),
-          _buildToolButton('Volume', () => _adjustVolume()),
-        ];
-      case 3:
-        return [
-          _buildToolButton('Text Hub', () => _showTextHubSheet()),
-          _buildToolButton('Edit', () => _showTextEditorSheet()),
-          _buildToolButton('Font', () => _showTextEditorSheet()),
-          _buildToolButton('Color', () => _showTextEditorSheet()),
-        ];
-      case 4:
-        return [
-          _buildToolButton('Library', () => _toggleEffectLibrary()),
-          _buildToolButton('Intensity', () => _showEffectEditorSheet()),
-          _buildToolButton('Apply', () => _applySelectedEffect()),
-        ];
-      default:
-        return [
-          _buildToolButton('Split', () => _splitClip()),
-          _buildToolButton('Trim', () => _trimClip()),
-          _buildToolButton('Lock', () => _showSnack('Track locked')),
-          _buildToolButton('Hide', () => _showSnack('Track hidden')),
-        ];
-    }
-  }
-
   List<Widget> _buildToolsForClip(TimelineClip clip) {
     final tools = <Widget>[];
 
@@ -2707,52 +2756,46 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       );
       if (selectedTrack.type == TrackType.video) {
         tools.addAll([
-          _buildToolButton('Split', () => _splitClip()),
-          _buildToolButton('Trim', () => _trimClip()),
-          _buildToolButton('Crop', _cropClip),
-          _buildToolButton('Transform', _showTransformEditorSheet),
-          _buildToolButton('Speed', () => _adjustSpeed()),
-          _buildToolButton('Opacity', () => _adjustOpacity()),
-          _buildToolButton('Filter', _showFilterSheet),
-          _buildToolButton('Face', _showFaceEngineSheet),
-          _buildToolButton('Volume', _adjustVolume),
-          _buildToolButton('Reverse', _toggleReverse),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _ribbonAction(Icons.content_cut_rounded, 'Split', () => _splitClip(), color: const Color(0xFF00E5FF)),
+          _ribbonAction(Icons.speed_rounded, 'Speed', () => _adjustSpeed()),
+          _ribbonAction(Icons.animation_rounded, 'Animation', () => _showSnack('Animation')),
+          _ribbonAction(Icons.volume_up_rounded, 'Volume', _adjustVolume),
+          _ribbonAction(Icons.crop_rounded, 'Crop', _cropClip),
+          _ribbonAction(Icons.copy_rounded, 'Duplicate', () => _duplicateSelectedClips()),
+          _ribbonAction(Icons.delete_outline_rounded, 'Delete', () => _deleteClip(), color: Colors.redAccent),
         ]);
       } else if (selectedTrack.type == TrackType.text ||
           selectedTrack.type == TrackType.captions) {
         tools.addAll([
-          _buildToolButton('Edit', () => _showTextEditorSheet()),
-          _buildToolButton('Font', () => _showTextEditorSheet()),
-          _buildToolButton('Size', () => _showTextEditorSheet()),
-          _buildToolButton('Color', () => _showTextEditorSheet()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _ribbonAction(Icons.edit_note_rounded, 'Edit', () => _showTextEditorSheet()),
+          _ribbonAction(Icons.font_download_rounded, 'Font', () => _showTextEditorSheet()),
+          _ribbonAction(Icons.format_size_rounded, 'Size', () => _showTextEditorSheet()),
+          _ribbonAction(Icons.color_lens_rounded, 'Color', () => _showTextEditorSheet()),
+          _ribbonAction(Icons.delete_outline_rounded, 'Delete', () => _deleteClip(), color: Colors.redAccent),
         ]);
       } else if (selectedTrack.type == TrackType.audio ||
           selectedTrack.type == TrackType.music ||
           selectedTrack.type == TrackType.voiceOver ||
           selectedTrack.type == TrackType.soundEffects) {
         tools.addAll([
-          _buildToolButton('Split', _splitClip),
-          _buildToolButton('Trim', _trimClip),
-          _buildToolButton('Speed', _adjustSpeed),
-          _buildToolButton('Volume', () => _adjustVolume()),
-          _buildToolButton('Reverse', _toggleReverse),
-          _buildToolButton('Fade', () => _addFade()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _ribbonAction(Icons.content_cut_rounded, 'Split', _splitClip, color: const Color(0xFF00E5FF)),
+          _ribbonAction(Icons.speed_rounded, 'Speed', _adjustSpeed),
+          _ribbonAction(Icons.volume_up_rounded, 'Volume', () => _adjustVolume()),
+          _ribbonAction(Icons.graphic_eq_rounded, 'Fade', () => _addFade()),
+          _ribbonAction(Icons.delete_outline_rounded, 'Delete', () => _deleteClip(), color: Colors.redAccent),
         ]);
       } else if (selectedTrack.type == TrackType.effects) {
         tools.addAll([
-          _buildToolButton('Intensity', () => _showEffectEditorSheet()),
-          _buildToolButton('Opacity', () => _showEffectEditorSheet()),
-          _buildToolButton('Blend', () => _showEffectEditorSheet()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _ribbonAction(Icons.tune_rounded, 'Intensity', () => _showEffectEditorSheet()),
+          _ribbonAction(Icons.opacity_rounded, 'Opacity', () => _showEffectEditorSheet()),
+          _ribbonAction(Icons.layers_outlined, 'Blend', () => _showEffectEditorSheet()),
+          _ribbonAction(Icons.delete_outline_rounded, 'Delete', () => _deleteClip(), color: Colors.redAccent),
         ]);
       } else {
         tools.addAll([
-          _buildToolButton('Resize', () => _showSnack('Resize clip')),
-          _buildToolButton('Opacity', () => _adjustOpacity()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _ribbonAction(Icons.aspect_ratio_rounded, 'Resize', () => _showSnack('Resize clip')),
+          _ribbonAction(Icons.opacity_rounded, 'Opacity', () => _adjustOpacity()),
+          _ribbonAction(Icons.delete_outline_rounded, 'Delete', () => _deleteClip(), color: Colors.redAccent),
         ]);
       }
     }
@@ -2760,104 +2803,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return tools;
   }
 
-  Widget _buildToolButton(String label, VoidCallback onTap) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Material(
-        color: C.surface,
-        borderRadius: BorderRadius.circular(6),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Text(
-              label,
-              style: dm(sz: 10, c: C.brand, w: FontWeight.w600),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // F. BOTTOM NAVIGATION
-  // ═══════════════════════════════════════════════════════════
-  Widget _buildBottomNavigation(Size screenSize) {
-    final navItems = [
-      (Icons.timeline, 'Edit'),
-      (Icons.photo_library_outlined, 'Media'),
-      (Icons.music_note_outlined, 'Audio'),
-      (Icons.text_fields_rounded, 'Text'),
-      (Icons.auto_awesome_outlined, 'Effects'),
-      (Icons.face_retouching_natural_rounded, 'Retouch'),
-      (Icons.swap_horiz_rounded, 'Transitions'),
-      (Icons.tune_rounded, 'Adjust'),
-    ];
-
-    return Container(
-      height: 72,
-      padding: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Colors.black,
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(navItems.length, (index) {
-          final item = navItems[index];
-          final active = index == _activeToolPanel;
-          final accent = const Color(0xFF00E5FF);
-
-          return GestureDetector(
-            onTap: () {
-              HapticFeedback.selectionClick();
-              setState(() {
-                _activeToolPanel = index;
-                _bottomNavController.index = index;
-              });
-              // ... existing panel logic ...
-              if (index == 3) {
-                WidgetsBinding.instance.addPostFrameCallback((_) => _showTextHubSheet());
-              } else if (index == 4) {
-                WidgetsBinding.instance.addPostFrameCallback((_) => _showEffectLibrarySheet());
-              } else if (index == 5) {
-                WidgetsBinding.instance.addPostFrameCallback((_) => _showFaceEngineSheet());
-              } else if (index == 6) {
-                WidgetsBinding.instance.addPostFrameCallback((_) => _showTransitionLibrarySheet());
-              } else if (index == 7) {
-                WidgetsBinding.instance.addPostFrameCallback((_) => _showEditorSettingsSheet());
-              }
-            },
-            child: Container(
-              width: (screenSize.width / navItems.length) - 4,
-              color: Colors.transparent,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(item.$1, color: active ? accent : Colors.white60, size: 22),
-                  const SizedBox(height: 6),
-                  Text(
-                    item.$2,
-                    style: dm(
-                      sz: 8,
-                      w: active ? FontWeight.w800 : FontWeight.w500,
-                      c: active ? accent : Colors.white38,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // FLOATING ACTION BUTTONS
-  // ═══════════════════════════════════════════════════════════
   // ═══════════════════════════════════════════════════════════
   // ACTION HANDLERS
   // ═══════════════════════════════════════════════════════════
@@ -2977,6 +2922,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
+  void _showAspectRatioMenu() {
+    _showSelectionSheet('Aspect ratio', [
+      '9:16',
+      '16:9',
+      '1:1',
+      '4:5',
+    ], (value) => setState(() => _selectedAspectRatio = value));
+  }
 
   void _showSelectionSheet(
     String title,
@@ -4024,10 +3977,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     if (!mounted || !_timelineScrollController.hasClients) return;
     final scale = _pixelsPerSecond * _timelineZoom;
     final playheadPosition = (_currentTime.inMilliseconds / 1000.0) * scale;
+    final viewport = _timelineScrollController.position.viewportDimension;
+    if (viewport <= 0) return;
+    final offset = _timelineScrollController.offset;
+    const margin = 80.0;
+    final visibleStart = offset + margin;
+    final visibleEnd = offset + viewport - margin;
 
-    // In Center-Locked mode, the target offset is simply the playhead position
-    // because we have horizontal padding equal to half the screen width.
-    _timelineScrollController.jumpTo(playheadPosition);
+    if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
+      final target = math.min(
+        math.max(playheadPosition - viewport / 2, 0.0),
+        _timelineScrollController.position.maxScrollExtent,
+      );
+      _timelineScrollController.jumpTo(target);
+    }
   }
 
   Future<void> _previousFrame() async {
@@ -4065,7 +4028,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
     final minSplit = const Duration(milliseconds: 100);
     final maxSplit = clip.duration - const Duration(milliseconds: 100);
-
     if (clipPosition <= minSplit || clipPosition >= maxSplit) {
       _showSnack('Move the playhead inside the selected clip to split');
       return;
@@ -4093,7 +4055,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _selectedClipIds
         ..clear()
         ..add(right.id);
-      if (track.type == TrackType.video) _applyMagneticTimeline(track);
     });
     _playback.updateProject(_tracks);
   }
@@ -4118,199 +4079,55 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.black,
+      backgroundColor: C.card,
       builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => _buildToolSheet('Trim Clip', [
-          RangeSlider(
-            values: range,
-            min: 0,
-            max: math.max(200, maxSource.inMilliseconds).toDouble(),
-            activeColor: const Color(0xFF00E5FF),
-            labels: RangeLabels(
-              _formatDuration(Duration(milliseconds: range.start.round())),
-              _formatDuration(Duration(milliseconds: range.end.round())),
-            ),
-            onChanged: (value) {
-              setModalState(() => range = value);
-              final start = Duration(milliseconds: value.start.round());
-              final end = Duration(milliseconds: value.end.round());
-              setState(() {
-                clip.sourceStart = start;
-                clip.sourceEnd = end;
-                clip.duration = Duration(
-                  milliseconds: ((end - start).inMilliseconds / clip.speed)
-                      .round(),
-                );
-                if (clip.operation is TrimOperation) {
-                  final trim = clip.operation as TrimOperation;
-                  trim.start = start;
-                  trim.end = end;
-                }
-                if (selectedTrack.type == TrackType.video) _applyMagneticTimeline(selectedTrack);
-              });
-              _playback.updateProject(_tracks);
-              _videoController?.seekTo(start);
-            },
+        builder: (context, setModalState) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Trim clip',
+                style: syne(sz: 14, w: FontWeight.w800, c: C.text),
+              ),
+              RangeSlider(
+                values: range,
+                min: 0,
+                max: math.max(200, maxSource.inMilliseconds).toDouble(),
+                activeColor: C.brand,
+                labels: RangeLabels(
+                  _formatDuration(Duration(milliseconds: range.start.round())),
+                  _formatDuration(Duration(milliseconds: range.end.round())),
+                ),
+                onChanged: (value) {
+                  setModalState(() => range = value);
+                  final start = Duration(milliseconds: value.start.round());
+                  final end = Duration(milliseconds: value.end.round());
+                  setState(() {
+                    clip.sourceStart = start;
+                    clip.sourceEnd = end;
+                    clip.duration = Duration(
+                      milliseconds: ((end - start).inMilliseconds / clip.speed)
+                          .round(),
+                    );
+                    if (clip.operation is TrimOperation) {
+                      final trim = clip.operation as TrimOperation;
+                      trim.start = start;
+                      trim.end = end;
+                    }
+                  });
+                  _playback.updateProject(_tracks);
+                  _videoController?.seekTo(start);
+                },
+              ),
+              Text(
+                '${_formatDuration(Duration(milliseconds: range.start.round()))} – ${_formatDuration(Duration(milliseconds: range.end.round()))}',
+                style: dm(sz: 11, c: C.dim),
+              ),
+            ],
           ),
-          Text(
-            '${_formatDuration(Duration(milliseconds: range.start.round()))} – ${_formatDuration(Duration(milliseconds: range.end.round()))}',
-            style: syne(sz: 12, c: Colors.white70),
-          ),
-        ]),
+        ),
       ),
-    );
-  }
-
-  void _showSpeedMenu() {
-    final clip = _selectedClip;
-    if (clip == null) return;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.black,
-      builder: (context) => _buildToolSheet('Playback Speed', [
-        _sheetAction('0.5x', () => _setClipSpeed(0.5)),
-        _sheetAction('1.0x', () => _setClipSpeed(1.0)),
-        _sheetAction('1.5x', () => _setClipSpeed(1.5)),
-        _sheetAction('2.0x', () => _setClipSpeed(2.0)),
-      ]),
-    );
-  }
-
-  void _setClipSpeed(double speed) {
-    if (_selectedClip == null) return;
-    setState(() {
-      _selectedClip!.speed = speed;
-      _selectedClip!.duration = Duration(milliseconds: (_selectedClip!.sourceDuration.inMilliseconds / speed).round());
-      final track = _tracks.firstWhere((t) => t.clips.contains(_selectedClip));
-      if (track.type == TrackType.video) _applyMagneticTimeline(track);
-    });
-    _playback.updateProject(_tracks);
-    Navigator.pop(context);
-  }
-
-  void _showVolumeMenu() {
-    final clip = _selectedClip;
-    if (clip == null) return;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.black,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => _buildToolSheet('Volume', [
-          Slider(
-            value: clip.volume,
-            min: 0, max: 2,
-            activeColor: const Color(0xFF00E5FF),
-            onChanged: (v) {
-              setModalState(() => clip.volume = v);
-              setState(() {});
-            },
-          ),
-          Text('${(clip.volume * 100).toInt()}%', style: syne(c: Colors.white)),
-        ]),
-      ),
-    );
-  }
-
-  void _showCropMenu() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.black,
-      builder: (context) => _buildToolSheet('Crop Ratio', [
-        _sheetAction('Original', () => _setClipCrop('Original')),
-        _sheetAction('9:16', () => _setClipCrop('9:16')),
-        _sheetAction('16:9', () => _setClipCrop('16:9')),
-        _sheetAction('1:1', () => _setClipCrop('1:1')),
-      ]),
-    );
-  }
-
-  void _setClipCrop(String ratio) {
-    if (_selectedClip == null) return;
-    setState(() => _selectedClip!.cropAspectRatio = ratio);
-    Navigator.pop(context);
-  }
-
-  void _duplicateClip() {
-    final clip = _selectedClip;
-    if (clip == null) return;
-    final track = _tracks.firstWhere((t) => t.clips.contains(clip));
-    final dup = clip.copyWith(id: '${clip.id}-dup-${DateTime.now().microsecondsSinceEpoch}');
-    setState(() {
-      track.clips.add(dup);
-      if (track.type == TrackType.video) _applyMagneticTimeline(track);
-    });
-    _playback.updateProject(_tracks);
-  }
-
-  void _showTransitionMenu(TimelineClip clip, TimelineClip next) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.black,
-      builder: (context) => _buildToolSheet('Add Transition',
-        TransitionPreset.presets.map((p) => _sheetAction(p.icon + ' ' + p.name, () {
-          // Transition logic integration
-          Navigator.pop(context);
-        })).toList()
-      ),
-    );
-  }
-
-  void _deleteSelectedClips() {
-    if (_selectedClipIds.isEmpty) return;
-    _captureTimeline();
-    setState(() {
-      for (final track in _tracks) {
-        track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
-        if (track.type == TrackType.video) _applyMagneticTimeline(track);
-      }
-      _selectedClipIds.clear();
-      _selectedClip = null;
-    });
-    _playback.updateProject(_tracks);
-  }
-
-  void _showAspectRatioMenu() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.black,
-      builder: (context) => _buildToolSheet('Aspect Ratio', [
-        _sheetAction('9:16 (TikTok/Reels)', () => _setAspectRatio('9:16')),
-        _sheetAction('16:9 (YouTube)', () => _setAspectRatio('16:9')),
-        _sheetAction('1:1 (Instagram)', () => _setAspectRatio('1:1')),
-        _sheetAction('4:5 (Vertical)', () => _setAspectRatio('4:5')),
-      ]),
-    );
-  }
-
-  void _setAspectRatio(String ratio) {
-    setState(() => _selectedAspectRatio = ratio);
-    Navigator.pop(context);
-  }
-
-  Widget _buildToolSheet(String title, List<Widget> children) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D121B),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(title, style: syne(sz: 16, w: FontWeight.w900, c: Colors.white)),
-          const SizedBox(height: 24),
-          ...children,
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  Widget _sheetAction(String label, VoidCallback onTap) {
-    return ListTile(
-      title: Text(label, style: dm(c: Colors.white)),
-      onTap: onTap,
     );
   }
 
