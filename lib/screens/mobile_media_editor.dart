@@ -1937,9 +1937,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             style: dm(sz: 11, c: Colors.white38),
           ),
           const Spacer(),
-          _timelineToolIcon(Icons.history, _history.canUndo ? _history.undo : null),
+          _timelineToolIcon(Icons.history, _history.canUndo ? _undo : null),
           const SizedBox(width: 12),
-          _timelineToolIcon(Icons.update, _history.canRedo ? _history.redo : null),
+          _timelineToolIcon(Icons.update, _history.canRedo ? _redo : null),
           const SizedBox(width: 12),
           _timelineToolIcon(Icons.add_box_outlined, _showTimelineInsertMenu),
         ],
@@ -2977,13 +2977,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  void _showAspectRatioMenu() {
-    _showSelectionSheet('Aspect ratio', [
-      '9:16',
-      '16:9',
-      '1:1',
-      '4:5',
-    ], (value) => setState(() => _selectedAspectRatio = value));
   }
 
   void _showSelectionSheet(
