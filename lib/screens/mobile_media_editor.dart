@@ -2977,7 +2977,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  }
 
   void _showSelectionSheet(
     String title,
