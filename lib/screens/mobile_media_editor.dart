@@ -2026,55 +2026,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
     );
   }
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  // Right Pane: Timeline Area
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      controller: _timelineScrollController,
-                      child: SizedBox(
-                        width: timelineWidth > screenSize.width
-                            ? timelineWidth
-                            : screenSize.width,
-                        child: Stack(
-                          children: [
-                            ListView.builder(
-                              controller: _verticalScrollController,
-                              padding: const EdgeInsets.only(bottom: 8),
-                              itemCount:
-                                  visibleTracks.length + 1, // +1 for Ruler
-                              itemBuilder: (context, index) {
-                                if (index == 0)
-                                  return _buildTimelineRuler(timelineWidth);
-                                return _buildTrackClips(
-                                  visibleTracks[index - 1],
-                                );
-                              },
-                            ),
-                            // Global Playhead
-                            _buildGlobalPlayhead(timelineWidth),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildTimelineRuler(double timelineWidth) {
     const rulerHeight = 28.0;
