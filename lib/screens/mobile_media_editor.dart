@@ -199,95 +199,62 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         case _ClipDragMode.move:
           final newStart = (_dragOriginalStart ?? clip.start) + delta;
           clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
-          final appliedDelta =
-              clip.start - (_dragOriginalStart ?? Duration.zero);
-          if (_isRippleMode) {
+
+          if (track.type == TrackType.video) {
+            // Reorder based on center position during drag
+            final centerTime = clip.start + (clip.duration ~/ 2);
+            track.clips.sort((a, b) {
+              if (a.id == clip.id) return 0;
+              final aCenter = a.start + (a.duration ~/ 2);
+              return centerTime.compareTo(aCenter);
+            });
+            _applyMagneticTimeline(track);
+            HapticFeedback.selectionClick();
+          } else if (_isRippleMode) {
+            final appliedDelta = clip.start - (_dragOriginalStart ?? Duration.zero);
             _positionRippleFollowers(track, appliedDelta);
           }
           break;
         case _ClipDragMode.resizeLeft:
           final origStart = _dragOriginalStart ?? clip.start;
           final origDur = _dragOriginalDuration ?? clip.duration;
-          final newStart = origStart + delta;
           final newDur = origDur - delta;
-          if (newDur >= const Duration(milliseconds: 100)) {
-            // Advanced trim: update TrimOperation if available to restore/hide source
+          if (newDur >= const Duration(milliseconds: 200)) {
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              final newSourceStart = _clampDuration(
-                trim.start + delta,
-                Duration.zero,
-                trim.end,
-              );
-              trim.start = newSourceStart;
+              trim.start = _clampDuration(trim.start + delta, Duration.zero, trim.end - const Duration(milliseconds: 200));
               clip.sourceStart = trim.start;
-              final available = (trim.end - trim.start);
-              clip.duration = Duration(
-                milliseconds: (available.inMilliseconds / clip.speed).round(),
-              );
+              clip.duration = Duration(milliseconds: ((trim.end - trim.start).inMilliseconds / clip.speed).round());
             } else {
-              clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
+              clip.start = origStart + delta;
               clip.duration = newDur;
             }
-
-            // hide semantics: if duration becomes very small, mark hidden
-            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
-
-            if (_isRippleMode) {
-              _positionRippleFollowers(track, delta);
-            }
+            if (track.type == TrackType.video) _applyMagneticTimeline(track);
           }
           break;
         case _ClipDragMode.resizeRight:
           final origDur = _dragOriginalDuration ?? clip.duration;
           final newDur = origDur + delta;
-          if (newDur >= const Duration(milliseconds: 100)) {
+          if (newDur >= const Duration(milliseconds: 200)) {
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
-              final newEnd = _clampDuration(
-                trim.end + delta,
-                trim.start + const Duration(milliseconds: 1),
-                Duration(days: 36500),
-              );
-              trim.end = newEnd;
+              trim.end = _clampDuration(trim.end + delta, trim.start + const Duration(milliseconds: 200), const Duration(days: 1));
               clip.sourceEnd = trim.end;
-              final available = (trim.end - trim.start);
-              clip.duration = Duration(
-                milliseconds: (available.inMilliseconds / clip.speed).round(),
-              );
+              clip.duration = Duration(milliseconds: ((trim.end - trim.start).inMilliseconds / clip.speed).round());
             } else {
               clip.duration = newDur;
             }
-
-            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
-
-            if (_isRippleMode) {
-              _positionRippleFollowers(track, delta);
-            }
+            if (track.type == TrackType.video) _applyMagneticTimeline(track);
           }
           break;
         case _ClipDragMode.stretch:
           final origDur = _dragOriginalDuration ?? clip.duration;
           final newDur = origDur + delta;
-          if (newDur >= const Duration(milliseconds: 100)) {
-            // Stretch changes playback speed to keep source mapping
+          if (newDur >= const Duration(milliseconds: 200)) {
             final sourceDurMs = clip.sourceDuration.inMilliseconds;
-            final newSpeed = newDur.inMilliseconds > 0
-                ? (sourceDurMs / newDur.inMilliseconds).clamp(0.1, 10.0)
-                : clip.speed;
+            clip.speed = (sourceDurMs / newDur.inMilliseconds).clamp(0.1, 10.0);
             clip.duration = newDur;
-            clip.speed = newSpeed;
-            if (clip.operation is TrimOperation) {
-              // keep trim end aligned to source end, adjust operation end accordingly
-              final trim = clip.operation as TrimOperation;
-              trim.end =
-                  trim.start +
-                  Duration(milliseconds: (clip.sourceDuration.inMilliseconds));
-            }
-            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
-            if (_isRippleMode) {
-              _positionRippleFollowers(track, delta);
-            }
+            if (track.type == TrackType.video) _applyMagneticTimeline(track);
           }
           break;
         case _ClipDragMode.none:
@@ -1854,7 +1821,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Widget _buildTimelineWorkspace(Size screenSize) {
     final visibleTracks = TimelineModelUtils.visibleTracks(_tracks);
     final scale = _pixelsPerSecond * _timelineZoom;
-    final timelineWidth = (_totalDuration.inMilliseconds / 1000.0) * scale + screenSize.width;
+    final timelineWidth = (_totalDuration.inMilliseconds / 1000.0) * scale;
+    final viewportWidth = screenSize.width - 48; // Subtract sidebar width
+    final centerX = viewportWidth / 2;
 
     return Container(
       color: Colors.black, // Neon Stealth
@@ -1883,33 +1852,70 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                       Expanded(
                         child: NotificationListener<ScrollNotification>(
                           onNotification: (notification) {
+                            if (!_isPlaying && notification is ScrollUpdateNotification) {
+                              final offset = _timelineScrollController.offset;
+                              final newTimeMs = (offset / scale) * 1000.0;
+                              _playback.seek(Duration(milliseconds: newTimeMs.round()), _tracks);
+                            }
                             return false;
                           },
                           child: SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             controller: _timelineScrollController,
                             physics: const BouncingScrollPhysics(),
-                            child: SizedBox(
-                              width: timelineWidth,
-                              child: Stack(
-                                children: [
-                                  ListView.builder(
-                                    controller: _verticalScrollController,
-                                    padding: const EdgeInsets.only(top: 28, bottom: 40),
-                                    itemCount: visibleTracks.length,
-                                    itemBuilder: (context, index) {
-                                      return _buildTrackClips(visibleTracks[index]);
-                                    },
-                                  ),
-                                  _buildTimelineRuler(timelineWidth),
-                                  _buildGlobalPlayhead(timelineWidth),
-                                ],
+                            child: Padding(
+                              // Add padding so the timeline can be scrolled to the very end with playhead at center
+                              padding: EdgeInsets.symmetric(horizontal: centerX),
+                              child: SizedBox(
+                                width: timelineWidth,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    ListView.builder(
+                                      controller: _verticalScrollController,
+                                      padding: const EdgeInsets.only(top: 28, bottom: 40),
+                                      itemCount: visibleTracks.length,
+                                      itemBuilder: (context, index) {
+                                        return _buildTrackClips(visibleTracks[index]);
+                                      },
+                                    ),
+                                    _buildTimelineRuler(timelineWidth),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
                     ],
+                  ),
+                ),
+                // Center-Locked Playhead Marker (Fixed Position)
+                IgnorePointer(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 48), // Align with timeline area
+                    child: Center(
+                      child: Container(
+                        width: 2,
+                        color: const Color(0xFF00E5FF), // Neon Cyan
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF00E5FF),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(color: Color(0xAA00E5FF), blurRadius: 8),
+                                ],
+                              ),
+                              transform: Matrix4.translationValues(-5, -6, 0),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -2133,102 +2139,84 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildTrackClips(TimelineTrack track) {
     final scale = _pixelsPerSecond * _timelineZoom;
+    final isMainTrack = track.type == TrackType.video;
+
+    final widgets = <Widget>[];
+
+    for (int i = 0; i < track.clips.length; i++) {
+      final clip = track.clips[i];
+      final left = (clip.start.inMilliseconds / 1000.0) * scale;
+      final width = (clip.duration.inMilliseconds / 1000.0) * scale;
+      final isSelected = _selectedClipIds.contains(clip.id);
+
+      widgets.add(
+        Positioned(
+          left: left,
+          top: 4,
+          bottom: 4,
+          width: width,
+          child: GestureDetector(
+            onTap: () => _selectClip(track, clip),
+            onDoubleTap: () => _trimClip(),
+            onLongPress: () {
+              HapticFeedback.heavyImpact();
+              _enterMultiSelect(track, clip);
+            },
+            onPanStart: (details) => _onClipPanStart(track, clip, details, width),
+            onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
+            onPanEnd: (details) => _onClipPanEnd(details),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: isSelected ? const Color(0xFF00E5FF) : Colors.transparent,
+                  width: 2,
+                ),
+                boxShadow: isSelected
+                    ? [BoxShadow(color: const Color(0x6600E5FF), blurRadius: 8)]
+                    : null,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(isSelected ? 2 : 4),
+                child: _buildClipContent(track, clip, width, isSelected),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Add Transition Node between clips on the main track
+      if (isMainTrack && i < track.clips.length - 1) {
+        final nextClip = track.clips[i + 1];
+        final transitionX = ((clip.start + clip.duration).inMilliseconds / 1000.0) * scale;
+
+        widgets.add(
+          Positioned(
+            left: transitionX - 12,
+            top: 24,
+            width: 24,
+            height: 24,
+            child: GestureDetector(
+              onTap: () => _showTransitionMenu(clip, nextClip),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white30),
+                ),
+                child: const Icon(Icons.add, size: 14, color: Colors.white),
+              ),
+            ),
+          ),
+        );
+      }
+    }
 
     return Container(
       height: 72,
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(color: Colors.white.withOpacity(0.02)),
-      child: Stack(
-        children: track.clips.map((clip) {
-          final left = (clip.start.inMilliseconds / 1000.0) * scale;
-          final width = (clip.duration.inMilliseconds / 1000.0) * scale;
-          final isSelected = _selectedClipIds.contains(clip.id);
-
-          return Positioned(
-            left: left,
-            top: 4,
-            bottom: 4,
-            width: width,
-            child: GestureDetector(
-              onTap: () => _selectClip(track, clip),
-              onDoubleTap: () => _trimClip(),
-              onLongPress: () => _enterMultiSelect(track, clip),
-              onPanStart: (details) =>
-                  _onClipPanStart(track, clip, details, width),
-              onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
-              onPanEnd: (details) => _onClipPanEnd(details),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _buildClipContent(track, clip, width, isSelected),
-                  if (isSelected) ...[
-                    // left handle
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 6,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // right handle
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 6,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // center drag hint
-                    Positioned(
-                      left: width / 2 - 10,
-                      top: 0,
-                      bottom: 0,
-                      width: 20,
-                      child: Center(
-                        child: Container(
-                          width: 2,
-                          height: 28,
-                          color: Colors.white12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+      child: Stack(children: widgets),
     );
   }
 
@@ -3976,21 +3964,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _ensureTimelinePosition() {
     if (!mounted || !_timelineScrollController.hasClients) return;
     final scale = _pixelsPerSecond * _timelineZoom;
-    final playheadPosition = (_currentTime.inMilliseconds / 1000.0) * scale;
-    final viewport = _timelineScrollController.position.viewportDimension;
-    if (viewport <= 0) return;
-    final offset = _timelineScrollController.offset;
-    const margin = 80.0;
-    final visibleStart = offset + margin;
-    final visibleEnd = offset + viewport - margin;
+    final playheadOffset = (_currentTime.inMilliseconds / 1000.0) * scale;
 
-    if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
-      final target = math.min(
-        math.max(playheadPosition - viewport / 2, 0.0),
-        _timelineScrollController.position.maxScrollExtent,
-      );
-      _timelineScrollController.jumpTo(target);
-    }
+    // In center-locked mode, the scroll offset is exactly the playhead offset
+    // because we added center-width padding to the start of the timeline.
+    _timelineScrollController.jumpTo(playheadOffset);
   }
 
   Future<void> _previousFrame() async {
@@ -4016,6 +3994,22 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _captureTimeline();
     track.isLocked = !track.isLocked;
     setState(() {});
+  }
+
+  void _applyMagneticTimeline(TimelineTrack track) {
+    if (track.clips.isEmpty) return;
+
+    // Sort clips by their current start time
+    track.clips.sort((a, b) => a.start.compareTo(b.start));
+
+    // Set first clip to start at zero
+    track.clips.first.start = Duration.zero;
+
+    // Make every subsequent clip start exactly where the previous one ends
+    for (int i = 1; i < track.clips.length; i++) {
+      final prev = track.clips[i - 1];
+      track.clips[i].start = prev.start + prev.duration;
+    }
   }
 
   void _splitClip() {
@@ -4055,6 +4049,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       _selectedClipIds
         ..clear()
         ..add(right.id);
+      if (track.type == TrackType.video) _applyMagneticTimeline(track);
     });
     _playback.updateProject(_tracks);
   }
@@ -4360,6 +4355,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     setState(() {
       for (final track in _tracks) {
         track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
+        if (track.type == TrackType.video) _applyMagneticTimeline(track);
       }
       _selectedClipIds.clear();
       _isMultiSelectMode = false;
