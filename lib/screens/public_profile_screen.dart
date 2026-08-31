@@ -511,6 +511,7 @@ class _MetricTag extends StatelessWidget {
       ],
     ),
   );
+  }
 }
 
 class _GridItem extends StatelessWidget {
