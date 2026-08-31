@@ -82,10 +82,10 @@ class CreatorScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          ('home', '??', 'Property'),
-          ('creator', '??', 'Creator'),
-          ('list', '??', 'List'),
-          ('profile', '??', 'Profile'),
+          ('home', '🏠', 'Property'),
+          ('creator', '🎥', 'Creator'),
+          ('list', '📋', 'List'),
+          ('profile', '👤', 'Profile'),
         ].map((t) {
           final active = t.$1 == 'creator';
           return Expanded(
@@ -119,11 +119,11 @@ class CreatorScreen extends StatelessWidget {
   }
 
   Widget _buildCreatorTabs() {
-    tabs = [
-      ('feed', '?? Feed'),
-      ('discover', '?? Discover'),
-      ('live', '?? Live'),
-      ('studio', '?? Studio'),
+    final List<(String, String)> tabs = [
+      ('feed', '🎥 Feed'),
+      ('discover', '🔍 Discover'),
+      ('live', '🔴 Live'),
+      ('studio', '🎬 Studio'),
     ];
     return Container(
       decoration: BoxDecoration(
@@ -219,14 +219,14 @@ class CreatorScreen extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Text('??', style: TextStyle(fontSize: 20)),
+            const Text('💰', style: TextStyle(fontSize: 20)),
             SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Start earning today!',
-                      style: dm(sz: 13, w: FontWeight.w800)),
+                      style: dm(sz: 13, w: FontWeight.w800, c: C.text)),
                   Text('Create account � Post content � Receive gifts',
                       style: dm(sz: 10, c: C.dim)),
                 ],

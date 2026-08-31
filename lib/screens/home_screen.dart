@@ -385,7 +385,7 @@ class _PropertyCard extends StatelessWidget {
                       child: _PurposeBadge(p.core.listingType.name.toUpperCase(), C.brand),
                     ),
                     if (p.shadow.isUnlockedByCurrentUser)
-                      const Positioned(
+                      Positioned(
                         bottom: 10, right: 10,
                         child: _Badge('?? Unlocked', C.green, C.text),
                       ),
@@ -515,7 +515,7 @@ class _TrustBadge extends StatelessWidget {
             BoxShadow(color: bg.withOpacity(.4), blurRadius: 8, spreadRadius: 1),
         ],
       ),
-      child: Text(label, style: const TextStyle(
+      child: Text(label, style: TextStyle(
         fontSize: 9, fontWeight: FontWeight.w900, color: C.text, letterSpacing: 0.5)),
     );
   }

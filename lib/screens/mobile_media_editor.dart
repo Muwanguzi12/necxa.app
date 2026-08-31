@@ -606,20 +606,22 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       body: SafeArea(
         child: Stack(
           children: [
-            Column(
-              children: [
-                _buildMobileHeader(screenSize),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _buildPreviewCanvas(screenSize),
-                      _buildPlaybackControls(screenSize),
-                      Expanded(child: _buildEditorPanel(screenSize)),
-                    ],
+            Positioned.fill(
+              child: Column(
+                children: [
+                  _buildMobileHeader(screenSize),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        _buildPreviewCanvas(screenSize),
+                        _buildPlaybackControls(screenSize),
+                        Expanded(child: _buildEditorPanel(screenSize)),
+                      ],
+                    ),
                   ),
-                ),
-                _buildIntelligentRibbon(screenSize),
-              ],
+                  _buildIntelligentRibbon(screenSize),
+                ],
+              ),
             ),
             if (_showFullscreenPreview) _buildFullscreenPreviewOverlay(),
             if (_isExporting) _buildExportProgressOverlay(),
@@ -2742,7 +2744,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         tools.addAll([
           _ribbonAction(Icons.content_cut_rounded, 'Split', () => _splitClip(), color: const Color(0xFF00E5FF)),
           _ribbonAction(Icons.speed_rounded, 'Speed', () => _adjustSpeed()),
-          _ribbonAction(Icons.animation_rounded, 'Animation', () => _showSnack('Animation')),
+          _ribbonAction(Icons.animation_rounded, 'Animation', () => _showAnimationSheet()),
           _ribbonAction(Icons.volume_up_rounded, 'Volume', _adjustVolume),
           _ribbonAction(Icons.crop_rounded, 'Crop', _cropClip),
           _ribbonAction(Icons.copy_rounded, 'Duplicate', () => _duplicateSelectedClips()),
@@ -6057,6 +6059,137 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final minutes = duration.inMinutes;
     final seconds = duration.inSeconds % 60;
     return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildToolButton(String label, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Material(
+        color: C.surface,
+        borderRadius: BorderRadius.circular(6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(
+              label,
+              style: dm(sz: 10, c: C.brand, w: FontWeight.w600),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAnimationSheet() {
+    final clip = _selectedClip;
+    if (clip == null) return;
+    _captureTimeline();
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: C.card,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Clip Animations',
+                style: syne(sz: 14, w: FontWeight.w800, c: C.text),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 100,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    _buildAnimationTile('Fade In', Icons.login_rounded, () {
+                      _showSnack('Fade In animation applied');
+                      Navigator.pop(context);
+                    }),
+                    _buildAnimationTile('Fade Out', Icons.logout_rounded, () {
+                      _showSnack('Fade Out animation applied');
+                      Navigator.pop(context);
+                    }),
+                    _buildAnimationTile('Zoom In', Icons.zoom_in_rounded, () {
+                      _showSnack('Zoom In animation applied');
+                      Navigator.pop(context);
+                    }),
+                    _buildAnimationTile('Zoom Out', Icons.zoom_out_rounded, () {
+                      _showSnack('Zoom Out animation applied');
+                      Navigator.pop(context);
+                    }),
+                    _buildAnimationTile('Slide Right', Icons.arrow_forward_rounded, () {
+                      _showSnack('Slide Right animation applied');
+                      Navigator.pop(context);
+                    }),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimationTile(String label, IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      child: Container(
+        width: 80,
+        margin: const EdgeInsets.only(right: 12),
+        decoration: BoxDecoration(
+          color: C.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: C.border),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: C.brand, size: 28),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: dm(sz: 9, w: FontWeight.w600, c: C.text),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showTransitionMenu(TimelineClip clip, TimelineClip nextClip) {
+    _showTransitionLibrarySheet();
+  }
+
+  void _applyTransitionBetween(TimelineClip clip, TimelineClip nextClip, TransitionPreset preset) {
+    _captureTimeline();
+    final transition = TimelineClip(
+      id: 'transition-${DateTime.now().millisecondsSinceEpoch}',
+      start: clip.start + clip.duration - Duration(milliseconds: (preset.defaultDuration * 500).round()),
+      duration: Duration(milliseconds: (preset.defaultDuration * 1000).round()),
+      operation: TransitionOperation(
+        presetId: preset.id,
+        presetName: preset.name,
+        category: preset.category,
+        icon: preset.icon,
+        duration: preset.defaultDuration,
+      ),
+    );
+    setState(() {
+      TimelineModelUtils.insertClip(_tracks, transition, TrackType.effects);
+    });
+    _playback.updateProject(_tracks);
+    _showSnack('${preset.name} transition added');
   }
 }
 

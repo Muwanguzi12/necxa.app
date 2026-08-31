@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../theme.dart';
@@ -288,11 +289,8 @@ class _GiftContainerState extends State<GiftContainer> {
 
   Widget _buildGiftIcon(GiftItem p) {
     final url = p.imageUrl;
-    // Explicitly use system font for emojis to avoid 'question mark' glyph issues with custom Google Fonts
-    final emojiStyle = TextStyle(
-      fontSize: 32,
-      fontFamily: kIsWeb ? 'sans-serif' : null, // Default system font handles emojis best
-    );
+    // Standard system text style for emojis to avoid custom font rendering issues
+    final emojiStyle = const TextStyle(fontSize: 32);
 
     if (url == null || url.isEmpty) {
       return Center(child: Text(p.emoji, style: emojiStyle));
@@ -1051,40 +1049,56 @@ class AnimatedValueSent extends StatefulWidget {
   State<AnimatedValueSent> createState() => _AnimatedValueSentState();
 }
 
-class _AnimatedValueSentState extends State<AnimatedValueSent> with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
+class _AnimatedValueSentState extends State<AnimatedValueSent> with TickerProviderStateMixin {
+  late AnimationController _numCtrl;
+  late AnimationController _scaleCtrl;
   late Animation<double> _val;
+  late Animation<double> _scale;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+    _numCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
+    _scaleCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 400));
+
     _val = Tween<double>(begin: 0, end: widget.value.toDouble()).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.linear)
+      CurvedAnimation(parent: _numCtrl, curve: Curves.easeOutCirc)
     );
+
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.2), weight: 50),
+      TweenSequenceItem(tween: Tween(begin: 1.2, end: 1.0), weight: 50),
+    ]).animate(CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeInOut));
+
+    _numCtrl.forward();
+    _scaleCtrl.repeat(reverse: true);
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _numCtrl.dispose();
+    _scaleCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _val,
+      animation: Listenable.merge([_numCtrl, _scaleCtrl]),
       builder: (context, child) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.stars_rounded, color: Colors.black, size: 14),
-            const SizedBox(width: 4),
-            Text(
-              '+${_val.value.toInt()}',
-              style: syne(sz: 14, w: FontWeight.w900, c: Colors.black),
-            ),
-          ],
+        return ScaleTransition(
+          scale: _scale,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.stars_rounded, color: Colors.black, size: 16),
+              const SizedBox(width: 6),
+              Text(
+                '+${_val.value.toInt()}',
+                style: syne(sz: 15, w: FontWeight.w900, c: Colors.black),
+              ),
+            ],
+          ),
         );
       },
     );

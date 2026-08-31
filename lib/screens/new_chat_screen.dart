@@ -419,7 +419,7 @@ class _NewChatScreenState extends State<NewChatScreen>
                             ),
                           ),
                         )
-                      : const Icon(
+                      : Icon(
                           Icons.arrow_forward_ios,
                           size: 14,
                           color: C.dim,

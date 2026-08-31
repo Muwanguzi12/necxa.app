@@ -1892,7 +1892,7 @@ class _EcomOrderCardState extends State<_EcomOrderCard> {
                   color: C.dim,
                 ),
                 child: data['product_thumbnail'] == null
-                    ? const Icon(
+                    ? Icon(
                         Icons.inventory_2_outlined,
                         color: C.dim,
                       )

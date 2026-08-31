@@ -1362,7 +1362,7 @@ class _UploadScreenState extends State<UploadScreen>
       SnackBar(
         content: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.check_circle_rounded,
               color: C.text,
               size: 22,
@@ -1698,7 +1698,7 @@ class _UploadScreenState extends State<UploadScreen>
                         style: BorderStyle.solid,
                       ),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.add_a_photo_outlined,
                       color: C.dim,
                       size: 24,
@@ -1723,11 +1723,11 @@ class _UploadScreenState extends State<UploadScreen>
                     onTap: () => setState(() => _productPhotos.removeAt(i)),
                     child: Container(
                       margin: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         color: Colors.black54,
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.close,
                         size: 14,
                         color: C.text,
@@ -1774,7 +1774,7 @@ class _UploadScreenState extends State<UploadScreen>
     }
 
     if (_livePreviewState == _LiveCapturePreviewState.initializing) {
-      return const ColoredBox(
+      return ColoredBox(
         color: Color(0xFF0C0D10),
         child: Center(
           child: SizedBox.square(
@@ -1788,7 +1788,7 @@ class _UploadScreenState extends State<UploadScreen>
       );
     }
 
-    return const ColoredBox(
+    return ColoredBox(
       color: Color(0xFF111317),
       child: Center(
         child: Icon(Icons.videocam_outlined, color: C.dim, size: 58),
@@ -1812,7 +1812,7 @@ class _UploadScreenState extends State<UploadScreen>
             ),
             visualDensity: VisualDensity.compact,
           ),
-          icon: const Icon(Icons.videocam_outlined, size: 17),
+          icon: Icon(Icons.videocam_outlined, size: 17),
           label: Text(
             'Enable Camera',
             style: dm(sz: 11, w: FontWeight.w800, c: Colors.black),
@@ -1877,11 +1877,11 @@ class _UploadScreenState extends State<UploadScreen>
                         children: [
                           Container(
                             padding: const EdgeInsets.all(12),
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               color: C.dim,
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.videocam,
                               color: C.text,
                               size: 32,
@@ -1907,7 +1907,7 @@ class _UploadScreenState extends State<UploadScreen>
                               ],
                             ),
                           ),
-                          const Icon(
+                          Icon(
                             Icons.arrow_forward_ios,
                             color: C.text,
                             size: 16,
@@ -1939,7 +1939,7 @@ class _UploadScreenState extends State<UploadScreen>
               ),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.movie_filter_outlined,
                     color: C.brand,
                     size: 32,
@@ -2029,20 +2029,21 @@ class _UploadScreenState extends State<UploadScreen>
   Widget _topBar(
     String title,
     VoidCallback onBack, {
-    Color color = C.text,
+    Color? color,
   }) {
+    final activeColor = color ?? C.text;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 16, 0),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new),
+            icon: Icon(Icons.arrow_back_ios_new),
             onPressed: onBack,
-            color: color,
+            color: activeColor,
           ),
           Text(
             title,
-            style: syne(sz: 18, w: FontWeight.w900, c: color),
+            style: syne(sz: 18, w: FontWeight.w900, c: activeColor),
           ),
         ],
       ),
@@ -2102,7 +2103,7 @@ class _UploadScreenState extends State<UploadScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
+              Icon(
                 Icons.add_photo_alternate_outlined,
                 color: C.dim,
                 size: 40,
@@ -2154,7 +2155,7 @@ class _UploadScreenState extends State<UploadScreen>
               right: 4,
               child: GestureDetector(
                 onTap: () => setState(() => _multiFiles.removeAt(i)),
-                child: const CircleAvatar(
+                child: CircleAvatar(
                   radius: 10,
                   backgroundColor: Colors.black54,
                   child: Icon(Icons.close, size: 12, color: C.text),
@@ -2162,7 +2163,7 @@ class _UploadScreenState extends State<UploadScreen>
               ),
             ),
             if (_multiFiles[i].path.toLowerCase().endsWith('.mp4'))
-              const Center(
+              Center(
                 child: Icon(
                   Icons.play_circle_outline,
                   color: C.sub,
@@ -2288,7 +2289,7 @@ class _UploadScreenState extends State<UploadScreen>
             padding: const EdgeInsets.symmetric(horizontal: 60),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
-              child: const LinearProgressIndicator(
+              child: LinearProgressIndicator(
                 backgroundColor: C.dim,
                 valueColor: AlwaysStoppedAnimation<Color>(C.brand),
                 minHeight: 2,

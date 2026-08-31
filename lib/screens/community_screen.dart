@@ -329,7 +329,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               if (items.isEmpty &&
                                   snapshot.connectionState ==
                                       ConnectionState.waiting) {
-                                return const Center(
+                                return Center(
                                   child: CircularProgressIndicator(
                                     color: C.brand,
                                   ),
@@ -547,7 +547,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _buildDesktopShell(Widget canvas, double width) {
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: RadialGradient(
           center: Alignment(0.15, -0.2),
           radius: 1.15,
@@ -639,7 +639,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: () => _showUploadOptions(context),
-              icon: const Icon(Icons.add_rounded),
+              icon: Icon(Icons.add_rounded),
               label: const Text('Create'),
               style: FilledButton.styleFrom(
                 backgroundColor: C.brand,
@@ -725,11 +725,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
           const Spacer(),
           OutlinedButton.icon(
             onPressed: () => _refreshFuture(force: true),
-            icon: const Icon(Icons.refresh_rounded, size: 18),
+            icon: Icon(Icons.refresh_rounded, size: 18),
             label: const Text('Refresh'),
             style: OutlinedButton.styleFrom(
               foregroundColor: C.sub,
-              side: const BorderSide(color: C.dim),
+              side: BorderSide(color: C.dim),
             ),
           ),
         ],
@@ -779,7 +779,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               shape: BoxShape.circle,
               border: Border.all(color: C.text.withOpacity(0.1)),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.arrow_back_ios_new,
               color: C.text,
               size: 16,
@@ -884,7 +884,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   shape: BoxShape.circle,
                   border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.cloud_upload_outlined,
                   color: C.text,
                   size: 18,
@@ -902,7 +902,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   shape: BoxShape.circle,
                   border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.search_rounded,
                   color: C.text,
                   size: 18,
@@ -947,7 +947,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     Container(
                       width: 7,
                       height: 7,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         color: Color(0xFFFF334E),
                         shape: BoxShape.circle,
                       ),
@@ -972,7 +972,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       onPressed: _toggleLiveOverlay,
                       tooltip: 'Collapse live streams',
                       visualDensity: VisualDensity.compact,
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.keyboard_arrow_down_rounded,
                         color: C.sub,
                         size: 22,
@@ -1018,7 +1018,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         : C.text.withValues(alpha: 0.12),
                   ),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.sensors_rounded,
                   color: C.text,
                   size: 23,
@@ -1079,7 +1079,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Widget _buildLiveStreamRail() {
     if (_loadingLiveStreams && _activeLiveStreams.isEmpty) {
-      return const Center(
+      return Center(
         child: SizedBox(
           width: 22,
           height: 22,
@@ -1095,7 +1095,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.videocam_off_outlined,
               color: C.dim,
               size: 22,
@@ -1194,7 +1194,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.person, color: C.text, size: 8),
+                        Icon(Icons.person, color: C.text, size: 8),
                         const SizedBox(width: 2),
                         Text(
                           _compactCount(viewerCount),
@@ -1229,7 +1229,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     return Container(
       color: const Color(0xFF252932),
       alignment: Alignment.center,
-      child: const Icon(Icons.person, color: C.dim, size: 30),
+      child: Icon(Icons.person, color: C.dim, size: 30),
     );
   }
 
@@ -1284,7 +1284,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 18, 10, 12),
                 child: Row(
                   children: [
-                    const Icon(Icons.sensors_rounded, color: Color(0xFFFF334E)),
+                    Icon(Icons.sensors_rounded, color: Color(0xFFFF334E)),
                     const SizedBox(width: 9),
                     Text(
                       'LIVE Now',
@@ -1294,12 +1294,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     IconButton(
                       onPressed: () => Navigator.pop(sheetContext),
                       tooltip: 'Close',
-                      icon: const Icon(Icons.close, color: C.sub),
+                      icon: Icon(Icons.close, color: C.sub),
                     ),
                   ],
                 ),
               ),
-              const Divider(color: C.dim, height: 1),
+              Divider(color: C.dim, height: 1),
               Expanded(
                 child: GridView.builder(
                   padding: const EdgeInsets.all(16),
@@ -1567,7 +1567,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ],
               ),
             ),
-            const Icon(
+            Icon(
               Icons.arrow_forward_ios_rounded,
               color: C.dim,
               size: 14,
@@ -1955,7 +1955,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             CachedNetworkImage(
                               imageUrl: mediaUrl,
                               fit: BoxFit.contain,
-                              placeholder: (context, url) => const Center(
+                              placeholder: (context, url) => Center(
                                 child: CircularProgressIndicator(
                                   color: C.brand,
                                   strokeWidth: 2,
@@ -1964,7 +1964,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                               errorWidget: (context, url, error) => Stack(
                                 children: [
                                   _buildFallbackBackground(),
-                                  const Center(
+                                  Center(
                                     child: Icon(
                                       Icons.broken_image_outlined,
                                       color: C.dim,
@@ -2014,7 +2014,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 // Scrim
                 IgnorePointer(
                   child: Container(
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
@@ -2226,7 +2226,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: const Icon(
+                  leading: Icon(
                     Icons.visibility_off_outlined,
                     color: C.sub,
                   ),
@@ -2241,7 +2241,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (isOwner && postId != null)
                 ListTile(
-                  leading: const Icon(
+                  leading: Icon(
                     Icons.delete_outline_rounded,
                     color: Colors.redAccent,
                   ),
@@ -2304,7 +2304,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: const Icon(
+                  leading: Icon(
                     Icons.report_problem_outlined,
                     color: C.text,
                   ),
@@ -2354,8 +2354,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
-    Color iconColor = C.text,
+    Color? iconColor,
   }) {
+    final activeColor = iconColor ?? C.text;
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -2367,7 +2368,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               color: Colors.black.withOpacity(0.3),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: iconColor, size: 20),
+            child: Icon(icon, color: activeColor, size: 20),
           ),
           const SizedBox(height: 2),
           Text(
@@ -2434,7 +2435,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               child: Container(
                 width: 52,
                 height: 52,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Color(0xFF00E5FF),
                 ),
@@ -2521,14 +2522,14 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     },
                     child: Container(
                       padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         color: Color(0xFF00E5FF),
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(color: Colors.black26, blurRadius: 4),
                         ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.add,
                         color: Colors.black,
                         size: 14,
@@ -2628,7 +2629,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     color: C.text.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.chat_bubble_outline_rounded,
                     color: Color(0xFF00E5FF),
                     size: 16,
@@ -2677,7 +2678,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   _startCollapseTimer();
                   _showThreeDotMenu(context);
                 },
-                child: const Icon(
+                child: Icon(
                   Icons.more_horiz,
                   color: C.text,
                   size: 18,
@@ -2843,11 +2844,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           border: Border.all(color: C.dim, width: 2),
         ),
         child: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: Colors.black,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.music_note, color: C.text, size: 12),
+          child: Icon(Icons.music_note, color: C.text, size: 12),
         ),
       ),
     );
@@ -2862,7 +2863,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         fit: BoxFit.contain,
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
-          return const Center(
+          return Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               color: C.dim,
@@ -2907,13 +2908,13 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                         ? Image.network(
                             url,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stack) => const Icon(
+                            errorBuilder: (context, error, stack) => Icon(
                               Icons.shopping_bag_outlined,
                               color: C.dim,
                               size: 14,
                             ),
                           )
-                        : const Icon(
+                        : Icon(
                             Icons.shopping_bag_outlined,
                             color: C.dim,
                             size: 14,
@@ -2945,7 +2946,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ],
                 ),
                 const SizedBox(width: 8),
-                const Icon(
+                Icon(
                   Icons.arrow_forward_ios,
                   color: C.dim,
                   size: 10,
@@ -2969,7 +2970,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           colors: [C.cardDk, C.bg],
         ),
       ),
-      child: const Center(
+      child: Center(
         child: Icon(Icons.style_outlined, size: 100, color: C.dim),
       ),
     );
@@ -3261,7 +3262,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
           child: IgnorePointer(
             ignoring: true,
             child: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -3431,7 +3432,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
               color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Center(
+            child: Center(
               child: SizedBox(
                 width: 16,
                 height: 16,
@@ -3515,7 +3516,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
               child: Container(
                 width: 52,
                 height: 52,
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Color(0xFF00E5FF),
                 ),
@@ -3584,14 +3585,14 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     },
                     child: Container(
                       padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         color: Color(0xFF00E5FF),
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(color: Colors.black26, blurRadius: 4),
                         ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.add,
                         color: Colors.black,
                         size: 14,
@@ -3684,7 +3685,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     color: C.text.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.chat_bubble_outline_rounded,
                     color: Color(0xFF00E5FF),
                     size: 16,
@@ -3773,7 +3774,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                               ),
                             );
                           },
-                          errorBuilder: (context, error, stack) => const Center(
+                          errorBuilder: (context, error, stack) => Center(
                             child: Icon(
                               Icons.shopping_bag_outlined,
                               color: C.dim,
@@ -3781,7 +3782,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                             ),
                           ),
                         )
-                      : const Center(
+                      : Center(
                           child: Icon(
                             Icons.shopping_bag_outlined,
                             color: C.dim,
@@ -3857,9 +3858,10 @@ class _ShopReelItemState extends State<_ShopReelItem>
   Widget _shopAction({
     required IconData icon,
     required String label,
-    Color iconColor = C.text,
+    Color? iconColor,
     required VoidCallback onTap,
   }) {
+    final activeColor = iconColor ?? C.text;
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -3867,8 +3869,8 @@ class _ShopReelItemState extends State<_ShopReelItem>
           Stack(
             alignment: Alignment.center,
             children: [
-              const Icon(Icons.circle, color: Colors.transparent, size: 34),
-              Icon(icon, color: iconColor, size: 22),
+              Icon(Icons.circle, color: Colors.transparent, size: 34),
+              Icon(icon, color: activeColor, size: 22),
             ],
           ),
           const SizedBox(height: 2),
@@ -3883,7 +3885,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
 
   Widget _buildFallback() => Container(
     color: C.cardDk,
-    child: const Center(
+    child: Center(
       child: Icon(
         Icons.shopping_cart_outlined,
         size: 80,
@@ -4044,7 +4046,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                 future: _commentsFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
+                    return Center(
                       child: CircularProgressIndicator(
                         color: C.brand,
                         strokeWidth: 2,
@@ -4064,7 +4066,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                           IconButton(
                             onPressed: _refreshComments,
                             tooltip: 'Retry',
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.refresh_rounded,
                               color: C.brand,
                             ),
@@ -4190,7 +4192,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                     ),
                     if (isVerified) ...[
                       const SizedBox(width: 4),
-                      const Icon(
+                      Icon(
                         Icons.verified,
                         size: 12,
                         color: Color(0xFF00E5FF),
@@ -4198,7 +4200,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                     ],
                     if (isPending) ...[
                       const SizedBox(width: 6),
-                      const Tooltip(
+                      Tooltip(
                         message: 'Waiting to sync',
                         child: Icon(
                           Icons.schedule_rounded,
@@ -4260,7 +4262,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                       strokeWidth: 2,
                     ),
                   )
-                : const Icon(Icons.arrow_upward_rounded, color: C.brand),
+                : Icon(Icons.arrow_upward_rounded, color: C.brand),
             style: IconButton.styleFrom(
               backgroundColor: C.brand.withOpacity(0.1),
               shape: RoundedRectangleBorder(
@@ -4421,13 +4423,13 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                             ? 'Search posts, users…'
                             : 'Search shop listings…',
                         hintStyle: dm(sz: 14, c: C.dim),
-                        prefixIcon: const Icon(
+                        prefixIcon: Icon(
                           Icons.search_rounded,
                           color: C.dim,
                           size: 18,
                         ),
                         suffixIcon: _loading
-                            ? const Padding(
+                            ? Padding(
                                 padding: EdgeInsets.all(14),
                                 child: SizedBox(
                                   width: 16,
@@ -4525,7 +4527,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.explore_outlined,
                                 color: C.dim,
                                 size: 52,
@@ -4575,7 +4577,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                         : null,
                                   ),
                                   child: mediaUrl == null
-                                      ? const Icon(
+                                      ? Icon(
                                           Icons.shopping_bag,
                                           color: C.dim,
                                         )
@@ -4598,7 +4600,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                     c: const Color(0xFF00E5FF),
                                   ),
                                 ),
-                                trailing: const Icon(
+                                trailing: Icon(
                                   Icons.arrow_forward_ios,
                                   color: C.dim,
                                   size: 14,
@@ -4661,7 +4663,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                 overflow: TextOverflow.ellipsis,
                                 style: dm(sz: 12, c: C.dim),
                               ),
-                              trailing: const Icon(
+                              trailing: Icon(
                                 Icons.arrow_forward_ios,
                                 color: C.dim,
                                 size: 14,
@@ -4781,7 +4783,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Color(0xFF121212),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -4800,10 +4802,10 @@ class _ReviewSheetState extends State<_ReviewSheet> {
             'VERIFIED REVIEWS',
             style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
           ),
-          const Divider(color: C.dim, height: 30),
+          Divider(color: C.dim, height: 30),
           Expanded(
             child: _isLoading
-                ? const Center(
+                ? Center(
                     child: CircularProgressIndicator(color: Colors.amberAccent),
                   )
                 : _reviews.isEmpty
@@ -4833,7 +4835,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                                       ? null
                                       : NetworkImage(avatarUrl),
                                   child: avatarUrl.isEmpty
-                                      ? const Icon(Icons.person, size: 14)
+                                      ? Icon(Icons.person, size: 14)
                                       : null,
                                 ),
                                 const SizedBox(width: 10),
@@ -4896,7 +4898,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                       height: 14,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.expand_more_rounded),
+                  : Icon(Icons.expand_more_rounded),
               label: const Text('LOAD MORE'),
             ),
           if (_canReview)
@@ -4994,7 +4996,7 @@ class _SubmitCommerceReviewSheetState
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Color(0xFF121212),
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),

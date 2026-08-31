@@ -490,10 +490,12 @@ class _StatSeparator extends StatelessWidget {
 class _MetricTag extends StatelessWidget {
   final String label, value;
   final IconData? icon;
-  final Color color;
-  _MetricTag({required this.label, required this.value, this.icon, this.color = C.text});
+  final Color? color;
+  _MetricTag({required this.label, required this.value, this.icon, this.color});
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final activeColor = color ?? C.text;
+    return Container(
     padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
     decoration: BoxDecoration(
       color: C.text.withOpacity(.03),
@@ -502,10 +504,10 @@ class _MetricTag extends StatelessWidget {
     ),
     child: Row(
       children: [
-        if (icon != null) ...[Icon(icon, color: color, size: 12), SizedBox(width: 6)],
+        if (icon != null) ...[Icon(icon, color: activeColor, size: 12), const SizedBox(width: 6)],
         Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: C.dim)),
-        SizedBox(width: 8),
-        Text(value, style: syne(sz: 12, w: FontWeight.w900, c: color)),
+        const SizedBox(width: 8),
+        Text(value, style: syne(sz: 12, w: FontWeight.w900, c: activeColor)),
       ],
     ),
   );

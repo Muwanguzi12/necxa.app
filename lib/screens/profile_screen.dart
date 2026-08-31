@@ -196,19 +196,19 @@ class _ProfileScreenState extends State<ProfileScreen>
                                 ? CachedNetworkImage(
                                     imageUrl: photoUrl,
                                     fit: BoxFit.cover,
-                                    placeholder: (_, __) => const Center(
+                                    placeholder: (_, __) => Center(
                                       child: CircularProgressIndicator(
                                         color: C.brand,
                                         strokeWidth: 1.5,
                                       ),
                                     ),
-                                    errorWidget: (_, __, ___) => const Icon(
+                                    errorWidget: (_, __, ___) => Icon(
                                       Icons.person,
                                       color: C.brand,
                                       size: 50,
                                     ),
                                   )
-                                : const Icon(
+                                : Icon(
                                     Icons.person,
                                     color: C.brand,
                                     size: 50,
@@ -241,7 +241,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       ],
                       border: Border.all(color: C.bg, width: 2.5),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.add_a_photo_rounded,
                       color: C.text,
                       size: 18,
@@ -255,11 +255,11 @@ class _ProfileScreenState extends State<ProfileScreen>
                 right: 8,
                 child: Container(
                   padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     color: C.brand,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.verified_user,
                     color: C.text,
                     size: 16,
@@ -452,7 +452,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                             color: C.brand.withOpacity(.12),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.storefront_outlined,
                             color: C.brandDk,
                             size: 20,
@@ -499,7 +499,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                     if (isLoading) ...[
                       const SizedBox(height: 18),
-                      const LinearProgressIndicator(minHeight: 2),
+                      LinearProgressIndicator(minHeight: 2),
                     ] else if (hasError) ...[
                       const SizedBox(height: 14),
                       Row(
@@ -513,7 +513,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                           IconButton(
                             tooltip: 'Retry vendor statistics',
                             onPressed: _refreshVendorDashboard,
-                            icon: const Icon(Icons.refresh_rounded, size: 19),
+                            icon: Icon(Icons.refresh_rounded, size: 19),
                           ),
                         ],
                       ),
@@ -1089,7 +1089,7 @@ class _ContentGridItem extends StatelessWidget {
             child: (thumbUrl == null && mediaUrl == null)
                 ? Center(child: Icon(Icons.bolt, color: C.dim))
                 : isVideo
-                ? const Center(
+                ? Center(
                     child: Icon(
                       Icons.play_arrow_rounded,
                       color: C.sub,
@@ -1105,7 +1105,7 @@ class _ContentGridItem extends StatelessWidget {
               left: 8,
               child: Container(
                 padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: Colors.black54,
                   shape: BoxShape.circle,
                 ),
@@ -1256,7 +1256,7 @@ class _NavCenterBtn extends StatelessWidget {
     child: Container(
       width: 48,
       height: 48,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: LinearGradient(colors: [C.brand, C.purple]),
       ),
@@ -1592,7 +1592,7 @@ class _SheetBtn extends StatelessWidget {
           ),
         ),
         if (opensExternally)
-          const Icon(
+          Icon(
             Icons.open_in_new_rounded,
             color: C.dim,
             size: 16,

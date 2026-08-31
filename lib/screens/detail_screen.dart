@@ -113,7 +113,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   placeholder: (_, __) => const Center(
                     child: CircularProgressIndicator(color: C.brand, strokeWidth: 2),
                   ),
-                  errorWidget: (_, __, ___) => const Center(
+                  errorWidget: (_, __, ___) => Center(
                     child: Icon(Icons.error_outline, color: C.dim),
                   ),
                 ),
