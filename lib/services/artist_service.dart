@@ -455,8 +455,8 @@ class NecxaAI {
     return headers;
   }
 
-  /// The app authenticates on SP1, while SP2 is the authoritative home for
-  /// verification processing. SP2 validates this forwarded SP1 JWT itself.
+  /// Routes identity verification through the primary Supabase project's
+  /// verify-identity-shard edge function (NVIDIA Vision primary + Worker fallback).
   static Future<Map<String, dynamic>> _invokeIdentityVerification(
     Map<String, dynamic> payload,
   ) async {
@@ -465,50 +465,20 @@ class NecxaAI {
       throw Exception('User must be signed in to verify identity.');
     }
 
-    final response = await http
-        .post(
-          Uri.parse(_identityVerificationUrl),
-          headers: {
-            'Authorization': 'Bearer ${session.accessToken}',
-            'x-primary-jwt': session.accessToken,
-            'apikey': _identityVerificationPublishableKey,
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(payload),
-        )
-        .timeout(const Duration(seconds: 45));
-    final raw = response.body.trim();
-    Map<String, dynamic>? data;
-    if (raw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) data = Map<String, dynamic>.from(decoded);
-      } on FormatException {
-        // A proxy may return an HTML/plain-text gateway error page.
+    try {
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-identity-shard',
+        headers: _aiHeaders(),
+        body: payload,
+      ).timeout(const Duration(seconds: 45));
+
+      if (res.data != null && res.data is Map) {
+        return Map<String, dynamic>.from(res.data);
       }
+      throw Exception('Invalid response from identity verification service.');
+    } catch (e) {
+      throw Exception(e.toString());
     }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        data?['feedback']?.toString() ??
-            data?['message']?.toString() ??
-            data?['error']?.toString() ??
-            _gatewayErrorMessage(
-              body: raw,
-              statusCode: response.statusCode,
-              service: 'Identity verification',
-            ),
-      );
-    }
-    if (data == null) {
-      throw Exception(
-        _gatewayErrorMessage(
-          body: raw,
-          statusCode: response.statusCode,
-          service: 'Identity verification',
-        ),
-      );
-    }
-    return data;
   }
 
   // -- IDENTITY VERIFICATION --

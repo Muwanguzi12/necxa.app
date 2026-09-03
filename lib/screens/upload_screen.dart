@@ -658,10 +658,10 @@ class _UploadScreenState extends State<UploadScreen>
       // ?? NEURAL DESTINATION WARP: Teleport user to where their content lives
       final destinationTab = (_objectiveId == 'sales') ? 'shop' : 'feed';
       final successMsg = (_objectiveId == 'sales')
-          ? '??? Your product is LIVE in the Shop!'
+          ? '🛍️ Your product is LIVE in the Shop!'
           : (_objectiveId == 'conversion')
-          ? '?? Your release is LIVE in the Feed!'
-          : '? Your post is LIVE in the Feed!';
+          ? '🎵 Your release is LIVE in the Feed!'
+          : '✨ Your post is LIVE in the Feed!';
 
       _onShareSuccess(successMsg, destinationTab: destinationTab);
     } catch (e) {

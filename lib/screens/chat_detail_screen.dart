@@ -120,7 +120,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final localPath = await VoiceNoteService.saveToLocal(bytes, messageId);
 
       widget.state.sendChatMessage(
-        '?? Voice Note (${VoiceNoteService.formatDuration(duration)})',
+        '🎤 Voice Note (${VoiceNoteService.formatDuration(duration)})',
         mediaUrl: localPath,
         messageType: 'voice',
         voiceData: b64,

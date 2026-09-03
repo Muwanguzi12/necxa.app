@@ -153,7 +153,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   _Badge(label: p.financial.isVerified ? '? AI VERIFIED' : 'PENDING AUDIT', color: p.financial.isVerified ? C.green : C.brand),
                   const SizedBox(height: 8),
                   if (p.escrow.status == EscrowStatus.pending_escrow)
-                     const _Badge(label: '?? RESERVED � 72H WINDOW', color: C.red),
+                     const _Badge(label: '⚠️ RESERVED • 72H WINDOW', color: C.red),
                 ],
               ),
             ),
@@ -246,11 +246,11 @@ class _DetailScreenState extends State<DetailScreen> {
   Widget _buildQuickSpecs(PropertyContainer p) {
     return Row(
       children: [
-        _SpecBox(icon: '???', label: '${p.core.bedrooms} Beds'),
+        _SpecBox(icon: '🛏', label: '${p.core.bedrooms} Beds'),
         const SizedBox(width: 10),
-        _SpecBox(icon: '??', label: '${p.core.bathrooms} Baths'),
+        _SpecBox(icon: '🚿', label: '${p.core.bathrooms} Baths'),
         const SizedBox(width: 10),
-        _SpecBox(icon: '??', label: '${p.core.sizeSqft} sqft'),
+        _SpecBox(icon: '📐', label: '${p.core.sizeSqft} sqft'),
       ],
     );
   }
@@ -266,7 +266,7 @@ class _DetailScreenState extends State<DetailScreen> {
               Container(
                 width: 50, height: 50,
                 decoration: BoxDecoration(shape: BoxShape.circle, color: C.border),
-                child: const Center(child: Text('??', style: TextStyle(fontSize: 24))),
+                child: const Center(child: Text('👤', style: TextStyle(fontSize: 24))),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -291,7 +291,7 @@ class _DetailScreenState extends State<DetailScreen> {
           ),
           const SizedBox(height: 16),
           _Btn(
-            label: '??? Direct In-App Chat',
+            label: '🗨️ Direct In-App Chat',
             color: C.brand.withOpacity(.1),
             textColor: C.brand,
             border: true,
@@ -338,7 +338,7 @@ class _DetailScreenState extends State<DetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Text('??', style: TextStyle(fontSize: 22)),
+            const Text('🔗', style: TextStyle(fontSize: 22)),
             const SizedBox(width: 10),
             Text('RESTRICTED INTEL', style: syne(sz: 14, c: C.green, w: FontWeight.bold)),
           ]),
@@ -596,7 +596,7 @@ class _VirtualTourWidget extends StatelessWidget {
 
     if (booking == null) {
       return _Btn(
-        label: '?? Schedule Virtual Tour',
+        label: '📅 Schedule Virtual Tour',
         color: C.brand.withOpacity(.1),
         textColor: C.brand,
         border: true,

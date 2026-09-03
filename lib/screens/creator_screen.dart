@@ -341,7 +341,7 @@ class CreatorScreen extends StatelessWidget {
               color: C.green,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Text('?? Withdraw to MTN MoMo',
+            child: Text('💳 Withdraw to MTN MoMo',
                 textAlign: TextAlign.center,
                 style: dm(sz: 14, w: FontWeight.w800,
                     c: C.text)),
@@ -353,13 +353,13 @@ class CreatorScreen extends StatelessWidget {
 
   Widget _buildUploadCard() {
     final opts = [
-      ('??', 'Music Video', 'Upload full HD music video'),
-      ('??', 'Short Reel', '15-60 second viral reel'),
-      ('??', 'Go Live', 'Start a live stream now'),
-      ('???', 'Photo Post', 'Share artwork or photos'),
+      ('🎬', 'Music Video', 'Upload full HD music video'),
+      ('📱', 'Short Reel', '15-60 second viral reel'),
+      ('🔴', 'Go Live', 'Start a live stream now'),
+      ('🖼️', 'Photo Post', 'Share artwork or photos'),
     ];
     return _StudioCard(
-      title: '?? Upload Content',
+      title: '📤 Upload Content',
       child: Column(
         children: opts.map((o) {
           final isLast = o == opts.last;
@@ -382,7 +382,7 @@ class CreatorScreen extends StatelessWidget {
                   ],
                 ),
                 Spacer(),
-                Text('�', style: dm(sz: 18, c: C.dim)),
+                Text('›', style: dm(sz: 18, c: C.dim)),
               ],
             ),
           );
@@ -393,13 +393,13 @@ class CreatorScreen extends StatelessWidget {
 
   Widget _buildAnalyticsCard() {
     final items = [
-      ('???', '4.2M', 'Total Views'),
-      ('??', '184K', 'Total Likes'),
-      ('??', '12.4K', 'Gifts Received'),
-      ('??', '2.4M', 'Followers'),
+      ('👁️', '4.2M', 'Total Views'),
+      ('❤️', '184K', 'Total Likes'),
+      ('🎁', '12.4K', 'Gifts Received'),
+      ('👥', '2.4M', 'Followers'),
     ];
     return _StudioCard(
-      title: '?? This Month',
+      title: '📊 This Month',
       child: LayoutBuilder(
         builder: (context, constraints) {
           final itemWidth = (constraints.maxWidth - 12) / 2;
@@ -439,10 +439,10 @@ class CreatorScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('??', 'Property', false, () => state.go('home')),
-          _BotBtn('??', 'Creator', true, () {}),
-          _BotBtn('??', 'Saved', false, () {}),
-          _BotBtn('??', 'Profile', false, () {}),
+          _BotBtn('🏠', 'Property', false, () => state.go('home')),
+          _BotBtn('🎬', 'Creator', true, () {}),
+          _BotBtn('🔖', 'Saved', false, () {}),
+          _BotBtn('👤', 'Profile', false, () {}),
         ],
       ),
     );
@@ -652,13 +652,13 @@ class _PostCard extends StatelessWidget {
                   child: Row(
                     children: [
                       _ActionBtn(
-                        icon: liked ? '??' : '??',
+                        icon: liked ? '❤️' : '🤍',
                         label: kNum(p.likes + (liked ? 1 : 0)),
                         active: liked,
                         onTap: () => state.toggleLike(p.id),
                       ),
                       _ActionBtn(
-                        icon: '??',
+                        icon: '💬',
                         label: kNum(p.comments),
                         onTap: () {},
                       ),

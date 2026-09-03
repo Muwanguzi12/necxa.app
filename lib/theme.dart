@@ -64,6 +64,8 @@ TextStyle syne({
   fontStyle: fs,
   letterSpacing: ls,
   height: h,
+).copyWith(
+  fontFamilyFallback: const ['NotoColorEmoji', 'Apple Color Emoji', 'Segoe UI Emoji'],
 );
 
 TextStyle dm({
@@ -80,6 +82,8 @@ TextStyle dm({
   fontStyle: fs,
   letterSpacing: ls,
   height: h,
+).copyWith(
+  fontFamilyFallback: const ['NotoColorEmoji', 'Apple Color Emoji', 'Segoe UI Emoji'],
 );
 
 // ── Gradient helpers ──────────────────────────────────────────
@@ -170,7 +174,9 @@ ThemeData buildLightTheme() => ThemeData(
     iconTheme: IconThemeData(color: Color(0xFF172033)),
   ),
   dividerColor: C.softWhiteBorder,
-  textTheme: GoogleFonts.robotoTextTheme(ThemeData.light().textTheme),
+  textTheme: GoogleFonts.robotoTextTheme(ThemeData.light().textTheme).apply(
+    fontFamilyFallback: const ['NotoColorEmoji', 'Apple Color Emoji', 'Segoe UI Emoji'],
+  ),
 );
 
 ThemeData buildDarkTheme() => ThemeData(
@@ -188,7 +194,9 @@ ThemeData buildDarkTheme() => ThemeData(
     iconTheme: IconThemeData(color: Color(0xFFF0F4FF)),
   ),
   dividerColor: const Color(0xFF1C2535),
-  textTheme: GoogleFonts.robotoTextTheme(ThemeData.dark().textTheme),
+  textTheme: GoogleFonts.robotoTextTheme(ThemeData.dark().textTheme).apply(
+    fontFamilyFallback: const ['NotoColorEmoji', 'Apple Color Emoji', 'Segoe UI Emoji'],
+  ),
 );
 
 class NecxaLogo extends StatelessWidget {

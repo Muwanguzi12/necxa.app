@@ -156,7 +156,7 @@ class _PaymentScreenState extends State<PaymentScreen>
         children: [
           Container(
             padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text('???? +256', style: syne(sz: 16, w: FontWeight.bold)),
+            child: Text('🇺🇬 +256', style: syne(sz: 16, w: FontWeight.bold)),
           ),
           Container(width: 1, height: 24, color: C.border),
           Expanded(

@@ -337,10 +337,10 @@ class _TransportScreenState extends State<TransportScreen> {
   // -- Shared App Tabs --
   Widget _buildAppTabs() {
     final tabs = [
-      ('home', '??', 'Property'),
-      ('transport', '??', 'Transport'),
+      ('home', '🏠', 'Property'),
+      ('transport', '🚚', 'Transport'),
       ('upload', '?', 'Upload'),
-      ('profile', '??', 'Profile'),
+      ('profile', '👤', 'Profile'),
     ];
     return Container(
       decoration: BoxDecoration(

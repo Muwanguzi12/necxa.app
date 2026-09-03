@@ -71,7 +71,7 @@ class _ArtistAuthScreenState extends State<ArtistAuthScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                    const SizedBox(height: 40),
-                   const Text('??', style: TextStyle(fontSize: 60), textAlign: TextAlign.center),
+                   const Text('🎨', style: TextStyle(fontSize: 60), textAlign: TextAlign.center),
                    const SizedBox(height: 16),
                    Text(_isLogin ? 'Artist Login' : 'Artist Program', 
                       style: syne(sz: 28, w: FontWeight.w900, ls: 1), textAlign: TextAlign.center),

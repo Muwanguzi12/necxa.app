@@ -186,6 +186,86 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
   }
 }
 
+async function callNvidiaVisionId(
+  imageBase64: string,
+  stage: string
+): Promise<{
+  verified: boolean
+  decision: string
+  reasonCode: string
+  score: number
+  qualityScore: number
+  docType: string
+  country: string
+  extractedData: any
+}> {
+  const NVIDIA_API_KEY = Deno.env.get('NVIDIA_API_KEY')
+  if (!NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not configured')
+
+  const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '')
+  const imageUrl = `data:image/jpeg;base64,${imageData}`
+
+  const promptText = `You are a certified identity document verification AI.
+Analyze this image of an ID card or Passport (${stage} side).
+Is it a clear, legible, and valid identity document?
+If the user captured a blank space, a wall, or an illegible blur, it should fail.
+
+Respond in STRICT JSON ONLY:
+{
+  "verified": <true|false>,
+  "decision": "<pass|fail|manual_review>",
+  "reasonCode": "<document_valid|document_unreadable|document_requires_review>",
+  "score": <0-100>,
+  "qualityScore": <0-100>,
+  "docType": "national_id",
+  "country": "UG",
+  "extractedData": {}
+}`
+
+  const nvidiaRes = await fetch(NVIDIA_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${NVIDIA_API_KEY}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      model: NVIDIA_VISION_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: imageUrl } },
+            { type: 'text', text: promptText }
+          ]
+        }
+      ],
+      max_tokens: 512,
+      temperature: 0.1,
+    }),
+  })
+
+  if (!nvidiaRes.ok) throw new Error(`NVIDIA Vision API error ${nvidiaRes.status}`)
+
+  const nvidiaData = await nvidiaRes.json()
+  const rawText: string = nvidiaData?.choices?.[0]?.message?.content ?? ''
+  
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error(`NVIDIA Vision returned non-JSON response`)
+
+  const parsed = JSON.parse(jsonMatch[0])
+  return {
+    verified: Boolean(parsed.verified),
+    decision: parsed.decision ?? 'manual_review',
+    reasonCode: parsed.reasonCode ?? 'document_requires_review',
+    score: Number(parsed.score ?? 0),
+    qualityScore: Number(parsed.qualityScore ?? 0),
+    docType: parsed.docType ?? 'national_id',
+    country: parsed.country ?? 'UG',
+    extractedData: parsed.extractedData ?? {}
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ─────────────────────────────────────────────────────────────────────────────
@@ -246,6 +326,45 @@ serve(async (req) => {
       if (!imageBase64) throw new Error("Missing imageBase64 payload")
 
       const stage = action === 'verify-id' ? 'front' : action.replace('verify-id-', '')
+      
+      // ── Attempt NVIDIA Vision ID verification first ─────────────────────
+      let nvidiaIdResult: any = null
+      let nvidiaIdError: string | null = null
+
+      try {
+        nvidiaIdResult = await callNvidiaVisionId(imageBase64, stage)
+        console.log(`[NVIDIA Vision ID] verified=${nvidiaIdResult.verified} decision=${nvidiaIdResult.decision}`)
+      } catch (err: any) {
+        nvidiaIdError = err.message
+        console.warn(`[NVIDIA Vision ID] Failed (${nvidiaIdError}), falling back to Cloudflare Worker`)
+      }
+
+      if (nvidiaIdResult) {
+        const automaticallyVerified = nvidiaIdResult.verified === true && nvidiaIdResult.decision === 'pass'
+        const reasonCode = String(nvidiaIdResult.reasonCode || 'document_requires_review')
+        const feedback = automaticallyVerified
+          ? `National ID ${stage} scan verified by NVIDIA Vision AI. Continue to the next capture.`
+          : documentFailureFeedback[reasonCode] || 'This document scan could not be accepted.'
+
+        return new Response(JSON.stringify({
+          verified: automaticallyVerified,
+          automaticallyVerified,
+          decision: nvidiaIdResult.decision || 'manual_review',
+          reasonCode,
+          requiresManualReview: nvidiaIdResult.decision === 'manual_review',
+          score: percentage(nvidiaIdResult.score),
+          qualityScore: percentage(nvidiaIdResult.qualityScore),
+          docType: nvidiaIdResult.docType,
+          country: nvidiaIdResult.country,
+          extractedData: nvidiaIdResult.extractedData,
+          stage,
+          feedback,
+          verificationSessionId: sessionId,
+          sessionLink
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      console.log('[ID Capture] Using Cloudflare Worker fallback')
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
       const imageBytes = decode(base64Data);
       

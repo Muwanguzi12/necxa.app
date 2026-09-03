@@ -170,34 +170,55 @@ class NecxaAI {
   }
 
   // ── WORKER: PHOTO MODERATION ──────────────────────────────────────────────
-  /// Submits a photo to the Cloudflare Worker's universal content moderation
-  /// engine (`/api/verify/photo`). Falls back to Supabase on network error.
+  /// Submits a photo to the Supabase verify-content function (NVIDIA Vision).
+  /// Falls back to Cloudflare Worker on network error.
   static Future<Map<String, dynamic>> verifyPhotoWorker(File photoFile) async {
     try {
-      final req =
-          http.MultipartRequest(
-              'POST',
-              Uri.parse('$_workerBase/api/verify/photo'),
-            )
-            ..headers.addAll(_workerHeaders())
-            ..files.add(
-              await http.MultipartFile.fromPath('photo', photoFile.path),
-            );
-      final streamed = await req.send().timeout(_imageVerificationTimeout);
-      final body = await streamed.stream.bytesToString();
-      return _decodeWorkerResponse(
-        body: body,
-        statusCode: streamed.statusCode,
-        operation: 'Photo verification',
-      );
+      final base64Image = await fileToBase64(photoFile);
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-content',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'verify_general_content',
+          'mediaBase64': base64Image,
+        },
+      ).timeout(const Duration(seconds: 25));
+
+      if (res.data != null && res.data is Map) {
+        final data = Map<String, dynamic>.from(res.data);
+        if (data['success'] == true) {
+          return data;
+        }
+      }
+      throw Exception(res.data?['error'] ?? 'NVIDIA photo verification failed');
     } catch (e) {
-      debugPrint('⚡ Worker photo verify failed: $e');
-      return {'success': false, 'error': _verificationRequestError(e, 'Photo')};
+      debugPrint('⚡ NVIDIA photo verify failed, trying Cloudflare fallback: $e');
+      try {
+        final req =
+            http.MultipartRequest(
+                'POST',
+                Uri.parse('$_workerBase/api/verify/photo'),
+              )
+              ..headers.addAll(_workerHeaders())
+              ..files.add(
+                await http.MultipartFile.fromPath('photo', photoFile.path),
+              );
+        final streamed = await req.send().timeout(_imageVerificationTimeout);
+        final body = await streamed.stream.bytesToString();
+        return _decodeWorkerResponse(
+          body: body,
+          statusCode: streamed.statusCode,
+          operation: 'Photo verification',
+        );
+      } catch (workerErr) {
+        debugPrint('⚡ Worker photo verify failed: $workerErr');
+        return {'success': false, 'error': _verificationRequestError(workerErr, 'Photo')};
+      }
     }
   }
 
   // ── WORKER: VIDEO MODERATION (multi-frame) ────────────────────────────────
-  /// Submits up to 5 extracted video frames to `/api/verify/video`.
+  /// Submits up to 5 extracted video frames to Supabase verify-content (NVIDIA Vision).
   static Future<Map<String, dynamic>> verifyVideoWorker(
     List<File> frames,
   ) async {
@@ -205,27 +226,53 @@ class NecxaAI {
       if (frames.isEmpty) {
         return {'success': false, 'error': 'No video frames were extracted'};
       }
-      final req = http.MultipartRequest(
-        'POST',
-        Uri.parse('$_workerBase/api/verify/video'),
-      )..headers.addAll(_workerHeaders());
-      for (int i = 0; i < frames.length && i < 5; i++) {
-        req.files.add(
-          await http.MultipartFile.fromPath('frame$i', frames[i].path),
-        );
+
+      final List<String> base64Frames = [];
+      for (final f in frames.take(5)) {
+        base64Frames.add(await fileToBase64(f));
       }
-      final streamed = await req.send().timeout(_videoVerificationTimeout);
-      final body = await streamed.stream.bytesToString();
-      final decoded = _decodeWorkerResponse(
-        body: body,
-        statusCode: streamed.statusCode,
-        operation: 'Video verification',
-      );
-      if (decoded['success'] == false) return decoded;
-      return normalizeModerationResponse(decoded);
+
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-content',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'verify_general_content',
+          'videoFrames': base64Frames,
+        },
+      ).timeout(const Duration(seconds: 40));
+
+      if (res.data != null && res.data is Map) {
+        final data = Map<String, dynamic>.from(res.data);
+        if (data['success'] == true) {
+          return normalizeModerationResponse(data);
+        }
+      }
+      throw Exception(res.data?['error'] ?? 'NVIDIA video verification failed');
     } catch (e) {
-      debugPrint('⚡ Worker video verify failed: $e');
-      return {'success': false, 'error': _verificationRequestError(e, 'Video')};
+      debugPrint('⚡ NVIDIA video verify failed, trying Cloudflare fallback: $e');
+      try {
+        final req = http.MultipartRequest(
+          'POST',
+          Uri.parse('$_workerBase/api/verify/video'),
+        )..headers.addAll(_workerHeaders());
+        for (int i = 0; i < frames.length && i < 5; i++) {
+          req.files.add(
+            await http.MultipartFile.fromPath('frame$i', frames[i].path),
+          );
+        }
+        final streamed = await req.send().timeout(_videoVerificationTimeout);
+        final body = await streamed.stream.bytesToString();
+        final decoded = _decodeWorkerResponse(
+          body: body,
+          statusCode: streamed.statusCode,
+          operation: 'Video verification',
+        );
+        if (decoded['success'] == false) return decoded;
+        return normalizeModerationResponse(decoded);
+      } catch (workerErr) {
+        debugPrint('⚡ Worker video verify failed: $workerErr');
+        return {'success': false, 'error': _verificationRequestError(workerErr, 'Video')};
+      }
     }
   }
 
@@ -563,50 +610,20 @@ class NecxaAI {
       throw Exception('User must be signed in to verify identity.');
     }
 
-    final response = await http
-        .post(
-          Uri.parse(_identityVerificationUrl),
-          headers: {
-            'Authorization': 'Bearer ${session.accessToken}',
-            'x-primary-jwt': session.accessToken,
-            'apikey': _identityVerificationPublishableKey,
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(payload),
-        )
-        .timeout(const Duration(seconds: 45));
-    final raw = response.body.trim();
-    Map<String, dynamic>? data;
-    if (raw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) data = Map<String, dynamic>.from(decoded);
-      } on FormatException {
-        // A proxy may return an HTML/plain-text gateway error page.
+    try {
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-identity-shard',
+        headers: _aiHeaders(),
+        body: payload,
+      ).timeout(const Duration(seconds: 45));
+
+      if (res.data != null && res.data is Map) {
+        return Map<String, dynamic>.from(res.data);
       }
+      throw Exception('Invalid response from identity verification service.');
+    } catch (e) {
+      throw Exception(e.toString());
     }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        data?['feedback']?.toString() ??
-            data?['message']?.toString() ??
-            data?['error']?.toString() ??
-            _gatewayErrorMessage(
-              body: raw,
-              statusCode: response.statusCode,
-              service: 'Identity verification',
-            ),
-      );
-    }
-    if (data == null) {
-      throw Exception(
-        _gatewayErrorMessage(
-          body: raw,
-          statusCode: response.statusCode,
-          service: 'Identity verification',
-        ),
-      );
-    }
-    return data;
   }
 
   // ── IDENTITY VERIFICATION ──

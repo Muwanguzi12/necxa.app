@@ -77,9 +77,9 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
         const SizedBox(height: 8),
         Text('We need some basic info to get you started.', style: dm(sz: 13, c: C.dim)),
         const SizedBox(height: 32),
-        _inputField('Full Name', '??', _nameController),
+        _inputField('Full Name', '👤', _nameController),
         const SizedBox(height: 16),
-        _inputField('Email', '??', TextEditingController(text: widget.state.user?.email ?? ''), enabled: false),
+        _inputField('Email', '✉️', TextEditingController(text: widget.state.user?.email ?? ''), enabled: false),
       ],
     );
   }
@@ -98,7 +98,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
           children: VehicleType.values.map((t) => _typeOption(t)).toList(),
         ),
         const SizedBox(height: 32),
-        _inputField('Number Plate', '??', _plateController),
+        _inputField('Number Plate', '🚗', _plateController),
       ],
     );
   }
@@ -174,7 +174,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
 
   Widget _typeOption(VehicleType type) {
     bool active = _selectedType == type;
-    String emoji = type == VehicleType.bike ? '???' : type == VehicleType.van ? '??' : '??';
+    String emoji = type == VehicleType.bike ? '🏍️' : type == VehicleType.van ? '🚐' : '🚛';
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _selectedType = type),
