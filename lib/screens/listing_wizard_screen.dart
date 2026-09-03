@@ -142,7 +142,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             0;
       case 2:
         return (widget.state.lastIDResult?.verified ?? false) &&
-            (widget.state.lastIDBackResult?.verified ?? false) &&
+            (widget.state.idBackImage != null) && // back: capture only, no AI required
             (widget.state.lastHoldingResult?.verified ?? false) &&
             (widget.state.lastSelfieResult?.faceMatch ?? false) &&
             (widget.state.identityShardId?.isNotEmpty ?? false);
@@ -508,23 +508,12 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
+        // Back of ID — capture only, no AI verification required.
+        // The back is stored for record keeping; all AI work is done on front + selfie.
         final xfile = await cameraCtrl.takePicture();
         state.idBackImage = File(xfile.path);
-        final result = await NecxaAI.verifyID(
-          state.idBackImage!,
-          userId: state.user?.id,
-          action: 'verify-id-back',
-        );
-        final idResult = _idResultFrom(result);
-        if (!idResult.verified) {
-          throw UserMessageException(
-            _aiFeedback(
-              result,
-              'National ID back scan failed. Please retake the back side clearly.',
-            ),
-          );
-        }
-        state.lastIDBackResult = idResult;
+        // Synthetic pass so downstream null-checks stay happy
+        state.lastIDBackResult = IDResult(verified: true, sessionId: 'back-captured');
         state.verificationSubStep = 2;
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();
@@ -1237,7 +1226,7 @@ class _Step3Identity extends StatelessWidget {
     final currentInstr = instructions[subStep.clamp(0, 3)];
     final completedStages = [
       state.lastIDResult?.verified ?? false,
-      state.lastIDBackResult?.verified ?? false,
+      state.idBackImage != null, // back: captured is enough
       state.lastHoldingResult?.verified ?? false,
       state.lastSelfieResult?.faceMatch ?? false,
     ];
