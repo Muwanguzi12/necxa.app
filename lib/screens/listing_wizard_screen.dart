@@ -25,6 +25,7 @@ class ListingWizardScreen extends StatefulWidget {
 class _ListingWizardState extends State<ListingWizardScreen> {
   int _step = 0;
   bool _loading = false;
+  bool _aiGenerating = false;
   bool _identityAdvanceScheduled = false;
   late final String _submissionIdempotencyKey;
 
@@ -262,6 +263,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           onType: (v) => setState(() => _propType = v),
           onPurpose: (v) => setState(() => _purpose = v),
           onRole: (v) => setState(() => _role = v),
+          onGenerateAi: _generateListingDetailsFromPhotos,
+          aiGenerating: _aiGenerating,
+          hasPhotos: (_exteriorPhotos.length + _interiorPhotos.length) > 0,
         );
       case 1:
         return _Step2(
@@ -320,6 +324,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           interior: _interiorPhotos,
           bathrooms: _bathroomPhotos,
           loading: _loading,
+          aiGenerating: _aiGenerating,
           onAdd: _addPropertyPhoto,
           onRemove: (cat, i) => setState(() {
             if (cat == 'EXTERIOR') {
@@ -329,6 +334,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             else
               _bathroomPhotos.removeAt(i);
           }),
+          onGenerateAi: _generateListingDetailsFromPhotos,
         );
       case 6:
         return _Step7Review(
@@ -772,18 +778,17 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   Future<void> _addPropertyPhoto(String category, File file) async {
     setState(() => _loading = true);
     try {
-      final assessment = await NecxaAI.verifyListingPhotoWorker(
+      final assessment = await NecxaAI.verifyListingPhotoNvidia(
         photo: file,
+        category: category.toLowerCase(),
         title: _titleCtrl.text.trim().isEmpty
             ? 'Property listing'
             : _titleCtrl.text.trim(),
-        category: category.toLowerCase(),
-        idempotencyKey:
-            '$_submissionIdempotencyKey:photo:${category.toLowerCase()}:${_exteriorPhotos.length + _interiorPhotos.length + _bathroomPhotos.length}',
       );
       if (assessment['success'] != true || assessment['verified'] != true) {
         throw UserMessageException(
-          assessment['description']?.toString() ??
+          assessment['reasoning']?.toString() ??
+              assessment['description']?.toString() ??
               assessment['error']?.toString() ??
               'This photo could not be approved. Use a clear, original property photo.',
         );
@@ -806,6 +811,99 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     }
   }
 
+  Future<void> _generateListingDetailsFromPhotos({File? specificPhoto}) async {
+    List<File> sourcePhotos = [];
+    if (specificPhoto != null) {
+      sourcePhotos.add(specificPhoto);
+    } else {
+      sourcePhotos = [
+        ..._exteriorPhotos,
+        ..._interiorPhotos,
+        ..._bathroomPhotos,
+      ];
+    }
+
+    if (sourcePhotos.isEmpty) {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (picked == null) return;
+      sourcePhotos.add(File(picked.path));
+    }
+
+    setState(() => _aiGenerating = true);
+
+    try {
+      final result = await NecxaAI.generateListingDetails(
+        photos: sourcePhotos,
+        propertyType: _propType,
+        district: _districtCtrl.text.trim(),
+        city: _cityCtrl.text.trim(),
+        purpose: _purpose,
+        existingTitle: _titleCtrl.text.trim(),
+      );
+
+      if (result['success'] != true) {
+        throw Exception(result['error'] ?? 'Could not generate details');
+      }
+
+      final generatedDesc = result['description'] as String? ?? '';
+      final generatedTitle = result['title'] as String? ?? '';
+      final generatedAmenities =
+          (result['amenities'] as List?)?.cast<String>() ?? [];
+      final suggestedBeds = result['suggested_bedrooms'] as int?;
+      final suggestedBaths = result['suggested_bathrooms'] as int?;
+
+      if (!mounted) return;
+
+      setState(() {
+        if (generatedDesc.isNotEmpty) {
+          _descCtrl.text = generatedDesc;
+        }
+        if (generatedTitle.isNotEmpty && _titleCtrl.text.trim().isEmpty) {
+          _titleCtrl.text = generatedTitle;
+        }
+        if (generatedAmenities.isNotEmpty) {
+          _amenities.addAll(generatedAmenities);
+        }
+        if (suggestedBeds != null && _bedrooms == 0) {
+          _bedrooms = suggestedBeds;
+        }
+        if (suggestedBaths != null && _bathrooms == 1) {
+          _bathrooms = suggestedBaths;
+        }
+        _aiGenerating = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.cardDk,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: C.brand.withOpacity(0.6)),
+            ),
+            content: Row(
+              children: [
+                Icon(Icons.auto_awesome, color: C.brand, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '✨ Description & ${generatedAmenities.length} amenities generated with NVIDIA Vision!',
+                    style: syne(sz: 13, w: FontWeight.w600, c: C.text),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _aiGenerating = false);
+      _showError('AI Generation Error: ${e.toString()}');
+    }
+  }
+
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
@@ -819,6 +917,10 @@ class _Step1 extends StatelessWidget {
   final TextEditingController titleCtrl, districtCtrl, cityCtrl, descCtrl;
   final String propType, purpose, role;
   final ValueChanged<String> onType, onPurpose, onRole;
+  final VoidCallback onGenerateAi;
+  final bool aiGenerating;
+  final bool hasPhotos;
+
   const _Step1({
     required this.titleCtrl,
     required this.districtCtrl,
@@ -830,6 +932,9 @@ class _Step1 extends StatelessWidget {
     required this.onType,
     required this.onPurpose,
     required this.onRole,
+    required this.onGenerateAi,
+    required this.aiGenerating,
+    required this.hasPhotos,
   });
 
   @override
@@ -880,7 +985,46 @@ class _Step1 extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        _label('Description'),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _label('Description'),
+            GestureDetector(
+              onTap: aiGenerating ? null : onGenerateAi,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: C.brand.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: C.brand.withOpacity(0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    aiGenerating
+                        ? SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: C.brand,
+                            ),
+                          )
+                        : Icon(Icons.auto_awesome, size: 13, color: C.brand),
+                    const SizedBox(width: 5),
+                    Text(
+                      aiGenerating
+                          ? 'Analyzing...'
+                          : (hasPhotos ? 'Auto-Draft with AI' : 'Draft with AI Photo'),
+                      style: syne(sz: 11, w: FontWeight.w700, c: C.brand),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
         _input(descCtrl, 'Describe your property...', maxLines: 3),
         const SizedBox(height: 16),
         _label('Property Type'),
@@ -1103,7 +1247,7 @@ class _Step3Identity extends StatelessWidget {
       children: [
         Stack(
           children: [
-            _NeuralScannerOverlay(key: scannerKey, documentMode: subStep < 3),
+            _NeuralScannerOverlay(key: scannerKey, documentMode: subStep < 3, subStep: subStep),
             if (loading)
               Positioned(
                 left: 18,
@@ -1321,7 +1465,8 @@ class _InstructionCard extends StatelessWidget {
 
 class _NeuralScannerOverlay extends StatefulWidget {
   final bool documentMode;
-  const _NeuralScannerOverlay({super.key, required this.documentMode});
+  final int subStep;
+  const _NeuralScannerOverlay({super.key, required this.documentMode, this.subStep = 0});
   @override
   State<_NeuralScannerOverlay> createState() => _NeuralScannerOverlayState();
 }
@@ -1533,6 +1678,106 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   ),
                 ),
               ),
+
+            // ── BIOMETRIC HUD (selfie mode only) ──────────────────────────
+            if (!widget.documentMode) ...[
+
+              // Top guidance pill
+              Positioned(
+                top: 14,
+                left: 12,
+                right: 52,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.72),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: C.brand.withOpacity(.35)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.wb_sunny_outlined, size: 11, color: C.brand),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'Face camera directly  •  Good lighting  •  Remove glasses',
+                          style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Centre prompt below oval
+              Positioned(
+                bottom: 46,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.55),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      'Fit your face within the oval',
+                      style: dm(sz: 10, c: Colors.white70, w: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Anti-spoof shield badge
+              Positioned(
+                bottom: 14,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: AnimatedBuilder(
+                    animation: _ctrl,
+                    builder: (context, _) {
+                      final pulse = (0.7 + 0.3 * (_ctrl.value < .5
+                          ? _ctrl.value * 2
+                          : (1 - _ctrl.value) * 2));
+                      return Opacity(
+                        opacity: pulse,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0D2B1A),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF00FF88).withOpacity(.5)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.shield_outlined,
+                                  size: 11, color: Color(0xFF00FF88)),
+                              const SizedBox(width: 5),
+                              Text(
+                                'REAL-TIME LIVENESS SHIELD ACTIVE',
+                                style: dm(
+                                  sz: 9,
+                                  c: const Color(0xFF00FF88),
+                                  w: FontWeight.w900,
+                                  ls: .4,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+
             const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
             Positioned(
               top: 14,
@@ -1776,19 +2021,26 @@ class _Step5GPS extends StatelessWidget {
 class _Step6Photos extends StatelessWidget {
   final List<File> exterior, interior, bathrooms;
   final bool loading;
+  final bool aiGenerating;
   final Future<void> Function(String, File) onAdd;
   final Function(String, int) onRemove;
+  final VoidCallback onGenerateAi;
+
   const _Step6Photos({
     required this.exterior,
     required this.interior,
     required this.bathrooms,
     required this.loading,
+    required this.aiGenerating,
     required this.onAdd,
     required this.onRemove,
+    required this.onGenerateAi,
   });
 
   @override
   Widget build(BuildContext context) {
+    final totalPhotos = exterior.length + interior.length + bathrooms.length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1797,6 +2049,90 @@ class _Step6Photos extends StatelessWidget {
         _photoRow('Interior & Rooms', interior, 'INTERIOR'),
         const SizedBox(height: 24),
         _photoRow('Bathrooms', bathrooms, 'BATHROOM'),
+        const SizedBox(height: 32),
+
+        // ── NVIDIA Vision Assistant Banner ──
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                C.card,
+                C.brand.withOpacity(0.08),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: C.brand.withOpacity(0.35), width: 1.2),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: C.brand.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.auto_awesome, color: C.brand, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'NVIDIA Vision AI Assistant',
+                          style: syne(sz: 14, w: FontWeight.w700, c: C.text),
+                        ),
+                        Text(
+                          'Auto-generate description & detect amenities from photos',
+                          style: dm(sz: 11, c: C.dim),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: (loading || aiGenerating) ? null : onGenerateAi,
+                  icon: aiGenerating
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: C.bg,
+                          ),
+                        )
+                      : const Icon(Icons.psychology, size: 18),
+                  label: Text(
+                    aiGenerating
+                        ? 'Analyzing Photos with NVIDIA Vision...'
+                        : (totalPhotos > 0
+                            ? 'Auto-Generate Description & Amenities'
+                            : 'Pick Photo to Generate Details'),
+                    style: syne(sz: 12, w: FontWeight.w700),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: C.brand,
+                    foregroundColor: C.bg,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1835,19 +2171,42 @@ class _Step6Photos extends StatelessWidget {
                       : Icon(Icons.add_a_photo, color: C.dim),
                 ),
               ),
-              ...files.map(
-                (f) => Container(
-                  width: 100,
-                  margin: const EdgeInsets.only(left: 12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    image: DecorationImage(
-                      image: FileImage(f),
-                      fit: BoxFit.cover,
+              ...files.asMap().entries.map((entry) {
+                final index = entry.key;
+                final f = entry.value;
+                return Stack(
+                  children: [
+                    Container(
+                      width: 100,
+                      height: 100,
+                      margin: const EdgeInsets.only(left: 12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        image: DecorationImage(
+                          image: FileImage(f),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        onTap: () => onRemove(cat, index),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.black54,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.close,
+                              size: 12, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }),
             ],
           ),
         ),

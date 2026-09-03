@@ -362,6 +362,104 @@ class NecxaAI {
     }
   }
 
+  // ── NVIDIA VISION: PROPERTY PHOTO VERIFICATION ───────────────────────────
+  /// Uses NVIDIA Vision via Supabase Edge Function `verify-content` to evaluate
+  /// real estate photos (detecting category match, quality, spam). Falls back
+  /// to Cloudflare Worker on network error.
+  static Future<Map<String, dynamic>> verifyListingPhotoNvidia({
+    required File photo,
+    required String category,
+    String? title,
+  }) async {
+    try {
+      final base64Image = await fileToBase64(photo);
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-content',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'verify_listing_photo',
+          'mediaBase64': base64Image,
+          'category': category.toLowerCase(),
+          'title': title ?? 'Property listing',
+        },
+      ).timeout(const Duration(seconds: 25));
+
+      if (res.data != null && res.data is Map) {
+        final data = Map<String, dynamic>.from(res.data);
+        if (data['success'] == true) {
+          return data;
+        }
+      }
+      throw Exception(res.data?['error'] ?? 'NVIDIA photo verification failed');
+    } catch (e) {
+      debugPrint('⚡ NVIDIA photo verify failed, trying Cloudflare Worker: $e');
+      return verifyListingPhotoWorker(
+        photo: photo,
+        category: category,
+        title: title ?? 'Property',
+      );
+    }
+  }
+
+  // ── NVIDIA VISION: AUTO-GENERATE LISTING DETAILS ─────────────────────────
+  /// Analyzes uploaded property photos with NVIDIA Vision (NIM) to automatically
+  /// synthesize a rich property description, detect amenities (WiFi, Pool, Parking, AC, etc.),
+  /// and suggest an attractive title and specifications.
+  static Future<Map<String, dynamic>> generateListingDetails({
+    required List<File> photos,
+    String? propertyType,
+    String? district,
+    String? city,
+    String? purpose,
+    String? existingTitle,
+  }) async {
+    if (photos.isEmpty) {
+      return {'success': false, 'error': 'No photos provided for analysis'};
+    }
+
+    try {
+      final List<String> base64Images = [];
+      // Pick up to 3 photos to stay responsive and token efficient
+      for (final f in photos.take(3)) {
+        base64Images.add(await fileToBase64(f));
+      }
+
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-content',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'generate_listing_details',
+          'images': base64Images,
+          'propertyType': propertyType,
+          'district': district,
+          'city': city,
+          'purpose': purpose,
+          'title': existingTitle,
+        },
+      ).timeout(const Duration(seconds: 40));
+
+      if (res.data != null && res.data is Map) {
+        final data = Map<String, dynamic>.from(res.data);
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'title': data['title']?.toString(),
+            'description': data['description']?.toString() ?? '',
+            'amenities': List<String>.from(data['amenities'] as List? ?? []),
+            'suggested_bedrooms': data['suggested_bedrooms'] is int ? data['suggested_bedrooms'] : null,
+            'suggested_bathrooms': data['suggested_bathrooms'] is int ? data['suggested_bathrooms'] : null,
+            'key_features': List<String>.from(data['key_features'] as List? ?? []),
+          };
+        }
+        return {'success': false, 'error': data['error']?.toString() ?? 'Generation failed'};
+      }
+      throw Exception('Invalid response from AI engine');
+    } catch (e) {
+      debugPrint('⚡ NVIDIA listing details generation error: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
   // ── WORKER: LIVE FRAME SAFETY SCAN ────────────────────────────────────────
   /// Submits a live-stream frame directly to the Worker's safety scanner.
   /// Endpoint: `/api/verify/live-frame`. Falls back to safe() on error.
