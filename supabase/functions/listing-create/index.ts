@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
+import { decode, encode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 // Necxa Listing Engine — Edge AI integration
 
 // ============================================
@@ -493,24 +493,64 @@ Deno.serve(async (req) => {
       // Calculate broker fee (5% for agent, 2% for Necxa = 7% total)
       const brokerFee = Math.floor(priceUgx * 0.07)
 
-      // === Cloudflare Workers AI Listing Verifier ===
-      const aiFormData = new FormData();
-      aiFormData.append('photo', photoFiles[0]);
-      aiFormData.append('title', title);
-      aiFormData.append('category', 'exterior');
-      aiFormData.append('countryCode', country.toLowerCase().startsWith('uganda') ? 'UG' : 'ZZ');
-      const aiRes = await fetch('https://necxa-ai-engine.knestars.workers.dev/api/verify/listing', {
-        method: 'POST',
-        headers: {
-          'x-primary-jwt': primaryJwt,
-          'Idempotency-Key': `${idempotencyKey}:property-ai`,
-        },
-        body: aiFormData,
-      });
-      const aiResult = await aiRes.json().catch(() => ({}));
-      if (!aiRes.ok) {
-        throw new Error(aiResult?.error || 'Property image verification is temporarily unavailable.')
+      // === Nebius AI Listing Verifier (NVIDIA Cosmos3) ===
+      let aiResult: any = {};
+      try {
+        const nebiusKey = Deno.env.get("NEBIUS_API_KEY");
+        if (!nebiusKey) {
+          throw new Error("NEBIUS_API_KEY not configured in environment.");
+        }
+        
+        const photoBytes = await photoFiles[0].arrayBuffer();
+        const base64Data = encode(new Uint8Array(photoBytes));
+        const mimeType = photoFiles[0].type || "image/jpeg";
+        const base64Url = `data:${mimeType};base64,${base64Data}`;
+
+        const nebiusRes = await fetch("https://api.tokenfactory.nebius.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${nebiusKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "nvidia/Cosmos3-Super-Reasoner",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `Tell me what items are in this image. Verify if this is a genuine property listing image. The listing title is "${title}" and category is "${propertyType}". Assign a trust score (0-100). Return ONLY a JSON object with exactly this structure: {"verified": true|false, "score": number, "description": "brief analysis", "decision": "approve"|"manual_review", "reasonCode": "string"}`
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: base64Url
+                    }
+                  }
+                ]
+              }
+            ],
+            temperature: 0.1
+          })
+        });
+
+        if (!nebiusRes.ok) {
+           const errText = await nebiusRes.text();
+           console.error("Nebius AI Error:", errText);
+           throw new Error("Property AI verification failed at API level.");
+        }
+
+        const nebiusData = await nebiusRes.json();
+        const contentStr = nebiusData.choices?.[0]?.message?.content || "{}";
+        
+        const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
+        aiResult = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(contentStr);
+      } catch (e) {
+        console.error("Listing Verification Exception:", e);
+        throw new Error(e.message || 'Property image verification is temporarily unavailable.');
       }
+
       if (aiResult?.verified !== true) {
         return json({
           success: false,

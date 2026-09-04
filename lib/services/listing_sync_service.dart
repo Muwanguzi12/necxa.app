@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:universal_io/io.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 class ListingSyncService {
   static const _verificationTimeout = Duration(seconds: 90);
   static const _listingTimeout = Duration(minutes: 2);
@@ -12,6 +14,32 @@ class ListingSyncService {
       'https://ayvescksetiuekoyfqar.supabase.co';
   static const _verificationPublishableKey =
       'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
+
+  static Future<File> compressImage(File file) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final targetPath = p.join(
+        tempDir.path,
+        'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+
+      final result = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        targetPath,
+        quality: 75,
+        minWidth: 1024,
+        minHeight: 1024,
+        format: CompressFormat.jpeg,
+      );
+
+      if (result != null) {
+        return File(result.path);
+      }
+    } catch (e) {
+      print('Error compressing image: $e');
+    }
+    return file; // Fallback to original
+  }
   static String get _edgeFuncUrl {
     final restUrl = Supabase.instance.client.rest.url;
     final baseUrl = restUrl.split('/rest/v1')[0];
@@ -105,13 +133,13 @@ class ListingSyncService {
     req.fields['holding_verification_id'] = holdingVerificationId;
     req.fields['biometric_verification_id'] = biometricVerificationId;
 
-    req.files.add(await http.MultipartFile.fromPath('id_front', idFront.path));
-    req.files.add(await http.MultipartFile.fromPath('id_back', idBack.path));
+    req.files.add(await http.MultipartFile.fromPath('id_front', (await compressImage(idFront)).path));
+    req.files.add(await http.MultipartFile.fromPath('id_back', (await compressImage(idBack)).path));
     req.files.add(
-      await http.MultipartFile.fromPath('id_holding', idHolding.path),
+      await http.MultipartFile.fromPath('id_holding', (await compressImage(idHolding)).path),
     );
     req.files.add(
-      await http.MultipartFile.fromPath('face_photo', facePhoto.path),
+      await http.MultipartFile.fromPath('face_photo', (await compressImage(facePhoto)).path),
     );
 
     final res = await req.send().timeout(_verificationTimeout);
@@ -153,7 +181,7 @@ class ListingSyncService {
       Uri.parse('$_faceCacheFuncUrl/compare?sessionId=$sessionId'),
     );
     req.headers.addAll(await _getHeaders());
-    req.files.add(await http.MultipartFile.fromPath('selfie', selfie.path));
+    req.files.add(await http.MultipartFile.fromPath('selfie', (await compressImage(selfie)).path));
 
     final res = await req.send();
     final resBody = await res.stream.bytesToString();
@@ -206,7 +234,7 @@ class ListingSyncService {
       req.files.add(
         await http.MultipartFile.fromPath(
           'utility_bill_photo',
-          utilityBillPhoto.path,
+          (await compressImage(utilityBillPhoto)).path,
         ),
       );
     }
@@ -214,7 +242,7 @@ class ListingSyncService {
       req.files.add(
         await http.MultipartFile.fromPath(
           'lc1_stamp_photo',
-          lc1StampPhoto.path,
+          (await compressImage(lc1StampPhoto)).path,
         ),
       );
     }
@@ -222,7 +250,7 @@ class ListingSyncService {
       req.files.add(
         await http.MultipartFile.fromPath(
           'land_title_photo',
-          landTitlePhoto.path,
+          (await compressImage(landTitlePhoto)).path,
         ),
       );
     }
@@ -230,7 +258,7 @@ class ListingSyncService {
       req.files.add(
         await http.MultipartFile.fromPath(
           'business_license_photo',
-          businessLicensePhoto.path,
+          (await compressImage(businessLicensePhoto)).path,
         ),
       );
     }
@@ -345,16 +373,18 @@ class ListingSyncService {
     }
 
     for (int i = 0; i < photos.length; i++) {
+      final compressedPhoto = await compressImage(photos[i]);
       req.files.add(
-        await http.MultipartFile.fromPath('photo_$i', photos[i].path),
+        await http.MultipartFile.fromPath('photo_$i', compressedPhoto.path),
       );
     }
 
     for (int i = 0; i < bathroomPhotos.length; i++) {
+      final compressedBath = await compressImage(bathroomPhotos[i]);
       req.files.add(
         await http.MultipartFile.fromPath(
           'bathroom_$i',
-          bathroomPhotos[i].path,
+          compressedBath.path,
         ),
       );
     }
