@@ -11,6 +11,8 @@ const corsHeaders = {
 const documentFailureFeedback: Record<string, string> = {
   document_unreadable:
     'The model could not read the required fields from this capture. Keep the whole card inside the frame, avoid glare, and retake it once.',
+  not_an_id:
+    'This does not appear to be a valid identity document. Please ensure you are taking a clear picture of your actual ID card.',
   document_expired: 'This identity document appears to be expired.',
   possible_document_tampering:
     'This document could not be approved automatically and requires review.',
@@ -208,13 +210,13 @@ async function callNvidiaVisionId(
   const promptText = `You are a certified identity document verification AI.
 Analyze this image of an ID card or Passport (${stage} side).
 Is it a clear, legible, and valid identity document?
-If the user captured a blank space, a wall, or an illegible blur, it should fail.
+If the user captured a blank space, a wall, an object like a chair, a face without an ID, or an illegible blur, it MUST fail with reasonCode "not_an_id".
 
 Respond in STRICT JSON ONLY:
 {
   "verified": <true|false>,
   "decision": "<pass|fail|manual_review>",
-  "reasonCode": "<document_valid|document_unreadable|document_requires_review>",
+  "reasonCode": "<document_valid|document_unreadable|not_an_id|document_requires_review>",
   "score": <0-100>,
   "qualityScore": <0-100>,
   "docType": "national_id",
