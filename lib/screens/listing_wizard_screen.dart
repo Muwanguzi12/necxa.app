@@ -161,6 +161,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     }
   }
 
+
+
   void _next() {
     if (_canGoNext) setState(() => _step++);
   }
@@ -1480,6 +1482,8 @@ class _NeuralScannerOverlay extends StatefulWidget {
 
 class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     with SingleTickerProviderStateMixin {
+  static const double _holdingZoomLevel = 1.2;
+
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 2),
@@ -1521,12 +1525,24 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
     try {
       await nextController.initialize();
+      await _setZoomLevel(
+        nextController,
+        widget.subStep == 2 ? _holdingZoomLevel : 1.0,
+      );
       _currentDirection = direction;
       if (mounted) setState(() {});
     } catch (e) {
       if (identical(cameraCtrl, nextController)) cameraCtrl = null;
       await nextController.dispose();
       rethrow;
+    }
+  }
+
+  Future<void> _setZoomLevel(CameraController controller, double zoomLevel) async {
+    try {
+      await controller.setZoomLevel(zoomLevel);
+    } catch (error) {
+      debugPrint('Camera zoom unavailable: $error');
     }
   }
 
@@ -1567,6 +1583,16 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   void didUpdateWidget(_NeuralScannerOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
+      if (widget.subStep == 2 &&
+          cameraCtrl != null &&
+          cameraCtrl!.value.isInitialized) {
+        unawaited(_setZoomLevel(cameraCtrl!, _holdingZoomLevel));
+      } else if (oldWidget.subStep == 2 &&
+          cameraCtrl != null &&
+          cameraCtrl!.value.isInitialized) {
+        unawaited(_setZoomLevel(cameraCtrl!, 1.0));
+      }
+
       if (widget.subStep == 3) {
         unawaited(switchCamera(CameraLensDirection.front).catchError((_) {}));
       } else if (widget.subStep < 3 && oldWidget.subStep == 3) {
@@ -2733,5 +2759,3 @@ class _ScannerOverlayPainter extends CustomPainter {
         oldDelegate.progress != progress;
   }
 }
-
-
