@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
+import 'listing_sync_service.dart';
 
 // ─── Live Safety Scan Result ──────────────────────────────────────────────────
 class LiveSafetyResult {
@@ -581,7 +582,11 @@ class NecxaAI {
 
   // ── HELPERS ──
   static Future<String> fileToBase64(File file) async {
-    final bytes = await file.readAsBytes();
+    File target = file;
+    try {
+      target = await ListingSyncService.compressImage(file);
+    } catch (_) {}
+    final bytes = await target.readAsBytes();
     return base64Encode(bytes);
   }
 

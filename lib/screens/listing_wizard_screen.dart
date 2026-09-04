@@ -517,7 +517,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.verificationSubStep = 2;
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();
-        state.idHoldingImage = File(xfile.path);
+        final rawFile = File(xfile.path);
+        final compressedFile = await ListingSyncService.compressImage(rawFile);
+        state.idHoldingImage = compressedFile;
         final result = await NecxaAI.verifyID(
           state.idHoldingImage!,
           userId: state.user?.id,
@@ -1213,7 +1215,7 @@ class _Step3Identity extends StatelessWidget {
       ),
       (
         'Holding ID Photo',
-        'Hold your ID next to your face. Ensure both are clearly visible.',
+        'Position your face and ID in the frame. Both must be clear and well lit.',
         Icons.front_hand_outlined,
       ),
       (
@@ -1236,7 +1238,7 @@ class _Step3Identity extends StatelessWidget {
       children: [
         Stack(
           children: [
-            _NeuralScannerOverlay(key: scannerKey, documentMode: subStep < 3, subStep: subStep),
+            _NeuralScannerOverlay(key: scannerKey, documentMode: subStep < 2, subStep: subStep),
             if (loading)
               Positioned(
                 left: 18,
@@ -1320,28 +1322,44 @@ class _Step3Identity extends StatelessWidget {
           ),
         ],
 
-        const SizedBox(height: 40),
+        const SizedBox(height: 36),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: loading ? null : onVerify,
             style: ElevatedButton.styleFrom(
               backgroundColor: C.brand,
-              foregroundColor: C.text,
+              foregroundColor: Colors.black,
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-            icon: const Icon(Icons.camera_alt_outlined),
+            icon: const Icon(Icons.camera_alt_outlined, color: Colors.black),
             label: Text(
               loading
                   ? 'VERIFYING...'
-                  : 'SCAN ${currentInstr.$1.toUpperCase()}',
-              style: syne(c: C.text, w: FontWeight.w800, ls: .5),
+                  : subStep == 2
+                      ? 'SCAN HOLDING ID PHOTO'
+                      : 'SCAN ${currentInstr.$1.toUpperCase()}',
+              style: syne(c: Colors.black, w: FontWeight.w800, ls: .5),
             ),
           ),
         ),
+        if (subStep == 2) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lightbulb_outline, size: 14, color: Colors.white70),
+              const SizedBox(width: 6),
+              Text(
+                'Tips: Avoid glare, blur and cropped edges.',
+                style: dm(sz: 11, c: Colors.white70),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -1566,8 +1584,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
   @override
   Widget build(BuildContext context) {
+    final isHolding = widget.subStep == 2;
     return Container(
-      height: 270,
+      height: isHolding ? 360 : 270,
       width: double.infinity,
       decoration: BoxDecoration(
         color: C.cardDk,
@@ -1640,9 +1659,10 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 animation: _ctrl,
                 builder: (context, child) {
                   return CustomPaint(
-                    size: const Size(double.infinity, 270),
+                    size: Size(double.infinity, isHolding ? 360 : 270),
                     painter: _ScannerOverlayPainter(
                       documentMode: widget.documentMode,
+                      holdingMode: isHolding,
                       progress: _ctrl.value,
                     ),
                   );
@@ -1650,8 +1670,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               ),
             ),
 
-            // The Scanner Eye (Document Mode Only)
-            if (widget.documentMode)
+            // The Scanner Eye (Document Mode Only — not for holding)
+            if (widget.documentMode && !isHolding)
               AnimatedBuilder(
                 animation: _ctrl,
                 builder: (context, child) => Positioned(
@@ -1679,6 +1699,121 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   ),
                 ),
               ),
+
+            // ── HOLDING ID HUD (subStep == 2) ──────────────────────────────
+            if (isHolding) ...[
+              // Top guidance text
+              Positioned(
+                top: 10,
+                left: 14,
+                right: 14,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Position your face and ID in the frame',
+                      style: dm(sz: 13, c: Colors.white, w: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Both must be clear and well lit',
+                      style: dm(sz: 10.5, c: Colors.white70),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+
+              // "Face here" label — bottom of face area
+              Positioned(
+                bottom: 66,
+                left: 36,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.65),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.8), width: 1.2),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.person_outline, size: 13, color: Color(0xFF00E5FF)),
+                      const SizedBox(width: 4),
+                      Text('Face here', style: dm(sz: 9.5, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ),
+
+              // "ID here" label — bottom of ID area
+              Positioned(
+                bottom: 84,
+                right: 48,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.65),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFFFD54F).withOpacity(.8), width: 1.2),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.badge_outlined, size: 13, color: Color(0xFFFFD54F)),
+                      const SizedBox(width: 4),
+                      Text('ID here', style: dm(sz: 9.5, c: const Color(0xFFFFD54F), w: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Bottom status bar
+              Positioned(
+                bottom: 8,
+                left: 10,
+                right: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _holdingStatusChip(
+                          Icons.face_retouching_natural,
+                          'Face detected',
+                          'Good lighting',
+                          const Color(0xFF00E5FF),
+                        ),
+                      ),
+                      Container(width: 1, height: 24, color: Colors.white24),
+                      Expanded(
+                        child: _holdingStatusChip(
+                          Icons.badge_outlined,
+                          'ID detected',
+                          'Clear & readable',
+                          const Color(0xFFFFD54F),
+                        ),
+                      ),
+                      Container(width: 1, height: 24, color: Colors.white24),
+                      Expanded(
+                        child: _holdingStatusChip(
+                          Icons.check_circle_rounded,
+                          'Both detected',
+                          'Great! You can continue',
+                          const Color(0xFF00E676),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
 
             // ── BIOMETRIC HUD (selfie mode only) ──────────────────────────
             if (!widget.documentMode) ...[
@@ -1765,7 +1900,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               ),
             ],
 
-            const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
+            if (!isHolding)
+              const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
             Positioned(
               top: 14,
               right: 14,
@@ -1819,6 +1955,31 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         Text(
           label,
           style: dm(sz: 10, c: Colors.white70),
+        ),
+      ],
+    );
+  }
+
+  Widget _holdingStatusChip(
+    IconData icon,
+    String title,
+    String subtitle,
+    Color iconColor,
+  ) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 17, color: iconColor),
+        const SizedBox(height: 3),
+        Text(
+          title,
+          style: dm(sz: 9.5, c: Colors.white, w: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+        Text(
+          subtitle,
+          style: dm(sz: 8, c: Colors.white60),
+          textAlign: TextAlign.center,
         ),
       ],
     );
@@ -2387,15 +2548,78 @@ Widget _chip(String label, bool sel, VoidCallback onTap) => GestureDetector(
 
 class _ScannerOverlayPainter extends CustomPainter {
   final bool documentMode;
+  final bool holdingMode;
   final double progress;
 
-  _ScannerOverlayPainter({required this.documentMode, required this.progress});
+  _ScannerOverlayPainter({required this.documentMode, this.holdingMode = false, required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final bgPaint = Paint()..color = Colors.black.withOpacity(0.65);
+    final bgPaint = Paint()..color = Colors.black.withOpacity(0.55);
     final bgPath = Path()
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    if (holdingMode) {
+      // ── HOLDING MODE: Face guide on left, ID card guide on right ──
+      const topPad = 48.0;
+      const bottomPad = 64.0;
+      const sidePad = 14.0;
+      const gap = 14.0;
+
+      final availableW = size.width - (sidePad * 2) - gap;
+      final faceW = availableW * 0.44;
+      final idW = availableW * 0.56;
+      final areaH = size.height - topPad - bottomPad;
+
+      // Left face area (portrait)
+      final faceH = (areaH * 0.90).clamp(160.0, 205.0);
+      final faceTop = topPad + (areaH - faceH) / 2;
+      final faceRect = Rect.fromLTWH(sidePad, faceTop, faceW, faceH);
+      final faceRRect = RRect.fromRectAndRadius(faceRect, const Radius.circular(20));
+
+      // Right ID card area (landscape standard 1.55 ratio)
+      final idH = (idW / 1.55).clamp(100.0, 130.0);
+      final idTop = topPad + (areaH - idH) / 2;
+      final idRect = Rect.fromLTWH(sidePad + faceW + gap, idTop, idW, idH);
+      final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));
+
+      // Combine cutouts from dark translucent backdrop
+      final combinedCutout = Path.combine(
+        PathOperation.union,
+        Path()..addRRect(faceRRect),
+        Path()..addRRect(idRRect),
+      );
+      final maskPath = Path.combine(PathOperation.difference, bgPath, combinedCutout);
+      canvas.drawPath(maskPath, bgPaint);
+
+      // Cyan corner brackets on Face area (exact match to screenshot)
+      final faceBracketPaint = Paint()
+        ..color = const Color(0xFF00E5FF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.2
+        ..strokeCap = StrokeCap.round;
+      final fr = faceRect;
+      const fLen = 22.0;
+      const fRad = 18.0;
+
+      // Top-left
+      canvas.drawPath(Path()..moveTo(fr.left, fr.top + fLen)..lineTo(fr.left, fr.top + fRad)..arcToPoint(Offset(fr.left + fRad, fr.top), radius: const Radius.circular(fRad))..lineTo(fr.left + fLen, fr.top), faceBracketPaint);
+      // Top-right
+      canvas.drawPath(Path()..moveTo(fr.right - fLen, fr.top)..lineTo(fr.right - fRad, fr.top)..arcToPoint(Offset(fr.right, fr.top + fRad), radius: const Radius.circular(fRad))..lineTo(fr.right, fr.top + fLen), faceBracketPaint);
+      // Bottom-left
+      canvas.drawPath(Path()..moveTo(fr.left, fr.bottom - fLen)..lineTo(fr.left, fr.bottom - fRad)..arcToPoint(Offset(fr.left + fRad, fr.bottom), radius: const Radius.circular(fRad))..lineTo(fr.left + fLen, fr.bottom), faceBracketPaint);
+      // Bottom-right
+      canvas.drawPath(Path()..moveTo(fr.right - fLen, fr.bottom)..lineTo(fr.right - fRad, fr.bottom)..arcToPoint(Offset(fr.right, fr.bottom - fRad), radius: const Radius.circular(fRad))..lineTo(fr.right, fr.bottom - fLen), faceBracketPaint);
+
+      // Yellow rounded rectangle border on ID area
+      final idBorder = Paint()
+        ..color = const Color(0xFFFFD54F)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2;
+      canvas.drawRRect(idRRect, idBorder);
+
+      return;
+    }
 
     Path cutoutPath;
     Rect cutoutRect;
@@ -2448,7 +2672,7 @@ class _ScannerOverlayPainter extends CustomPainter {
 
       final startAngle =
           (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
-      final sweepAngle = 3.141592653589793 * 0.45;
+      const sweepAngle = 3.141592653589793 * 0.45;
       canvas.drawArc(cutoutRect, startAngle, sweepAngle, false, sweepPaint);
       canvas.drawArc(
         cutoutRect,
@@ -2460,10 +2684,10 @@ class _ScannerOverlayPainter extends CustomPainter {
 
       final cx = size.width / 2;
       final cy = size.height / 2;
-      final padding = 14.0;
+      const padding = 14.0;
       final hw = cutoutRect.width / 2 + padding;
       final hh = cutoutRect.height / 2 + padding;
-      final len = 22.0;
+      const len = 22.0;
 
       final cornerPaint = Paint()
         ..color = C.text.withOpacity(0.9)
@@ -2505,6 +2729,7 @@ class _ScannerOverlayPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) {
     return oldDelegate.documentMode != documentMode ||
+        oldDelegate.holdingMode != holdingMode ||
         oldDelegate.progress != progress;
   }
 }
