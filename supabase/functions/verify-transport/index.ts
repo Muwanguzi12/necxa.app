@@ -2,8 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-const NECXA_AI_URL = Deno.env.get("NECXA_AI_URL") || "https://necxa-ai-engine.knestars.workers.dev"
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
+const NVIDIA_VISION_MODEL = 'meta/llama-3.2-11b-vision-instruct'
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,64 +77,169 @@ function verificationMessage(reasonCode: string): string {
   return messages[reasonCode] ?? "Your application needs a closer verification review."
 }
 
-async function verifyVehicle(bytes: Uint8Array, jwt: string, countryCode: string) {
-  const form = new FormData()
-  form.append("vehicle", new Blob([bytes], { type: "image/jpeg" }), "vehicle.jpg")
-  form.append("countryCode", countryCode)
-  const response = await fetch(`${NECXA_AI_URL}/api/verify/vehicle`, {
-    method: "POST",
-    headers: { "x-primary-jwt": jwt },
-    body: form,
+async function callNvidiaVision(messages: any[], maxTokens = 512, temperature = 0.1) {
+  const apiKey = Deno.env.get("NVIDIA_API_KEY")
+  if (!apiKey) throw new Error("NVIDIA_API_KEY is not configured")
+
+  const res = await fetch(NVIDIA_API_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({
+      model: NVIDIA_VISION_MODEL,
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+    })
   })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || data?.success !== true) {
-    console.error("Transport vehicle router failed", response.status, data?.error)
-    throw new Error(typeof data?.error === "string" ? data.error : "Vehicle verification is temporarily unavailable.")
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => res.statusText)
+    throw new Error(`NVIDIA Vision API error ${res.status}: ${errText}`)
   }
-  return data.vehicleResult ?? {}
+
+  const data = await res.json()
+  const rawText: string = data?.choices?.[0]?.message?.content ?? ''
+  
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) {
+    console.error("NVIDIA non-JSON response:", rawText)
+    throw new Error(`NVIDIA Vision returned non-JSON response`)
+  }
+  
+  try {
+    return JSON.parse(jsonMatch[0])
+  } catch (e) {
+    console.error("Failed to parse NVIDIA JSON:", jsonMatch[0])
+    throw new Error(`NVIDIA Vision JSON parse error`)
+  }
+}
+
+// Convert Uint8Array to base64 string
+function bytesToBase64(bytes: Uint8Array): string {
+  // Using a robust approach for converting large typed arrays to base64 in Deno
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+async function verifyVehicle(bytes: Uint8Array, jwt: string, countryCode: string) {
+  const base64 = bytesToBase64(bytes)
+  const prompt = `You are a vehicle verification AI for courier onboarding.
+Analyze this photo of a vehicle.
+1. Determine if this is a valid vehicle photo (bike, van, or truck). If it is a person, a wall, or unrelated, decision = "reject" and reasonCode = "vehicle_or_plate_unreadable".
+2. If it is a valid vehicle, extract the registration/license plate number.
+3. Determine the type of vehicle (bike, van, truck).
+
+Respond in STRICT JSON ONLY:
+{
+  "decision": "<pass|manual_review|reject>",
+  "reasonCode": "<vehicle_valid|vehicle_or_plate_unreadable|plate_format_requires_review>",
+  "plate": "EXTRACTED_PLATE_NUMBER_OR_EMPTY",
+  "type": "<bike|van|truck>"
+}`
+
+  const result = await callNvidiaVision([
+    {
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } },
+        { type: 'text', text: prompt }
+      ]
+    }
+  ])
+  
+  return {
+    decision: result.decision,
+    reasonCode: result.reasonCode,
+    plate: result.plate,
+    type: result.type,
+    vehicleType: result.type,
+  }
 }
 
 async function verifyPermit(permit: Uint8Array, jwt: string, countryCode: string) {
-  const form = new FormData()
-  form.append("idFront", new Blob([permit], { type: "image/jpeg" }), "driving_permit.jpg")
-  form.append("countryCode", countryCode)
-  form.append("documentType", "driving_permit")
+  const base64 = bytesToBase64(permit)
+  const prompt = `You are a certified driving permit verification AI.
+Analyze this image of a driving permit/license.
+Is it a clear, legible, and valid driving permit?
+If it's a blank space, a wall, an unrelated object, or an illegible blur, fail it with reasonCode "not_an_id" and decision "reject".
+Extract the driver's full name.
 
-  const response = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
-    method: "POST",
-    headers: { "x-primary-jwt": jwt },
-    body: form,
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || data?.success !== true) {
-    console.error("Transport permit AI failed", response.status, data?.error)
-    const reason = typeof data?.error === "string" && data.error.trim()
-      ? data.error.trim()
-      : `verification service returned ${response.status}`
-    throw new Error(`Driving permit verification failed: ${reason}`)
+Respond in STRICT JSON ONLY:
+{
+  "verified": <true|false>,
+  "decision": "<pass|reject|manual_review>",
+  "reasonCode": "<document_valid|document_unreadable|not_an_id|document_requires_review|document_expired>",
+  "score": <0-100>,
+  "extractedData": {
+    "fullName": "extracted name or null"
   }
-  return data.ocrResult ?? {}
+}`
+
+  const result = await callNvidiaVision([
+    {
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } },
+        { type: 'text', text: prompt }
+      ]
+    }
+  ])
+  
+  return {
+    verified: result.verified,
+    decision: result.decision,
+    reasonCode: result.reasonCode,
+    score: result.score,
+    extractedData: result.extractedData,
+  }
 }
 
 async function verifyBiometric(selfie: Uint8Array, permit: Uint8Array, jwt: string) {
-  const form = new FormData()
-  form.append("selfie", new Blob([selfie], { type: "image/jpeg" }), "selfie.jpg")
-  form.append("idReference", new Blob([permit], { type: "image/jpeg" }), "driving_permit.jpg")
+  const selfieBase64 = bytesToBase64(selfie)
+  const permitBase64 = bytesToBase64(permit)
+  
+  const prompt = `You are a certified liveness and facial recognition AI. Analyze these two images carefully.
 
-  const response = await fetch(`${NECXA_AI_URL}/api/verify/biometric`, {
-    method: "POST",
-    headers: { "x-primary-jwt": jwt },
-    body: form,
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok || data?.success !== true) {
-    console.error("Transport biometric AI failed", response.status, data?.error)
-    const reason = typeof data?.error === "string" && data.error.trim()
-      ? data.error.trim()
-      : `verification service returned ${response.status}`
-    throw new Error(`Selfie verification failed: ${reason}`)
+LIVENESS CHECK (Image 1 - Selfie):
+Determine if Image 1 shows a real, live human being physically present. Look for screen replay attacks, paper printouts, or digital manipulation.
+
+FACE MATCHING:
+Determine if the person in the live selfie (Image 1) is EXACTLY the same person pictured on the ID card (Image 2).
+
+Respond in STRICT JSON ONLY:
+{
+  "is_live_person": <true|false>,
+  "faces_match": <true|false>,
+  "similarityScore": <0-100>,
+  "decision": "<pass|manual_review|reject>",
+  "reasonCode": "<biometric_valid|liveness_below_threshold|face_similarity_below_threshold|presentation_attack_detected>"
+}`
+
+  const result = await callNvidiaVision([
+    {
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${selfieBase64}` } },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${permitBase64}` } },
+        { type: 'text', text: prompt }
+      ]
+    }
+  ])
+  
+  return {
+    faceMatch: result.faces_match,
+    similarityScore: result.similarityScore,
+    decision: result.decision,
+    reasonCode: result.reasonCode,
   }
-  return data.biometricResult ?? {}
 }
 
 serve(async (req) => {

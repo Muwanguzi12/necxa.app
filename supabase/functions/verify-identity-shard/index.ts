@@ -212,6 +212,8 @@ Analyze this image of an ID card or Passport (${stage} side).
 Is it a clear, legible, and valid identity document?
 If the user captured a blank space, a wall, an object like a chair, a face without an ID, or an illegible blur, it MUST fail with reasonCode "not_an_id".
 
+Extract the person's full name, the document/ID number, and their date of birth if they are visible.
+
 Respond in STRICT JSON ONLY:
 {
   "verified": <true|false>,
@@ -221,7 +223,11 @@ Respond in STRICT JSON ONLY:
   "qualityScore": <0-100>,
   "docType": "national_id",
   "country": "UG",
-  "extractedData": {}
+  "extractedData": {
+    "fullName": "extracted name or null",
+    "documentNumber": "extracted ID number or null",
+    "dateOfBirth": "extracted DOB (YYYY-MM-DD) or null"
+  }
 }`
 
   const nvidiaRes = await fetch(NVIDIA_API_URL, {
