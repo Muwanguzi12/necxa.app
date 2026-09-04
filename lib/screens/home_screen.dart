@@ -247,7 +247,7 @@ class HomeScreen extends StatelessWidget {
         children: [
           _StatCell(icon: '🏠', val: '$count+', lab: 'Listings'),
           Container(width: 1, height: 60, color: C.border),
-          const _StatCell(icon: '?', val: '100%', lab: 'AI Verified'),
+          const _StatCell(icon: '🛡️', val: '100%', lab: 'AI Verified'),
           Container(width: 1, height: 60, color: C.border),
           const _StatCell(icon: '🔐', val: '5%', lab: 'Broker Fee'),
         ],
@@ -436,7 +436,7 @@ class _PropertyCard extends StatelessWidget {
                       const SizedBox(width: 12),
                       Text('📐 ${p.core.sizeSqft}m²', style: dm(sz: 11, c: C.sub)),
                       const SizedBox(width: 12),
-                      Text('? 4.8',
+                      Text('⭐ 4.8',
                           style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
                     ],
                   ),
@@ -470,7 +470,7 @@ class _PropertyCard extends StatelessWidget {
                           border: Border.all(
                               color: isReserved ? C.red : C.brand.withOpacity(.22)),
                         ),
-                        child: Text(isReserved ? 'Reserved' : 'View ?',
+                        child: Text(isReserved ? 'Reserved' : 'View ➜',
                             style: dm(sz: 11, w: FontWeight.w700,
                                 c: isReserved ? C.red : C.brand)),
                       ),
@@ -499,7 +499,7 @@ class _TrustBadge extends StatelessWidget {
       case TrustStatus.titan_trust:
         bg = const Color(0xFFB8860B); label = '💎 TITAN TRUST'; break;
       case TrustStatus.verified:
-        bg = C.green; label = '? VERIFIED'; break;
+        bg = C.green; label = '✅ VERIFIED'; break;
       case TrustStatus.limited:
         bg = Colors.orange; label = '⚠️ LIMITED'; break;
       default:
@@ -600,7 +600,7 @@ class _PulsingDotState extends State<_PulsingDot>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _anim,
-      child: Text('?', style: TextStyle(color: C.brand, fontSize: 10)),
+      child: Text('•', style: TextStyle(color: C.brand, fontSize: 10)),
     );
   }
 }
@@ -615,7 +615,7 @@ class _AppTabs extends StatelessWidget {
   static final _tabs = [
     ('home', '🏠', 'Property'),
     ('transport', '🚚', 'Transport'),
-    ('upload', '?', 'Upload'),
+    ('upload', '📤', 'Upload'),
     ('profile', '👤', 'Profile'),
   ];
 
@@ -708,7 +708,7 @@ class _BottomNav extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _BotBtn('🏠', 'Property', current == 'home', () => onTap('home')),
-          _BotBtn('?', 'Community', current == 'community', () => onTap('community')),
+          _BotBtn('🌍', 'Community', current == 'community', () => onTap('community')),
           _BotBtn('📋', 'Listings', current == 'list', () => onTap('list')),
           _BotBtn('💬', 'Chat', current == 'chat', () => onTap('chat')),
         ],

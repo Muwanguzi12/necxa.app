@@ -4640,7 +4640,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                     ? Text(
                                         authorName.isNotEmpty
                                             ? authorName[0].toUpperCase()
-                                            : '?',
+                                            : '',
                                         style: syne(
                                           sz: 16,
                                           w: FontWeight.bold,
