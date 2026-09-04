@@ -1546,6 +1546,18 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   }
 
   @override
+  void didUpdateWidget(_NeuralScannerOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.subStep != oldWidget.subStep) {
+      if (widget.subStep == 3) {
+        unawaited(switchCamera(CameraLensDirection.front).catchError((_) {}));
+      } else if (widget.subStep < 3 && oldWidget.subStep == 3) {
+        unawaited(switchCamera(CameraLensDirection.back).catchError((_) {}));
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _ctrl.dispose();
     cameraCtrl?.dispose();
@@ -1771,14 +1783,39 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
             Positioned(
               top: 14,
               right: 14,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: C.text.withOpacity(.94),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: C.text.withOpacity(.94),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
+                  ),
+                  if (widget.subStep >= 2) ...[
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: () {
+                        final newDirection = _currentDirection == CameraLensDirection.front
+                            ? CameraLensDirection.back
+                            : CameraLensDirection.front;
+                        switchCamera(newDirection).catchError((_) {});
+                      },
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: C.text.withOpacity(.94),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.flip_camera_ios_outlined, color: C.bg, size: 20),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
