@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-import { decode, encode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
+import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 // Necxa Listing Engine — Edge AI integration
 
 // ============================================
@@ -493,75 +493,13 @@ Deno.serve(async (req) => {
       // Calculate broker fee (5% for agent, 2% for Necxa = 7% total)
       const brokerFee = Math.floor(priceUgx * 0.07)
 
-      // === Nebius AI Listing Verifier (NVIDIA Cosmos3) ===
-      let aiResult: any = {};
-      try {
-        const nebiusKey = Deno.env.get("NEBIUS_API_KEY");
-        if (!nebiusKey) {
-          throw new Error("NEBIUS_API_KEY not configured in environment.");
-        }
-        
-        const photoBytes = await photoFiles[0].arrayBuffer();
-        const base64Data = encode(new Uint8Array(photoBytes));
-        const mimeType = photoFiles[0].type || "image/jpeg";
-        const base64Url = `data:${mimeType};base64,${base64Data}`;
-
-        const nebiusRes = await fetch("https://api.tokenfactory.nebius.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${nebiusKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "nvidia/Cosmos3-Super-Reasoner",
-            messages: [
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: `Tell me what items are in this image. Verify if this is a genuine property listing image. The listing title is "${title}" and category is "${propertyType}". Assign a trust score (0-100). Return ONLY a JSON object with exactly this structure: {"verified": true|false, "score": number, "description": "brief analysis", "decision": "approve"|"manual_review", "reasonCode": "string"}`
-                  },
-                  {
-                    type: "image_url",
-                    image_url: {
-                      url: base64Url
-                    }
-                  }
-                ]
-              }
-            ],
-            temperature: 0.1
-          })
-        });
-
-        if (!nebiusRes.ok) {
-           const errText = await nebiusRes.text();
-           console.error("Nebius AI Error:", errText);
-           throw new Error("Property AI verification failed at API level.");
-        }
-
-        const nebiusData = await nebiusRes.json();
-        const contentStr = nebiusData.choices?.[0]?.message?.content || "{}";
-        
-        const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
-        aiResult = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(contentStr);
-      } catch (e) {
-        console.error("Listing Verification Exception:", e);
-        throw new Error(e.message || 'Property image verification is temporarily unavailable.');
-      }
-
-      if (aiResult?.verified !== true) {
-        return json({
-          success: false,
-          error: aiResult?.description || 'The property photo requires review or a clearer original capture.',
-          decision: aiResult?.decision || 'manual_review',
-          reason_code: aiResult?.reasonCode || 'property_photo_requires_review',
-        }, 422)
-      }
-      const aiScore = Math.max(0, Math.min(1, Number(aiResult.score || 0) / 100.0));
-      const aiLevel = "VERIFIED";
-      const aiDescription = aiResult.description || "Property image checks passed.";
+      // AI verification is handled by SP2 (verify-property edge function)
+      // We create the listing immediately (fast user experience), then fire-and-forget
+      // the AI verification call to the SP2 AI engine. The listing starts as 'pending'
+      // and is upgraded to 'verified' when SP2 calls back.
+      const aiScore = 0.5; // pending
+      const aiLevel = "PENDING";
+      const aiDescription = "AI verification queued on Necxa AI Engine.";
 
       // Create listing
       const { data: listing, error: listErr } = await supabaseAdmin
@@ -765,16 +703,37 @@ Deno.serve(async (req) => {
 
       console.log(`✅ MINT EVENT: Listing ${listing.id} | Agent ${profile.id} | Mint ID: ${mintEventId}`)
 
+      // 🤖 FIRE-AND-FORGET: Dispatch AI verification to SP2 (AI & Finance Engine)
+      // We do NOT await this — the user gets instant confirmation and SP2 upgrades
+      // the listing to 'verified' or flags it as a honeypot asynchronously.
+      const SP2_URL = Deno.env.get("VERIFICATION_PROJECT_URL") || "https://ayvescksetiuekoyfqar.supabase.co"
+      const SP2_ANON_KEY = Deno.env.get("VERIFICATION_PROJECT_ANON_KEY") || "sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT"
+      fetch(`${SP2_URL}/functions/v1/verify-property`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${primaryJwt}`,
+          "x-primary-jwt": primaryJwt,
+          "apikey": SP2_ANON_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ listing_id: listing.id }),
+      }).then(async (r) => {
+        const body = await r.json().catch(() => ({}))
+        console.log(`🤖 SP2 verify-property result for ${listing.id}:`, body.status, body.confidence_score)
+      }).catch((e) => {
+        console.error(`🤖 SP2 verify-property dispatch error for ${listing.id}:`, e.message)
+      })
+
       return json({
         success: true,
         listing_id: listing.id,
         mint_event_id: mintEventId,
         status: "ACTIVE",
-        titan_trust: "VERIFIED",
+        titan_trust: "PENDING_AI_REVIEW",
         unlock_cost: Math.floor(priceUgx * 0.1),
         broker_fee: brokerFee,
         stage: "complete",
-        message: "Your listing is LIVE on the Necxa Neural Grid!",
+        message: "Your listing is LIVE on the Necxa Neural Grid! AI verification is running in the background.",
       })
     }
 
