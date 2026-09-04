@@ -275,6 +275,86 @@ Respond in STRICT JSON ONLY:
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Holding check — only verifies a person is physically holding an ID card.
+// NO OCR, NO data extraction — minimal tokens, fast response.
+// ─────────────────────────────────────────────────────────────────────────────
+async function callNvidiaVisionHolding(imageBase64: string): Promise<{
+  verified: boolean
+  person_detected: boolean
+  id_card_detected: boolean
+  holding_confirmed: boolean
+  score: number
+  reasoning: string
+}> {
+  const NVIDIA_API_KEY = Deno.env.get('NVIDIA_API_KEY')
+  if (!NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not configured')
+
+  const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '')
+  const imageUrl = `data:image/jpeg;base64,${imageData}`
+
+  const promptText = `You are a document presence verification AI.
+Look at this image and answer ONLY these three questions:
+1. Is there a real, live human person visible in this photo?
+2. Is the person physically holding an identity document (ID card, passport, or similar) in their hands?
+3. Is the ID card clearly visible and not hidden, covered, or replaced by another object?
+
+Do NOT read, extract, or transcribe any text from the document.
+Do NOT identify the person.
+Do NOT check if the document is valid — only check if it is physically present and being held.
+
+Respond in STRICT JSON ONLY:
+{
+  "person_detected": <true|false>,
+  "id_card_detected": <true|false>,
+  "holding_confirmed": <true|false>,
+  "score": <0-100 confidence>,
+  "reasoning": "<one sentence>"
+}`
+
+  const nvidiaRes = await fetch(NVIDIA_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${NVIDIA_API_KEY}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      model: NVIDIA_VISION_MODEL,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: imageUrl } },
+          { type: 'text', text: promptText }
+        ]
+      }],
+      max_tokens: 256,
+      temperature: 0.1,
+    }),
+  })
+
+  if (!nvidiaRes.ok) throw new Error(`NVIDIA Vision API error ${nvidiaRes.status}`)
+
+  const nvidiaData = await nvidiaRes.json()
+  const rawText: string = nvidiaData?.choices?.[0]?.message?.content ?? ''
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+  if (!jsonMatch) throw new Error(`NVIDIA Vision holding check returned non-JSON: ${rawText.slice(0, 200)}`)
+
+  const parsed = JSON.parse(jsonMatch[0])
+  const holding_confirmed = Boolean(parsed.holding_confirmed)
+  const person_detected = Boolean(parsed.person_detected)
+  const id_card_detected = Boolean(parsed.id_card_detected)
+
+  return {
+    verified: holding_confirmed && person_detected && id_card_detected,
+    person_detected,
+    id_card_detected,
+    holding_confirmed,
+    score: Number(parsed.score ?? 0),
+    reasoning: String(parsed.reasoning ?? ''),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -329,7 +409,55 @@ serve(async (req) => {
     // ─────────────────────────────────────────────────────────────────────────
     // ID document capture actions
     // ─────────────────────────────────────────────────────────────────────────
-    if (action === 'verify-id' || action === 'verify-id-front' || action === 'verify-id-back' || action === 'verify-id-holding') {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Holding check — person physically holding an ID card (no OCR)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (action === 'verify-id-holding') {
+      const { imageBase64 } = payload || {}
+      if (!imageBase64) throw new Error('Missing imageBase64 payload')
+
+      let holdingResult: Awaited<ReturnType<typeof callNvidiaVisionHolding>> | null = null
+      try {
+        holdingResult = await callNvidiaVisionHolding(imageBase64)
+        console.log(`[NVIDIA Holding] verified=${holdingResult.verified} person=${holdingResult.person_detected} id=${holdingResult.id_card_detected}`)
+      } catch (err: any) {
+        console.error('[NVIDIA Holding] Error:', err.message)
+        return new Response(JSON.stringify({
+          verified: false,
+          decision: 'deferred',
+          reasonCode: 'holding_check_unavailable',
+          retryable: true,
+          feedback: 'The holding verification is temporarily unavailable. Please retry shortly.',
+        }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      const feedback = holdingResult.verified
+        ? 'Confirmed: you are physically holding your ID card. Proceed to the next step.'
+        : !holdingResult.person_detected
+          ? 'No person was detected. Make sure your full upper body and face are visible.'
+          : !holdingResult.id_card_detected
+            ? 'No ID card was detected. Hold your ID card clearly in front of the camera.'
+            : 'The ID card must be clearly visible and held in your hands. Retake the photo.'
+
+      return new Response(JSON.stringify({
+        verified: holdingResult.verified,
+        decision: holdingResult.verified ? 'pass' : 'fail',
+        reasonCode: holdingResult.verified ? 'holding_confirmed' : 'holding_not_confirmed',
+        person_detected: holdingResult.person_detected,
+        id_card_detected: holdingResult.id_card_detected,
+        holding_confirmed: holdingResult.holding_confirmed,
+        score: holdingResult.score,
+        reasoning: holdingResult.reasoning,
+        feedback,
+        verificationSessionId: sessionId,
+        sessionLink,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ID document front / back capture (OCR + data extraction)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (action === 'verify-id' || action === 'verify-id-front' || action === 'verify-id-back') {
       const { imageBase64 } = payload || {}
       if (!imageBase64) throw new Error("Missing imageBase64 payload")
 
