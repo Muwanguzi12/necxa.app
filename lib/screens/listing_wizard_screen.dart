@@ -1682,99 +1682,85 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
             // ── BIOMETRIC HUD (selfie mode only) ──────────────────────────
             if (!widget.documentMode) ...[
-
-              // Top guidance pill
+              // Top 'LIVE' pill
               Positioned(
                 top: 14,
                 left: 12,
-                right: 52,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.72),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: C.brand.withOpacity(.35)),
+                    color: Colors.transparent,
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.wb_sunny_outlined, size: 11, color: C.brand),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(
-                          'Face camera directly  •  Good lighting  •  Remove glasses',
-                          style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: C.brand,
+                          shape: BoxShape.circle,
                         ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'LIVE',
+                        style: dm(sz: 10, c: Colors.white, w: FontWeight.bold, ls: 0.5),
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // Centre prompt below oval
+              // Top 'Tips' pill
               Positioned(
-                bottom: 46,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(.55),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Text(
-                      'Fit your face within the oval',
-                      style: dm(sz: 10, c: Colors.white70, w: FontWeight.w600),
-                    ),
+                top: 14,
+                right: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.5),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withOpacity(.2)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.info_outline, size: 12, color: Colors.white),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Tips',
+                        style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
+                      ),
+                    ],
                   ),
                 ),
               ),
 
-              // Anti-spoof shield badge
+              // Bottom prompts
               Positioned(
-                bottom: 14,
+                bottom: 24,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: AnimatedBuilder(
-                    animation: _ctrl,
-                    builder: (context, _) {
-                      final pulse = (0.7 + 0.3 * (_ctrl.value < .5
-                          ? _ctrl.value * 2
-                          : (1 - _ctrl.value) * 2));
-                      return Opacity(
-                        opacity: pulse,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0D2B1A),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF00FF88).withOpacity(.5)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.shield_outlined,
-                                  size: 11, color: Color(0xFF00FF88)),
-                              const SizedBox(width: 5),
-                              Text(
-                                'REAL-TIME LIVENESS SHIELD ACTIVE',
-                                style: dm(
-                                  sz: 9,
-                                  c: const Color(0xFF00FF88),
-                                  w: FontWeight.w900,
-                                  ls: .4,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Fit your face within the oval and look straight',
+                      style: dm(sz: 12, c: Colors.white, w: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildTip(Icons.light_mode_outlined, 'Good lighting'),
+                        Container(width: 1, height: 12, color: Colors.white.withOpacity(.2), margin: const EdgeInsets.symmetric(horizontal: 12)),
+                        _buildTip(Icons.shield_outlined, 'No filters'),
+                        Container(width: 1, height: 12, color: Colors.white.withOpacity(.2), margin: const EdgeInsets.symmetric(horizontal: 12)),
+                        _buildTip(Icons.face_retouching_off, 'No hats or glasses'),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1821,6 +1807,20 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildTip(IconData icon, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: Colors.cyanAccent),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: dm(sz: 10, c: Colors.white70),
+        ),
+      ],
     );
   }
 }
