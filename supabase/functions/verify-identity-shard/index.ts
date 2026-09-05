@@ -35,9 +35,11 @@ const biometricFailureFeedback: Record<string, string> = {
   identity_reference_required:
     'The National ID reference image is missing. Restart the identity scan.',
   presentation_attack_detected:
-    'Liveness verification could not approve this capture. Please retry with your face clearly visible in natural light. Avoid screens, reflections, and masks.',
+    'Liveness verification could not approve this capture. Keep your full face visible and still. Ordinary eye or phone-screen reflections are okay; retry if a replay screen, printout, or mask is present.',
   liveness_below_threshold:
-    'Liveness could not be confirmed. Face the camera directly in brighter light and retry.',
+    'Liveness could not be confirmed. Keep your full face centered and visible, even in indoor or dim light, then retry.',
+  face_not_detected:
+    'No clear face was detected. Center your full face in the cyan guide and retry.',
   face_similarity_below_threshold:
     'Your selfie could not be matched to the National ID photo. Please retry in better light.',
 }
@@ -61,6 +63,7 @@ async function callNvidiaVisionBiometric(
   mode: 'face-only' | 'biometric'
 ): Promise<{
   is_live_person: boolean
+  face_detected: boolean
   liveness_score: number
   anti_spoof_flags: string[]
   liveness_agrees: boolean
@@ -113,8 +116,10 @@ async function callNvidiaVisionBiometric(
 
 LIVENESS CHECK:
 Determine if Image 1 shows a real, live human being physically present in front of the camera.
+First confirm that a real human face is clearly visible. If no face is visible, set face_detected=false,
+is_live_person=false, liveness_score=0, and liveness_agrees=false.
 Look for:
-- Screen replay attack: pixel grid patterns, moiré artifacts, screen glare, bezel borders, screen refresh banding
+- Screen replay attack: a second face displayed on a screen, with pixel grid/moiré patterns, bezel borders, refresh banding, or a flat screen boundary. Ordinary catchlights or phone-screen reflections in the eyes are not attacks.
 - Paper/printout attack: flat 2D surface, paper edges, paper sheen, uniform lighting with no depth
 - 3D printed mask: unnatural skin texture, rigid surface, mask seams
 - Deepfake/digital manipulation: unnatural skin grain, edge blurring, inconsistent lighting
@@ -122,6 +127,7 @@ Look for:
 Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 {
   "is_live_person": <true|false>,
+  "face_detected": <true|false>,
   "liveness_score": <0-100>,
   "anti_spoof_flags": ["<flag1>", "<flag2>"],
   "liveness_agrees": <true|false>,
@@ -142,7 +148,7 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 TASK 1 — LIVENESS / ANTI-SPOOFING (evaluate Image 1 only):
 Determine whether Image 1 shows a real, live human being physically present in front of the camera.
 Reject if you detect any of these presentation attacks:
-- Screen replay attack: pixel grid, moiré patterns, screen glare, bezel borders
+- Screen replay attack: a second face displayed on a screen, with pixel grid/moiré patterns, bezel borders, or refresh banding. Ordinary catchlights or phone-screen reflections in the eyes are not attacks.
 - Paper printout attack: flat 2D plane, paper edges, paper texture, unnaturally uniform lighting
 - 3D mask: rigid skin texture, mask edges, synthetic appearance
 - Deepfake / digital composite: blur halos at face edges, inconsistent skin grain, mismatched lighting angle
@@ -166,6 +172,7 @@ IMPORTANT: Do not query any government or external database. This is a purely vi
 Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 {
   "is_live_person": <true|false>,
+  "face_detected": <true|false>,
   "liveness_score": <0-100>,
   "anti_spoof_flags": ["<spoof type if any, else empty array>"],
   "liveness_agrees": <true|false>,
@@ -232,6 +239,7 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
       const parsed = JSON.parse(jsonMatch[0])
       return {
         is_live_person: Boolean(parsed.is_live_person),
+        face_detected: Boolean(parsed.face_detected),
         liveness_score: Number(parsed.liveness_score ?? 0),
         anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
         liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person),
@@ -724,6 +732,7 @@ serve(async (req) => {
 
         const livenessPassed =
           nvidiaResult.is_live_person &&
+          nvidiaResult.face_detected &&
           nvidiaResult.liveness_agrees &&
           nvidiaResult.liveness_score >= LIVENESS_THRESHOLD &&
           (nvidiaResult.anti_spoof_flags.length === 0 ||
@@ -739,7 +748,9 @@ serve(async (req) => {
         const verified = livenessPassed && faceMatch
 
         let reasonCode: string
-        if (!livenessPassed && nvidiaResult.anti_spoof_flags.length > 0) {
+        if (!nvidiaResult.face_detected) {
+          reasonCode = 'face_not_detected'
+        } else if (!livenessPassed && nvidiaResult.anti_spoof_flags.length > 0) {
           reasonCode = 'presentation_attack_detected'
         } else if (!livenessPassed) {
           reasonCode = 'liveness_below_threshold'
@@ -766,6 +777,7 @@ serve(async (req) => {
           verified,
           faceMatch,
           livenessPassed,
+          faceDetected: nvidiaResult.face_detected,
           decision: verified ? 'pass' : 'fail',
           reasonCode,
           requiresManualReview: false,

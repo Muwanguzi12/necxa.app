@@ -613,7 +613,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         if (_identityAdvanceScheduled) return;
         _identityAdvanceScheduled = true;
         Future.delayed(const Duration(milliseconds: 800), () {
-          if (mounted && _step == 2) _next();
+          if (mounted && _step == 2) {
+            setState(() => _step++);
+          }
         });
       }
     } catch (e) {
