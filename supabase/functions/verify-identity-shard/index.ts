@@ -175,7 +175,9 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 }`
   }
 
-  contentParts.push({ type: 'text', text: promptText })
+  // Cosmos follows the same text-first multimodal message shape used by the
+  // working property-verification function.
+  contentParts.unshift({ type: 'text', text: promptText })
 
   let lastError = 'Vision providers unavailable'
   for (const provider of providers) {
@@ -190,7 +192,7 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
         body: JSON.stringify({
           model: provider.model,
           messages: [{ role: 'user', content: contentParts }],
-          max_tokens: 256,
+          max_tokens: provider.name === 'cosmos3-face-verification' ? 1024 : 256,
           temperature: 0.1,
         }),
       })
@@ -201,10 +203,29 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
       }
 
       const data = await response.json()
-      const rawText: string = data?.choices?.[0]?.message?.content ?? ''
+      const message = data?.choices?.[0]?.message ?? {}
+      const parts = [message.content, message.reasoning_content, data?.output_text]
+      const rawText = parts
+        .filter((part: unknown) => part !== null && part !== undefined)
+        .map((part: unknown) => {
+          if (typeof part === 'string') return part
+          if (Array.isArray(part)) {
+            return part
+              .map((item: unknown) => {
+                if (typeof item === 'string') return item
+                if (typeof item !== 'object' || item === null) return ''
+                if ('text' in item) return String((item as { text?: unknown }).text ?? '')
+                if ('content' in item) return String((item as { content?: unknown }).content ?? '')
+                return ''
+              })
+              .join('')
+          }
+          return typeof part === 'object' ? JSON.stringify(part) : String(part)
+        })
+        .join('\n')
       const jsonMatch = rawText.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
-        throw new Error(`${provider.name} returned non-JSON response: ${rawText.slice(0, 200)}`)
+        throw new Error(`${provider.name} returned no JSON decision`)
       }
 
       const parsed = JSON.parse(jsonMatch[0])
@@ -756,7 +777,28 @@ serve(async (req) => {
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
 
-      // ── Fallback: Cloudflare Worker ───────────────────────────────────────
+      // Do not fall through to the legacy Worker: it reports misleading
+      // provider-configuration errors for this face-match flow.
+      return new Response(JSON.stringify({
+        verified: false,
+        faceMatch: false,
+        livenessPassed: false,
+        decision: 'deferred',
+        reasonCode: 'biometric_provider_unavailable',
+        retryable: true,
+        engine: 'vision-provider-unavailable',
+        providerError: nvidiaError
+          ? nvidiaError.replace(/(?:Bearer|key|token)[^, ]*/gi, '[redacted]').slice(0, 160)
+          : 'No provider response',
+        feedback: biometricFailureFeedback['biometric_provider_unavailable'],
+        verificationSessionId: sessionId,
+        sessionLink,
+      }), {
+        status: 503,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+
+      /* Legacy Worker fallback retained below for reference.
       console.log('[Biometric] Using Cloudflare Worker fallback')
       const selfieBytes = decode(imageBase64.replace(/^data:image\/\w+;base64,/, ""));
       const formData = new FormData();
@@ -834,6 +876,7 @@ serve(async (req) => {
         verificationSessionId: aiData.sessionId,
         sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      */
     }
 
     // Fallback error safely

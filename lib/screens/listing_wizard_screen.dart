@@ -549,9 +549,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       } else if (state.verificationSubStep == 3) {
         final xfile = await cameraCtrl.takePicture();
         state.faceImage = File(xfile.path);
-        final selfieResult = await NecxaAI.verifySelfie(
+        final selfieResult = await NecxaAI.verifyFaceOnly(
           state.faceImage!,
-          state.idImage!,
           userId: state.user?.id,
         );
         final biometric = _selfieResultFrom(selfieResult);
@@ -559,7 +558,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           throw UserMessageException(
             _aiFeedback(
               selfieResult,
-              'Biometric face match failed. Please retry in better light.',
+              'Face liveness verification failed. Please retry in better light.',
             ),
           );
         }
