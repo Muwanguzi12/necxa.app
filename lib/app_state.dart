@@ -1093,19 +1093,15 @@ class AppState extends ChangeNotifier {
   }) async {
     if (user == null) throw Exception('Sign in before buying coins');
 
-    // 🛡️ GATHER SECURITY METADATA
-    final securityData = await getFullSecurityMetadata();
-    if (contextType != null) securityData['purchase_context'] = contextType;
-    if (contextId != null) securityData['context_id'] = contextId;
-    if (targetGiftItemId != null) {
-      securityData['target_gift_item_id'] = targetGiftItemId;
-    }
-
     final result = await financeCoinPurchases.purchase(
       packId: packId,
       method: method,
       idempotencyKey: idempotencyKey,
-      securityMetadata: securityData,
+      securityMetadata: {
+        if (contextType != null) 'purchase_context': contextType,
+        if (contextId != null) 'context_id': contextId,
+        if (targetGiftItemId != null) 'target_gift_item_id': targetGiftItemId,
+      },
     );
 
     if (result['success'] == true) {
