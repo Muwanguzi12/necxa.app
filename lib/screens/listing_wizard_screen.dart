@@ -1603,8 +1603,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   @override
   Widget build(BuildContext context) {
     final isHolding = widget.subStep == 2;
-    return Container(
-      height: isHolding ? 360 : 270,
+    final viewport = Container(
       width: double.infinity,
       decoration: BoxDecoration(
         color: C.cardDk,
@@ -1677,7 +1676,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 animation: _ctrl,
                 builder: (context, child) {
                   return CustomPaint(
-                    size: Size(double.infinity, isHolding ? 360 : 270),
+                    size: Size.infinite,
                     painter: _ScannerOverlayPainter(
                       documentMode: widget.documentMode,
                       holdingMode: isHolding,
@@ -1729,7 +1728,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Keep your face and ID in frame',
+                      'Fit your face and ID inside the frame',
                       style: dm(sz: 11, c: Colors.white, w: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
@@ -1962,6 +1961,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         ),
       ),
     );
+    return isHolding
+        ? AspectRatio(aspectRatio: 1.7, child: viewport)
+        : SizedBox(height: 270, child: viewport);
   }
 
   Widget _buildTip(IconData icon, String label) {
@@ -2579,24 +2581,25 @@ class _ScannerOverlayPainter extends CustomPainter {
 
     if (holdingMode) {
       // ── HOLDING MODE: Face guide on left, ID card guide on right ──
-      const topPad = 48.0;
-      const bottomPad = 64.0;
-      const sidePad = 14.0;
-      const gap = 14.0;
+      const topPad = 38.0;
+      const bottomPad = 42.0;
+      const sidePad = 12.0;
+      const gap = 12.0;
 
       final availableW = size.width - (sidePad * 2) - gap;
-      final faceW = availableW * 0.44;
-      final idW = availableW * 0.56;
+      final faceW = availableW * 0.40;
+      final idW = availableW * 0.60;
       final areaH = size.height - topPad - bottomPad;
 
-      // Left face area (portrait)
-      final faceH = (areaH * 0.90).clamp(160.0, 205.0);
+      // Keep both guides inside the shallow landscape viewport without
+      // cropping the face or the four edges of the document.
+      final faceH = areaH * 0.82;
       final faceTop = topPad + (areaH - faceH) / 2;
       final faceRect = Rect.fromLTWH(sidePad, faceTop, faceW, faceH);
       final faceRRect = RRect.fromRectAndRadius(faceRect, const Radius.circular(20));
 
       // Right ID card area (landscape standard 1.55 ratio)
-      final idH = (idW / 1.55).clamp(100.0, 130.0);
+      final idH = (idW / 1.55).clamp(0.0, areaH * 0.82);
       final idTop = topPad + (areaH - idH) / 2;
       final idRect = Rect.fromLTWH(sidePad + faceW + gap, idTop, idW, idH);
       final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));

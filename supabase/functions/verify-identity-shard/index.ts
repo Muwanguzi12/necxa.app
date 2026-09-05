@@ -2,9 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 
-// CORS headers for the Flutter app
+// CORS remains open for native Flutter clients unless an allowed origin is configured.
+const allowedOrigin = Deno.env.get('IDENTITY_ALLOWED_ORIGIN')?.trim() || '*'
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': allowedOrigin,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-primary-jwt',
 }
 
@@ -478,6 +479,13 @@ Respond in STRICT JSON ONLY (no markdown formatting, no other text):
 // ─────────────────────────────────────────────────────────────────────────────
 
 serve(async (req) => {
+  const requestId = req.headers.get('x-request-id')?.trim() || crypto.randomUUID()
+  const responseHeaders = {
+    ...corsHeaders,
+    'Content-Type': 'application/json',
+    'X-Request-Id': requestId,
+  }
+
   // 1. Handle CORS Preflight perfectly
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -787,15 +795,13 @@ serve(async (req) => {
         reasonCode: 'biometric_provider_unavailable',
         retryable: true,
         engine: 'vision-provider-unavailable',
-        providerError: nvidiaError
-          ? nvidiaError.replace(/(?:Bearer|key|token)[^, ]*/gi, '[redacted]').slice(0, 160)
-          : 'No provider response',
         feedback: biometricFailureFeedback['biometric_provider_unavailable'],
+        requestId,
         verificationSessionId: sessionId,
         sessionLink,
       }), {
         status: 503,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: responseHeaders
       })
 
       /* Legacy Worker fallback retained below for reference.
