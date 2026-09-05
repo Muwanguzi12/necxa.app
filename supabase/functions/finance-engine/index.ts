@@ -844,6 +844,7 @@ async function syncCommunityGiftToPrimary(
   receiverNcx: number,
   platformFeeNcx: number,
   idempotencyKey: string,
+  contextType: string,
   metadata: Record<string, unknown>,
 ) {
   if (!PRIMARY_SUPABASE_URL || !PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
@@ -864,7 +865,7 @@ async function syncCommunityGiftToPrimary(
     p_platform_fee_ncx: platformFeeNcx,
     p_idempotency_key: idempotencyKey,
     p_metadata: metadata,
-    p_context_type: metadata.context_type || "creator_post",
+    p_context_type: contextType,
   });
   if (error) throw new Error(`Primary community gift sync failed: ${error.message}`);
   return { synced: true, result: data };
@@ -914,6 +915,7 @@ async function reconcileGiftProjections(
         Number(projection.receiver_ncx),
         Number(projection.platform_fee_ncx),
         String(projection.idempotency_key),
+        String(projection.context_type),
         metadata,
       );
       if (!syncResult.synced) {
@@ -2742,6 +2744,7 @@ serve(async (req) => {
             receiverNcx,
             platformFeeNcx,
             idempotencyKey,
+            contextType,
             { ...metadata, context_type: contextType, ugx_value: Number(giftDef.ugx_value) },
           );
           if (!communitySync.synced) {

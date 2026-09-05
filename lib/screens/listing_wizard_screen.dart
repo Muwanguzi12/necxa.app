@@ -122,13 +122,13 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   static const _steps = [
-    ('Role & Basics', '??', 'Distinguish Agent vs Owner'),
-    ('Pricing & Specs', '??', 'Price, bedrooms, size'),
-    ('Identity Shard', '???', 'ShieldSDK Biometric Match'),
-    ('Utility Shard', '?', 'Utility & Authority Docs'),
-    ('GPS Node Lock', '??', 'Lock physical coordinates'),
-    ('Property Photos', '??', 'Upload visual assets'),
-    ('Review & Mint', '?', 'Final neural synthesis'),
+    ('Role & Basics', '🏠', 'Agent or owner'),
+    ('Pricing & Specs', '💰', 'Price and property details'),
+    ('Identity Shard', '🪪', 'ID and face verification'),
+    ('Utility Shard', '📄', 'Utility and authority docs'),
+    ('GPS Node Lock', '📍', 'Lock property coordinates'),
+    ('Property Photos', '📸', 'Upload property photos'),
+    ('Review & Mint', '✅', 'Review and submit'),
   ];
 
   bool get _canGoNext {
@@ -439,7 +439,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   SelfieResult _selfieResultFrom(Map<String, dynamic> data) {
     // Face matching must be an explicit result from the biometric service.
-    final faceMatch = data['faceMatch'] == true || data['verified'] == true;
+    final livenessPassed = data['livenessPassed'] != false;
+    final faceMatch =
+        livenessPassed &&
+        (data['faceMatch'] == true || data['verified'] == true);
     double? score;
     if (data['score'] is num) {
       score = (data['score'] as num).toDouble();
@@ -1482,8 +1485,6 @@ class _NeuralScannerOverlay extends StatefulWidget {
 
 class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     with SingleTickerProviderStateMixin {
-  static const double _holdingZoomLevel = 1.2;
-
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 2),
@@ -1525,10 +1526,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
     try {
       await nextController.initialize();
-      await _setZoomLevel(
-        nextController,
-        widget.subStep == 2 ? _holdingZoomLevel : 1.0,
-      );
+      await _setZoomLevel(nextController, 1.0);
       _currentDirection = direction;
       if (mounted) setState(() {});
     } catch (e) {
@@ -1583,13 +1581,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   void didUpdateWidget(_NeuralScannerOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
-      if (widget.subStep == 2 &&
-          cameraCtrl != null &&
-          cameraCtrl!.value.isInitialized) {
-        unawaited(_setZoomLevel(cameraCtrl!, _holdingZoomLevel));
-      } else if (oldWidget.subStep == 2 &&
-          cameraCtrl != null &&
-          cameraCtrl!.value.isInitialized) {
+      if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
         unawaited(_setZoomLevel(cameraCtrl!, 1.0));
       }
 
@@ -1652,12 +1644,12 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       previewAspect = 1.0 / previewAspect;
                     }
 
-                    double scale;
-                    if (viewportAspect > previewAspect) {
-                      scale = viewportAspect / previewAspect;
-                    } else {
-                      scale = previewAspect / viewportAspect;
-                    }
+                    final coverScale = viewportAspect > previewAspect
+                        ? viewportAspect / previewAspect
+                        : previewAspect / viewportAspect;
+                    // Identity captures need the full face/card visible. Keep
+                    // the native preview scale instead of cropping to cover.
+                    final scale = widget.subStep >= 2 ? 1.0 : coverScale;
 
                     return ClipRect(
                       child: Transform.scale(
@@ -1737,14 +1729,14 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Position your face and ID in the frame',
-                      style: dm(sz: 13, c: Colors.white, w: FontWeight.bold),
+                      'Keep your face and ID in frame',
+                      style: dm(sz: 11, c: Colors.white, w: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Both must be clear and well lit',
-                      style: dm(sz: 10.5, c: Colors.white70),
+                      'Clear and well lit',
+                      style: dm(sz: 9, c: Colors.white70),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -1753,10 +1745,10 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
               // "Face here" label — bottom of face area
               Positioned(
-                bottom: 66,
-                left: 36,
+                bottom: 72,
+                left: 22,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(.65),
                     borderRadius: BorderRadius.circular(20),
@@ -1767,7 +1759,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                     children: [
                       const Icon(Icons.person_outline, size: 13, color: Color(0xFF00E5FF)),
                       const SizedBox(width: 4),
-                      Text('Face here', style: dm(sz: 9.5, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
+                      Text('Face', style: dm(sz: 8.5, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -1775,10 +1767,10 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
               // "ID here" label — bottom of ID area
               Positioned(
-                bottom: 84,
-                right: 48,
+                bottom: 92,
+                right: 22,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(.65),
                     borderRadius: BorderRadius.circular(20),
@@ -1789,7 +1781,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                     children: [
                       const Icon(Icons.badge_outlined, size: 13, color: Color(0xFFFFD54F)),
                       const SizedBox(width: 4),
-                      Text('ID here', style: dm(sz: 9.5, c: const Color(0xFFFFD54F), w: FontWeight.bold)),
+                      Text('ID', style: dm(sz: 8.5, c: const Color(0xFFFFD54F), w: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -1812,8 +1804,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       Expanded(
                         child: _holdingStatusChip(
                           Icons.face_retouching_natural,
-                          'Face detected',
-                          'Good lighting',
+                          'Face',
+                          'Clear',
                           const Color(0xFF00E5FF),
                         ),
                       ),
@@ -1821,8 +1813,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       Expanded(
                         child: _holdingStatusChip(
                           Icons.badge_outlined,
-                          'ID detected',
-                          'Clear & readable',
+                          'ID',
+                          'Readable',
                           const Color(0xFFFFD54F),
                         ),
                       ),
@@ -1830,8 +1822,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       Expanded(
                         child: _holdingStatusChip(
                           Icons.check_circle_rounded,
-                          'Both detected',
-                          'Great! You can continue',
+                          'Ready',
+                          'Continue',
                           const Color(0xFF00E676),
                         ),
                       ),

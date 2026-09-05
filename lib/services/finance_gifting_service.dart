@@ -70,8 +70,8 @@ class FinanceGiftingService {
         .toList();
 
     // Finance owns the gift ID and price contract. Do not merge a local list
-    // ahead of it: a stale local ID (for example `money_bag` instead of
-    // `moneybag`) passes the UI but is rejected by the atomic transfer RPC.
+    // ahead of it: a stale local ID would pass the UI but be rejected by the
+    // atomic transfer RPC.
     if (remoteItems.isNotEmpty) {
       _catalogCache = remoteItems;
       return List<GiftItem>.of(_catalogCache!);

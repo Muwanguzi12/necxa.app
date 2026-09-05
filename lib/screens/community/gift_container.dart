@@ -330,10 +330,10 @@ class _GiftContainerState extends State<GiftContainer> {
             );
           }
           if (_category == 'Luxury') {
-            return ['sports_car', 'yacht', 'villa', 'mansion'].contains(gift.id);
+            return ['sports_car', 'yacht', 'mansion'].contains(gift.id);
           }
           if (_category == 'Big Gifts') {
-            return ['jet', 'dragon', 'globe', 'stadium', 'ressort'].contains(gift.id);
+            return ['jet', 'globe', 'stadium', 'ressort'].contains(gift.id);
           }
           return true;
         }).toList();

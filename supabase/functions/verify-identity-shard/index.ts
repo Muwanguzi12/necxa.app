@@ -68,7 +68,15 @@ async function callNvidiaVisionBiometric(
   raw_text?: string
 }> {
   const NVIDIA_API_KEY = Deno.env.get('NVIDIA_API_KEY')
-  if (!NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not configured')
+  const NEBIUS_API_KEY = Deno.env.get('NEBIUS_API_KEY')
+  const apiKey = NVIDIA_API_KEY || NEBIUS_API_KEY
+  if (!apiKey) throw new Error('Neither NVIDIA_API_KEY nor NEBIUS_API_KEY is configured')
+  const endpoint = NVIDIA_API_KEY
+    ? NVIDIA_API_URL
+    : 'https://api.tokenfactory.nebius.com/v1/chat/completions'
+  const model = NVIDIA_API_KEY
+    ? NVIDIA_VISION_MODEL
+    : 'meta-llama/Llama-3.2-11B-Vision-Instruct'
 
   // Strip data-URI prefix if present
   const selfieData = selfieBase64.replace(/^data:image\/\w+;base64,/, '')
@@ -128,7 +136,7 @@ Evaluate:
 - Lip shape and width
 - Jawline and chin contour
 - Overall facial proportions and bone structure
-Score similarity from 0 to 100. A score >= 75 indicates the same individual.
+Score similarity from 0 to 100. A score >= 60 indicates the same individual.
 A score below 60 should result in faces_match: false.
 
 IMPORTANT: Do not query any government or external database. This is a purely visual 1:1 comparison.
@@ -146,15 +154,15 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 
   contentParts.push({ type: 'text', text: promptText })
 
-  const nvidiaRes = await fetch(NVIDIA_API_URL, {
+  const nvidiaRes = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${NVIDIA_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
     body: JSON.stringify({
-      model: NVIDIA_VISION_MODEL,
+      model,
       messages: [{ role: 'user', content: contentParts }],
       max_tokens: 512,
       temperature: 0.1,
@@ -651,7 +659,7 @@ serve(async (req) => {
       // ── Build biometric result from NVIDIA Vision ─────────────────────────
       if (nvidiaResult) {
         const LIVENESS_THRESHOLD = 60
-        const SIMILARITY_THRESHOLD = 75
+        const SIMILARITY_THRESHOLD = 60
 
         const livenessPassed =
           nvidiaResult.is_live_person &&
