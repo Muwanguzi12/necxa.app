@@ -616,16 +616,33 @@ class NecxaAI {
     }
 
     try {
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-identity-shard',
-        headers: _aiHeaders(),
-        body: payload,
-      ).timeout(const Duration(seconds: 45));
+      final response = await http
+          .post(
+            Uri.parse(_identityVerificationUrl),
+            headers: {
+              'apikey': _identityVerificationPublishableKey,
+              'Authorization': 'Bearer $_identityVerificationPublishableKey',
+              'Content-Type': 'application/json',
+              ..._aiHeaders(),
+            },
+            body: jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 45));
 
-      if (res.data != null && res.data is Map) {
-        return Map<String, dynamic>.from(res.data);
+      final decoded = response.body.isEmpty
+          ? null
+          : jsonDecode(response.body);
+      if (response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
       }
-      throw Exception('Invalid response from identity verification service.');
+      if (decoded is Map && decoded['feedback'] != null) {
+        throw Exception(decoded['feedback'].toString());
+      }
+      throw Exception(
+        'Identity verification service returned HTTP ${response.statusCode}.',
+      );
     } catch (e) {
       throw Exception(e.toString());
     }
@@ -693,7 +710,10 @@ class NecxaAI {
           userId: userId ?? session.user.id,
         ),
       );
-      final faceMatch = data['faceMatch'] == true || data['verified'] == true;
+      final faceMatch =
+          data['verified'] == true &&
+          data['faceMatch'] == true &&
+          data['livenessPassed'] == true;
       final feedback =
           data['feedback']?.toString() ??
           data['error']?.toString() ??
@@ -773,7 +793,10 @@ class NecxaAI {
           userId: userId ?? session.user.id,
         ),
       );
-      final faceMatch = data['faceMatch'] == true || data['verified'] == true;
+      final faceMatch =
+          data['verified'] == true &&
+          data['faceMatch'] == true &&
+          data['livenessPassed'] == true;
       final feedback =
           data['feedback']?.toString() ??
           data['error']?.toString() ??

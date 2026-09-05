@@ -439,10 +439,11 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   SelfieResult _selfieResultFrom(Map<String, dynamic> data) {
     // Face matching must be an explicit result from the biometric service.
-    final livenessPassed = data['livenessPassed'] != false;
+    final livenessPassed = data['livenessPassed'] == true;
     final faceMatch =
         livenessPassed &&
-        (data['faceMatch'] == true || data['verified'] == true);
+        data['faceMatch'] == true &&
+        data['verified'] == true;
     double? score;
     if (data['score'] is num) {
       score = (data['score'] as num).toDouble();
