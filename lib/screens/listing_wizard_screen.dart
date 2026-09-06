@@ -1222,7 +1222,7 @@ class _Step3Identity extends StatelessWidget {
       ),
       (
         'Holding ID Photo',
-        'Position your face and ID in the frame. Both must be clear and well lit.',
+        'Fit your face and ID inside the frame. Indoor light is okay.',
         Icons.front_hand_outlined,
       ),
       (
@@ -1289,6 +1289,10 @@ class _Step3Identity extends StatelessWidget {
               ),
           ],
         ),
+        if (subStep == 2) ...[
+          const SizedBox(height: 12),
+          const _HoldingCaptureStatus(),
+        ],
         const SizedBox(height: 20),
         _InstructionCard(
           title: currentInstr.$1,
@@ -1367,6 +1371,101 @@ class _Step3Identity extends StatelessWidget {
             ],
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _HoldingCaptureStatus extends StatelessWidget {
+  const _HoldingCaptureStatus();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: C.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: C.border),
+      ),
+      child: const Row(
+        children: [
+          Expanded(
+            child: _HoldingStatusItem(
+              icon: Icons.light_mode_outlined,
+              title: 'Lighting',
+              value: 'Clear',
+              color: Color(0xFF00E676),
+            ),
+          ),
+          _HoldingStatusDivider(),
+          Expanded(
+            child: _HoldingStatusItem(
+              icon: Icons.badge_outlined,
+              title: 'ID readability',
+              value: 'Readable',
+              color: Color(0xFFFFD54F),
+            ),
+          ),
+          _HoldingStatusDivider(),
+          Expanded(
+            child: _HoldingStatusItem(
+              icon: Icons.face_retouching_natural,
+              title: 'Face',
+              value: 'Visible',
+              color: Color(0xFF00E5FF),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HoldingStatusDivider extends StatelessWidget {
+  const _HoldingStatusDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 30,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      color: C.border,
+    );
+  }
+}
+
+class _HoldingStatusItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  final Color color;
+
+  const _HoldingStatusItem({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: dm(sz: 9, c: C.dim)),
+              Text(value, style: dm(sz: 10, c: color, w: FontWeight.w700)),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1719,121 +1818,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 ),
               ),
 
-            // ── HOLDING ID HUD (subStep == 2) ──────────────────────────────
-            if (isHolding) ...[
-              // Top guidance text
-              Positioned(
-                top: 10,
-                left: 14,
-                right: 14,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Fit your face and ID inside the frame',
-                      style: dm(sz: 11, c: Colors.white, w: FontWeight.bold),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Clear and well lit',
-                      style: dm(sz: 9, c: Colors.white70),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-
-              // "Face here" label — bottom of face area
-              Positioned(
-                bottom: 72,
-                left: 22,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.65),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.8), width: 1.2),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.person_outline, size: 13, color: Color(0xFF00E5FF)),
-                      const SizedBox(width: 4),
-                      Text('Face', style: dm(sz: 8.5, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-
-              // "ID here" label — bottom of ID area
-              Positioned(
-                bottom: 92,
-                right: 22,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.65),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFFFD54F).withOpacity(.8), width: 1.2),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.badge_outlined, size: 13, color: Color(0xFFFFD54F)),
-                      const SizedBox(width: 4),
-                      Text('ID', style: dm(sz: 8.5, c: const Color(0xFFFFD54F), w: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Bottom status bar
-              Positioned(
-                bottom: 8,
-                left: 10,
-                right: 10,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.55),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _holdingStatusChip(
-                          Icons.face_retouching_natural,
-                          'Face',
-                          'Clear',
-                          const Color(0xFF00E5FF),
-                        ),
-                      ),
-                      Container(width: 1, height: 24, color: Colors.white24),
-                      Expanded(
-                        child: _holdingStatusChip(
-                          Icons.badge_outlined,
-                          'ID',
-                          'Readable',
-                          const Color(0xFFFFD54F),
-                        ),
-                      ),
-                      Container(width: 1, height: 24, color: Colors.white24),
-                      Expanded(
-                        child: _holdingStatusChip(
-                          Icons.check_circle_rounded,
-                          'Ready',
-                          'Continue',
-                          const Color(0xFF00E676),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-
             // ── BIOMETRIC HUD (selfie mode only) ──────────────────────────
             if (!widget.documentMode) ...[
               // Top 'LIVE' pill
@@ -1982,30 +1966,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     );
   }
 
-  Widget _holdingStatusChip(
-    IconData icon,
-    String title,
-    String subtitle,
-    Color iconColor,
-  ) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 17, color: iconColor),
-        const SizedBox(height: 3),
-        Text(
-          title,
-          style: dm(sz: 9.5, c: Colors.white, w: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        Text(
-          subtitle,
-          style: dm(sz: 8, c: Colors.white60),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
 }
 
 class _ScannerNodeStatus extends StatelessWidget {
@@ -2582,7 +2542,7 @@ class _ScannerOverlayPainter extends CustomPainter {
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
     if (holdingMode) {
-      // ── HOLDING MODE: Face guide on left, ID card guide on right ──
+      // ── HOLDING MODE: ID guide on left, face guide on right ──
       const topPad = 38.0;
       const bottomPad = 42.0;
       const sidePad = 12.0;
@@ -2597,13 +2557,18 @@ class _ScannerOverlayPainter extends CustomPainter {
       // cropping the face or the four edges of the document.
       final faceH = areaH * 0.82;
       final faceTop = topPad + (areaH - faceH) / 2;
-      final faceRect = Rect.fromLTWH(sidePad, faceTop, faceW, faceH);
+      final faceRect = Rect.fromLTWH(
+        sidePad + idW + gap,
+        faceTop,
+        faceW,
+        faceH,
+      );
       final faceRRect = RRect.fromRectAndRadius(faceRect, const Radius.circular(20));
 
-      // Right ID card area (landscape standard 1.55 ratio)
+      // Left ID card area (landscape standard 1.55 ratio)
       final idH = (idW / 1.55).clamp(0.0, areaH * 0.82);
       final idTop = topPad + (areaH - idH) / 2;
-      final idRect = Rect.fromLTWH(sidePad + faceW + gap, idTop, idW, idH);
+      final idRect = Rect.fromLTWH(sidePad, idTop, idW, idH);
       final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));
 
       // Combine cutouts from dark translucent backdrop
