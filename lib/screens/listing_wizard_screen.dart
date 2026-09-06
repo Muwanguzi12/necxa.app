@@ -142,7 +142,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             0;
       case 2:
         return (widget.state.lastIDResult?.verified ?? false) &&
-            (widget.state.idBackImage != null) && // back: capture only, no AI required
+            (widget.state.lastIDBackResult?.verified ?? false) &&
             (widget.state.lastHoldingResult?.verified ?? false) &&
             (widget.state.lastSelfieResult?.faceMatch ?? false) &&
             (widget.state.identityShardId?.isNotEmpty ?? false);
@@ -514,12 +514,24 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
-        // Back of ID — capture only, no AI verification required.
-        // The back is stored for record keeping; all AI work is done on front + selfie.
         final xfile = await cameraCtrl.takePicture();
-        state.idBackImage = File(xfile.path);
-        // Synthetic pass so downstream null-checks stay happy
-        state.lastIDBackResult = IDResult(verified: true, sessionId: 'back-captured');
+        final rawFile = File(xfile.path);
+        state.idBackImage = await ListingSyncService.compressImage(rawFile);
+        final result = await NecxaAI.verifyID(
+          state.idBackImage!,
+          userId: state.user?.id,
+          action: 'verify-id-back',
+        );
+        final idResult = _idResultFrom(result);
+        if (!idResult.verified) {
+          throw UserMessageException(
+            _aiFeedback(
+              result,
+              'Back of ID scan failed. Keep the document flat and retake it.',
+            ),
+          );
+        }
+        state.lastIDBackResult = idResult;
         state.verificationSubStep = 2;
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();

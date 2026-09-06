@@ -277,7 +277,26 @@ async function callNvidiaVisionId(
   const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '')
   const imageUrl = `data:image/jpeg;base64,${imageData}`
 
-  const promptText = `You are a certified identity document verification AI.
+  const isBackCapture = stage === 'back'
+  const promptText = isBackCapture
+    ? `You are a lightweight identity-document presence verifier.
+Analyze the back side of this ID card or passport.
+Do not perform OCR, extract personal data, or compare faces.
+Only decide whether a real identity document back is clearly visible and not a
+blank space, wall, object, or illegible blur.
+
+Respond in STRICT JSON ONLY:
+{
+  "verified": <true|false>,
+  "decision": "<pass|fail|manual_review>",
+  "reasonCode": "<document_present|document_unreadable|not_an_id>",
+  "score": <0-100>,
+  "qualityScore": <0-100>,
+  "docType": "national_id",
+  "country": "UG",
+  "extractedData": {}
+}`
+    : `You are a certified identity document verification AI.
 Analyze this image of an ID card or Passport (${stage} side).
 Is it a clear, legible, and valid identity document?
 If the user captured a blank space, a wall, an object like a chair, a face without an ID, or an illegible blur, it MUST fail with reasonCode "not_an_id".
@@ -318,7 +337,7 @@ Respond in STRICT JSON ONLY:
           ]
         }
       ],
-      max_tokens: 512,
+      max_tokens: isBackCapture ? 256 : 512,
       temperature: 0.1,
     }),
   })

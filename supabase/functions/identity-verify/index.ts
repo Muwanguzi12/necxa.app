@@ -157,13 +157,15 @@ Deno.serve(async (req) => {
     }
     const directAiMode = formData.get("verification_mode") === "direct-ai-engine"
     if (directAiMode) {
-      const [frontBase64, holdingBase64, faceBase64] = await Promise.all([
+      const [frontBase64, backBase64, holdingBase64, faceBase64] = await Promise.all([
         fileToDataUrl(idFront),
+        fileToDataUrl(idBack),
         fileToDataUrl(idHolding),
         fileToDataUrl(facePhoto),
       ])
-      const [frontResult, holdingResult, faceResult] = await Promise.all([
+      const [frontResult, backResult, holdingResult, faceResult] = await Promise.all([
         runDirectAiVerification(primaryJwt, "verify-id-front", frontBase64),
+        runDirectAiVerification(primaryJwt, "verify-id-back", backBase64),
         runDirectAiVerification(primaryJwt, "verify-id-holding", holdingBase64),
         runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64),
       ])
@@ -187,7 +189,7 @@ Deno.serve(async (req) => {
             country_code: String(formData.get("country") || "UG").slice(0, 2).toUpperCase(),
             status: "completed",
             decision: "pass",
-            policy_version: "capture-only-v1",
+            policy_version: "direct-ai-engine-light-v1",
             result_summary: { capture_stage: "back", media_sha256: await fileSha256(idBack) },
           },
           {
@@ -233,7 +235,7 @@ Deno.serve(async (req) => {
       }
       const stageRows = await supabase.from("ai_verification_stage_results").upsert([
         { job_id: frontJob.id, stage: "front_document_assessment", provider: frontResult.engine || "ai-engine", decision: "pass", metadata: frontResult },
-        { job_id: backJob.id, stage: "back_document_assessment", provider: "capture-only", decision: "pass", metadata: { capture_only: true } },
+        { job_id: backJob.id, stage: "back_document_assessment", provider: backResult.engine || "ai-engine", decision: "pass", metadata: backResult },
         { job_id: holdingJob.id, stage: "holding_document_assessment", provider: holdingResult.engine || "ai-engine", decision: "pass", metadata: holdingResult },
         { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: faceResult.engine || "ai-engine", decision: "pass", metadata: { liveness_score: faceResult.livenessScore, similarity_score: faceResult.score, ...faceResult } },
       ], { onConflict: "job_id,stage,attempt" })
