@@ -98,6 +98,15 @@ class _GiftContainerState extends State<GiftContainer> {
       _showError('No recipient selected.');
       return;
     }
+    final senderId = widget.state.user?.id;
+    if (senderId == null) {
+      _showError('Please sign in to send gifts.');
+      return;
+    }
+    if (senderId.toLowerCase() == widget.receiverId.toLowerCase()) {
+      _showError('You cannot send a gift to yourself.');
+      return;
+    }
     if (!widget.state.isOnline) {
       _showError('Connect to the internet before sending a gift.');
       return;
@@ -119,17 +128,12 @@ class _GiftContainerState extends State<GiftContainer> {
       return;
     }
 
-    if (widget.state.user == null) {
-      _showError('Please sign in to send gifts.');
-      return;
-    }
-
     setState(() => _sending = true);
     await SoundService().playGiftSound();
 
     try {
       final res = await widget.state.financeGifting.sendGift(
-        senderId: widget.state.user!.id,
+        senderId: senderId,
         receiverId: widget.receiverId,
         giftItemId: preset.id,
         ncxAmount: preset.ncxValue,

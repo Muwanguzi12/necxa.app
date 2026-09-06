@@ -21,6 +21,24 @@ String getUserFriendlyError(dynamic error) {
     return "Connection timed out. Please try again.";
   }
 
+  // Preserve safe identity-function outcomes instead of hiding them behind the
+  // generic loading message.
+  const identityMessages = <String, String>{
+    'verification results are still syncing':
+        'Verification is still syncing. Tap Verify again without retaking your photos.',
+    'verification receipts are missing':
+        'Verification receipts are missing. Please complete the identity capture again.',
+    'direct identity verification receipts':
+        'Identity verification could not save its results. Please try Verify again.',
+    'biometric receipt':
+        'The face verification result was not approved. Please retry the face capture.',
+    'document receipt':
+        'One of the document captures was not approved. Please retry that capture.',
+  };
+  for (final entry in identityMessages.entries) {
+    if (errorStr.contains(entry.key)) return entry.value;
+  }
+
   // Supabase Auth Exceptions
   if (error is AuthException) {
     if (error.message.toLowerCase().contains('invalid login credentials')) {

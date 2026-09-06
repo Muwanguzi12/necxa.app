@@ -2137,6 +2137,15 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     label: 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
+                      final receiverId = widget.post['author_id']?.toString();
+                      if (receiverId == widget.state.user?.id) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('You cannot send a gift to yourself.'),
+                          ),
+                        );
+                        return;
+                      }
                       widget.state.targetProfileId = widget.post['author_id'];
                       widget.state.listingId = widget.post['id'];
                       widget.state.giftContextType = 'creator_post';
@@ -3330,6 +3339,14 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     label: 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
+                      if (authorId == widget.state.user?.id) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('You cannot send a gift to yourself.'),
+                          ),
+                        );
+                        return;
+                      }
                       widget.state.targetProfileId = authorId;
                       widget.state.listingId = widget.listing['id'];
                       widget.state.giftContextType = 'listing';
@@ -5074,5 +5091,4 @@ class _SubmitCommerceReviewSheetState
     );
   }
 }
-
 

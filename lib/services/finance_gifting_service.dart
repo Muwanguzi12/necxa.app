@@ -115,6 +115,23 @@ class FinanceGiftingService {
     bool isAnonymous = false,
     String? idempotencyKey,
   }) async {
+    if (senderId.trim().isEmpty ||
+        receiverId.trim().isEmpty ||
+        senderId.trim().toLowerCase() == receiverId.trim().toLowerCase()) {
+      return GiftResult(
+        success: false,
+        giftId: '',
+        giftEmoji: '\u{1F48E}',
+        giftName: '',
+        ncxAmount: ncxAmount,
+        receiverNcx: 0,
+        platformFeeNcx: 0,
+        ugxEquivalent: 0,
+        isHighlighted: false,
+        message: 'You cannot send a gift to yourself.',
+      );
+    }
+
     try {
       await FinanceInitializer.instance.ensureInitialized();
       final result = await FinanceBackend.instance.invoke(

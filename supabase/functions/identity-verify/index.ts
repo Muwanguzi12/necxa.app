@@ -218,7 +218,19 @@ Deno.serve(async (req) => {
       if (directJobs.error || !directJobs.data || directJobs.data.length !== 4) {
         throw directJobs.error || new Error("Unable to create direct verification receipts.")
       }
-      const [frontJob, backJob, holdingJob, biometricJob] = directJobs.data
+      const directJobsByStage = new Map(
+        (directJobs.data as Record<string, any>[]).map((job) => [
+          String(job.result_summary?.capture_stage || ""),
+          job,
+        ]),
+      )
+      const frontJob = directJobsByStage.get("front")
+      const backJob = directJobsByStage.get("back")
+      const holdingJob = directJobsByStage.get("holding")
+      const biometricJob = directJobsByStage.get("biometric")
+      if (!frontJob || !backJob || !holdingJob || !biometricJob) {
+        throw new Error("Unable to map direct identity verification receipts.")
+      }
       const stageRows = await supabase.from("ai_verification_stage_results").upsert([
         { job_id: frontJob.id, stage: "front_document_assessment", provider: frontResult.engine || "ai-engine", decision: "pass", metadata: frontResult },
         { job_id: backJob.id, stage: "back_document_assessment", provider: "capture-only", decision: "pass", metadata: { capture_only: true } },
