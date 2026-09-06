@@ -1200,7 +1200,69 @@ class _Step3Identity extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // scannerKey is now passed from parent to maintain stability
+    if (subStep == 2) {
+      final h = MediaQuery.of(context).size.height;
+      return SizedBox(
+        height: h * 0.75,
+        width: double.infinity,
+        child: RotatedBox(
+          quarterTurns: 1, // Rotates 90 deg clockwise -> landscape right
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: _NeuralScannerOverlay(
+                  key: scannerKey,
+                  documentMode: false,
+                  subStep: subStep,
+                ),
+              ),
+              Positioned(
+                right: 20,
+                bottom: 20,
+                top: 20, // Center it vertically on the right edge
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FloatingActionButton.extended(
+                        onPressed: loading ? null : onVerify,
+                        backgroundColor: C.brand,
+                        icon: loading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+                              )
+                            : const Icon(Icons.camera_alt, color: Colors.black),
+                        label: Text(
+                          loading ? 'VERIFYING...' : 'CAPTURE',
+                          style: syne(c: Colors.black, w: FontWeight.w800),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      if (state.shieldFeedback != null)
+                        Container(
+                          width: 200,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(.8),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            state.shieldFeedback!,
+                            style: dm(sz: 11, c: Colors.white, w: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     final instructions = [
       (
@@ -1339,27 +1401,11 @@ class _Step3Identity extends StatelessWidget {
             label: Text(
               loading
                   ? 'VERIFYING...'
-                  : subStep == 2
-                      ? 'SCAN HOLDING ID PHOTO'
-                      : 'SCAN ${currentInstr.$1.toUpperCase()}',
+                  : 'SCAN ${currentInstr.$1.toUpperCase()}',
               style: syne(c: Colors.black, w: FontWeight.w800, ls: .5),
             ),
           ),
         ),
-        if (subStep == 2) ...[
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.lightbulb_outline, size: 14, color: Colors.white70),
-              const SizedBox(width: 6),
-              Text(
-                'Tips: Avoid glare, blur and cropped edges.',
-                style: dm(sz: 11, c: Colors.white70),
-              ),
-            ],
-          ),
-        ],
       ],
     );
   }
@@ -1725,32 +1771,10 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 ),
               ),
 
-              // "Face here" label — bottom of face area
-              Positioned(
-                bottom: 66,
-                left: 36,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.65),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.8), width: 1.2),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.person_outline, size: 13, color: Color(0xFF00E5FF)),
-                      const SizedBox(width: 4),
-                      Text('Face here', style: dm(sz: 9.5, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              ),
-
-              // "ID here" label — bottom of ID area
+              // "ID here" label — bottom of ID area (left side now)
               Positioned(
                 bottom: 84,
-                right: 48,
+                left: 48,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -1764,6 +1788,28 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       const Icon(Icons.badge_outlined, size: 13, color: Color(0xFFFFD54F)),
                       const SizedBox(width: 4),
                       Text('ID here', style: dm(sz: 9.5, c: const Color(0xFFFFD54F), w: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ),
+
+              // "Face here" label — bottom of face area (right side now)
+              Positioned(
+                bottom: 66,
+                right: 36,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.65),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.8), width: 1.2),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.person_outline, size: 13, color: Color(0xFF00E5FF)),
+                      const SizedBox(width: 4),
+                      Text('Face here', style: dm(sz: 9.5, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
                     ],
                   ),
                 ),
@@ -2560,28 +2606,28 @@ class _ScannerOverlayPainter extends CustomPainter {
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
     if (holdingMode) {
-      // ── HOLDING MODE: Face guide on left, ID card guide on right ──
+      // ── HOLDING MODE: ID card guide on left, Face guide on right ──
       const topPad = 48.0;
       const bottomPad = 64.0;
       const sidePad = 14.0;
       const gap = 14.0;
 
       final availableW = size.width - (sidePad * 2) - gap;
-      final faceW = availableW * 0.44;
       final idW = availableW * 0.56;
+      final faceW = availableW * 0.44;
       final areaH = size.height - topPad - bottomPad;
 
-      // Left face area (portrait)
+      // Left ID card area (landscape standard 1.55 ratio)
+      final idH = (idW / 1.55).clamp(100.0, 180.0);
+      final idTop = topPad + (areaH - idH) / 2;
+      final idRect = Rect.fromLTWH(sidePad, idTop, idW, idH);
+      final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));
+
+      // Right face area (portrait)
       final faceH = (areaH * 0.90).clamp(160.0, 205.0);
       final faceTop = topPad + (areaH - faceH) / 2;
-      final faceRect = Rect.fromLTWH(sidePad, faceTop, faceW, faceH);
+      final faceRect = Rect.fromLTWH(sidePad + idW + gap, faceTop, faceW, faceH);
       final faceRRect = RRect.fromRectAndRadius(faceRect, const Radius.circular(20));
-
-      // Right ID card area (landscape standard 1.55 ratio)
-      final idH = (idW / 1.55).clamp(100.0, 130.0);
-      final idTop = topPad + (areaH - idH) / 2;
-      final idRect = Rect.fromLTWH(sidePad + faceW + gap, idTop, idW, idH);
-      final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));
 
       // Combine cutouts from dark translucent backdrop
       final combinedCutout = Path.combine(
