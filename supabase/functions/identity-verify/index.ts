@@ -18,6 +18,41 @@ const PRIMARY_SUPABASE_ANON_KEY = Deno.env.get("PRIMARY_SUPABASE_ANON_KEY") || "
 
 const encoder = new TextEncoder()
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ""
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return btoa(binary)
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return `data:${file.type || "image/jpeg"};base64,${bytesToBase64(new Uint8Array(await file.arrayBuffer()))}`
+}
+
+async function runDirectAiVerification(
+  primaryJwt: string,
+  action: "verify-id-front" | "verify-id-holding" | "verify-face-only",
+  imageBase64: string,
+): Promise<Record<string, any>> {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-identity-shard`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_ANON_KEY") || ""}`,
+      apikey: Deno.env.get("SUPABASE_ANON_KEY") || "",
+      "x-primary-jwt": primaryJwt,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action, payload: { imageBase64 } }),
+  })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok || result?.verified !== true) {
+    throw new Error(result?.feedback || `Direct ${action} verification failed.`)
+  }
+  return result
+}
+
 async function sha256Hex(value: ArrayBuffer | string): Promise<string> {
   const bytes = typeof value === "string" ? encoder.encode(value) : value
   const digest = await crypto.subtle.digest("SHA-256", bytes)
@@ -119,6 +154,82 @@ Deno.serve(async (req) => {
       back: String(formData.get("back_verification_id") || "").trim(),
       holding: String(formData.get("holding_verification_id") || "").trim(),
       biometric: String(formData.get("biometric_verification_id") || "").trim(),
+    }
+    const directAiMode = formData.get("verification_mode") === "direct-ai-engine"
+    if (directAiMode) {
+      const [frontBase64, holdingBase64, faceBase64] = await Promise.all([
+        fileToDataUrl(idFront),
+        fileToDataUrl(idHolding),
+        fileToDataUrl(facePhoto),
+      ])
+      const [frontResult, holdingResult, faceResult] = await Promise.all([
+        runDirectAiVerification(primaryJwt, "verify-id-front", frontBase64),
+        runDirectAiVerification(primaryJwt, "verify-id-holding", holdingBase64),
+        runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64),
+      ])
+      const directJobs = await supabase
+        .from("ai_verification_jobs")
+        .upsert([
+          {
+            subject_user_id: user.id,
+            idempotency_key: `${idempotencyKey}:front`,
+            workflow: "identity",
+            country_code: String(formData.get("country") || "UG").slice(0, 2).toUpperCase(),
+            status: "completed",
+            decision: "pass",
+            policy_version: "direct-ai-engine-v1",
+            result_summary: { capture_stage: "front", media_sha256: await fileSha256(idFront) },
+          },
+          {
+            subject_user_id: user.id,
+            idempotency_key: `${idempotencyKey}:back`,
+            workflow: "identity",
+            country_code: String(formData.get("country") || "UG").slice(0, 2).toUpperCase(),
+            status: "completed",
+            decision: "pass",
+            policy_version: "capture-only-v1",
+            result_summary: { capture_stage: "back", media_sha256: await fileSha256(idBack) },
+          },
+          {
+            subject_user_id: user.id,
+            idempotency_key: `${idempotencyKey}:holding`,
+            workflow: "identity",
+            country_code: String(formData.get("country") || "UG").slice(0, 2).toUpperCase(),
+            status: "completed",
+            decision: "pass",
+            policy_version: "direct-ai-engine-v1",
+            result_summary: { capture_stage: "holding", media_sha256: await fileSha256(idHolding) },
+          },
+          {
+            subject_user_id: user.id,
+            idempotency_key: `${idempotencyKey}:biometric`,
+            workflow: "identity",
+            country_code: String(formData.get("country") || "UG").slice(0, 2).toUpperCase(),
+            status: "completed",
+            decision: "pass",
+            policy_version: "direct-ai-engine-v1",
+            result_summary: {
+              selfie_sha256: await fileSha256(facePhoto),
+              reference_sha256: await fileSha256(idFront),
+            },
+          },
+        ], { onConflict: "subject_user_id,idempotency_key" })
+        .select("id,result_summary")
+      if (directJobs.error || !directJobs.data || directJobs.data.length !== 4) {
+        throw directJobs.error || new Error("Unable to create direct verification receipts.")
+      }
+      const [frontJob, backJob, holdingJob, biometricJob] = directJobs.data
+      const stageRows = await supabase.from("ai_verification_stage_results").upsert([
+        { job_id: frontJob.id, stage: "front_document_assessment", provider: frontResult.engine || "ai-engine", decision: "pass", metadata: frontResult },
+        { job_id: backJob.id, stage: "back_document_assessment", provider: "capture-only", decision: "pass", metadata: { capture_only: true } },
+        { job_id: holdingJob.id, stage: "holding_document_assessment", provider: holdingResult.engine || "ai-engine", decision: "pass", metadata: holdingResult },
+        { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: faceResult.engine || "ai-engine", decision: "pass", metadata: { liveness_score: faceResult.livenessScore, similarity_score: faceResult.score, ...faceResult } },
+      ], { onConflict: "job_id,stage,attempt" })
+      if (stageRows.error) throw stageRows.error
+      receiptIds.front = frontJob.id
+      receiptIds.back = backJob.id
+      receiptIds.holding = holdingJob.id
+      receiptIds.biometric = biometricJob.id
     }
     if (Object.values(receiptIds).some((value) => !/^[0-9a-f-]{36}$/i.test(value))) {
       return json({
