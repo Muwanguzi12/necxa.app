@@ -101,19 +101,13 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   void _applyCaptureOrientation(int subStep) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final orientations = subStep == 2
-          ? const [
-              DeviceOrientation.landscapeLeft,
-              DeviceOrientation.landscapeRight,
-            ]
-          : const [
-              DeviceOrientation.portraitUp,
-              DeviceOrientation.portraitDown,
-            ];
-      SystemChrome.setPreferredOrientations(orientations);
-    });
+    final orientations = subStep == 2
+        ? const [
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]
+        : const [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown];
+    unawaited(SystemChrome.setPreferredOrientations(orientations));
   }
 
   void _restorePortraitOrientation() {
@@ -532,7 +526,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
-        _applyCaptureOrientation(state.verificationSubStep);
       } else if (state.verificationSubStep == 1) {
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
@@ -552,8 +545,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastIDBackResult = idResult;
+        _applyCaptureOrientation(2);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 2;
-        _applyCaptureOrientation(state.verificationSubStep);
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
@@ -574,8 +568,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastHoldingResult = idResult;
+        _applyCaptureOrientation(3);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 3;
-        _applyCaptureOrientation(state.verificationSubStep);
 
         // Auto-toggle to selfie camera for 3D Biometric Match
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
@@ -598,20 +593,33 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastSelfieResult = biometric;
 
-        final res = await ListingSyncService.submitIdentityShard(
-          country: 'Uganda',
-          docType: 'National ID',
-          docNumber: '',
-          idFront: state.idImage!,
-          idBack: state.idBackImage!,
-          idHolding: state.idHoldingImage!,
-          facePhoto: state.faceImage!,
-          frontVerificationId: state.lastIDResult!.sessionId,
-          backVerificationId: state.lastIDBackResult!.sessionId,
-          holdingVerificationId: state.lastHoldingResult!.sessionId,
-          biometricVerificationId: biometric.sessionId,
-          idempotencyKey: '$_submissionIdempotencyKey:identity',
-        );
+        Map<String, dynamic> res;
+        for (var attempt = 0; ; attempt++) {
+          try {
+            res = await ListingSyncService.submitIdentityShard(
+              country: 'Uganda',
+              docType: 'National ID',
+              docNumber: '',
+              idFront: state.idImage!,
+              idBack: state.idBackImage!,
+              idHolding: state.idHoldingImage!,
+              facePhoto: state.faceImage!,
+              frontVerificationId: state.lastIDResult!.sessionId,
+              backVerificationId: state.lastIDBackResult!.sessionId,
+              holdingVerificationId: state.lastHoldingResult!.sessionId,
+              biometricVerificationId: biometric.sessionId,
+              idempotencyKey: '$_submissionIdempotencyKey:identity',
+            );
+            break;
+          } catch (error) {
+            final message = error.toString().toLowerCase();
+            final retryable =
+                message.contains('still syncing') ||
+                message.contains('results are still syncing');
+            if (!retryable || attempt >= 2) rethrow;
+            await Future<void>.delayed(const Duration(milliseconds: 700));
+          }
+        }
 
         final identityShardId = res['identity_shard_id']?.toString();
         if (res['verified'] != true ||
@@ -638,7 +646,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
 
         state.verificationSubStep = 4;
-        _applyCaptureOrientation(state.verificationSubStep);
+        _applyCaptureOrientation(4);
       }
 
       state.notify();
