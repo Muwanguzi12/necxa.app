@@ -2,9 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 
-// CORS headers for the Flutter app
+// CORS remains open for native Flutter clients unless an allowed origin is configured.
+const allowedOrigin = Deno.env.get('IDENTITY_ALLOWED_ORIGIN')?.trim() || '*'
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': allowedOrigin,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-primary-jwt',
 }
 
@@ -34,9 +35,11 @@ const biometricFailureFeedback: Record<string, string> = {
   identity_reference_required:
     'The National ID reference image is missing. Restart the identity scan.',
   presentation_attack_detected:
-    'Liveness verification could not approve this capture. Please retry with your face clearly visible in natural light. Avoid screens, reflections, and masks.',
+    'Liveness verification could not approve this capture. Keep your full face visible and still. Ordinary eye or phone-screen reflections are okay; retry if a replay screen, printout, or mask is present.',
   liveness_below_threshold:
-    'Liveness could not be confirmed. Face the camera directly in brighter light and retry.',
+    'Liveness could not be confirmed. Keep your full face centered and visible, even in indoor or dim light, then retry.',
+  face_not_detected:
+    'No clear face was detected. Center your full face in the cyan guide and retry.',
   face_similarity_below_threshold:
     'Your selfie could not be matched to the National ID photo. Please retry in better light.',
 }
@@ -60,15 +63,40 @@ async function callNvidiaVisionBiometric(
   mode: 'face-only' | 'biometric'
 ): Promise<{
   is_live_person: boolean
+  face_detected: boolean
   liveness_score: number
   anti_spoof_flags: string[]
+  liveness_agrees: boolean
   faces_match: boolean
+  face_match_agrees: boolean
   similarity_score: number
   reasoning: string
+  provider: string
   raw_text?: string
 }> {
   const NVIDIA_API_KEY = Deno.env.get('NVIDIA_API_KEY')
-  if (!NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not configured')
+  const NEBIUS_API_KEY = Deno.env.get('NEBIUS_API_KEY')
+  const providers = [
+    NEBIUS_API_KEY
+      ? {
+          name: 'cosmos3-face-verification',
+          apiKey: NEBIUS_API_KEY,
+          endpoint: 'https://api.tokenfactory.nebius.com/v1/chat/completions',
+          model: 'nvidia/Cosmos3-Super-Reasoner',
+        }
+      : null,
+    NVIDIA_API_KEY
+      ? {
+          name: 'nvidia-vision',
+          apiKey: NVIDIA_API_KEY,
+          endpoint: NVIDIA_API_URL,
+          model: NVIDIA_VISION_MODEL,
+        }
+      : null,
+  ].filter((provider): provider is NonNullable<typeof provider> => provider !== null)
+  if (providers.length === 0) {
+    throw new Error('Neither NVIDIA_API_KEY nor NEBIUS_API_KEY is configured')
+  }
 
   // Strip data-URI prefix if present
   const selfieData = selfieBase64.replace(/^data:image\/\w+;base64,/, '')
@@ -84,12 +112,14 @@ async function callNvidiaVisionBiometric(
   let promptText: string
 
   if (mode === 'face-only' || !idBase64) {
-    promptText = `You are a certified liveness and anti-spoofing AI system. Analyze this image carefully.
+    promptText = `You are Cosmos3, a certified liveness and anti-spoofing AI system. Analyze this selfie carefully.
 
 LIVENESS CHECK:
 Determine if Image 1 shows a real, live human being physically present in front of the camera.
+First confirm that a real human face is clearly visible. If no face is visible, set face_detected=false,
+is_live_person=false, liveness_score=0, and liveness_agrees=false.
 Look for:
-- Screen replay attack: pixel grid patterns, moiré artifacts, screen glare, bezel borders, screen refresh banding
+- Screen replay attack: a second face displayed on a screen, with pixel grid/moiré patterns, bezel borders, refresh banding, or a flat screen boundary. Ordinary catchlights or phone-screen reflections in the eyes are not attacks.
 - Paper/printout attack: flat 2D surface, paper edges, paper sheen, uniform lighting with no depth
 - 3D printed mask: unnatural skin texture, rigid surface, mask seams
 - Deepfake/digital manipulation: unnatural skin grain, edge blurring, inconsistent lighting
@@ -97,9 +127,12 @@ Look for:
 Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 {
   "is_live_person": <true|false>,
+  "face_detected": <true|false>,
   "liveness_score": <0-100>,
   "anti_spoof_flags": ["<flag1>", "<flag2>"],
+  "liveness_agrees": <true|false>,
   "faces_match": true,
+  "face_match_agrees": true,
   "similarity_score": 100,
   "reasoning": "<one sentence summary>"
 }`
@@ -108,14 +141,14 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
     const idUrl = `data:image/jpeg;base64,${idData}`
     contentParts.push({ type: 'image_url', image_url: { url: idUrl } })
 
-    promptText = `You are a certified biometric identity verification AI system. You have two images:
+    promptText = `You are Cosmos3, a certified biometric identity verification AI system. You have exactly two images:
 - Image 1: A live selfie captured from the phone's front camera
 - Image 2: A physical government-issued National ID card
 
 TASK 1 — LIVENESS / ANTI-SPOOFING (evaluate Image 1 only):
-Determine if Image 1 shows a real, live human being physically present in front of the camera.
+Determine whether Image 1 shows a real, live human being physically present in front of the camera.
 Reject if you detect any of these presentation attacks:
-- Screen replay attack: pixel grid, moiré patterns, screen glare, bezel borders
+- Screen replay attack: a second face displayed on a screen, with pixel grid/moiré patterns, bezel borders, or refresh banding. Ordinary catchlights or phone-screen reflections in the eyes are not attacks.
 - Paper printout attack: flat 2D plane, paper edges, paper texture, unnaturally uniform lighting
 - 3D mask: rigid skin texture, mask edges, synthetic appearance
 - Deepfake / digital composite: blur halos at face edges, inconsistent skin grain, mismatched lighting angle
@@ -128,64 +161,101 @@ Evaluate:
 - Lip shape and width
 - Jawline and chin contour
 - Overall facial proportions and bone structure
-Score similarity from 0 to 100. A score >= 75 indicates the same individual.
-A score below 60 should result in faces_match: false.
+Score similarity from 0 to 100. A score >= 30 indicates the same individual.
+A score below 30 must result in faces_match: false.
+Set liveness_agrees to true only when Image 1 passes liveness.
+Set face_match_agrees to true only when the selfie and ID portrait are the same person.
+The final agreement requires both liveness_agrees and face_match_agrees.
 
 IMPORTANT: Do not query any government or external database. This is a purely visual 1:1 comparison.
 
 Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 {
   "is_live_person": <true|false>,
+  "face_detected": <true|false>,
   "liveness_score": <0-100>,
   "anti_spoof_flags": ["<spoof type if any, else empty array>"],
+  "liveness_agrees": <true|false>,
   "faces_match": <true|false>,
+  "face_match_agrees": <true|false>,
   "similarity_score": <0-100>,
   "reasoning": "<one sentence summary of your determination>"
 }`
   }
 
-  contentParts.push({ type: 'text', text: promptText })
+  // Cosmos follows the same text-first multimodal message shape used by the
+  // working property-verification function.
+  contentParts.unshift({ type: 'text', text: promptText })
 
-  const nvidiaRes = await fetch(NVIDIA_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${NVIDIA_API_KEY}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      model: NVIDIA_VISION_MODEL,
-      messages: [{ role: 'user', content: contentParts }],
-      max_tokens: 512,
-      temperature: 0.1,
-    }),
-  })
+  let lastError = 'Vision providers unavailable'
+  for (const provider of providers) {
+    try {
+      const response = await fetch(provider.endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${provider.apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          messages: [{ role: 'user', content: contentParts }],
+          max_tokens: provider.name === 'cosmos3-face-verification' ? 1024 : 256,
+          temperature: 0.1,
+        }),
+      })
 
-  if (!nvidiaRes.ok) {
-    const errText = await nvidiaRes.text().catch(() => nvidiaRes.statusText)
-    throw new Error(`NVIDIA Vision API error ${nvidiaRes.status}: ${errText}`)
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText)
+        throw new Error(`${provider.name} API error ${response.status}: ${errorText}`)
+      }
+
+      const data = await response.json()
+      const message = data?.choices?.[0]?.message ?? {}
+      const parts = [message.content, message.reasoning_content, data?.output_text]
+      const rawText = parts
+        .filter((part: unknown) => part !== null && part !== undefined)
+        .map((part: unknown) => {
+          if (typeof part === 'string') return part
+          if (Array.isArray(part)) {
+            return part
+              .map((item: unknown) => {
+                if (typeof item === 'string') return item
+                if (typeof item !== 'object' || item === null) return ''
+                if ('text' in item) return String((item as { text?: unknown }).text ?? '')
+                if ('content' in item) return String((item as { content?: unknown }).content ?? '')
+                return ''
+              })
+              .join('')
+          }
+          return typeof part === 'object' ? JSON.stringify(part) : String(part)
+        })
+        .join('\n')
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) {
+        throw new Error(`${provider.name} returned no JSON decision`)
+      }
+
+      const parsed = JSON.parse(jsonMatch[0])
+      return {
+        is_live_person: Boolean(parsed.is_live_person),
+        face_detected: Boolean(parsed.face_detected),
+        liveness_score: Number(parsed.liveness_score ?? 0),
+        anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
+        liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person),
+        faces_match: Boolean(parsed.faces_match),
+        face_match_agrees: parsed.face_match_agrees ?? Boolean(parsed.faces_match),
+        similarity_score: Number(parsed.similarity_score ?? 0),
+        reasoning: String(parsed.reasoning ?? ''),
+        provider: provider.name,
+        raw_text: rawText,
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+      console.warn(`[${provider.name}] biometric verification failed: ${lastError}`)
+    }
   }
-
-  const nvidiaData = await nvidiaRes.json()
-  const rawText: string =
-    nvidiaData?.choices?.[0]?.message?.content ?? ''
-
-  // Extract JSON from the model's response (strip any accidental markdown fences)
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) {
-    throw new Error(`NVIDIA Vision returned non-JSON response: ${rawText.slice(0, 200)}`)
-  }
-
-  const parsed = JSON.parse(jsonMatch[0])
-  return {
-    is_live_person: Boolean(parsed.is_live_person),
-    liveness_score: Number(parsed.liveness_score ?? 0),
-    anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
-    faces_match: Boolean(parsed.faces_match),
-    similarity_score: Number(parsed.similarity_score ?? 0),
-    reasoning: String(parsed.reasoning ?? ''),
-    raw_text: rawText,
-  }
+  throw new Error(lastError)
 }
 
 async function callNvidiaVisionId(
@@ -207,7 +277,26 @@ async function callNvidiaVisionId(
   const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '')
   const imageUrl = `data:image/jpeg;base64,${imageData}`
 
-  const promptText = `You are a certified identity document verification AI.
+  const isBackCapture = stage === 'back'
+  const promptText = isBackCapture
+    ? `You are a lightweight identity-document presence verifier.
+Analyze the back side of this ID card or passport.
+Do not perform OCR, extract personal data, or compare faces.
+Only decide whether a real identity document back is clearly visible and not a
+blank space, wall, object, or illegible blur.
+
+Respond in STRICT JSON ONLY:
+{
+  "verified": <true|false>,
+  "decision": "<pass|fail|manual_review>",
+  "reasonCode": "<document_present|document_unreadable|not_an_id>",
+  "score": <0-100>,
+  "qualityScore": <0-100>,
+  "docType": "national_id",
+  "country": "UG",
+  "extractedData": {}
+}`
+    : `You are a certified identity document verification AI.
 Analyze this image of an ID card or Passport (${stage} side).
 Is it a clear, legible, and valid identity document?
 If the user captured a blank space, a wall, an object like a chair, a face without an ID, or an illegible blur, it MUST fail with reasonCode "not_an_id".
@@ -248,7 +337,7 @@ Respond in STRICT JSON ONLY:
           ]
         }
       ],
-      max_tokens: 512,
+      max_tokens: isBackCapture ? 256 : 512,
       temperature: 0.1,
     }),
   })
@@ -417,6 +506,13 @@ Respond in STRICT JSON ONLY (no markdown formatting, no other text):
 // ─────────────────────────────────────────────────────────────────────────────
 
 serve(async (req) => {
+  const requestId = req.headers.get('x-request-id')?.trim() || crypto.randomUUID()
+  const responseHeaders = {
+    ...corsHeaders,
+    'Content-Type': 'application/json',
+    'X-Request-Id': requestId,
+  }
+
   // 1. Handle CORS Preflight perfectly
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -636,25 +732,27 @@ serve(async (req) => {
 
       const mode: 'face-only' | 'biometric' = action === 'verify-face-only' ? 'face-only' : 'biometric'
 
-      // ── Attempt NVIDIA Vision first ──────────────────────────────────────
+      // ── Attempt configured Vision providers before the Worker fallback ────
       let nvidiaResult: Awaited<ReturnType<typeof callNvidiaVisionBiometric>> | null = null
       let nvidiaError: string | null = null
 
       try {
         nvidiaResult = await callNvidiaVisionBiometric(imageBase64, idImageBase64 ?? null, mode)
-        console.log(`[NVIDIA Vision] liveness=${nvidiaResult.liveness_score} similarity=${nvidiaResult.similarity_score} live=${nvidiaResult.is_live_person} match=${nvidiaResult.faces_match}`)
+        console.log(`[Vision] liveness=${nvidiaResult.liveness_score} similarity=${nvidiaResult.similarity_score} live=${nvidiaResult.is_live_person} match=${nvidiaResult.faces_match}`)
       } catch (err: any) {
         nvidiaError = err.message
-        console.warn(`[NVIDIA Vision] Failed (${nvidiaError}), falling back to Cloudflare Worker`)
+        console.warn(`[Vision] Failed (${nvidiaError}), falling back to Cloudflare Worker`)
       }
 
-      // ── Build biometric result from NVIDIA Vision ─────────────────────────
+      // ── Build biometric result; liveness is always required ──────────────
       if (nvidiaResult) {
         const LIVENESS_THRESHOLD = 60
-        const SIMILARITY_THRESHOLD = 75
+        const SIMILARITY_THRESHOLD = 30
 
         const livenessPassed =
           nvidiaResult.is_live_person &&
+          nvidiaResult.face_detected &&
+          nvidiaResult.liveness_agrees &&
           nvidiaResult.liveness_score >= LIVENESS_THRESHOLD &&
           (nvidiaResult.anti_spoof_flags.length === 0 ||
             (nvidiaResult.anti_spoof_flags.length === 1 && nvidiaResult.anti_spoof_flags[0] === ''))
@@ -662,12 +760,16 @@ serve(async (req) => {
         const faceMatch =
           mode === 'face-only'
             ? true
-            : nvidiaResult.faces_match && nvidiaResult.similarity_score >= SIMILARITY_THRESHOLD
+            : nvidiaResult.faces_match &&
+              nvidiaResult.face_match_agrees &&
+              nvidiaResult.similarity_score >= SIMILARITY_THRESHOLD
 
         const verified = livenessPassed && faceMatch
 
         let reasonCode: string
-        if (!livenessPassed && nvidiaResult.anti_spoof_flags.length > 0) {
+        if (!nvidiaResult.face_detected) {
+          reasonCode = 'face_not_detected'
+        } else if (!livenessPassed && nvidiaResult.anti_spoof_flags.length > 0) {
           reasonCode = 'presentation_attack_detected'
         } else if (!livenessPassed) {
           reasonCode = 'liveness_below_threshold'
@@ -694,17 +796,18 @@ serve(async (req) => {
           verified,
           faceMatch,
           livenessPassed,
+          faceDetected: nvidiaResult.face_detected,
           decision: verified ? 'pass' : 'fail',
           reasonCode,
           requiresManualReview: false,
           score: nvidiaResult.similarity_score,
           livenessScore: nvidiaResult.liveness_score,
           antiSpoofFlags: nvidiaResult.anti_spoof_flags,
-          engine: 'nvidia-vision',
+          engine: nvidiaResult.provider,
           feedback: verified
             ? (action === 'verify-face-only'
-              ? 'Liveness verification completed successfully by NVIDIA Vision AI.'
-              : 'Liveness and National ID face matching completed successfully by NVIDIA Vision AI.')
+              ? 'Liveness verification completed successfully.'
+              : 'Liveness and National ID face matching completed successfully.')
             : biometricFailureFeedback[reasonCode] ||
               'Biometric verification was not approved. Please retry with your face clearly visible.',
           reasoning: nvidiaResult.reasoning,
@@ -713,84 +816,24 @@ serve(async (req) => {
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
 
-      // ── Fallback: Cloudflare Worker ───────────────────────────────────────
-      console.log('[Biometric] Using Cloudflare Worker fallback')
-      const selfieBytes = decode(imageBase64.replace(/^data:image\/\w+;base64,/, ""));
-      const formData = new FormData();
-      formData.append('selfie', new Blob([selfieBytes], { type: 'image/jpeg' }), 'selfie.jpg');
-
-      if (idImageBase64) {
-        const idBytes = decode(idImageBase64.replace(/^data:image\/\w+;base64,/, ""));
-        formData.append('idReference', new Blob([idBytes], { type: 'image/jpeg' }), 'idReference.jpg');
-      }
-
-      const endpoint = action === 'verify-face-only' ? '/api/verify/face-only' : '/api/verify/biometric';
-      const aiRes = await fetch(`${NECXA_AI_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'x-primary-jwt': primaryJwt },
-        body: formData
-      });
-
-      if (!aiRes.ok) {
-        const aiError = await aiRes.json().catch(() => ({}));
-        // Both NVIDIA and Worker failed — return graceful deferred response
-        return new Response(JSON.stringify({
-          verified: false,
-          faceMatch: false,
-          livenessPassed: false,
-          decision: 'deferred',
-          reasonCode: 'biometric_provider_unavailable',
-          retryable: true,
-          engine: 'none',
-          feedback: biometricFailureFeedback['biometric_provider_unavailable'],
-          verificationSessionId: sessionId,
-          sessionLink,
-        }), {
-          status: 503,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
-      }
-      const aiData = await aiRes.json();
-      if (!aiData.success) throw new Error(`Biometric Failed: ${aiData.error}`);
-
-      const biometricResult = aiData.biometricResult || {}
-      const verified = biometricResult.verified === true &&
-        biometricResult.faceMatch === true &&
-        biometricResult.livenessPassed === true
-      const reasonCode = String(biometricResult.reasonCode || 'biometric_requires_review')
-
-      if (action === 'verify-selfie' && verified) {
-        const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
-        const primaryAdminClient = PRIMARY_SUPABASE_SERVICE_ROLE_KEY 
-          ? createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY)
-          : primaryClient;
-
-        await primaryAdminClient
-          .from('profiles')
-          .update({ is_agent: true })
-          .eq('id', secureUserId);
-      }
-
+      // Do not fall through to the legacy Worker: it reports misleading
+      // provider-configuration errors for this face-match flow.
       return new Response(JSON.stringify({
-        verified,
-        faceMatch: verified,
-        livenessPassed: biometricResult.livenessPassed === true,
-        decision: biometricResult.decision || 'manual_review',
-        reasonCode,
-        requiresManualReview: biometricResult.decision === 'manual_review',
-        score: percentage(biometricResult.similarityScore),
-        livenessScore: percentage(biometricResult.livenessScore),
-        engine: 'cloudflare-worker',
-        feedback: verified
-          ? (action === 'verify-face-only'
-            ? 'Face-only liveness verification completed successfully.'
-            : 'Liveness and National ID face matching completed successfully.')
-          : biometricFailureFeedback[reasonCode] ||
-            'Biometric verification was not approved. Please retry with your face clearly visible.',
-        biometricLogs: biometricResult.biometricLogs,
-        verificationSessionId: aiData.sessionId,
-        sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        verified: false,
+        faceMatch: false,
+        livenessPassed: false,
+        decision: 'deferred',
+        reasonCode: 'biometric_provider_unavailable',
+        retryable: true,
+        engine: 'vision-provider-unavailable',
+        feedback: biometricFailureFeedback['biometric_provider_unavailable'],
+        requestId,
+        verificationSessionId: sessionId,
+        sessionLink,
+      }), {
+        status: 503,
+        headers: responseHeaders
+      })
     }
 
     // Fallback error safely

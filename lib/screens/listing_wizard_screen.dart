@@ -1645,8 +1645,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       await nextController.initialize();
       _currentDirection = direction;
 
-      // For Hold ID (subStep==2): zoom out to minimum so both face + ID fit
-      if (widget.subStep == 2) {
+      // For Hold ID (subStep==2) and Selfie (subStep==3): zoom out to minimum
+      if (widget.subStep >= 2) {
         final minZoom = await nextController.getMinZoomLevel();
         await nextController.setZoomLevel(minZoom);
       }
