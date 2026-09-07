@@ -1568,6 +1568,13 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     try {
       await nextController.initialize();
       _currentDirection = direction;
+
+      // For Hold ID (subStep==2): zoom out to minimum so both face + ID fit
+      if (widget.subStep == 2) {
+        final minZoom = await nextController.getMinZoomLevel();
+        await nextController.setZoomLevel(minZoom);
+      }
+
       if (mounted) setState(() {});
     } catch (e) {
       if (identical(cameraCtrl, nextController)) cameraCtrl = null;
@@ -1655,9 +1662,24 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     // The camera plugin exposes a portrait preview. Scale it to
-                    // to cover the viewport rather than leaving black bars.
-                    final viewportAspect =
-                        constraints.maxWidth / constraints.maxHeight;
+                    // cover the viewport rather than leaving black bars.
+                    //
+                    // For Hold ID (subStep==2) the entire widget is wrapped in a
+                    // RotatedBox(quarterTurns: 1), so the *logical* viewport seen
+                    // by this LayoutBuilder is already rotated (width & height
+                    // are swapped relative to the screen).  We must treat the
+                    // container as landscape when calculating the scale.
+                    final isHoldingMode = widget.subStep == 2;
+
+                    // Effective viewport dimensions after RotatedBox swap
+                    final double vpW = isHoldingMode
+                        ? constraints.maxHeight   // physical width
+                        : constraints.maxWidth;
+                    final double vpH = isHoldingMode
+                        ? constraints.maxWidth    // physical height
+                        : constraints.maxHeight;
+                    final viewportAspect = vpW / vpH;
+
                     double previewAspect = cameraCtrl!.value.aspectRatio;
 
                     // Correct for camera's native aspect ratio inversion on portrait devices.
@@ -1678,6 +1700,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                     } else {
                       scale = previewAspect / viewportAspect;
                     }
+
+                    // Zoom-out factor for Hold ID: both face + ID must be visible
+                    if (isHoldingMode) scale *= 0.82;
 
                     return ClipRect(
                       child: Transform.scale(
