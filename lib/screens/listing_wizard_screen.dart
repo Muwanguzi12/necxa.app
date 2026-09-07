@@ -1610,6 +1610,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   CameraLensDirection _currentDirection = CameraLensDirection.back;
   Future<void>? _cameraInitialization;
 
+  bool get isHolding => widget.subStep == 2;
+
+
   @override
   void initState() {
     super.initState();
