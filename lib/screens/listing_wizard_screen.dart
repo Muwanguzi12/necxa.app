@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/listing_sync_service.dart';
@@ -118,6 +119,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     _landBlockCtrl.dispose();
     _landPlotCtrl.dispose();
     _lc1OfficerCtrl.dispose();
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
@@ -515,6 +517,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         // Synthetic pass so downstream null-checks stay happy
         state.lastIDBackResult = IDResult(verified: true, sessionId: 'back-captured');
         state.verificationSubStep = 2;
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
@@ -536,6 +542,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastHoldingResult = idResult;
         state.verificationSubStep = 3;
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+        ]);
 
         // Auto-toggle to selfie camera for 3D Biometric Match
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
@@ -1210,164 +1219,109 @@ class _Step3Identity extends StatelessWidget {
         state.lastSelfieResult?.faceMatch ?? false,
       ];
 
-      return Column(
+      return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Row A: header ─────────────────────────────────────────────────
-          Row(
-            children: [
-              const _PulsingLight(),
-              const SizedBox(width: 6),
-              Text('LIVE', style: dm(sz: 10, c: C.brand, w: FontWeight.w900, ls: 0.8)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Position your FACE (right) and ID (left) in frame',
-                  style: dm(sz: 11, c: Colors.white70),
-                  overflow: TextOverflow.ellipsis,
-                ),
+          // ── Left side: wide camera ───────────────────────────────────────
+          Expanded(
+            flex: 3,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: _NeuralScannerOverlay(
+                key: scannerKey,
+                documentMode: false,
+                subStep: subStep,
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(width: 12),
 
-          // ── Row B: wide camera + side capture button ───────────────────────
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Camera preview — wide dominant element
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: _NeuralScannerOverlay(
-                    key: scannerKey,
-                    documentMode: false,
-                    subStep: subStep,
+          // ── Right side: side panel for controls & instructions ────────────
+          Expanded(
+            flex: 1,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Top header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const _PulsingLight(),
+                    const SizedBox(width: 4),
+                    Text('LIVE', style: dm(sz: 10, c: C.brand, w: FontWeight.w900, ls: 0.8)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Capture button — right side, thumb-reachable
+                GestureDetector(
+                  onTap: loading ? null : onVerify,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: loading ? Colors.grey : C.brand,
+                      boxShadow: [
+                        BoxShadow(color: C.brand.withOpacity(.45), blurRadius: 14, spreadRadius: 2),
+                      ],
+                    ),
+                    child: loading
+                        ? const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
+                          )
+                        : const Icon(Icons.camera_alt, color: Colors.black, size: 26),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              // Capture button — right side, thumb-reachable
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  GestureDetector(
-                    onTap: loading ? null : onVerify,
-                    child: Container(
-                      width: 56,
-                      height: 56,
+                const SizedBox(height: 6),
+                Text(
+                  loading ? 'WAIT' : 'CAPTURE',
+                  style: syne(sz: 9, c: loading ? Colors.grey : C.brand, w: FontWeight.w800, ls: 0.5),
+                ),
+                const SizedBox(height: 20),
+
+                // Area labels
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: loading ? Colors.grey : C.brand,
-                        boxShadow: [
-                          BoxShadow(color: C.brand.withOpacity(.45), blurRadius: 14, spreadRadius: 2),
-                        ],
+                        color: const Color(0xFFFFD54F).withOpacity(.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFFD54F).withOpacity(.7), width: 1),
                       ),
-                      child: loading
-                          ? const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
-                            )
-                          : const Icon(Icons.camera_alt, color: Colors.black, size: 26),
+                      child: Text('ID: Left hand', style: dm(sz: 9, c: const Color(0xFFFFD54F), w: FontWeight.bold), textAlign: TextAlign.center),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    loading ? 'WAIT' : 'CAPTURE',
-                    style: syne(sz: 9, c: loading ? Colors.grey : C.brand, w: FontWeight.w800, ls: 0.5),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E5FF).withOpacity(.10),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.7), width: 1),
+                      ),
+                      child: Text('Face: Center-right', style: dm(sz: 9, c: const Color(0xFF00E5FF), w: FontWeight.bold), textAlign: TextAlign.center),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Error feedback
+                if (state.shieldFeedback != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(.10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(state.shieldFeedback!, style: dm(sz: 9.5, c: Colors.redAccent), textAlign: TextAlign.center),
                   ),
                 ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          // ── Row C: area labels ────────────────────────────────────────────
-          Row(
-            children: [
-              // ID label — matches left zone of camera
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFD54F).withOpacity(.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFFFD54F).withOpacity(.7), width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.badge_outlined, size: 12, color: Color(0xFFFFD54F)),
-                    const SizedBox(width: 5),
-                    Text('ID  ← left hand', style: dm(sz: 9.5, c: const Color(0xFFFFD54F), w: FontWeight.bold)),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              // Face label — matches right zone of camera
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF00E5FF).withOpacity(.10),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.7), width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.person_outline, size: 12, color: Color(0xFF00E5FF)),
-                    const SizedBox(width: 5),
-                    Text('Face  → center-right', style: dm(sz: 9.5, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          // ── Row D: lighting/ID readability status chips ────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(.35),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withOpacity(.08)),
-            ),
-            child: Row(
-              children: [
-                _holdingInfoChip(Icons.light_mode_outlined, 'Lighting', 'Verify well lit', const Color(0xFF00E5FF)),
-                Container(width: 1, height: 22, color: Colors.white12, margin: const EdgeInsets.symmetric(horizontal: 8)),
-                _holdingInfoChip(Icons.visibility_outlined, 'ID readable', 'Text must be clear', const Color(0xFFFFD54F)),
-                Container(width: 1, height: 22, color: Colors.white12, margin: const EdgeInsets.symmetric(horizontal: 8)),
-                _holdingInfoChip(Icons.shield_outlined, 'No glare', 'Avoid reflections', const Color(0xFF00E676)),
               ],
             ),
           ),
-          const SizedBox(height: 10),
-
-          // ── Row E: capture stage progress ─────────────────────────────────
-          _IdentityCaptureProgress(
-            completedStages: completedStages,
-            completedCount: completedStages.where((c) => c).length,
-          ),
-
-          // ── Error feedback ─────────────────────────────────────────────────
-          if (state.shieldFeedback != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(.10),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 15),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(state.shieldFeedback!, style: dm(sz: 11, c: Colors.redAccent))),
-                ],
-              ),
-            ),
-          ],
         ],
       );
     }
@@ -1759,15 +1713,14 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final isHolding = widget.subStep == 2;
-    // For holding mode: wide+short container gives a native landscape feel
-    // without rotating anything. Height is constrained to ~210px.
+    // In holding mode (subStep 2), the device is physically in landscape.
+    // The camera should fill all available vertical space (which is short) and take
+    // most of the horizontal space since it's wrapped in an Expanded flex:3.
     return Container(
-      height: isHolding ? 210 : 270,
       width: double.infinity,
       decoration: BoxDecoration(
         color: C.cardDk,
-        borderRadius: BorderRadius.circular(isHolding ? 16 : 26),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: C.brand.withOpacity(.7), width: 1.2),
         boxShadow: [
           BoxShadow(
@@ -2684,26 +2637,33 @@ class _ScannerOverlayPainter extends CustomPainter {
 
     if (holdingMode) {
       // ── HOLDING MODE: ID card guide on left, Face guide on right ──
-      const topPad = 48.0;
-      const bottomPad = 64.0;
-      const sidePad = 14.0;
-      const gap = 14.0;
-
-      final availableW = size.width - (sidePad * 2) - gap;
-      final idW = availableW * 0.56;
-      final faceW = availableW * 0.44;
+      const topPad = 30.0;
+      const bottomPad = 30.0;
+      const gap = 24.0; // Space between ID and Face
       final areaH = size.height - topPad - bottomPad;
 
-      // Left ID card area (landscape standard 1.55 ratio)
-      final idH = (idW / 1.55).clamp(100.0, 180.0);
+      // 1. Calculate Face size (Portrait aspect ~0.72)
+      // Face shouldn't be taller than available area
+      final faceH = areaH.clamp(140.0, 240.0);
+      final faceW = faceH * 0.72;
+
+      // 2. Calculate ID size (Landscape aspect ~1.58)
+      // ID height should be slightly smaller than face height for realism
+      final idH = (faceH * 0.75).clamp(100.0, 180.0);
+      final idW = idH * 1.58;
+
+      // 3. Center both cutouts together horizontally
+      final combinedW = idW + gap + faceW;
+      final startX = (size.width - combinedW) / 2;
+
+      // Left ID card area
       final idTop = topPad + (areaH - idH) / 2;
-      final idRect = Rect.fromLTWH(sidePad, idTop, idW, idH);
+      final idRect = Rect.fromLTWH(startX, idTop, idW, idH);
       final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));
 
-      // Right face area (portrait)
-      final faceH = (areaH * 0.90).clamp(160.0, 205.0);
+      // Right face area
       final faceTop = topPad + (areaH - faceH) / 2;
-      final faceRect = Rect.fromLTWH(sidePad + idW + gap, faceTop, faceW, faceH);
+      final faceRect = Rect.fromLTWH(startX + idW + gap, faceTop, faceW, faceH);
       final faceRRect = RRect.fromRectAndRadius(faceRect, const Radius.circular(20));
 
       // Combine cutouts from dark translucent backdrop
