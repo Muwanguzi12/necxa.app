@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/listing_sync_service.dart';
@@ -84,6 +85,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     final userId = widget.state.user?.id ?? 'anonymous';
     _submissionIdempotencyKey =
         'listing-$userId-${DateTime.now().microsecondsSinceEpoch}';
+    _applyCaptureOrientation(widget.state.verificationSubStep);
     for (final controller in [
       _titleCtrl,
       _districtCtrl,
@@ -98,8 +100,32 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     if (mounted) setState(() {});
   }
 
+  void _applyCaptureOrientation(int subStep) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final orientations = subStep == 2
+          ? const [
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]
+          : const [
+              DeviceOrientation.portraitUp,
+              DeviceOrientation.portraitDown,
+            ];
+      SystemChrome.setPreferredOrientations(orientations);
+    });
+  }
+
+  void _restorePortraitOrientation() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
+
   @override
   void dispose() {
+    _restorePortraitOrientation();
     for (final controller in [
       _titleCtrl,
       _districtCtrl,
@@ -160,8 +186,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         return false;
     }
   }
-
-
 
   void _next() {
     if (_canGoNext) setState(() => _step++);
@@ -431,19 +455,14 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         data['verified'] == true &&
         data['decision'] == 'pass' &&
         sessionId.isNotEmpty;
-    return IDResult(
-      verified: verified,
-      sessionId: sessionId,
-    );
+    return IDResult(verified: verified, sessionId: sessionId);
   }
 
   SelfieResult _selfieResultFrom(Map<String, dynamic> data) {
     // Face matching must be an explicit result from the biometric service.
     final livenessPassed = data['livenessPassed'] == true;
     final faceMatch =
-        livenessPassed &&
-        data['faceMatch'] == true &&
-        data['verified'] == true;
+        livenessPassed && data['faceMatch'] == true && data['verified'] == true;
     double? score;
     if (data['score'] is num) {
       score = (data['score'] as num).toDouble();
@@ -513,6 +532,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
+        _applyCaptureOrientation(state.verificationSubStep);
       } else if (state.verificationSubStep == 1) {
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
@@ -533,6 +553,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastIDBackResult = idResult;
         state.verificationSubStep = 2;
+        _applyCaptureOrientation(state.verificationSubStep);
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
@@ -554,6 +575,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastHoldingResult = idResult;
         state.verificationSubStep = 3;
+        _applyCaptureOrientation(state.verificationSubStep);
 
         // Auto-toggle to selfie camera for 3D Biometric Match
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
@@ -616,6 +638,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
 
         state.verificationSubStep = 4;
+        _applyCaptureOrientation(state.verificationSubStep);
       }
 
       state.notify();
@@ -1002,7 +1025,10 @@ class _Step1 extends StatelessWidget {
             GestureDetector(
               onTap: aiGenerating ? null : onGenerateAi,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: C.brand.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -1025,7 +1051,9 @@ class _Step1 extends StatelessWidget {
                     Text(
                       aiGenerating
                           ? 'Analyzing...'
-                          : (hasPhotos ? 'Auto-Draft with AI' : 'Draft with AI Photo'),
+                          : (hasPhotos
+                                ? 'Auto-Draft with AI'
+                                : 'Draft with AI Photo'),
                       style: syne(sz: 11, w: FontWeight.w700, c: C.brand),
                     ),
                   ],
@@ -1257,7 +1285,11 @@ class _Step3Identity extends StatelessWidget {
       children: [
         Stack(
           children: [
-            _NeuralScannerOverlay(key: scannerKey, documentMode: subStep < 2, subStep: subStep),
+            _NeuralScannerOverlay(
+              key: scannerKey,
+              documentMode: subStep < 2,
+              subStep: subStep,
+            ),
             if (loading)
               Positioned(
                 left: 18,
@@ -1363,8 +1395,8 @@ class _Step3Identity extends StatelessWidget {
               loading
                   ? 'VERIFYING...'
                   : subStep == 2
-                      ? 'SCAN HOLDING ID PHOTO'
-                      : 'SCAN ${currentInstr.$1.toUpperCase()}',
+                  ? 'SCAN HOLDING ID PHOTO'
+                  : 'SCAN ${currentInstr.$1.toUpperCase()}',
               style: syne(c: Colors.black, w: FontWeight.w800, ls: .5),
             ),
           ),
@@ -1374,7 +1406,11 @@ class _Step3Identity extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lightbulb_outline, size: 14, color: Colors.white70),
+              const Icon(
+                Icons.lightbulb_outline,
+                size: 14,
+                color: Colors.white70,
+              ),
               const SizedBox(width: 6),
               Text(
                 'Tips: Avoid glare, blur and cropped edges.',
@@ -1474,7 +1510,10 @@ class _HoldingStatusItem extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title, style: dm(sz: 9, c: C.dim)),
-              Text(value, style: dm(sz: 10, c: color, w: FontWeight.w700)),
+              Text(
+                value,
+                style: dm(sz: 10, c: color, w: FontWeight.w700),
+              ),
             ],
           ),
         ),
@@ -1591,7 +1630,11 @@ class _InstructionCard extends StatelessWidget {
 class _NeuralScannerOverlay extends StatefulWidget {
   final bool documentMode;
   final int subStep;
-  const _NeuralScannerOverlay({super.key, required this.documentMode, this.subStep = 0});
+  const _NeuralScannerOverlay({
+    super.key,
+    required this.documentMode,
+    this.subStep = 0,
+  });
   @override
   State<_NeuralScannerOverlay> createState() => _NeuralScannerOverlayState();
 }
@@ -1639,7 +1682,10 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
     try {
       await nextController.initialize();
-      await _setZoomLevel(nextController, 1.0);
+      await _setZoomLevel(
+        nextController,
+        widget.subStep == 2 ? await nextController.getMinZoomLevel() : 1.0,
+      );
       _currentDirection = direction;
       if (mounted) setState(() {});
     } catch (e) {
@@ -1649,11 +1695,22 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     }
   }
 
-  Future<void> _setZoomLevel(CameraController controller, double zoomLevel) async {
+  Future<void> _setZoomLevel(
+    CameraController controller,
+    double zoomLevel,
+  ) async {
     try {
       await controller.setZoomLevel(zoomLevel);
     } catch (error) {
       debugPrint('Camera zoom unavailable: $error');
+    }
+  }
+
+  Future<void> _setWidestZoom(CameraController controller) async {
+    try {
+      await controller.setZoomLevel(await controller.getMinZoomLevel());
+    } catch (error) {
+      debugPrint('Camera wide-angle zoom unavailable: $error');
     }
   }
 
@@ -1695,7 +1752,11 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
       if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
-        unawaited(_setZoomLevel(cameraCtrl!, 1.0));
+        unawaited(
+          widget.subStep == 2
+              ? _setWidestZoom(cameraCtrl!)
+              : _setZoomLevel(cameraCtrl!, 1.0),
+        );
       }
 
       if (widget.subStep == 3) {
@@ -1837,10 +1898,11 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 top: 14,
                 left: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.transparent,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
                   ),
+                  decoration: BoxDecoration(color: Colors.transparent),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1855,7 +1917,12 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       const SizedBox(width: 6),
                       Text(
                         'LIVE',
-                        style: dm(sz: 10, c: Colors.white, w: FontWeight.bold, ls: 0.5),
+                        style: dm(
+                          sz: 10,
+                          c: Colors.white,
+                          w: FontWeight.bold,
+                          ls: 0.5,
+                        ),
                       ),
                     ],
                   ),
@@ -1867,7 +1934,10 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 top: 14,
                 right: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(.5),
                     borderRadius: BorderRadius.circular(20),
@@ -1876,7 +1946,11 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.info_outline, size: 12, color: Colors.white),
+                      const Icon(
+                        Icons.info_outline,
+                        size: 12,
+                        color: Colors.white,
+                      ),
                       const SizedBox(width: 5),
                       Text(
                         'Tips',
@@ -1904,10 +1978,23 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _buildTip(Icons.light_mode_outlined, 'Good lighting'),
-                        Container(width: 1, height: 12, color: Colors.white.withOpacity(.2), margin: const EdgeInsets.symmetric(horizontal: 12)),
+                        Container(
+                          width: 1,
+                          height: 12,
+                          color: Colors.white.withOpacity(.2),
+                          margin: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
                         _buildTip(Icons.shield_outlined, 'No filters'),
-                        Container(width: 1, height: 12, color: Colors.white.withOpacity(.2), margin: const EdgeInsets.symmetric(horizontal: 12)),
-                        _buildTip(Icons.face_retouching_off, 'No hats or glasses'),
+                        Container(
+                          width: 1,
+                          height: 12,
+                          color: Colors.white.withOpacity(.2),
+                          margin: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        _buildTip(
+                          Icons.face_retouching_off,
+                          'No hats or glasses',
+                        ),
                       ],
                     ),
                   ],
@@ -1936,7 +2023,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                     const SizedBox(height: 10),
                     GestureDetector(
                       onTap: () {
-                        final newDirection = _currentDirection == CameraLensDirection.front
+                        final newDirection =
+                            _currentDirection == CameraLensDirection.front
                             ? CameraLensDirection.back
                             : CameraLensDirection.front;
                         switchCamera(newDirection).catchError((_) {});
@@ -1948,7 +2036,11 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                           color: C.text.withOpacity(.94),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(Icons.flip_camera_ios_outlined, color: C.bg, size: 20),
+                        child: Icon(
+                          Icons.flip_camera_ios_outlined,
+                          color: C.bg,
+                          size: 20,
+                        ),
                       ),
                     ),
                   ],
@@ -1970,14 +2062,10 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       children: [
         Icon(icon, size: 14, color: Colors.cyanAccent),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: dm(sz: 10, c: Colors.white70),
-        ),
+        Text(label, style: dm(sz: 10, c: Colors.white70)),
       ],
     );
   }
-
 }
 
 class _ScannerNodeStatus extends StatelessWidget {
@@ -2237,10 +2325,7 @@ class _Step6Photos extends StatelessWidget {
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                C.card,
-                C.brand.withOpacity(0.08),
-              ],
+              colors: [C.card, C.brand.withOpacity(0.08)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -2297,8 +2382,8 @@ class _Step6Photos extends StatelessWidget {
                     aiGenerating
                         ? 'Analyzing Photos with NVIDIA Vision...'
                         : (totalPhotos > 0
-                            ? 'Auto-Generate Description & Amenities'
-                            : 'Pick Photo to Generate Details'),
+                              ? 'Auto-Generate Description & Amenities'
+                              : 'Pick Photo to Generate Details'),
                     style: syne(sz: 12, w: FontWeight.w700),
                   ),
                   style: ElevatedButton.styleFrom(
@@ -2380,8 +2465,11 @@ class _Step6Photos extends StatelessWidget {
                             color: Colors.black54,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.close,
-                              size: 12, color: Colors.white),
+                          child: const Icon(
+                            Icons.close,
+                            size: 12,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),
@@ -2545,7 +2633,11 @@ class _ScannerOverlayPainter extends CustomPainter {
   final bool holdingMode;
   final double progress;
 
-  _ScannerOverlayPainter({required this.documentMode, this.holdingMode = false, required this.progress});
+  _ScannerOverlayPainter({
+    required this.documentMode,
+    this.holdingMode = false,
+    required this.progress,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2575,13 +2667,19 @@ class _ScannerOverlayPainter extends CustomPainter {
         faceW,
         faceH,
       );
-      final faceRRect = RRect.fromRectAndRadius(faceRect, const Radius.circular(20));
+      final faceRRect = RRect.fromRectAndRadius(
+        faceRect,
+        const Radius.circular(20),
+      );
 
       // Left ID card area (landscape standard 1.55 ratio)
       final idH = (idW / 1.55).clamp(0.0, areaH * 0.82);
       final idTop = topPad + (areaH - idH) / 2;
       final idRect = Rect.fromLTWH(sidePad, idTop, idW, idH);
-      final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));
+      final idRRect = RRect.fromRectAndRadius(
+        idRect,
+        const Radius.circular(16),
+      );
 
       // Combine cutouts from dark translucent backdrop
       final combinedCutout = Path.combine(
@@ -2589,7 +2687,11 @@ class _ScannerOverlayPainter extends CustomPainter {
         Path()..addRRect(faceRRect),
         Path()..addRRect(idRRect),
       );
-      final maskPath = Path.combine(PathOperation.difference, bgPath, combinedCutout);
+      final maskPath = Path.combine(
+        PathOperation.difference,
+        bgPath,
+        combinedCutout,
+      );
       canvas.drawPath(maskPath, bgPaint);
 
       // Cyan corner brackets on Face area (exact match to screenshot)
@@ -2603,13 +2705,53 @@ class _ScannerOverlayPainter extends CustomPainter {
       const fRad = 18.0;
 
       // Top-left
-      canvas.drawPath(Path()..moveTo(fr.left, fr.top + fLen)..lineTo(fr.left, fr.top + fRad)..arcToPoint(Offset(fr.left + fRad, fr.top), radius: const Radius.circular(fRad))..lineTo(fr.left + fLen, fr.top), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.left, fr.top + fLen)
+          ..lineTo(fr.left, fr.top + fRad)
+          ..arcToPoint(
+            Offset(fr.left + fRad, fr.top),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.left + fLen, fr.top),
+        faceBracketPaint,
+      );
       // Top-right
-      canvas.drawPath(Path()..moveTo(fr.right - fLen, fr.top)..lineTo(fr.right - fRad, fr.top)..arcToPoint(Offset(fr.right, fr.top + fRad), radius: const Radius.circular(fRad))..lineTo(fr.right, fr.top + fLen), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.right - fLen, fr.top)
+          ..lineTo(fr.right - fRad, fr.top)
+          ..arcToPoint(
+            Offset(fr.right, fr.top + fRad),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.right, fr.top + fLen),
+        faceBracketPaint,
+      );
       // Bottom-left
-      canvas.drawPath(Path()..moveTo(fr.left, fr.bottom - fLen)..lineTo(fr.left, fr.bottom - fRad)..arcToPoint(Offset(fr.left + fRad, fr.bottom), radius: const Radius.circular(fRad))..lineTo(fr.left + fLen, fr.bottom), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.left, fr.bottom - fLen)
+          ..lineTo(fr.left, fr.bottom - fRad)
+          ..arcToPoint(
+            Offset(fr.left + fRad, fr.bottom),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.left + fLen, fr.bottom),
+        faceBracketPaint,
+      );
       // Bottom-right
-      canvas.drawPath(Path()..moveTo(fr.right - fLen, fr.bottom)..lineTo(fr.right - fRad, fr.bottom)..arcToPoint(Offset(fr.right, fr.bottom - fRad), radius: const Radius.circular(fRad))..lineTo(fr.right, fr.bottom - fLen), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.right - fLen, fr.bottom)
+          ..lineTo(fr.right - fRad, fr.bottom)
+          ..arcToPoint(
+            Offset(fr.right, fr.bottom - fRad),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.right, fr.bottom - fLen),
+        faceBracketPaint,
+      );
 
       // Yellow rounded rectangle border on ID area
       final idBorder = Paint()
