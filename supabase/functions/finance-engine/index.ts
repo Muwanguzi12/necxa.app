@@ -14,6 +14,8 @@ const COMMERCE_OTP_SECRET = Deno.env.get("COMMERCE_OTP_SECRET")?.trim() || "";
 const PRIMARY_SUPABASE_URL = Deno.env.get("PRIMARY_SUPABASE_URL")?.trim() ||
   Deno.env.get("SUPABASE_AUTH_URL")?.trim() || Deno.env.get("AUTH_PROJECT_URL")?.trim() || "";
 const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE_ROLE_KEY")?.trim() || "";
+const GIFT_PROJECTION_RECONCILIATION_SECRET =
+  Deno.env.get("GIFT_PROJECTION_RECONCILIATION_SECRET")?.trim() || "";
 
 const PESAPAL_BASE = PESAPAL_ENV === "production"
   ? "https://pay.pesapal.com/v3"
@@ -145,7 +147,7 @@ const CALLBACK_URL = "https://www.necxa.uk/payment-callback";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-mtn-reconciliation-secret",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-mtn-reconciliation-secret, x-gift-projection-reconciliation-secret",
 };
 
 const GIFT_CATALOGUE = [
@@ -868,6 +870,71 @@ async function syncCommunityGiftToPrimary(
   return { synced: true, result: data };
 }
 
+async function completeGiftProjection(
+  financeClient: ReturnType<typeof createClient>,
+  financeGiftId: string,
+  success: boolean,
+  errorMessage?: string,
+) {
+  const { error } = await financeClient.rpc("complete_gift_projection", {
+    p_finance_gift_id: financeGiftId,
+    p_success: success,
+    p_error: errorMessage ?? null,
+  });
+  if (error) throw new Error(`Gift projection status update failed: ${error.message}`);
+}
+
+async function reconcileGiftProjections(
+  financeClient: ReturnType<typeof createClient>,
+  limit = 50,
+) {
+  const { data: projections, error } = await financeClient.rpc(
+    "claim_gift_projection_batch",
+    { p_limit: limit },
+  );
+  if (error) throw new Error(`Gift projection claim failed: ${error.message}`);
+
+  let synced = 0;
+  let failed = 0;
+  for (const projection of (projections ?? []) as Record<string, unknown>[]) {
+    const financeGiftId = String(projection.finance_gift_id ?? "");
+    try {
+      const metadata = {
+        ...((projection.metadata ?? {}) as Record<string, unknown>),
+        ugx_value: Number(projection.ugx_value ?? 0),
+        context_type: String(projection.context_type ?? ""),
+      };
+      const syncResult = await syncCommunityGiftToPrimary(
+        financeGiftId,
+        String(projection.sender_id),
+        String(projection.receiver_id),
+        String(projection.context_id),
+        String(projection.gift_item_id),
+        Number(projection.ncx_amount),
+        Number(projection.receiver_ncx),
+        Number(projection.platform_fee_ncx),
+        String(projection.idempotency_key),
+        metadata,
+      );
+      if (!syncResult.synced) {
+        throw new Error(String(syncResult.reason ?? "Community sync is not configured."));
+      }
+      await completeGiftProjection(financeClient, financeGiftId, true);
+      synced += 1;
+    } catch (error) {
+      failed += 1;
+      const message = error instanceof Error ? error.message : "Gift projection failed.";
+      console.error(`Gift projection ${financeGiftId} failed:`, error);
+      try {
+        await completeGiftProjection(financeClient, financeGiftId, false, message);
+      } catch (statusError) {
+        console.error(`Unable to persist gift projection failure ${financeGiftId}:`, statusError);
+      }
+    }
+  }
+  return { claimed: (projections ?? []).length, synced, failed };
+}
+
 type PrimaryAuthUser = {
   id: string;
   email?: string | null;
@@ -997,6 +1064,29 @@ serve(async (req) => {
       return json({
         success: false,
         message: reconciliationError instanceof Error ? reconciliationError.message : "MTN reconciliation failed.",
+      }, 500);
+    }
+  }
+
+  if (
+    req.method === "POST" &&
+    GIFT_PROJECTION_RECONCILIATION_SECRET &&
+    req.headers.get("x-gift-projection-reconciliation-secret") ===
+      GIFT_PROJECTION_RECONCILIATION_SECRET
+  ) {
+    try {
+      const limit = Number(urlObj.searchParams.get("limit") ?? "50");
+      return json({
+        success: true,
+        ...(await reconcileGiftProjections(supabase, limit)),
+      });
+    } catch (reconciliationError) {
+      console.error("Scheduled gift projection reconciliation failed:", reconciliationError);
+      return json({
+        success: false,
+        message: reconciliationError instanceof Error
+          ? reconciliationError.message
+          : "Gift projection reconciliation failed.",
       }, 500);
     }
   }
@@ -2533,14 +2623,41 @@ serve(async (req) => {
       const receiverId = body.receiverId as string;
       const giftItemId = body.giftItemId as string;
       const ncxAmount = Number(body.ncxAmount) || 0;
-      const contextType = body.contextType as string; // e.g. "feed", "live", "shop"
+      const contextType = body.contextType as string;
       const contextId = body.contextId as string; // The post ID or live stream ID
       const contextNote = body.contextNote as string;
       const isAnonymous = Boolean(body.isAnonymous);
       const idempotencyKey = (body.idempotencyKey as string) || `gift-${user.id}-${Date.now()}`;
       const metadata = (body.metadata ?? {}) as Record<string, unknown>;
-
+      const supportedContextTypes = new Set([
+        "direct",
+        "creator_post",
+        "listing",
+        "live_stream",
+        "live",
+      ]);
+      if (!supportedContextTypes.has(contextType)) {
+        return json({ success: false, message: "Unsupported gift context." }, 400);
+      }
+      if (!receiverId || !giftItemId || !contextId || ncxAmount <= 0) {
+        return json({ success: false, message: "Gift recipient, item, context, and amount are required." }, 400);
+      }
       const isLiveGift = contextType === "live_stream" || contextType === "live";
+      const { data: feeConfig } = await supabase
+        .from("finance_config")
+        .select("value")
+        .eq("key", "gift_platform_fee_basis_points")
+        .maybeSingle();
+      const configuredFeeBasisPoints = Number(
+        (feeConfig?.value as Record<string, unknown> | null)?.basis_points ?? 1100,
+      );
+      const giftFeeBasisPoints = Number.isInteger(configuredFeeBasisPoints) &&
+          configuredFeeBasisPoints >= 0 &&
+          configuredFeeBasisPoints <= 10000
+        ? configuredFeeBasisPoints
+        : 1100;
+      const giftFeeRate = giftFeeBasisPoints / 10000;
+      const effectiveGiftFeeRate = isLiveGift ? 0.11 : giftFeeRate;
       const rpcName = isLiveGift ? "process_live_gift_ncx" : "process_gift_ncx";
       const rpcPayload = isLiveGift
         ? {
@@ -2548,7 +2665,7 @@ serve(async (req) => {
             p_receiver_auth_id: receiverId,
             p_channel_id: contextId,
             p_ncx_amount: ncxAmount,
-            p_gift_platform_fee_rate: 0.11,
+            p_gift_platform_fee_rate: effectiveGiftFeeRate,
             p_gift_details: {
               gift_item_id: giftItemId,
               context_type: contextType,
@@ -2566,7 +2683,7 @@ serve(async (req) => {
               ? contextId
               : "00000000-0000-0000-0000-000000000000",
             p_ncx_amount: ncxAmount,
-            p_gift_platform_fee_rate: 0.11,
+            p_gift_platform_fee_rate: effectiveGiftFeeRate,
             p_gift_details: {
               gift_item_id: giftItemId,
               context_type: contextType,
@@ -2581,7 +2698,17 @@ serve(async (req) => {
       const { data, error } = await supabase.rpc(rpcName, rpcPayload);
 
       if (error) {
-        return json({ success: false, message: error.message }, 500);
+        const message = error.message || "Gift transaction failed.";
+        const normalizedMessage = message.toLowerCase();
+        if (normalizedMessage.includes("insufficient ncx") ||
+            normalizedMessage.includes("insufficient balance")) {
+          return json({
+            success: false,
+            code: "insufficient_funds",
+            message: "Insufficient NCX balance.",
+          }, 402);
+        }
+        return json({ success: false, code: "gift_failed", message }, 400);
       }
 
       // The RPC returns { success, message, platform_fee_paid, receiver_amount_credited }
@@ -2593,11 +2720,14 @@ serve(async (req) => {
 
       const { data: giftDef } = await supabase
         .from("gift_items")
-        .select("name, emoji")
+        .select("name, emoji, ugx_value")
         .eq("id", giftItemId)
         .maybeSingle();
-      const receiverNcx = Number(resData?.receiver_amount_credited || (ncxAmount * 0.89));
-      const platformFeeNcx = Number(resData?.platform_fee_paid || (ncxAmount * 0.11));
+      const receiverNcx = Number(resData?.receiver_amount_credited);
+      const platformFeeNcx = Number(resData?.platform_fee_paid);
+      if (!giftDef || !Number.isFinite(receiverNcx) || !Number.isFinite(platformFeeNcx)) {
+        return json({ success: false, message: "Finance returned an incomplete gift settlement." }, 502);
+      }
       const financeGiftId = resData?.gift_id?.toString();
       let communitySync: Record<string, unknown> = { synced: false, reason: "not_supported_context" };
       if ((contextType === "creator_post" || contextType === "listing") && contextId && financeGiftId && !contextId.startsWith("direct")) {
@@ -2612,12 +2742,34 @@ serve(async (req) => {
             receiverNcx,
             platformFeeNcx,
             idempotencyKey,
-            { ...metadata, context_type: contextType },
+            { ...metadata, context_type: contextType, ugx_value: Number(giftDef.ugx_value) },
           );
+          if (!communitySync.synced) {
+            throw new Error(String(communitySync.reason ?? "Community sync is not configured."));
+          }
+          try {
+            await completeGiftProjection(supabase, financeGiftId, true);
+          } catch (statusError) {
+            // Projection success must remain visible even while the optional
+            // finance-side status migration is rolling out.
+            console.error("Unable to persist community sync success:", statusError);
+          }
         } catch (syncError) {
           // Finance remains authoritative; a failed social projection must be
           // observable without turning a completed debit into a false failure.
           console.error(syncError);
+          if (financeGiftId) {
+            try {
+              await completeGiftProjection(
+                supabase,
+                financeGiftId,
+                false,
+                syncError instanceof Error ? syncError.message : "Community sync failed.",
+              );
+            } catch (statusError) {
+              console.error("Unable to persist community sync failure:", statusError);
+            }
+          }
           communitySync = { synced: false, reason: "sync_failed" };
         }
       }
@@ -2630,7 +2782,7 @@ serve(async (req) => {
         ncxAmount: ncxAmount,
         receiverNcx,
         platformFeeNcx,
-        ugxEquivalent: ncxAmount * 100, // standard conversion
+        ugxEquivalent: Number(giftDef.ugx_value),
         isHighlighted: ncxAmount >= 50,
         communitySynced: communitySync.synced,
         message: "Gift sent successfully.",
