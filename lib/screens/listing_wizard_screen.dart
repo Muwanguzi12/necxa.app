@@ -510,12 +510,26 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
-        // Back of ID — capture only, no AI verification required.
-        // The back is stored for record keeping; all AI work is done on front + selfie.
+        // Back of ID — use the lightweight presence/quality check. This gives
+        // the final identity submission a real verification result instead of
+        // a locally fabricated "back-captured" placeholder.
         final xfile = await cameraCtrl.takePicture();
         state.idBackImage = File(xfile.path);
-        // Synthetic pass so downstream null-checks stay happy
-        state.lastIDBackResult = IDResult(verified: true, sessionId: 'back-captured');
+        final result = await NecxaAI.verifyID(
+          state.idBackImage!,
+          userId: state.user?.id,
+          action: 'verify-id-back',
+        );
+        final idResult = _idResultFrom(result);
+        if (!idResult.verified) {
+          throw UserMessageException(
+            _aiFeedback(
+              result,
+              'National ID back scan failed. Keep the whole back of your ID in the frame and retry.',
+            ),
+          );
+        }
+        state.lastIDBackResult = idResult;
         state.verificationSubStep = 2;
         SystemChrome.setPreferredOrientations([
           DeviceOrientation.landscapeLeft,

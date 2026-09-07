@@ -132,6 +132,10 @@ class ListingSyncService {
     req.fields['back_verification_id'] = backVerificationId;
     req.fields['holding_verification_id'] = holdingVerificationId;
     req.fields['biometric_verification_id'] = biometricVerificationId;
+    // The four captures above are immediate UI checks. Ask the authoritative
+    // verification project to create and validate its signed receipts before
+    // it stores the completed identity shard.
+    req.fields['verification_mode'] = 'direct-ai-engine';
 
     req.files.add(await http.MultipartFile.fromPath('id_front', (await compressImage(idFront)).path));
     req.files.add(await http.MultipartFile.fromPath('id_back', (await compressImage(idBack)).path));

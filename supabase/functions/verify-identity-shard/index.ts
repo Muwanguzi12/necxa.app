@@ -56,6 +56,7 @@ function percentage(value: unknown): number {
 
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
 const NVIDIA_VISION_MODEL = 'meta/llama-3.2-11b-vision-instruct'
+const LIGHT_BACK_ID_MAX_TOKENS = 128
 
 async function callNvidiaVisionBiometric(
   selfieBase64: string,
@@ -337,7 +338,9 @@ Respond in STRICT JSON ONLY:
           ]
         }
       ],
-      max_tokens: isBackCapture ? 256 : 512,
+      // The back of an ID is only checked for a visible, usable document. Keep
+      // this deliberately small: it has no OCR or personal-data extraction.
+      max_tokens: isBackCapture ? LIGHT_BACK_ID_MAX_TOKENS : 512,
       temperature: 0.1,
     }),
   })
@@ -647,11 +650,32 @@ serve(async (req) => {
           docType: nvidiaIdResult.docType,
           country: nvidiaIdResult.country,
           extractedData: nvidiaIdResult.extractedData,
+          engine: stage === 'back' ? 'nvidia-vision-light' : 'nvidia-vision',
           stage,
           feedback,
           verificationSessionId: sessionId,
           sessionLink
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      // A back capture is intentionally a light presence/quality check only.
+      // Do not send it to the full OCR/document-verification fallback: that
+      // would read more information than this stage needs.
+      if (stage === 'back') {
+        return new Response(JSON.stringify({
+          verified: false,
+          automaticallyVerified: false,
+          decision: 'deferred',
+          reasonCode: 'light_back_verification_unavailable',
+          retryable: true,
+          stage,
+          feedback: 'Quick back-of-ID verification is temporarily unavailable. Your image was not rejected; please retry shortly.',
+          verificationSessionId: sessionId,
+          sessionLink,
+        }), {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
       }
 
       console.log('[ID Capture] Using Cloudflare Worker fallback')

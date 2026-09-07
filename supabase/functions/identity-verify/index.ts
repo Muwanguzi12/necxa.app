@@ -33,7 +33,7 @@ async function fileToDataUrl(file: File): Promise<string> {
 
 async function runDirectAiVerification(
   primaryJwt: string,
-  action: "verify-id-front" | "verify-id-holding" | "verify-face-only",
+  action: "verify-id-front" | "verify-id-back" | "verify-id-holding" | "verify-face-only",
   imageBase64: string,
 ): Promise<Record<string, any>> {
   const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-identity-shard`, {
@@ -211,6 +211,7 @@ Deno.serve(async (req) => {
             decision: "pass",
             policy_version: "direct-ai-engine-v1",
             result_summary: {
+              capture_stage: "biometric",
               selfie_sha256: await fileSha256(facePhoto),
               reference_sha256: await fileSha256(idFront),
             },
