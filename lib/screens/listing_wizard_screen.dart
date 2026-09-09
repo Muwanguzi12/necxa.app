@@ -85,7 +85,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     final userId = widget.state.user?.id ?? 'anonymous';
     _submissionIdempotencyKey =
         'listing-$userId-${DateTime.now().microsecondsSinceEpoch}';
-    _applyCaptureOrientation(widget.state.verificationSubStep);
+    unawaited(_applyCaptureOrientation(widget.state.verificationSubStep));
     for (final controller in [
       _titleCtrl,
       _districtCtrl,
@@ -100,14 +100,14 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     if (mounted) setState(() {});
   }
 
-  void _applyCaptureOrientation(int subStep) {
+  Future<void> _applyCaptureOrientation(int subStep) {
     final orientations = subStep == 2
         ? const [
             DeviceOrientation.landscapeLeft,
             DeviceOrientation.landscapeRight,
           ]
         : const [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown];
-    unawaited(SystemChrome.setPreferredOrientations(orientations));
+    return SystemChrome.setPreferredOrientations(orientations);
   }
 
   void _restorePortraitOrientation() {
@@ -545,7 +545,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastIDBackResult = idResult;
-        _applyCaptureOrientation(2);
+        await _applyCaptureOrientation(2);
         await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 2;
       } else if (state.verificationSubStep == 2) {
@@ -568,7 +568,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastHoldingResult = idResult;
-        _applyCaptureOrientation(3);
+        await _applyCaptureOrientation(3);
         await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 3;
 
@@ -646,7 +646,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
 
         state.verificationSubStep = 4;
-        _applyCaptureOrientation(4);
+        await _applyCaptureOrientation(4);
       }
 
       state.notify();
@@ -1722,12 +1722,16 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     }
   }
 
-  Future<void> switchCamera(CameraLensDirection direction) async {
+  Future<void> switchCamera(
+    CameraLensDirection direction, {
+    bool forceRefresh = false,
+  }) async {
     final pendingInitialization = _cameraInitialization;
     if (pendingInitialization != null) await pendingInitialization;
 
     final currentController = cameraCtrl;
-    if (_currentDirection == direction &&
+    if (!forceRefresh &&
+        _currentDirection == direction &&
         currentController != null &&
         currentController.value.isInitialized) {
       return;
@@ -1771,6 +1775,14 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         unawaited(switchCamera(CameraLensDirection.front).catchError((_) {}));
       } else if (widget.subStep < 3 && oldWidget.subStep == 3) {
         unawaited(switchCamera(CameraLensDirection.back).catchError((_) {}));
+      } else if (widget.subStep == 2) {
+        // Let the OS finish rotating before rebuilding the preview so the
+        // camera's landscape buffer matches the landscape viewport.
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 350), () {
+            return switchCamera(CameraLensDirection.back, forceRefresh: true);
+          }).catchError((_) {}),
+        );
       }
     }
   }
@@ -1828,9 +1840,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                     final coverScale = viewportAspect > previewAspect
                         ? viewportAspect / previewAspect
                         : previewAspect / viewportAspect;
-                    // Identity captures need the full face/card visible. Keep
-                    // the native preview scale instead of cropping to cover.
-                    final scale = widget.subStep >= 2 ? 1.0 : coverScale;
+                    // Holding ID uses the full landscape viewport; other
+                    // identity stages keep the native preview scale.
+                    final scale = widget.subStep == 2 ? coverScale : 1.0;
 
                     return ClipRect(
                       child: Transform.scale(
