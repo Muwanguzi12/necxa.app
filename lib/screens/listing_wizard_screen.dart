@@ -27,6 +27,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   int _step = 0;
   bool _loading = false;
   bool _aiGenerating = false;
+  bool _showStartGuide = true;
   bool _identityAdvanceScheduled = false;
   late final String _submissionIdempotencyKey;
 
@@ -197,134 +198,111 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         backgroundColor: C.bg,
         elevation: 0,
         title: Text('List a Property', style: syne(sz: 17, w: FontWeight.w700)),
-        actions: [
-          IconButton(
-            tooltip: 'Listing guide',
-            icon: Icon(Icons.menu_book_outlined, color: C.text),
-            onPressed: _showListingGuide,
-          ),
-        ],
         leading: IconButton(
           icon: Icon(Icons.close, color: C.text),
           onPressed: () => widget.state.go('home'),
         ),
       ),
-      body: Column(
-        children: [
-          _buildOnSiteNotice(),
-          _buildProgress(),
-          _buildStepHeader(),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              physics: const BouncingScrollPhysics(),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _buildStepBody(),
-              ),
+      body: _showStartGuide
+          ? _buildStartGuide()
+          : Column(
+              children: [
+                _buildProgress(),
+                _buildStepHeader(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    physics: const BouncingScrollPhysics(),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: _buildStepBody(),
+                    ),
+                  ),
+                ),
+                if (!_submitted && _step < _steps.length - 1) _buildBottomNav(),
+              ],
             ),
-          ),
-          if (!_submitted && _step < _steps.length - 1) _buildBottomNav(),
-        ],
-      ),
     );
   }
 
-  Widget _buildOnSiteNotice() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: C.brand.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: C.brand.withValues(alpha: 0.35)),
-      ),
-      child: Row(
+  Widget _buildStartGuide() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+      physics: const BouncingScrollPhysics(),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.location_on_outlined, color: C.brand, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: C.brand.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: C.brand.withValues(alpha: 0.35)),
+            ),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Listing of property must be done on site',
-                  style: syne(sz: 13, w: FontWeight.w800, c: C.text),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Stay at the property while capturing identity, documents, GPS, and photos.',
-                  style: dm(sz: 11, c: C.sub, h: 1.35),
+                Icon(Icons.location_on_outlined, color: C.brand, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Listing of property must be done on site.',
+                    style: syne(sz: 15, w: FontWeight.w800, c: C.text),
+                  ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  void _showListingGuide() {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: C.card,
-        title: Row(
-          children: [
-            Icon(Icons.menu_book_outlined, color: C.brand),
-            const SizedBox(width: 10),
-            Text('Listing Guide', style: syne(sz: 18, w: FontWeight.w800)),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Listing of property must be done on site.',
-                style: syne(sz: 13, w: FontWeight.w800, c: C.brand),
-              ),
-              const SizedBox(height: 14),
-              _guideItem(
-                '1',
-                'Basics',
-                'Enter the property details and intended use.',
-              ),
-              _guideItem(
-                '2',
-                'Identity',
-                'Capture the ID and selfie when prompted.',
-              ),
-              _guideItem(
-                '3',
-                'Documents',
-                'Add the utility or authority document available on site.',
-              ),
-              _guideItem(
-                '4',
-                'GPS',
-                'Lock the property location while you are there.',
-              ),
-              _guideItem(
-                '5',
-                'Photos',
-                'Capture clear exterior, interior, and bathroom photos.',
-              ),
-              _guideItem(
-                '6',
-                'Review',
-                'Confirm the details, then submit the listing.',
-              ),
-            ],
+          const SizedBox(height: 28),
+          Text('Listing Guide', style: syne(sz: 22, w: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(
+            'Have the property and required documents ready before you begin.',
+            style: dm(sz: 13, c: C.sub, h: 1.4),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(
-              'Got it',
-              style: syne(c: C.brand, w: FontWeight.w800),
+          const SizedBox(height: 22),
+          _guideItem(
+            '1',
+            'Property details',
+            'Enter the basic information and pricing.',
+          ),
+          _guideItem(
+            '2',
+            'Identity',
+            'Capture the ID and selfie when prompted.',
+          ),
+          _guideItem(
+            '3',
+            'Documents and GPS',
+            'Verify documents and lock the property location on site.',
+          ),
+          _guideItem(
+            '4',
+            'Property photos',
+            'Capture clear exterior, interior, and bathroom photos.',
+          ),
+          _guideItem(
+            '5',
+            'Review and submit',
+            'Confirm the details before creating the listing.',
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => setState(() => _showStartGuide = false),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: C.brand,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: Text(
+                'Start Listing',
+                style: syne(c: C.bg, w: FontWeight.w800),
+              ),
             ),
           ),
         ],
@@ -334,27 +312,27 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   Widget _guideItem(String number, String title, String detail) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
-            radius: 12,
+            radius: 13,
             backgroundColor: C.brand.withValues(alpha: 0.16),
             child: Text(
               number,
               style: syne(sz: 11, w: FontWeight.w800, c: C.brand),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: RichText(
               text: TextSpan(
-                style: dm(sz: 12, c: C.sub, h: 1.35),
+                style: dm(sz: 13, c: C.sub, h: 1.35),
                 children: [
                   TextSpan(
                     text: '$title: ',
-                    style: dm(sz: 12, w: FontWeight.w700, c: C.text),
+                    style: dm(sz: 13, w: FontWeight.w700, c: C.text),
                   ),
                   TextSpan(text: detail),
                 ],
@@ -1514,6 +1492,7 @@ class _Step3Identity extends StatelessWidget {
           title: currentInstr.$1,
           desc: currentInstr.$2,
           icon: currentInstr.$3,
+          compact: true,
         ),
 
         const SizedBox(height: 14),
@@ -1767,30 +1746,38 @@ class _IdentityCaptureProgress extends StatelessWidget {
 class _InstructionCard extends StatelessWidget {
   final String title, desc;
   final IconData icon;
+  final bool compact;
   const _InstructionCard({
     required this.title,
     required this.desc,
     required this.icon,
+    this.compact = false,
   });
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(compact ? 8 : 12),
           decoration: BoxDecoration(
             color: C.card,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, color: C.brand, size: 24),
+          child: Icon(icon, color: C.brand, size: compact ? 20 : 24),
         ),
-        const SizedBox(width: 16),
+        SizedBox(width: compact ? 10 : 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: syne(sz: 14, w: FontWeight.bold)),
-              Text(desc, style: dm(sz: 11, c: C.dim)),
+              Text(
+                title,
+                style: syne(sz: compact ? 12 : 14, w: FontWeight.bold),
+              ),
+              Text(
+                desc,
+                style: dm(sz: compact ? 10 : 11, c: C.dim),
+              ),
             ],
           ),
         ),
@@ -1856,7 +1843,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       await nextController.initialize();
       await _setZoomLevel(
         nextController,
-        widget.subStep == 2 ? await nextController.getMinZoomLevel() : 1.0,
+        widget.subStep == 2 || widget.subStep == 3
+            ? await nextController.getMinZoomLevel()
+            : 1.0,
       );
       _currentDirection = direction;
       if (mounted) setState(() {});
@@ -1929,7 +1918,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     if (widget.subStep != oldWidget.subStep) {
       if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
         unawaited(
-          widget.subStep == 2
+          widget.subStep == 2 || widget.subStep == 3
               ? _setWidestZoom(cameraCtrl!)
               : _setZoomLevel(cameraCtrl!, 1.0),
         );
@@ -1981,41 +1970,33 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
               Positioned.fill(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    // The camera plugin exposes a portrait preview. Scale it to
-                    // to cover the viewport rather than leaving black bars.
-                    final viewportAspect =
-                        constraints.maxWidth / constraints.maxHeight;
-                    double previewAspect = cameraCtrl!.value.aspectRatio;
+                child: isHolding
+                    ? LayoutBuilder(
+                        builder: (context, constraints) {
+                          final viewportAspect =
+                              constraints.maxWidth / constraints.maxHeight;
+                          double previewAspect = cameraCtrl!.value.aspectRatio;
+                          final isPortrait =
+                              MediaQuery.of(context).orientation ==
+                              Orientation.portrait;
+                          if (isPortrait && previewAspect > 1.0) {
+                            previewAspect = 1.0 / previewAspect;
+                          } else if (!isPortrait && previewAspect < 1.0) {
+                            previewAspect = 1.0 / previewAspect;
+                          }
 
-                    // Correct for camera's native aspect ratio inversion on portrait devices.
-                    // If the device is in portrait but the preview aspect ratio is landscape (> 1),
-                    // the CameraPreview widget will rotate it internally. We must use the inverted ratio.
-                    final isPortrait =
-                        MediaQuery.of(context).orientation ==
-                        Orientation.portrait;
-                    if (isPortrait && previewAspect > 1.0) {
-                      previewAspect = 1.0 / previewAspect;
-                    } else if (!isPortrait && previewAspect < 1.0) {
-                      previewAspect = 1.0 / previewAspect;
-                    }
-
-                    final coverScale = viewportAspect > previewAspect
-                        ? viewportAspect / previewAspect
-                        : previewAspect / viewportAspect;
-                    // Holding ID uses the full landscape viewport; other
-                    // identity stages keep the native preview scale.
-                    final scale = widget.subStep == 2 ? coverScale : 1.0;
-
-                    return ClipRect(
-                      child: Transform.scale(
-                        scale: scale,
-                        child: Center(child: CameraPreview(cameraCtrl!)),
-                      ),
-                    );
-                  },
-                ),
+                          final coverScale = viewportAspect > previewAspect
+                              ? viewportAspect / previewAspect
+                              : previewAspect / viewportAspect;
+                          return ClipRect(
+                            child: Transform.scale(
+                              scale: coverScale,
+                              child: Center(child: CameraPreview(cameraCtrl!)),
+                            ),
+                          );
+                        },
+                      )
+                    : Center(child: CameraPreview(cameraCtrl!)),
               )
             else
               const Center(
@@ -2237,7 +2218,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     );
     return isHolding
         ? AspectRatio(aspectRatio: 1.7, child: viewport)
-        : SizedBox(height: 270, child: viewport);
+        : SizedBox(height: 220, child: viewport);
   }
 
   Widget _buildTip(IconData icon, String label) {
