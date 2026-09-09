@@ -665,8 +665,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       final message = getUserFriendlyError(e);
       widget.state.setShieldFeedback(message);
       setState(() => _loading = false);
-      // Identity failures are already rendered persistently inside this step.
-      // Do not duplicate the same message in a full-width SnackBar.
+      _showError(message);
     }
   }
 
@@ -946,8 +945,29 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   void _showError(String msg) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Retry',
+          textColor: Colors.white,
+          onPressed: () {
+            if (_loading) return;
+            if (_step == 3) {
+              _runUtilityVerification();
+            } else if (_step == 4) {
+              _lockGps();
+            } else if (_step == 6) {
+              _submitListing();
+            } else if (_step == 2) {
+              _runIdentityVerification();
+            }
+          },
+        ),
+      ),
     );
   }
 }

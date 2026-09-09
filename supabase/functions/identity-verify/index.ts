@@ -6,7 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
+const json = (data: unknown, status = 200) => new Response(JSON.stringify({
+  ...(data as Record<string, unknown>),
+  request_id: crypto.randomUUID(),
+}), {
   status,
   headers: { ...corsHeaders, "Content-Type": "application/json" },
 })
@@ -103,25 +106,25 @@ async function loadVerificationJobs(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405)
+  if (req.method !== "POST") return json({ error: "Method not allowed", error_code: "method_not_allowed" }, 405)
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     const bearer = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim()
     const primaryJwt = (req.headers.get("x-primary-jwt") || bearer).trim()
-    if (!primaryJwt) return json({ error: "Unauthorized" }, 401)
+    if (!primaryJwt) return json({ error: "Unauthorized", error_code: "unauthorized" }, 401)
 
     const primaryClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: `Bearer ${primaryJwt}` } },
     })
     const { data: { user }, error: authError } = await primaryClient.auth.getUser()
-    if (authError || !user) return json({ error: "Unauthorized" }, 401)
+    if (authError || !user) return json({ error: "Unauthorized", error_code: "unauthorized" }, 401)
 
     const contentType = req.headers.get("content-type") || ""
     if (contentType.includes("application/json")) {
       const body = await req.json().catch(() => ({}))
       if (body?.action !== "status" || typeof body?.identity_shard_id !== "string") {
-        return json({ error: "Invalid identity status request." }, 400)
+        return json({ error: "Invalid identity status request.", error_code: "identity_status_invalid" }, 400)
       }
       const { data: shard, error } = await supabase
         .from("identity_shards")
@@ -146,7 +149,7 @@ Deno.serve(async (req) => {
     const docNumberInput = String(formData.get("doc_number") || "").trim()
     const idempotencyKey = String(req.headers.get("Idempotency-Key") || "").trim()
     if (idempotencyKey.length < 12 || idempotencyKey.length > 180) {
-      return json({ error: "A valid identity idempotency key is required." }, 400)
+      return json({ error: "A valid identity idempotency key is required.", error_code: "identity_idempotency_invalid" }, 400)
     }
 
     const receiptIds = {
@@ -247,6 +250,7 @@ Deno.serve(async (req) => {
     }
     if (Object.values(receiptIds).some((value) => !/^[0-9a-f-]{36}$/i.test(value))) {
       return json({
+        error_code: "identity_receipt_missing",
         error: "One or more verification receipts are missing. Restart the identity capture once.",
         reasonCode: "verification_receipt_missing",
       }, 409)
@@ -258,6 +262,7 @@ Deno.serve(async (req) => {
     const jobs = await loadVerificationJobs(supabase, Object.values(receiptIds), user.id)
     if (jobs.length !== 4) {
       return json({
+        error_code: "identity_receipt_syncing",
         error: "Verification results are still syncing. Tap Verify once more; do not retake the ID photos.",
         reasonCode: "verification_receipts_syncing",
         retryable: true,
@@ -283,6 +288,7 @@ Deno.serve(async (req) => {
       ) {
         return json({
           verified: false,
+          error_code: "identity_receipt_mismatch",
           error: `The ${check.key} capture does not match an approved Llama Vision result.`,
           reasonCode: "document_receipt_mismatch",
         }, 422)
@@ -301,6 +307,7 @@ Deno.serve(async (req) => {
     ) {
       return json({
         verified: false,
+        error_code: "identity_receipt_mismatch",
         error: "The biometric receipt does not contain a passed face-match and liveness decision.",
         reasonCode: "biometric_receipt_not_approved",
       }, 422)
@@ -392,6 +399,9 @@ Deno.serve(async (req) => {
     })
   } catch (error) {
     console.error("Identity verification error:", error)
-    return json({ error: error instanceof Error ? error.message : "Identity verification failed." }, 500)
+    return json({
+      error_code: "identity_provider_unavailable",
+      error: error instanceof Error ? error.message : "Identity verification failed.",
+    }, 503)
   }
 })

@@ -12,12 +12,16 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
 }
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
+const json = (data: unknown, status = 200) => new Response(JSON.stringify({
+  ...(data as Record<string, unknown>),
+  request_id: crypto.randomUUID(),
+}), {
   status,
   headers: { ...corsHeaders, "Content-Type": "application/json" },
 })
 
-const err = (message: string, status = 400) => json({ error: message }, status)
+const err = (message: string, status = 400, errorCode = "listing_submission_failed") =>
+  json({ error: message, error_code: errorCode }, status)
 
 const VERIFICATION_PROJECT_URL = Deno.env.get("VERIFICATION_PROJECT_URL") || "https://ayvescksetiuekoyfqar.supabase.co"
 const VERIFICATION_PROJECT_ANON_KEY = Deno.env.get("VERIFICATION_PROJECT_ANON_KEY") || "sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT"
@@ -327,6 +331,7 @@ Deno.serve(async (req) => {
         gps_node_id: gpsNode.id,
         coordinates: { lat, lng, accuracy },
         risk_flag: accuracy > 500,
+        error_code: accuracy > 500 ? "gps_risk_detected" : null,
         stage: "gps_lock",
         message: accuracy > 500
           ? "GPS accuracy low. Listing will be flagged as High Risk."
@@ -737,10 +742,10 @@ Deno.serve(async (req) => {
       })
     }
 
-    return err("Invalid stage parameter. Valid stages: identity_shard, utility_shard, gps_lock, neural_synthesis", 400)
+    return err("Invalid stage parameter. Valid stages: identity_shard, utility_shard, gps_lock, neural_synthesis", 400, "listing_stage_invalid")
 
   } catch (e) {
     console.error("listing-create error:", e)
-    return err(`Server error: ${e.message}`, 500)
+    return err(`Server error: ${e.message}`, 500, "listing_submission_failed")
   }
 })

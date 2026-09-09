@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+
 class ListingSyncService {
   static const _verificationTimeout = Duration(seconds: 90);
   static const _listingTimeout = Duration(minutes: 2);
@@ -40,6 +41,7 @@ class ListingSyncService {
     }
     return file; // Fallback to original
   }
+
   static String get _edgeFuncUrl {
     final restUrl = Supabase.instance.client.rest.url;
     final baseUrl = restUrl.split('/rest/v1')[0];
@@ -91,12 +93,17 @@ class ListingSyncService {
     }
     final message = decoded?['message']?.toString().trim();
     final error = decoded?['error']?.toString().trim();
-    throw Exception(
-      (message?.isNotEmpty ?? false)
-          ? message
-          : (error?.isNotEmpty ?? false)
-          ? error
-          : '$operation failed (${statusCode == 0 ? 'network error' : statusCode}). Please try again.',
+    final safeMessage = (message?.isNotEmpty ?? false)
+        ? message!
+        : (error?.isNotEmpty ?? false)
+        ? error!
+        : '$operation failed (${statusCode == 0 ? 'network error' : statusCode}). Please try again.';
+    throw ListingSyncException(
+      safeMessage,
+      operation: operation,
+      statusCode: statusCode,
+      code: decoded?['error_code']?.toString(),
+      requestId: decoded?['request_id']?.toString(),
     );
   }
 
@@ -134,13 +141,29 @@ class ListingSyncService {
     req.fields['biometric_verification_id'] = biometricVerificationId;
     req.fields['verification_mode'] = 'direct-ai-engine';
 
-    req.files.add(await http.MultipartFile.fromPath('id_front', (await compressImage(idFront)).path));
-    req.files.add(await http.MultipartFile.fromPath('id_back', (await compressImage(idBack)).path));
     req.files.add(
-      await http.MultipartFile.fromPath('id_holding', (await compressImage(idHolding)).path),
+      await http.MultipartFile.fromPath(
+        'id_front',
+        (await compressImage(idFront)).path,
+      ),
     );
     req.files.add(
-      await http.MultipartFile.fromPath('face_photo', (await compressImage(facePhoto)).path),
+      await http.MultipartFile.fromPath(
+        'id_back',
+        (await compressImage(idBack)).path,
+      ),
+    );
+    req.files.add(
+      await http.MultipartFile.fromPath(
+        'id_holding',
+        (await compressImage(idHolding)).path,
+      ),
+    );
+    req.files.add(
+      await http.MultipartFile.fromPath(
+        'face_photo',
+        (await compressImage(facePhoto)).path,
+      ),
     );
 
     final res = await req.send().timeout(_verificationTimeout);
@@ -182,7 +205,12 @@ class ListingSyncService {
       Uri.parse('$_faceCacheFuncUrl/compare?sessionId=$sessionId'),
     );
     req.headers.addAll(await _getHeaders());
-    req.files.add(await http.MultipartFile.fromPath('selfie', (await compressImage(selfie)).path));
+    req.files.add(
+      await http.MultipartFile.fromPath(
+        'selfie',
+        (await compressImage(selfie)).path,
+      ),
+    );
 
     final res = await req.send();
     final resBody = await res.stream.bytesToString();
@@ -383,10 +411,7 @@ class ListingSyncService {
     for (int i = 0; i < bathroomPhotos.length; i++) {
       final compressedBath = await compressImage(bathroomPhotos[i]);
       req.files.add(
-        await http.MultipartFile.fromPath(
-          'bathroom_$i',
-          compressedBath.path,
-        ),
+        await http.MultipartFile.fromPath('bathroom_$i', compressedBath.path),
       );
     }
 
@@ -394,4 +419,23 @@ class ListingSyncService {
     final resBody = await res.stream.bytesToString();
     return _decodeResponse(resBody, res.statusCode, 'Listing submission');
   }
+}
+
+class ListingSyncException implements Exception {
+  final String message;
+  final String operation;
+  final int statusCode;
+  final String? code;
+  final String? requestId;
+
+  ListingSyncException(
+    this.message, {
+    required this.operation,
+    required this.statusCode,
+    this.code,
+    this.requestId,
+  });
+
+  @override
+  String toString() => message;
 }

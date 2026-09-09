@@ -6,7 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
 }
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
+const json = (data: unknown, status = 200) => new Response(JSON.stringify({
+  ...(data as Record<string, unknown>),
+  request_id: crypto.randomUUID(),
+}), {
   status,
   headers: { ...corsHeaders, "Content-Type": "application/json" },
 })
@@ -36,7 +39,7 @@ Deno.serve(async (req) => {
   try {
     // 1. Get User using primary auth server - Federated Auth Bridge
     const primaryJwt = req.headers.get("x-primary-jwt")
-    if (!primaryJwt) return json({ error: "Unauthorized: missing x-primary-jwt" }, 401)
+    if (!primaryJwt) return json({ error: "Unauthorized: missing x-primary-jwt", error_code: "unauthorized" }, 401)
 
     const primaryUserClient = createClient(
       PRIMARY_SUPABASE_URL, 
@@ -45,7 +48,7 @@ Deno.serve(async (req) => {
     )
     const { data: { user }, error: authError } = await primaryUserClient.auth.getUser()
 
-    if (authError || !user) return json({ error: "Unauthorized: invalid primary JWT" }, 401)
+    if (authError || !user) return json({ error: "Unauthorized: invalid primary JWT", error_code: "unauthorized" }, 401)
 
     // 2. Routing: JSON vs Multipart
     const contentType = req.headers.get("content-type") || ""
@@ -103,6 +106,7 @@ Deno.serve(async (req) => {
     if (!proofFile) {
       return json({
         verified: false,
+        error_code: 'utility_not_verified',
         error: role === 'agent'
           ? 'A brokerage or business licence photo is required for an agent.'
           : 'Add a utility bill with its account number, a land title with block and plot, or an LC1 document with the officer name.',
@@ -132,11 +136,16 @@ Deno.serve(async (req) => {
     const aiResponse = await aiResult.json().catch(() => ({}))
     if (!aiResult.ok) {
       console.error('Utility AI request failed:', aiResult.status, aiResponse?.error)
-      return json({ verified: false, error: aiResponse?.error || 'Utility document assessment is temporarily unavailable.' }, 503)
+      return json({
+        verified: false,
+        error_code: 'utility_provider_unavailable',
+        error: aiResponse?.error || 'Utility document assessment is temporarily unavailable.',
+      }, 503)
     }
     if (aiResponse?.verified !== true) {
       return json({
         verified: false,
+        error_code: 'utility_not_verified',
         decision: aiResponse?.decision || 'manual_review',
         reason_code: aiResponse?.reasonCode || 'utility_document_requires_review',
         message: aiResponse?.description || 'The authority document needs review or a clearer capture.',
@@ -186,6 +195,6 @@ Deno.serve(async (req) => {
 
   } catch (e) {
     console.error("Utility Error:", e)
-    return json({ error: e.message }, 500)
+    return json({ error_code: 'utility_provider_unavailable', error: e.message }, 503)
   }
 })
