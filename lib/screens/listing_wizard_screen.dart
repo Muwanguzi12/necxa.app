@@ -197,6 +197,13 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         backgroundColor: C.bg,
         elevation: 0,
         title: Text('List a Property', style: syne(sz: 17, w: FontWeight.w700)),
+        actions: [
+          IconButton(
+            tooltip: 'Listing guide',
+            icon: Icon(Icons.menu_book_outlined, color: C.text),
+            onPressed: _showListingGuide,
+          ),
+        ],
         leading: IconButton(
           icon: Icon(Icons.close, color: C.text),
           onPressed: () => widget.state.go('home'),
@@ -204,6 +211,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       ),
       body: Column(
         children: [
+          _buildOnSiteNotice(),
           _buildProgress(),
           _buildStepHeader(),
           Expanded(
@@ -217,6 +225,142 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             ),
           ),
           if (!_submitted && _step < _steps.length - 1) _buildBottomNav(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOnSiteNotice() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: C.brand.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: C.brand.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.location_on_outlined, color: C.brand, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Listing of property must be done on site',
+                  style: syne(sz: 13, w: FontWeight.w800, c: C.text),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Stay at the property while capturing identity, documents, GPS, and photos.',
+                  style: dm(sz: 11, c: C.sub, h: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showListingGuide() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: C.card,
+        title: Row(
+          children: [
+            Icon(Icons.menu_book_outlined, color: C.brand),
+            const SizedBox(width: 10),
+            Text('Listing Guide', style: syne(sz: 18, w: FontWeight.w800)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Listing of property must be done on site.',
+                style: syne(sz: 13, w: FontWeight.w800, c: C.brand),
+              ),
+              const SizedBox(height: 14),
+              _guideItem(
+                '1',
+                'Basics',
+                'Enter the property details and intended use.',
+              ),
+              _guideItem(
+                '2',
+                'Identity',
+                'Capture the ID and selfie when prompted.',
+              ),
+              _guideItem(
+                '3',
+                'Documents',
+                'Add the utility or authority document available on site.',
+              ),
+              _guideItem(
+                '4',
+                'GPS',
+                'Lock the property location while you are there.',
+              ),
+              _guideItem(
+                '5',
+                'Photos',
+                'Capture clear exterior, interior, and bathroom photos.',
+              ),
+              _guideItem(
+                '6',
+                'Review',
+                'Confirm the details, then submit the listing.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              'Got it',
+              style: syne(c: C.brand, w: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _guideItem(String number, String title, String detail) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: C.brand.withValues(alpha: 0.16),
+            child: Text(
+              number,
+              style: syne(sz: 11, w: FontWeight.w800, c: C.brand),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: dm(sz: 12, c: C.sub, h: 1.35),
+                children: [
+                  TextSpan(
+                    text: '$title: ',
+                    style: dm(sz: 12, w: FontWeight.w700, c: C.text),
+                  ),
+                  TextSpan(text: detail),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
