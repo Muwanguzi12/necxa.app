@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../theme.dart';
 import '../app_state.dart';
 
@@ -17,10 +18,33 @@ class NecxaBottomNav extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', state.screen == 'home', () => state.go('home')),
-          _BotBtn('⚡', 'Community', state.screen == 'community', () => state.go('community')),
-          _BotBtn('📋', 'Listings', state.screen == 'list' || state.screen == 'property_listing', () => state.go('list')),
-          _BotBtn('💬', 'Chat', state.screen == 'chat' || state.screen == 'chat-list' || state.screen == 'new-chat', () => state.go('chat')),
+          _BotBtn(
+            '🏠',
+            'Property',
+            state.screen == 'home',
+            () => state.go('home'),
+          ),
+          _BotBtn(
+            '⚡',
+            'Community',
+            state.screen == 'community',
+            () => state.go('community'),
+          ),
+          _BotBtn(
+            '📋',
+            'Listings',
+            state.screen == 'list' || state.screen == 'property_listing',
+            () => state.go('list'),
+          ),
+          if (!kIsWeb)
+            _BotBtn(
+              '💬',
+              'Chat',
+              state.screen == 'chat' ||
+                  state.screen == 'chat-list' ||
+                  state.screen == 'new-chat',
+              () => state.go('chat'),
+            ),
         ],
       ),
     );
@@ -43,9 +67,10 @@ class _BotBtn extends StatelessWidget {
         children: [
           Text(icon, style: const TextStyle(fontSize: 22)),
           const SizedBox(height: 3),
-          Text(label,
-              style: dm(sz: 9, w: FontWeight.w600,
-                  c: active ? C.brand : C.dim)),
+          Text(
+            label,
+            style: dm(sz: 9, w: FontWeight.w600, c: active ? C.brand : C.dim),
+          ),
         ],
       ),
     );

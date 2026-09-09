@@ -601,10 +601,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             style: syne(sz: 17, w: FontWeight.w900, c: C.text, ls: 1.4),
           ),
           const SizedBox(height: 5),
-          Text(
-            'Create, discover and shop.',
-            style: dm(sz: 11, c: C.dim),
-          ),
+          Text('Create, discover and shop.', style: dm(sz: 11, c: C.dim)),
           const SizedBox(height: 30),
           _desktopNavButton(
             icon: Icons.home_outlined,
@@ -712,28 +709,97 @@ class _CommunityScreenState extends State<CommunityScreen> {
           _keyboardHint('Esc', 'Close / go home'),
           const SizedBox(height: 28),
           Text(
-            _selectedTab == 0 ? 'Community feed' : 'Community shop',
+            _selectedTab == 0 ? 'Feed content pipeline' : 'Shop pipeline',
             style: syne(sz: 16, w: FontWeight.w800, c: C.text),
           ),
           const SizedBox(height: 8),
           Text(
             _selectedTab == 0
-                ? 'Watch creator posts, react, comment, share, gift and connect.'
-                : 'Explore verified listings, reviews and secure checkout.',
+                ? 'Create, verify, publish, engage, and distribute creator content.'
+                : 'Create a product listing, verify inventory, accept checkout, and track delivery.',
             style: dm(sz: 12, c: C.dim),
           ),
+          const SizedBox(height: 18),
+          _buildPipelineStages(
+            _selectedTab == 0
+                ? const [
+                    ('Create', Icons.add_circle_outline),
+                    ('Verify', Icons.verified_outlined),
+                    ('Publish', Icons.publish_outlined),
+                    ('Engage', Icons.forum_outlined),
+                  ]
+                : const [
+                    ('Create product', Icons.inventory_2_outlined),
+                    ('Verify listing', Icons.verified_outlined),
+                    ('Checkout', Icons.shopping_cart_checkout),
+                    ('Track delivery', Icons.local_shipping_outlined),
+                  ],
+          ),
           const Spacer(),
-          OutlinedButton.icon(
-            onPressed: () => _refreshFuture(force: true),
-            icon: Icon(Icons.refresh_rounded, size: 18),
-            label: const Text('Refresh'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: C.sub,
-              side: BorderSide(color: C.dim),
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FilledButton.icon(
+                onPressed: () => _showUploadOptions(context),
+                icon: Icon(
+                  _selectedTab == 0
+                      ? Icons.add_photo_alternate_outlined
+                      : Icons.add_business_outlined,
+                  size: 18,
+                ),
+                label: Text(
+                  _selectedTab == 0
+                      ? 'Start feed content'
+                      : 'Start shop listing',
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: C.brand,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => _refreshFuture(force: true),
+                icon: Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Refresh pipeline'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: C.sub,
+                  side: BorderSide(color: C.dim),
+                ),
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPipelineStages(List<(String, IconData)> stages) {
+    return Column(
+      children: [
+        for (var index = 0; index < stages.length; index++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                Icon(stages[index].$2, size: 17, color: C.brand),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    stages[index].$1,
+                    style: dm(sz: 12, w: FontWeight.w700, c: C.sub),
+                  ),
+                ),
+                if (index < stages.length - 1)
+                  Icon(Icons.arrow_forward_rounded, size: 14, color: C.dim),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -779,11 +845,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               shape: BoxShape.circle,
               border: Border.all(color: C.text.withOpacity(0.1)),
             ),
-            child: Icon(
-              Icons.arrow_back_ios_new,
-              color: C.text,
-              size: 16,
-            ),
+            child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 16),
           ),
         ),
 
@@ -829,9 +891,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: _selectedTab == 0
-                            ? C.text
-                            : Colors.transparent,
+                        color: _selectedTab == 0 ? C.text : Colors.transparent,
                         borderRadius: BorderRadius.circular(24),
                       ),
                       child: Text(
@@ -849,9 +909,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: _selectedTab == 1
-                            ? C.text
-                            : Colors.transparent,
+                        color: _selectedTab == 1 ? C.text : Colors.transparent,
                         borderRadius: BorderRadius.circular(24),
                       ),
                       child: Text(
@@ -902,11 +960,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   shape: BoxShape.circle,
                   border: Border.all(color: C.text.withOpacity(0.1)),
                 ),
-                child: Icon(
-                  Icons.search_rounded,
-                  color: C.text,
-                  size: 18,
-                ),
+                child: Icon(Icons.search_rounded, color: C.text, size: 18),
               ),
             ),
             const SizedBox(height: 10),
@@ -1018,11 +1072,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         : C.text.withValues(alpha: 0.12),
                   ),
                 ),
-                child: Icon(
-                  Icons.sensors_rounded,
-                  color: C.text,
-                  size: 23,
-                ),
+                child: Icon(Icons.sensors_rounded, color: C.text, size: 23),
               ),
               Positioned(
                 bottom: -1,
@@ -1095,16 +1145,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.videocam_off_outlined,
-              color: C.dim,
-              size: 22,
-            ),
+            Icon(Icons.videocam_off_outlined, color: C.dim, size: 22),
             const SizedBox(width: 10),
-            Text(
-              'No live streams right now',
-              style: dm(sz: 12, c: C.dim),
-            ),
+            Text('No live streams right now', style: dm(sz: 12, c: C.dim)),
           ],
         ),
       );
@@ -1349,9 +1392,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         final Color redCol = (isOffline || isSyncing)
             ? const Color(0xFFFF5252)
             : C.dim;
-        final Color yellowCol = isSyncing
-            ? const Color(0xFFFFD740)
-            : C.dim;
+        final Color yellowCol = isSyncing ? const Color(0xFFFFD740) : C.dim;
         final Color greenCol = (!isOffline && !isSyncing)
             ? const Color(0xFF69F0AE)
             : C.dim;
@@ -1477,12 +1518,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   const SizedBox(height: 24),
                   Text(
                     'CREATE CONTENT',
-                    style: syne(
-                      sz: 18,
-                      w: FontWeight.w900,
-                      c: C.text,
-                      ls: 1,
-                    ),
+                    style: syne(sz: 18, w: FontWeight.w900, c: C.text, ls: 1),
                   ),
                   const SizedBox(height: 32),
                   _uploadOption(
@@ -1567,11 +1603,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ],
               ),
             ),
-            Icon(
-              Icons.arrow_forward_ios_rounded,
-              color: C.dim,
-              size: 14,
-            ),
+            Icon(Icons.arrow_forward_ios_rounded, color: C.dim, size: 14),
           ],
         ),
       ),
@@ -2046,11 +2078,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     children: [
                       Text(
                         '@$username',
-                        style: syne(
-                          sz: 13,
-                          w: FontWeight.w900,
-                          c: C.text,
-                        ),
+                        style: syne(sz: 13, w: FontWeight.w900, c: C.text),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -2141,7 +2169,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       if (receiverId == widget.state.user?.id) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('You cannot send a gift to yourself.'),
+                            content: Text(
+                              'You cannot send a gift to yourself.',
+                            ),
                           ),
                         );
                         return;
@@ -2235,14 +2265,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(
-                    Icons.visibility_off_outlined,
-                    color: C.sub,
-                  ),
-                  title: Text(
-                    'Not Interested',
-                    style: dm(sz: 16, c: C.text),
-                  ),
+                  leading: Icon(Icons.visibility_off_outlined, color: C.sub),
+                  title: Text('Not Interested', style: dm(sz: 16, c: C.text)),
                   onTap: () {
                     Navigator.pop(context);
                     widget.state.notInterested(postId, 'post');
@@ -2313,14 +2337,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(
-                    Icons.report_problem_outlined,
-                    color: C.text,
-                  ),
-                  title: Text(
-                    'Report Content',
-                    style: dm(sz: 16, c: C.text),
-                  ),
+                  leading: Icon(Icons.report_problem_outlined, color: C.text),
+                  title: Text('Report Content', style: dm(sz: 16, c: C.text)),
                   onTap: () async {
                     Navigator.pop(context);
                     final messenger = ScaffoldMessenger.of(this.context);
@@ -2538,11 +2556,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           BoxShadow(color: Colors.black26, blurRadius: 4),
                         ],
                       ),
-                      child: Icon(
-                        Icons.add,
-                        color: Colors.black,
-                        size: 14,
-                      ),
+                      child: Icon(Icons.add, color: Colors.black, size: 14),
                     ),
                   ),
                 );
@@ -2687,11 +2701,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   _startCollapseTimer();
                   _showThreeDotMenu(context);
                 },
-                child: Icon(
-                  Icons.more_horiz,
-                  color: C.text,
-                  size: 18,
-                ),
+                child: Icon(Icons.more_horiz, color: C.text, size: 18),
               ),
             ],
           ),
@@ -2816,9 +2826,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             Icon(
               icon,
               size: 18,
-              color:
-                  color ??
-                  (isAccent ? const Color(0xFF00E5FF) : C.sub),
+              color: color ?? (isAccent ? const Color(0xFF00E5FF) : C.sub),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -2826,9 +2834,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 label,
                 style: dm(
                   sz: 13,
-                  c:
-                      color ??
-                      (isAccent ? const Color(0xFF00E5FF) : C.text),
+                  c: color ?? (isAccent ? const Color(0xFF00E5FF) : C.text),
                 ),
               ),
             ),
@@ -2873,10 +2879,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
           return Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: C.dim,
-            ),
+            child: CircularProgressIndicator(strokeWidth: 2, color: C.dim),
           );
         },
       ),
@@ -2937,12 +2940,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   children: [
                     Text(
                       'BUY NOW',
-                      style: syne(
-                        sz: 10,
-                        w: FontWeight.w900,
-                        c: C.text,
-                        ls: 1,
-                      ),
+                      style: syne(sz: 10, w: FontWeight.w900, c: C.text, ls: 1),
                     ),
                     Text(
                       ugx(price),
@@ -2955,11 +2953,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ],
                 ),
                 const SizedBox(width: 8),
-                Icon(
-                  Icons.arrow_forward_ios,
-                  color: C.dim,
-                  size: 10,
-                ),
+                Icon(Icons.arrow_forward_ios, color: C.dim, size: 10),
               ],
             ),
           ),
@@ -2979,9 +2973,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           colors: [C.cardDk, C.bg],
         ),
       ),
-      child: Center(
-        child: Icon(Icons.style_outlined, size: 100, color: C.dim),
-      ),
+      child: Center(child: Icon(Icons.style_outlined, size: 100, color: C.dim)),
     );
   }
 }
@@ -3342,7 +3334,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       if (authorId == widget.state.user?.id) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('You cannot send a gift to yourself.'),
+                            content: Text(
+                              'You cannot send a gift to yourself.',
+                            ),
                           ),
                         );
                         return;
@@ -3609,11 +3603,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                           BoxShadow(color: Colors.black26, blurRadius: 4),
                         ],
                       ),
-                      child: Icon(
-                        Icons.add,
-                        color: Colors.black,
-                        size: 14,
-                      ),
+                      child: Icon(Icons.add, color: Colors.black, size: 14),
                     ),
                   ),
                 );
@@ -3853,10 +3843,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     color: C.text,
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
-                      BoxShadow(
-                        color: C.text.withOpacity(0.2),
-                        blurRadius: 10,
-                      ),
+                      BoxShadow(color: C.text.withOpacity(0.2), blurRadius: 10),
                     ],
                   ),
                   child: Text(
@@ -3903,11 +3890,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
   Widget _buildFallback() => Container(
     color: C.cardDk,
     child: Center(
-      child: Icon(
-        Icons.shopping_cart_outlined,
-        size: 80,
-        color: C.dim,
-      ),
+      child: Icon(Icons.shopping_cart_outlined, size: 80, color: C.dim),
     ),
   );
 
@@ -4083,10 +4066,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                           IconButton(
                             onPressed: _refreshComments,
                             tooltip: 'Retry',
-                            icon: Icon(
-                              Icons.refresh_rounded,
-                              color: C.brand,
-                            ),
+                            icon: Icon(Icons.refresh_rounded, color: C.brand),
                           ),
                         ],
                       ),
@@ -4209,11 +4189,7 @@ class _CommentSheetState extends State<_CommentSheet> {
                     ),
                     if (isVerified) ...[
                       const SizedBox(width: 4),
-                      Icon(
-                        Icons.verified,
-                        size: 12,
-                        color: Color(0xFF00E5FF),
-                      ),
+                      Icon(Icons.verified, size: 12, color: Color(0xFF00E5FF)),
                     ],
                     if (isPending) ...[
                       const SizedBox(width: 6),
@@ -4477,11 +4453,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                       children: [
                         Text(
                           'Tags (comma separated)',
-                          style: dm(
-                            sz: 12,
-                            w: FontWeight.bold,
-                            c: C.sub,
-                          ),
+                          style: dm(sz: 12, w: FontWeight.bold, c: C.sub),
                         ),
                         const SizedBox(height: 4),
                         Container(
@@ -4510,11 +4482,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                         const SizedBox(height: 12),
                         Text(
                           'Price Range (UGX): ${_minPrice.toInt()} - ${_maxPrice >= 1000000 ? '1M+' : _maxPrice.toInt()}',
-                          style: dm(
-                            sz: 12,
-                            w: FontWeight.bold,
-                            c: C.sub,
-                          ),
+                          style: dm(sz: 12, w: FontWeight.bold, c: C.sub),
                         ),
                         RangeSlider(
                           values: RangeValues(_minPrice, _maxPrice),
@@ -4594,10 +4562,7 @@ class _CommunitySearchSheetState extends State<_CommunitySearchSheet> {
                                         : null,
                                   ),
                                   child: mediaUrl == null
-                                      ? Icon(
-                                          Icons.shopping_bag,
-                                          color: C.dim,
-                                        )
+                                      ? Icon(Icons.shopping_bag, color: C.dim)
                                       : null,
                                 ),
                                 title: Text(
@@ -5091,4 +5056,3 @@ class _SubmitCommerceReviewSheetState
     );
   }
 }
-

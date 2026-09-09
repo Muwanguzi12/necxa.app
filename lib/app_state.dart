@@ -1555,6 +1555,7 @@ class AppState extends ChangeNotifier {
 
   // ── Global Methods ──
   void go(String s, {dynamic extra}) {
+    if (kIsWeb && _isChatRoute(s)) return;
     // Prevent push-loops
     if (screen != s) {
       _navigationStack.add(screen);
@@ -1589,6 +1590,16 @@ class AppState extends ChangeNotifier {
 
     notifyListeners();
   }
+
+  bool get chatAvailable => !kIsWeb;
+
+  bool _isChatRoute(String route) =>
+      route == 'chat' ||
+      route == 'chat-list' ||
+      route == 'new-chat' ||
+      route == 'chat-detail' ||
+      route == 'creator-chat-list' ||
+      route == 'creator-chat-detail';
 
   void goBack() {
     if (_navigationStack.isNotEmpty) {
@@ -2506,6 +2517,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> openOrCreateChat(PropertyContainer property) async {
+    if (!chatAvailable) return;
     if (user == null) return;
     final otherId = property.core.agentId ?? property.core.listerId;
     if (otherId == user!.id) return; // Avoid self-chat
@@ -2545,6 +2557,7 @@ class AppState extends ChangeNotifier {
     String? initialContextText,
     String context = 'social',
   }) async {
+    if (!chatAvailable) return;
     if (user == null) return;
     if (authorId == user!.id) return;
 
