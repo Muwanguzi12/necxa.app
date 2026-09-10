@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:universal_io/io.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
@@ -40,6 +41,18 @@ class ListingSyncService {
       print('Error compressing image: $e');
     }
     return file; // Fallback to original
+  }
+
+  static Future<http.MultipartFile> _identityImage(
+    String field,
+    File file,
+  ) async {
+    final compressed = await compressImage(file);
+    return http.MultipartFile.fromPath(
+      field,
+      compressed.path,
+      contentType: MediaType('image', 'jpeg'),
+    );
   }
 
   static String get _edgeFuncUrl {
@@ -141,30 +154,10 @@ class ListingSyncService {
     req.fields['biometric_verification_id'] = biometricVerificationId;
     req.fields['verification_mode'] = 'direct-ai-engine';
 
-    req.files.add(
-      await http.MultipartFile.fromPath(
-        'id_front',
-        (await compressImage(idFront)).path,
-      ),
-    );
-    req.files.add(
-      await http.MultipartFile.fromPath(
-        'id_back',
-        (await compressImage(idBack)).path,
-      ),
-    );
-    req.files.add(
-      await http.MultipartFile.fromPath(
-        'id_holding',
-        (await compressImage(idHolding)).path,
-      ),
-    );
-    req.files.add(
-      await http.MultipartFile.fromPath(
-        'face_photo',
-        (await compressImage(facePhoto)).path,
-      ),
-    );
+    req.files.add(await _identityImage('id_front', idFront));
+    req.files.add(await _identityImage('id_back', idBack));
+    req.files.add(await _identityImage('id_holding', idHolding));
+    req.files.add(await _identityImage('face_photo', facePhoto));
 
     final res = await req.send().timeout(_verificationTimeout);
     final resBody = await res.stream.bytesToString();
