@@ -698,11 +698,12 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
         await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
-        final xfile = await cameraCtrl.takePicture();
-        state.faceImage = File(xfile.path);
+        final livenessFrames = await scanner.captureLivenessSequence();
+        state.faceImage = livenessFrames.last;
         final selfieResult = await NecxaAI.verifyFaceOnly(
           state.faceImage!,
           userId: state.user?.id,
+          livenessFrames: livenessFrames,
         );
         final biometric = _selfieResultFrom(selfieResult);
         if (!biometric.faceMatch || biometric.sessionId.isEmpty) {
@@ -1807,6 +1808,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   CameraController? cameraCtrl;
   CameraLensDirection _currentDirection = CameraLensDirection.back;
   Future<void>? _cameraInitialization;
+  String _livenessPrompt = 'Hold still and look at the camera';
 
   @override
   void initState() {
@@ -1899,6 +1901,41 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         _cameraInitialization = null;
       }
     }
+  }
+
+  Future<List<File>> captureLivenessSequence() async {
+    final controller = cameraCtrl;
+    if (widget.documentMode ||
+        controller == null ||
+        !controller.value.isInitialized) {
+      throw Exception('Selfie camera is not ready yet. Please try again.');
+    }
+
+    const prompts = <String>[
+      'Hold still and look at the camera',
+      'Turn your head slightly left',
+      'Return to the center',
+      'Blink once, then hold still',
+      'Keep still while we finish',
+    ];
+    const captureDelays = <Duration>[
+      Duration(milliseconds: 250),
+      Duration(milliseconds: 650),
+      Duration(milliseconds: 650),
+      Duration(milliseconds: 650),
+      Duration(milliseconds: 650),
+    ];
+    final frames = <File>[];
+    for (var index = 0; index < captureDelays.length; index++) {
+      if (mounted) setState(() => _livenessPrompt = prompts[index]);
+      await Future<void>.delayed(captureDelays[index]);
+      if (!mounted || !controller.value.isInitialized) {
+        throw Exception('Selfie camera stopped during liveness capture.');
+      }
+      final image = await controller.takePicture();
+      frames.add(File(image.path));
+    }
+    return frames;
   }
 
   Future<CameraController> ensureCamera(CameraLensDirection direction) async {
@@ -2135,7 +2172,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Fit your face within the oval and look straight',
+                      _livenessPrompt,
                       style: dm(sz: 12, c: Colors.white, w: FontWeight.w500),
                     ),
                     const SizedBox(height: 16),

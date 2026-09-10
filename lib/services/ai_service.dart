@@ -57,6 +57,7 @@ class NecxaAI {
     required String action,
     required String primaryBase64,
     String? secondaryBase64,
+    List<String>? livenessFrames,
     String? userId,
     String? countryCode,
     String? documentType,
@@ -68,6 +69,9 @@ class NecxaAI {
 
     if (secondaryBase64 != null) {
       payload['payload']['idImageBase64'] = secondaryBase64;
+    }
+    if (livenessFrames != null && livenessFrames.isNotEmpty) {
+      payload['payload']['livenessFrames'] = livenessFrames;
     }
     if (countryCode != null) {
       payload['payload']['countryCode'] = countryCode;
@@ -694,6 +698,7 @@ class NecxaAI {
   static Future<Map<String, dynamic>> verifyFaceOnly(
     File selfieFile, {
     String? userId,
+    List<File>? livenessFrames,
   }) async {
     try {
       final session = Supabase.instance.client.auth.currentSession;
@@ -703,10 +708,14 @@ class NecxaAI {
         );
 
       final primaryBase64 = await fileToBase64(selfieFile);
+      final encodedFrames = livenessFrames == null
+          ? null
+          : await Future.wait(livenessFrames.map(fileToBase64));
       final data = await _invokeIdentityVerification(
         buildIdentityShardPayload(
           action: 'verify-face-only',
           primaryBase64: primaryBase64,
+          livenessFrames: encodedFrames,
           userId: userId ?? session.user.id,
         ),
       );

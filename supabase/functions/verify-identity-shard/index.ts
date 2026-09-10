@@ -68,7 +68,8 @@ const NVIDIA_VISION_MODEL = 'meta/llama-3.2-11b-vision-instruct'
 async function callNvidiaVisionBiometric(
   selfieBase64: string,
   idBase64: string | null,
-  mode: 'face-only' | 'biometric'
+  mode: 'face-only' | 'biometric',
+  livenessFrames: string[] = [],
 ): Promise<{
   is_live_person: boolean
   face_detected: boolean
@@ -110,17 +111,53 @@ async function callNvidiaVisionBiometric(
   const selfieData = selfieBase64.replace(/^data:image\/\w+;base64,/, '')
   const selfieUrl = `data:image/jpeg;base64,${selfieData}`
 
-  const contentParts: unknown[] = [
-    {
-      type: 'image_url',
-      image_url: { url: selfieUrl },
-    },
-  ]
+  const normalizedFrames = livenessFrames
+    .filter((frame) => typeof frame === 'string' && frame.length > 0)
+    .slice(0, 5)
+  const contentParts: unknown[] = normalizedFrames.length >= 3 && mode === 'face-only'
+    ? normalizedFrames.map((frame) => ({
+        type: 'image_url',
+        image_url: {
+          url: `data:image/jpeg;base64,${frame.replace(/^data:image\/\w+;base64,/, '')}`,
+        },
+      }))
+    : [
+        {
+          type: 'image_url',
+          image_url: { url: selfieUrl },
+        },
+      ]
 
   let promptText: string
 
   if (mode === 'face-only' || !idBase64) {
-    promptText = `You are Cosmos3, a certified liveness and anti-spoofing AI system. Analyze this selfie carefully.
+    promptText = normalizedFrames.length >= 3
+      ? `You are Cosmos3, a certified temporal liveness and anti-spoofing AI system. Analyze the ordered selfie frames carefully. They are consecutive frames from one live capture, not separate identity documents.
+
+The user was instructed to hold still, turn slightly left, return to center, blink once, and hold still. Determine whether the sequence shows natural motion by a live person. Do not require perfect compliance if natural motion is clear.
+
+Evaluate:
+- Face visibility and continuity across the ordered frames
+- Natural head movement and blink progression
+- Consistent facial geometry, lighting, and perspective
+- Screen replay, printout, mask, or digital-composite indicators
+
+Ordinary eye catchlights and phone-screen reflections are not presentation attacks.
+
+Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
+{
+  "is_live_person": <true|false>,
+  "face_detected": <true|false>,
+  "liveness_score": <0-100>,
+  "anti_spoof_flags": ["<flag1>", "<flag2>"],
+  "liveness_agrees": <true|false>,
+  "faces_match": true,
+  "face_match_agrees": true,
+  "similarity_score": 100,
+  "reasoning": "<one sentence summary>"
+}
+`
+      : `You are Cosmos3, a certified liveness and anti-spoofing AI system. Analyze this selfie carefully.
 
 LIVENESS CHECK:
 Determine if Image 1 shows a real, live human being physically present in front of the camera.
@@ -734,7 +771,7 @@ serve(async (req) => {
     // Biometric / selfie actions — NVIDIA Vision primary, Worker fallback
     // ─────────────────────────────────────────────────────────────────────────
     } else if (action === 'verify-selfie' || action === 'verify-face-only') {
-      const { imageBase64, idImageBase64 } = payload || {}
+      const { imageBase64, idImageBase64, livenessFrames } = payload || {}
       if (!imageBase64) throw new Error("Missing image payloads for biometric match")
       if (action === 'verify-selfie' && !idImageBase64) throw new Error("Missing idImageBase64 payload for selfie verification")
 
@@ -745,7 +782,12 @@ serve(async (req) => {
       let nvidiaError: string | null = null
 
       try {
-        nvidiaResult = await callNvidiaVisionBiometric(imageBase64, idImageBase64 ?? null, mode)
+        nvidiaResult = await callNvidiaVisionBiometric(
+          imageBase64,
+          idImageBase64 ?? null,
+          mode,
+          Array.isArray(livenessFrames) ? livenessFrames : [],
+        )
         console.log(`[Vision] liveness=${nvidiaResult.liveness_score} similarity=${nvidiaResult.similarity_score} live=${nvidiaResult.is_live_person} match=${nvidiaResult.faces_match}`)
       } catch (err: any) {
         nvidiaError = err.message
