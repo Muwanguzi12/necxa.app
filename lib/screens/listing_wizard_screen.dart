@@ -2001,6 +2001,7 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
 
   @override
   Widget build(BuildContext context) {
+    final isLandscapeCapture = widget.subStep < 3;
     final isHolding = widget.subStep == 2;
     final viewport = Container(
       width: double.infinity,
@@ -2218,7 +2219,7 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
         ),
       ),
     );
-    return isHolding
+    return isLandscapeCapture
         ? AspectRatio(aspectRatio: 1.7, child: viewport)
         : SizedBox(height: 220, child: viewport);
   }
