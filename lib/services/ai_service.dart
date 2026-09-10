@@ -64,7 +64,10 @@ class NecxaAI {
   }) {
     final payload = <String, dynamic>{
       'action': action,
-      'payload': {'imageBase64': primaryBase64, 'userId': userId},
+      'payload': <String, dynamic>{
+        'imageBase64': primaryBase64,
+        'userId': userId,
+      },
     };
 
     if (secondaryBase64 != null) {
