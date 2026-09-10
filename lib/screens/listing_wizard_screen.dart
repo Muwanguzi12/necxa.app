@@ -636,7 +636,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           'Camera is not ready yet. Please wait a moment and try again.',
         );
       }
-      final requiredLens = state.verificationSubStep == 3
+      final requiredLens = state.verificationSubStep >= 2
           ? CameraLensDirection.front
           : CameraLensDirection.back;
       final cameraCtrl = await camera.ensureCamera(requiredLens);
@@ -1808,6 +1808,37 @@ class _InstructionCard extends StatelessWidget {
   }
 }
 
+enum _IdentityCaptureStage { front, back, holding, selfie, complete }
+
+_IdentityCaptureStage _identityCaptureStage(int subStep) {
+  switch (subStep) {
+    case 0:
+      return _IdentityCaptureStage.front;
+    case 1:
+      return _IdentityCaptureStage.back;
+    case 2:
+      return _IdentityCaptureStage.holding;
+    case 3:
+      return _IdentityCaptureStage.selfie;
+    default:
+      return _IdentityCaptureStage.complete;
+  }
+}
+
+extension on _IdentityCaptureStage {
+  CameraLensDirection get lensDirection =>
+      this == _IdentityCaptureStage.holding ||
+          this == _IdentityCaptureStage.selfie
+          ? CameraLensDirection.front
+          : CameraLensDirection.back;
+
+  bool get isLandscape => index < _IdentityCaptureStage.selfie.index;
+
+  bool get isSelfie => this == _IdentityCaptureStage.selfie;
+
+  bool get isHolding => this == _IdentityCaptureStage.holding;
+}
+
 class _IdentityCameraCapture extends StatefulWidget {
   final bool documentMode;
   final int subStep;
@@ -1830,10 +1861,14 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
   void initState() {
     super.initState();
     unawaited(
-      switchCamera(CameraLensDirection.back).catchError((Object error) {
+      _initializeForStage().catchError((Object error) {
         debugPrint('Camera initialization error: $error');
       }),
     );
+  }
+
+  Future<void> _initializeForStage() {
+    return switchCamera(_identityCaptureStage(widget.subStep).lensDirection);
   }
 
   Future<void> _initCamera(CameraLensDirection direction) async {
@@ -1859,10 +1894,7 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
 
     try {
       await nextController.initialize();
-      // ── FIXED: Apply minZoom for all document captures (0, 1, 2) ──
-      final zoomLevel = widget.subStep < 3
-          ? await nextController.getMinZoomLevel() // Wide view for all document captures
-          : await nextController.getMinZoomLevel(); // Selfie also uses min zoom
+      final zoomLevel = await nextController.getMinZoomLevel();
       await _setZoomLevel(nextController, zoomLevel);
       _currentDirection = direction;
       if (mounted) setState(() {});
@@ -1881,14 +1913,6 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
       await controller.setZoomLevel(zoomLevel);
     } catch (error) {
       debugPrint('Camera zoom unavailable: $error');
-    }
-  }
-
-  Future<void> _setWidestZoom(CameraController controller) async {
-    try {
-      await controller.setZoomLevel(await controller.getMinZoomLevel());
-    } catch (error) {
-      debugPrint('Camera wide-angle zoom unavailable: $error');
     }
   }
 
@@ -1920,7 +1944,7 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
 
   Future<List<File>> captureLivenessSequence() async {
     final controller = cameraCtrl;
-    if (widget.documentMode ||
+    if (!_identityCaptureStage(widget.subStep).isSelfie ||
         controller == null ||
         !controller.value.isInitialized) {
       throw Exception('Selfie camera is not ready yet. Please try again.');
@@ -1968,28 +1992,13 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
   void didUpdateWidget(_IdentityCameraCapture oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
-      // Always use minZoom for all document and selfie captures
-      if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
-        final activeController = cameraCtrl!;
-        unawaited(_setWidestZoom(activeController));
-      }
-
-      // ── FIXED: Switch to front camera for selfie (step 3) ──
-      if (widget.subStep == 3) {
-        unawaited(switchCamera(CameraLensDirection.front).catchError((_) {}));
-      }
-      // ── FIXED: Switch back to back camera for document captures (0, 1, 2) ──
-      else if (widget.subStep < 3 && oldWidget.subStep == 3) {
-        unawaited(switchCamera(CameraLensDirection.back).catchError((_) {}));
-      }
-      // ── FIXED: Add camera refresh delay for all document steps (0, 1, 2) ──
-      else if (widget.subStep < 3) {
-        unawaited(
-          Future<void>.delayed(const Duration(milliseconds: 350), () {
-            return switchCamera(CameraLensDirection.back, forceRefresh: true);
-          }).catchError((_) {}),
-        );
-      }
+      // Every stage gets a fresh controller so lens, zoom, and framing cannot
+      // leak from the previous capture.
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 350), () {
+          return _initializeForStage();
+        }).catchError((_) {}),
+      );
     }
   }
 
@@ -2001,8 +2010,9 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
 
   @override
   Widget build(BuildContext context) {
-    final isLandscapeCapture = widget.subStep < 3;
-    final isHolding = widget.subStep == 2;
+    final stage = _identityCaptureStage(widget.subStep);
+    final isLandscapeCapture = stage.isLandscape;
+    final isHolding = stage.isHolding;
     final viewport = Container(
       width: double.infinity,
       decoration: BoxDecoration(

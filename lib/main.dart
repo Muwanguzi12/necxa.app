@@ -141,11 +141,18 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // ?? SMART ORIENTATION LOCK:
-    // Only lock portrait for phones (shortest side < 600).
-    // Tablets, Laptops, and Desktops maintain full rotation freedom.
+    // Keep the identity document captures in landscape on phones. The Listing
+    // Wizard applies the matching portrait lock when it advances to selfie.
     final double shortestSide = MediaQuery.of(context).size.shortestSide;
-    if (shortestSide < 600) {
+    final isDocumentCapture = (_state.screen == 'list' ||
+            _state.screen == 'property_listing') &&
+        _state.verificationSubStep < 3;
+    if (isDocumentCapture) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else if (shortestSide < 600) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     } else {
       SystemChrome.setPreferredOrientations([
@@ -341,5 +348,4 @@ class _RootShellState extends State<RootShell> {
     }
   }
 }
-
 
