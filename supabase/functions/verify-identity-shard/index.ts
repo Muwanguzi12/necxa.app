@@ -50,6 +50,14 @@ function percentage(value: unknown): number {
   return parsed <= 1 ? parsed * 100 : parsed
 }
 
+async function sha256Base64Image(imageBase64: string): Promise<string> {
+  const encoded = imageBase64.replace(/^data:image\/\w+;base64,/, '')
+  const digest = await crypto.subtle.digest('SHA-256', decode(encoded))
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // NVIDIA Vision NIM helper
 // ─────────────────────────────────────────────────────────────────────────────
@@ -779,6 +787,41 @@ serve(async (req) => {
           reasonCode = 'biometric_passed'
         }
 
+        let livenessApprovalId: string | null = null
+        if (verified && action === 'verify-face-only') {
+          const verificationUrl = Deno.env.get('SUPABASE_URL')
+          const verificationServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+          if (!verificationUrl || !verificationServiceKey) {
+            throw new Error('Liveness approval storage is not configured')
+          }
+          const verificationAdmin = createClient(
+            verificationUrl,
+            verificationServiceKey,
+            { auth: { autoRefreshToken: false, persistSession: false } },
+          )
+          const { data: approval, error: approvalError } = await verificationAdmin
+            .from('identity_liveness_approvals')
+            .upsert({
+              user_id: secureUserId,
+              verification_session_id: sessionId,
+              selfie_sha256: await sha256Base64Image(imageBase64),
+              decision: 'pass',
+              liveness_score: nvidiaResult.liveness_score,
+              face_detected: nvidiaResult.face_detected,
+              anti_spoof_flags: nvidiaResult.anti_spoof_flags,
+              provider: nvidiaResult.provider,
+              metadata: {
+                face_match: faceMatch,
+                similarity_score: nvidiaResult.similarity_score,
+                reasoning: nvidiaResult.reasoning,
+              },
+            }, { onConflict: 'user_id,verification_session_id' })
+            .select('id')
+            .single()
+          if (approvalError) throw approvalError
+          livenessApprovalId = approval?.id ?? null
+        }
+
         // Mark profile as verified agent if selfie fully passes
         if (action === 'verify-selfie' && verified) {
           const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
@@ -803,6 +846,7 @@ serve(async (req) => {
           score: nvidiaResult.similarity_score,
           livenessScore: nvidiaResult.liveness_score,
           antiSpoofFlags: nvidiaResult.anti_spoof_flags,
+          livenessApprovalId,
           engine: nvidiaResult.provider,
           feedback: verified
             ? (action === 'verify-face-only'
