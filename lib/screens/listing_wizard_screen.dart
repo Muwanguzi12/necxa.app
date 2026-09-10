@@ -13,7 +13,7 @@ import '../utils/error_handler.dart';
 import '../main.dart' show cameras;
 
 // -----------------------------------------------------------------------------
-// NECXA � 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
+// NECXA – 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
 // -----------------------------------------------------------------------------
 class ListingWizardScreen extends StatefulWidget {
   final AppState state;
@@ -101,8 +101,11 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     if (mounted) setState(() {});
   }
 
+  // ── FIXED: Orientation logic for all document captures (0,1,2) + selfie (3+) ──
   Future<void> _applyCaptureOrientation(int subStep) {
-    final orientations = subStep == 2
+    // Steps 0 (Front ID), 1 (Back ID), 2 (Holding ID) = Landscape
+    // Step 3+ (Selfie/Face) = Portrait
+    final orientations = subStep < 3
         ? const [
             DeviceOrientation.landscapeLeft,
             DeviceOrientation.landscapeRight,
@@ -680,6 +683,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastIDBackResult = idResult;
+        // ── FIXED: Apply orientation before step 2 (Holding) ──
         await _applyCaptureOrientation(2);
         await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 2;
@@ -703,6 +707,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastHoldingResult = idResult;
+        // ── FIXED: Switch to portrait before selfie step ──
         await _applyCaptureOrientation(3);
         await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 3;
@@ -712,6 +717,11 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
         final livenessFrames = await camera.captureLivenessSequence();
+        if (livenessFrames.length < 3) {
+          throw UserMessageException(
+            'Incomplete liveness sequence. Please retry the selfie.',
+          );
+        }
         state.faceImage = livenessFrames.last;
         final selfieResult = await NecxaAI.verifyFaceOnly(
           state.faceImage!,
@@ -1849,12 +1859,11 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
 
     try {
       await nextController.initialize();
-      await _setZoomLevel(
-        nextController,
-        widget.subStep == 0 || widget.subStep == 1
-            ? await _documentZoomLevel(nextController)
-            : await nextController.getMinZoomLevel(),
-      );
+      // ── FIXED: Apply minZoom for all document captures (0, 1, 2) ──
+      final zoomLevel = widget.subStep < 3
+          ? await nextController.getMinZoomLevel() // Wide view for all document captures
+          : await nextController.getMinZoomLevel(); // Selfie also uses min zoom
+      await _setZoomLevel(nextController, zoomLevel);
       _currentDirection = direction;
       if (mounted) setState(() {});
     } catch (e) {
@@ -1873,14 +1882,6 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
     } catch (error) {
       debugPrint('Camera zoom unavailable: $error');
     }
-  }
-
-  Future<double> _documentZoomLevel(CameraController controller) async {
-    final minZoom = await controller.getMinZoomLevel();
-    final maxZoom = await controller.getMaxZoomLevel();
-    if (maxZoom <= minZoom) return minZoom;
-    // A restrained crop keeps the full ID readable without cutting its edges.
-    return minZoom + ((maxZoom - minZoom) * 0.15);
   }
 
   Future<void> _setWidestZoom(CameraController controller) async {
@@ -1933,11 +1934,11 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
       'Keep still while we finish',
     ];
     const captureDelays = <Duration>[
-      Duration(milliseconds: 250),
-      Duration(milliseconds: 650),
-      Duration(milliseconds: 650),
-      Duration(milliseconds: 650),
-      Duration(milliseconds: 650),
+      Duration(milliseconds: 1200),
+      Duration(milliseconds: 800),
+      Duration(milliseconds: 600),
+      Duration(milliseconds: 800),
+      Duration(milliseconds: 600),
     ];
     final frames = <File>[];
     for (var index = 0; index < captureDelays.length; index++) {
@@ -1967,24 +1968,22 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
   void didUpdateWidget(_IdentityCameraCapture oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
+      // Always use minZoom for all document and selfie captures
       if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
         final activeController = cameraCtrl!;
-        unawaited(
-          widget.subStep == 0 || widget.subStep == 1
-              ? _documentZoomLevel(activeController).then(
-                  (zoom) => _setZoomLevel(activeController, zoom),
-                )
-              : _setWidestZoom(activeController),
-        );
+        unawaited(_setWidestZoom(activeController));
       }
 
+      // ── FIXED: Switch to front camera for selfie (step 3) ──
       if (widget.subStep == 3) {
         unawaited(switchCamera(CameraLensDirection.front).catchError((_) {}));
-      } else if (widget.subStep < 3 && oldWidget.subStep == 3) {
+      }
+      // ── FIXED: Switch back to back camera for document captures (0, 1, 2) ──
+      else if (widget.subStep < 3 && oldWidget.subStep == 3) {
         unawaited(switchCamera(CameraLensDirection.back).catchError((_) {}));
-      } else if (widget.subStep < 3) {
-        // Refresh each document capture so its independent preview starts
-        // with the correct lens and document framing.
+      }
+      // ── FIXED: Add camera refresh delay for all document steps (0, 1, 2) ──
+      else if (widget.subStep < 3) {
         unawaited(
           Future<void>.delayed(const Duration(milliseconds: 350), () {
             return switchCamera(CameraLensDirection.back, forceRefresh: true);
@@ -2368,7 +2367,7 @@ class _Step4Utility extends StatelessWidget {
         if (utilityShardId != null)
           const Center(
             child: Text(
-              '? Utility Shard Synced',
+              '✓ Utility Shard Synced',
               style: TextStyle(color: C.brand),
             ),
           ),
@@ -2682,12 +2681,12 @@ class _Step7Review extends StatelessWidget {
       children: [
         _reviewCard(
           'Identity Shard',
-          idVerified && faceVerified ? 'Verified ?' : 'Required ?',
+          idVerified && faceVerified ? 'Verified ✓' : 'Required ✗',
         ),
-        _reviewCard('GPS Node', gpsLocked ? 'Locked ?' : 'Required ?'),
+        _reviewCard('GPS Node', gpsLocked ? 'Locked ✓' : 'Required ✗'),
         _reviewCard(
           'Photos',
-          photoCount > 0 ? '$photoCount Uploaded ?' : 'Required ?',
+          photoCount > 0 ? '$photoCount Uploaded ✓' : 'Required ✗',
         ),
         const SizedBox(height: 40),
         SizedBox(
