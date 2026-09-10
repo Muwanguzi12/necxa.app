@@ -62,25 +62,29 @@ class NecxaAI {
     String? countryCode,
     String? documentType,
   }) {
+    final identityPayload = <String, dynamic>{
+      'imageBase64': primaryBase64,
+      'userId': userId,
+    };
     final payload = <String, dynamic>{
       'action': action,
-      'payload': <String, dynamic>{
-        'imageBase64': primaryBase64,
-        'userId': userId,
-      },
+      'payload': identityPayload,
     };
 
     if (secondaryBase64 != null) {
-      payload['payload']['idImageBase64'] = secondaryBase64;
+      identityPayload['idImageBase64'] = secondaryBase64;
     }
     if (livenessFrames != null && livenessFrames.isNotEmpty) {
-      payload['payload']['livenessFrames'] = livenessFrames;
+      identityPayload['livenessFrames'] = livenessFrames
+          .where((frame) => frame.trim().isNotEmpty)
+          .take(5)
+          .toList(growable: false);
     }
     if (countryCode != null) {
-      payload['payload']['countryCode'] = countryCode;
+      identityPayload['countryCode'] = countryCode;
     }
     if (documentType != null) {
-      payload['payload']['documentType'] = documentType;
+      identityPayload['documentType'] = documentType;
     }
 
     return payload;

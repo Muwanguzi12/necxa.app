@@ -776,10 +776,10 @@ serve(async (req) => {
       if (action === 'verify-selfie' && !idImageBase64) throw new Error("Missing idImageBase64 payload for selfie verification")
 
       const mode: 'face-only' | 'biometric' = action === 'verify-face-only' ? 'face-only' : 'biometric'
-      const validLivenessFrames = Array.isArray(livenessFrames)
-        ? livenessFrames.filter((frame: unknown): frame is string =>
-            typeof frame === 'string' && frame.length > 0,
-          ).slice(0, 5)
+      const normalizedLivenessFrames = Array.isArray(livenessFrames)
+        ? livenessFrames
+            .filter((frame): frame is string => typeof frame === 'string' && frame.trim().length > 0)
+            .slice(0, 5)
         : []
 
       // ── Attempt configured Vision providers before the Worker fallback ────
@@ -791,7 +791,7 @@ serve(async (req) => {
           imageBase64,
           idImageBase64 ?? null,
           mode,
-          validLivenessFrames,
+          normalizedLivenessFrames,
         )
         console.log(`[Vision] liveness=${nvidiaResult.liveness_score} similarity=${nvidiaResult.similarity_score} live=${nvidiaResult.is_live_person} match=${nvidiaResult.faces_match}`)
       } catch (err: any) {

@@ -76,7 +76,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   // -- Step 7: Final ---------------------------------------------------------
   bool _submitted = false;
   String? _mintEventId;
-  final GlobalKey<_NeuralScannerOverlayState> _scannerKey = GlobalKey();
+  final GlobalKey<_IdentityCameraCaptureState> _cameraKey = GlobalKey();
 
   @override
   void initState() {
@@ -431,7 +431,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           onVerify: _runIdentityVerification,
           loading: _loading,
           subStep: widget.state.verificationSubStep,
-          scannerKey: _scannerKey,
+          cameraKey: _cameraKey,
         );
       case 3:
         return _Step4Utility(
@@ -627,8 +627,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     try {
       final state = widget.state;
       state.setShieldFeedback(null);
-      final scanner = _scannerKey.currentState;
-      if (scanner == null) {
+      final camera = _cameraKey.currentState;
+      if (camera == null) {
         throw UserMessageException(
           'Camera is not ready yet. Please wait a moment and try again.',
         );
@@ -636,7 +636,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       final requiredLens = state.verificationSubStep == 3
           ? CameraLensDirection.front
           : CameraLensDirection.back;
-      final cameraCtrl = await scanner.ensureCamera(requiredLens);
+      final cameraCtrl = await camera.ensureCamera(requiredLens);
 
       if (state.verificationSubStep == 0) {
         state
@@ -708,10 +708,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.verificationSubStep = 3;
 
         // Auto-toggle to selfie camera for 3D Biometric Match
-        await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
+        await _cameraKey.currentState?.switchCamera(CameraLensDirection.front);
         await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
-        final livenessFrames = await scanner.captureLivenessSequence();
+        final livenessFrames = await camera.captureLivenessSequence();
         state.faceImage = livenessFrames.last;
         final selfieResult = await NecxaAI.verifyFaceOnly(
           state.faceImage!,
@@ -1398,7 +1398,7 @@ class _Step3Identity extends StatelessWidget {
   final bool idVerified, faceVerified, loading;
   final int subStep;
   final Future<void> Function() onVerify;
-  final GlobalKey<_NeuralScannerOverlayState> scannerKey;
+  final GlobalKey<_IdentityCameraCaptureState> cameraKey;
   const _Step3Identity({
     required this.state,
     required this.idVerified,
@@ -1406,13 +1406,11 @@ class _Step3Identity extends StatelessWidget {
     required this.loading,
     required this.subStep,
     required this.onVerify,
-    required this.scannerKey,
+    required this.cameraKey,
   });
 
   @override
   Widget build(BuildContext context) {
-    // scannerKey is now passed from parent to maintain stability
-
     final instructions = [
       (
         'National ID (Front)',
@@ -1449,8 +1447,8 @@ class _Step3Identity extends StatelessWidget {
       children: [
         Stack(
           children: [
-            _NeuralScannerOverlay(
-              key: scannerKey,
+            _IdentityCameraCapture(
+              key: cameraKey,
               documentMode: subStep < 2,
               subStep: subStep,
             ),
@@ -1560,8 +1558,8 @@ class _Step3Identity extends StatelessWidget {
               loading
                   ? 'VERIFYING...'
                   : subStep == 2
-                  ? 'SCAN HOLDING ID PHOTO'
-                  : 'SCAN ${currentInstr.$1.toUpperCase()}',
+                  ? 'CAPTURE HOLDING ID PHOTO'
+                  : 'CAPTURE ${currentInstr.$1.toUpperCase()}',
               style: syne(c: Colors.black, w: FontWeight.w800, ls: .5),
             ),
           ),
@@ -1800,24 +1798,19 @@ class _InstructionCard extends StatelessWidget {
   }
 }
 
-class _NeuralScannerOverlay extends StatefulWidget {
+class _IdentityCameraCapture extends StatefulWidget {
   final bool documentMode;
   final int subStep;
-  const _NeuralScannerOverlay({
+  const _IdentityCameraCapture({
     super.key,
     required this.documentMode,
     this.subStep = 0,
   });
   @override
-  State<_NeuralScannerOverlay> createState() => _NeuralScannerOverlayState();
+  State<_IdentityCameraCapture> createState() => _IdentityCameraCaptureState();
 }
 
-class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 2),
-  )..repeat();
+class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
   CameraController? cameraCtrl;
   CameraLensDirection _currentDirection = CameraLensDirection.back;
   Future<void>? _cameraInitialization;
@@ -1858,9 +1851,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       await nextController.initialize();
       await _setZoomLevel(
         nextController,
-        widget.subStep == 2 || widget.subStep == 3
-            ? await nextController.getMinZoomLevel()
-            : 1.0,
+        widget.subStep == 0 || widget.subStep == 1
+            ? await _documentZoomLevel(nextController)
+            : await nextController.getMinZoomLevel(),
       );
       _currentDirection = direction;
       if (mounted) setState(() {});
@@ -1880,6 +1873,14 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     } catch (error) {
       debugPrint('Camera zoom unavailable: $error');
     }
+  }
+
+  Future<double> _documentZoomLevel(CameraController controller) async {
+    final minZoom = await controller.getMinZoomLevel();
+    final maxZoom = await controller.getMaxZoomLevel();
+    if (maxZoom <= minZoom) return minZoom;
+    // A restrained crop keeps the full ID readable without cutting its edges.
+    return minZoom + ((maxZoom - minZoom) * 0.15);
   }
 
   Future<void> _setWidestZoom(CameraController controller) async {
@@ -1963,14 +1964,17 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   }
 
   @override
-  void didUpdateWidget(_NeuralScannerOverlay oldWidget) {
+  void didUpdateWidget(_IdentityCameraCapture oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
       if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
+        final activeController = cameraCtrl!;
         unawaited(
-          widget.subStep == 2 || widget.subStep == 3
-              ? _setWidestZoom(cameraCtrl!)
-              : _setZoomLevel(cameraCtrl!, 1.0),
+          widget.subStep == 0 || widget.subStep == 1
+              ? _documentZoomLevel(activeController).then(
+                  (zoom) => _setZoomLevel(activeController, zoom),
+                )
+              : _setWidestZoom(activeController),
         );
       }
 
@@ -1992,7 +1996,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
   @override
   void dispose() {
-    _ctrl.dispose();
     cameraCtrl?.dispose();
     super.dispose();
   }
@@ -2052,57 +2055,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               const Center(
                 child: Opacity(
                   opacity: 0.1,
-                  child: Icon(
-                    Icons.document_scanner,
-                    size: 100,
-                    color: C.brand,
-                  ),
-                ),
-              ),
-
-            IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _ctrl,
-                builder: (context, child) {
-                  return CustomPaint(
-                    size: Size.infinite,
-                    painter: _ScannerOverlayPainter(
-                      documentMode: widget.documentMode,
-                      holdingMode: isHolding,
-                      progress: _ctrl.value,
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            // The Scanner Eye (Document Mode Only — not for holding)
-            if (widget.documentMode && !isHolding)
-              AnimatedBuilder(
-                animation: _ctrl,
-                builder: (context, child) => Positioned(
-                  top: _ctrl.value * 270,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    height: 2,
-                    decoration: BoxDecoration(
-                      boxShadow: const [
-                        BoxShadow(
-                          color: C.brand,
-                          blurRadius: 10,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                      gradient: LinearGradient(
-                        colors: [
-                          C.brand.withOpacity(0),
-                          C.brand,
-                          C.brand.withOpacity(0),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: Icon(Icons.camera_alt_outlined, size: 72, color: C.brand),
                 ),
               ),
 
