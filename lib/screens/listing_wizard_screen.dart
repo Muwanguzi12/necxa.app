@@ -603,9 +603,22 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         feedback.toLowerCase().contains('verified')) {
       return fallback;
     }
+
     return (feedback != null && feedback.isNotEmpty)
         ? feedback
         : data['error']?.toString() ?? data['reason']?.toString() ?? fallback;
+  }
+
+  String _listingText(dynamic value) {
+    if (value is String) return value;
+    if (value is List) {
+      return value
+          .whereType<String>()
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .join('\n');
+    }
+    return value?.toString() ?? '';
   }
 
   Future<void> _runIdentityVerification() async {
@@ -1008,8 +1021,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         throw Exception(result['error'] ?? 'Could not generate details');
       }
 
-      final generatedDesc = result['description'] as String? ?? '';
-      final generatedTitle = result['title'] as String? ?? '';
+      final generatedDesc = _listingText(result['description']);
+      final generatedTitle = _listingText(result['title']);
       final generatedAmenities =
           (result['amenities'] as List?)?.cast<String>() ?? [];
       final suggestedBeds = result['suggested_bedrooms'] as int?;
