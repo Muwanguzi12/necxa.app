@@ -64,6 +64,7 @@ async function sha256Base64Image(imageBase64: string): Promise<string> {
 
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
 const NVIDIA_VISION_MODEL = 'meta/llama-3.2-11b-vision-instruct'
+const VISION_API_TIMEOUT_MS = 15000
 
 async function callNvidiaVisionBiometric(
   selfieBase64: string,
@@ -112,7 +113,11 @@ async function callNvidiaVisionBiometric(
   const selfieUrl = `data:image/jpeg;base64,${selfieData}`
 
   const normalizedFrames = livenessFrames
-    .filter((frame) => typeof frame === 'string' && frame.length > 0)
+    .map((frame) => {
+      if (typeof frame !== 'string') return ''
+      return frame.replace(/^data:image\/\w+;base64,/, '').trim()
+    })
+    .filter((frame) => frame.length > 100)
     .slice(0, 5)
   const contentParts: unknown[] = normalizedFrames.length >= 3 && mode === 'face-only'
     ? normalizedFrames.map((frame) => ({
@@ -234,70 +239,82 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 
   let lastError = 'Vision providers unavailable'
   for (const provider of providers) {
-    try {
-      const response = await fetch(provider.endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${provider.apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          model: provider.model,
-          messages: [{ role: 'user', content: contentParts }],
-          max_tokens: provider.name === 'cosmos3-face-verification' ? 1024 : 256,
-          temperature: 0.1,
-        }),
-      })
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), VISION_API_TIMEOUT_MS)
+        const response = await fetch(provider.endpoint, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            model: provider.model,
+            messages: [{ role: 'user', content: contentParts }],
+            max_tokens: provider.name === 'cosmos3-face-verification' ? 1024 : 256,
+            temperature: 0.1,
+          }),
+        }).finally(() => clearTimeout(timeoutId))
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => response.statusText)
-        throw new Error(`${provider.name} API error ${response.status}: ${errorText}`)
-      }
-
-      const data = await response.json()
-      const message = data?.choices?.[0]?.message ?? {}
-      const parts = [message.content, message.reasoning_content, data?.output_text]
-      const rawText = parts
-        .filter((part: unknown) => part !== null && part !== undefined)
-        .map((part: unknown) => {
-          if (typeof part === 'string') return part
-          if (Array.isArray(part)) {
-            return part
-              .map((item: unknown) => {
-                if (typeof item === 'string') return item
-                if (typeof item !== 'object' || item === null) return ''
-                if ('text' in item) return String((item as { text?: unknown }).text ?? '')
-                if ('content' in item) return String((item as { content?: unknown }).content ?? '')
-                return ''
-              })
-              .join('')
+        if (response.status === 429 || response.status === 502 || response.status === 503) {
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+            continue
           }
-          return typeof part === 'object' ? JSON.stringify(part) : String(part)
-        })
-        .join('\n')
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        throw new Error(`${provider.name} returned no JSON decision`)
-      }
+        }
 
-      const parsed = JSON.parse(jsonMatch[0])
-      return {
-        is_live_person: Boolean(parsed.is_live_person),
-        face_detected: Boolean(parsed.face_detected),
-        liveness_score: Number(parsed.liveness_score ?? 0),
-        anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
-        liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person),
-        faces_match: Boolean(parsed.faces_match),
-        face_match_agrees: parsed.face_match_agrees ?? Boolean(parsed.faces_match),
-        similarity_score: Number(parsed.similarity_score ?? 0),
-        reasoning: String(parsed.reasoning ?? ''),
-        provider: provider.name,
-        raw_text: rawText,
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => response.statusText)
+          throw new Error(`${provider.name} API error ${response.status}: ${errorText}`)
+        }
+
+        const data = await response.json()
+        const message = data?.choices?.[0]?.message ?? {}
+        const parts = [message.content, message.reasoning_content, data?.output_text]
+        const rawText = parts
+          .filter((part: unknown) => part !== null && part !== undefined)
+          .map((part: unknown) => {
+            if (typeof part === 'string') return part
+            if (Array.isArray(part)) {
+              return part
+                .map((item: unknown) => {
+                  if (typeof item === 'string') return item
+                  if (typeof item !== 'object' || item === null) return ''
+                  if ('text' in item) return String((item as { text?: unknown }).text ?? '')
+                  if ('content' in item) return String((item as { content?: unknown }).content ?? '')
+                  return ''
+                })
+                .join('')
+            }
+            return typeof part === 'object' ? JSON.stringify(part) : String(part)
+          })
+          .join('\n')
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+        if (!jsonMatch) {
+          throw new Error(`${provider.name} returned no JSON decision`)
+        }
+
+        const parsed = JSON.parse(jsonMatch[0])
+        return {
+          is_live_person: Boolean(parsed.is_live_person),
+          face_detected: Boolean(parsed.face_detected),
+          liveness_score: Number(parsed.liveness_score ?? 0),
+          anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
+          liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person),
+          faces_match: Boolean(parsed.faces_match),
+          face_match_agrees: parsed.face_match_agrees ?? Boolean(parsed.faces_match),
+          similarity_score: Number(parsed.similarity_score ?? 0),
+          reasoning: String(parsed.reasoning ?? ''),
+          provider: provider.name,
+          raw_text: rawText,
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error)
+        console.warn(`[${provider.name}] biometric verification failed: ${lastError}`)
       }
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error)
-      console.warn(`[${provider.name}] biometric verification failed: ${lastError}`)
     }
   }
   throw new Error(lastError)
@@ -778,9 +795,35 @@ serve(async (req) => {
       const mode: 'face-only' | 'biometric' = action === 'verify-face-only' ? 'face-only' : 'biometric'
       const normalizedLivenessFrames = Array.isArray(livenessFrames)
         ? livenessFrames
-            .filter((frame): frame is string => typeof frame === 'string' && frame.trim().length > 0)
+            .map((frame): string => {
+              if (typeof frame !== 'string') return ''
+              return frame.replace(/^data:image\/\w+;base64,/, '').trim()
+            })
+            .filter((frame) => frame.length > 100)
             .slice(0, 5)
         : []
+
+      // Preserve single-image compatibility for older clients, but reject an
+      // explicitly supplied incomplete temporal sequence.
+      if (Array.isArray(livenessFrames) &&
+          livenessFrames.length > 0 &&
+          normalizedLivenessFrames.length < 3) {
+        return new Response(JSON.stringify({
+          verified: false,
+          faceMatch: false,
+          livenessPassed: false,
+          faceDetected: false,
+          decision: 'fail',
+          reasonCode: 'insufficient_liveness_frames',
+          retryable: true,
+          feedback: `Liveness sequence incomplete: ${normalizedLivenessFrames.length} of 3 frames required. Please retry the face capture.`,
+          verificationSessionId: sessionId,
+          sessionLink,
+        }), {
+          status: 422,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
 
       // ── Attempt configured Vision providers before the Worker fallback ────
       let nvidiaResult: Awaited<ReturnType<typeof callNvidiaVisionBiometric>> | null = null
