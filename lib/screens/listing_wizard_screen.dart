@@ -1982,9 +1982,9 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
         unawaited(switchCamera(CameraLensDirection.front).catchError((_) {}));
       } else if (widget.subStep < 3 && oldWidget.subStep == 3) {
         unawaited(switchCamera(CameraLensDirection.back).catchError((_) {}));
-      } else if (widget.subStep == 2) {
-        // Let the OS finish rotating before rebuilding the preview so the
-        // camera's landscape buffer matches the landscape viewport.
+      } else if (widget.subStep < 3) {
+        // Refresh each document capture so its independent preview starts
+        // with the correct lens and document framing.
         unawaited(
           Future<void>.delayed(const Duration(milliseconds: 350), () {
             return switchCamera(CameraLensDirection.back, forceRefresh: true);
