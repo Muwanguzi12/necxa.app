@@ -1826,7 +1826,7 @@ extension on _IdentityCaptureStage {
       ? CameraLensDirection.front
       : CameraLensDirection.back;
 
-  bool get isLandscape => index < _IdentityCaptureStage.selfie.index;
+  bool get isLandscape => this == _IdentityCaptureStage.holding;
 
   bool get isSelfie => this == _IdentityCaptureStage.selfie;
 
@@ -2049,6 +2049,7 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
                   painter: _ScannerOverlayPainter(
                     documentMode: widget.documentMode,
                     holdingMode: isHolding,
+                    landscapeDocument: isLandscapeCapture,
                     progress: 0,
                   ),
                 ),
@@ -2832,11 +2833,13 @@ Widget _chip(String label, bool sel, VoidCallback onTap) => GestureDetector(
 class _ScannerOverlayPainter extends CustomPainter {
   final bool documentMode;
   final bool holdingMode;
+  final bool landscapeDocument;
   final double progress;
 
   _ScannerOverlayPainter({
     required this.documentMode,
     this.holdingMode = false,
+    this.landscapeDocument = false,
     required this.progress,
   });
 
@@ -2968,8 +2971,8 @@ class _ScannerOverlayPainter extends CustomPainter {
     Rect cutoutRect;
 
     if (documentMode) {
-      final w = size.width * 0.83;
-      final h = w / 1.586;
+      final h = size.height * 0.78;
+      final w = landscapeDocument ? h * 1.586 : h / 1.586;
       cutoutRect = Rect.fromCenter(
         center: Offset(size.width / 2, size.height / 2),
         width: w,
@@ -3073,6 +3076,7 @@ class _ScannerOverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) {
     return oldDelegate.documentMode != documentMode ||
         oldDelegate.holdingMode != holdingMode ||
+        oldDelegate.landscapeDocument != landscapeDocument ||
         oldDelegate.progress != progress;
   }
 }
