@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:image/image.dart' as img;
 import 'listing_sync_service.dart';
 
 // ─── Live Safety Scan Result ──────────────────────────────────────────────────
@@ -60,6 +61,7 @@ class NecxaAI {
     String? userId,
     String? countryCode,
     String? documentType,
+    Map<String, dynamic>? metadata,
   }) {
     final payload = <String, dynamic>{
       'action': action,
@@ -74,6 +76,9 @@ class NecxaAI {
     }
     if (documentType != null) {
       payload['payload']['documentType'] = documentType;
+    }
+    if (metadata != null) {
+      payload['payload']['metadata'] = metadata;
     }
 
     return payload;
@@ -176,14 +181,16 @@ class NecxaAI {
   static Future<Map<String, dynamic>> verifyPhotoWorker(File photoFile) async {
     try {
       final base64Image = await fileToBase64(photoFile);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-content',
-        headers: _aiHeaders(),
-        body: {
-          'action': 'verify_general_content',
-          'mediaBase64': base64Image,
-        },
-      ).timeout(const Duration(seconds: 25));
+      final res = await Supabase.instance.client.functions
+          .invoke(
+            'verify-content',
+            headers: _aiHeaders(),
+            body: {
+              'action': 'verify_general_content',
+              'mediaBase64': base64Image,
+            },
+          )
+          .timeout(const Duration(seconds: 25));
 
       if (res.data != null && res.data is Map) {
         final data = Map<String, dynamic>.from(res.data);
@@ -193,7 +200,9 @@ class NecxaAI {
       }
       throw Exception(res.data?['error'] ?? 'NVIDIA photo verification failed');
     } catch (e) {
-      debugPrint('⚡ NVIDIA photo verify failed, trying Cloudflare fallback: $e');
+      debugPrint(
+        '⚡ NVIDIA photo verify failed, trying Cloudflare fallback: $e',
+      );
       try {
         final req =
             http.MultipartRequest(
@@ -213,7 +222,10 @@ class NecxaAI {
         );
       } catch (workerErr) {
         debugPrint('⚡ Worker photo verify failed: $workerErr');
-        return {'success': false, 'error': _verificationRequestError(workerErr, 'Photo')};
+        return {
+          'success': false,
+          'error': _verificationRequestError(workerErr, 'Photo'),
+        };
       }
     }
   }
@@ -233,14 +245,16 @@ class NecxaAI {
         base64Frames.add(await fileToBase64(f));
       }
 
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-content',
-        headers: _aiHeaders(),
-        body: {
-          'action': 'verify_general_content',
-          'videoFrames': base64Frames,
-        },
-      ).timeout(const Duration(seconds: 40));
+      final res = await Supabase.instance.client.functions
+          .invoke(
+            'verify-content',
+            headers: _aiHeaders(),
+            body: {
+              'action': 'verify_general_content',
+              'videoFrames': base64Frames,
+            },
+          )
+          .timeout(const Duration(seconds: 40));
 
       if (res.data != null && res.data is Map) {
         final data = Map<String, dynamic>.from(res.data);
@@ -250,7 +264,9 @@ class NecxaAI {
       }
       throw Exception(res.data?['error'] ?? 'NVIDIA video verification failed');
     } catch (e) {
-      debugPrint('⚡ NVIDIA video verify failed, trying Cloudflare fallback: $e');
+      debugPrint(
+        '⚡ NVIDIA video verify failed, trying Cloudflare fallback: $e',
+      );
       try {
         final req = http.MultipartRequest(
           'POST',
@@ -272,7 +288,10 @@ class NecxaAI {
         return normalizeModerationResponse(decoded);
       } catch (workerErr) {
         debugPrint('⚡ Worker video verify failed: $workerErr');
-        return {'success': false, 'error': _verificationRequestError(workerErr, 'Video')};
+        return {
+          'success': false,
+          'error': _verificationRequestError(workerErr, 'Video'),
+        };
       }
     }
   }
@@ -421,16 +440,18 @@ class NecxaAI {
   }) async {
     try {
       final base64Image = await fileToBase64(photo);
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-content',
-        headers: _aiHeaders(),
-        body: {
-          'action': 'verify_listing_photo',
-          'mediaBase64': base64Image,
-          'category': category.toLowerCase(),
-          'title': title ?? 'Property listing',
-        },
-      ).timeout(const Duration(seconds: 25));
+      final res = await Supabase.instance.client.functions
+          .invoke(
+            'verify-content',
+            headers: _aiHeaders(),
+            body: {
+              'action': 'verify_listing_photo',
+              'mediaBase64': base64Image,
+              'category': category.toLowerCase(),
+              'title': title ?? 'Property listing',
+            },
+          )
+          .timeout(const Duration(seconds: 25));
 
       if (res.data != null && res.data is Map) {
         final data = Map<String, dynamic>.from(res.data);
@@ -472,19 +493,21 @@ class NecxaAI {
         base64Images.add(await fileToBase64(f));
       }
 
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-content',
-        headers: _aiHeaders(),
-        body: {
-          'action': 'generate_listing_details',
-          'images': base64Images,
-          'propertyType': propertyType,
-          'district': district,
-          'city': city,
-          'purpose': purpose,
-          'title': existingTitle,
-        },
-      ).timeout(const Duration(seconds: 40));
+      final res = await Supabase.instance.client.functions
+          .invoke(
+            'verify-content',
+            headers: _aiHeaders(),
+            body: {
+              'action': 'generate_listing_details',
+              'images': base64Images,
+              'propertyType': propertyType,
+              'district': district,
+              'city': city,
+              'purpose': purpose,
+              'title': existingTitle,
+            },
+          )
+          .timeout(const Duration(seconds: 40));
 
       if (res.data != null && res.data is Map) {
         final data = Map<String, dynamic>.from(res.data);
@@ -494,12 +517,21 @@ class NecxaAI {
             'title': data['title']?.toString(),
             'description': data['description']?.toString() ?? '',
             'amenities': List<String>.from(data['amenities'] as List? ?? []),
-            'suggested_bedrooms': data['suggested_bedrooms'] is int ? data['suggested_bedrooms'] : null,
-            'suggested_bathrooms': data['suggested_bathrooms'] is int ? data['suggested_bathrooms'] : null,
-            'key_features': List<String>.from(data['key_features'] as List? ?? []),
+            'suggested_bedrooms': data['suggested_bedrooms'] is int
+                ? data['suggested_bedrooms']
+                : null,
+            'suggested_bathrooms': data['suggested_bathrooms'] is int
+                ? data['suggested_bathrooms']
+                : null,
+            'key_features': List<String>.from(
+              data['key_features'] as List? ?? [],
+            ),
           };
         }
-        return {'success': false, 'error': data['error']?.toString() ?? 'Generation failed'};
+        return {
+          'success': false,
+          'error': data['error']?.toString() ?? 'Generation failed',
+        };
       }
       throw Exception('Invalid response from AI engine');
     } catch (e) {
@@ -629,9 +661,7 @@ class NecxaAI {
           )
           .timeout(const Duration(seconds: 45));
 
-      final decoded = response.body.isEmpty
-          ? null
-          : jsonDecode(response.body);
+      final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
       if (response.statusCode >= 200 &&
           response.statusCode < 300 &&
           decoded is Map) {
@@ -732,6 +762,90 @@ class NecxaAI {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
       return {'faceMatch': false, 'feedback': msg, 'score': 0};
+    }
+  }
+
+  static Future<File> stitchLivenessFrames(List<File> frames) async {
+    if (frames.length != 3) {
+      throw ArgumentError('Exactly three liveness frames are required.');
+    }
+
+    final decoded = <img.Image>[];
+    for (final frame in frames) {
+      final image = img.decodeImage(await frame.readAsBytes());
+      if (image == null) {
+        throw FormatException('A liveness frame could not be decoded.');
+      }
+      decoded.add(image);
+    }
+
+    const targetHeight = 480;
+    final resized = decoded
+        .map(
+          (image) =>
+              img.copyResize(image, height: targetHeight, maintainAspect: true),
+        )
+        .toList();
+    final panorama = img.Image(
+      width: resized.fold<int>(0, (total, image) => total + image.width) + 12,
+      height: targetHeight,
+    );
+    var offset = 0;
+    for (var index = 0; index < resized.length; index++) {
+      final image = resized[index];
+      img.compositeImage(panorama, image, dstX: offset);
+      offset += image.width;
+      if (index < resized.length - 1) {
+        // Black gutters make the three panel boundaries unambiguous to Vision.
+        offset += 6;
+      }
+    }
+
+    final output = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}necxa_liveness_panorama.jpg',
+    );
+    await output.writeAsBytes(img.encodeJpg(panorama, quality: 88));
+    return output;
+  }
+
+  static Future<Map<String, dynamic>> verifyFacePanorama(
+    File panoramaFile, {
+    String? userId,
+    required List<int> captureTimestampsMs,
+  }) async {
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) {
+        throw Exception(
+          'User must be logged in to verify biometrics natively.',
+        );
+      }
+      final data = await _invokeIdentityVerification(
+        buildIdentityShardPayload(
+          action: 'verify-face-panorama',
+          primaryBase64: await fileToBase64(panoramaFile),
+          userId: userId ?? session.user.id,
+          metadata: {
+            'format': 'three-panel-horizontal',
+            'panelCount': 3,
+            'panelOrder': ['center', 'turn_left', 'center_return'],
+            'captureTimestampsMs': captureTimestampsMs,
+          },
+        ),
+      );
+      return {
+        ...data,
+        'faceMatch': data['faceMatch'] == true,
+        'feedback':
+            data['feedback']?.toString() ??
+            data['error']?.toString() ??
+            'Panorama liveness verification failed',
+        'score': data['score'] ?? data['livenessScore'] ?? 0,
+      };
+    } catch (e) {
+      var message = e.toString();
+      if (message.startsWith('Exception: ')) message = message.substring(11);
+      return {'faceMatch': false, 'feedback': message, 'score': 0};
     }
   }
 

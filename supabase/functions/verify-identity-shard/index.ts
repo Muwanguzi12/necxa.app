@@ -50,6 +50,25 @@ function percentage(value: unknown): number {
   return parsed <= 1 ? parsed * 100 : parsed
 }
 
+function validPanoramaMetadata(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== 'object') return false
+  const value = metadata as Record<string, unknown>
+  const timestamps = value.captureTimestampsMs
+  const panelOrder = value.panelOrder
+  const ordered = Array.isArray(panelOrder) &&
+    panelOrder.join('|') === 'center|turn_left|center_return'
+  const orderedTimes = Array.isArray(timestamps) &&
+    timestamps.length === 3 &&
+    timestamps.every((item) => Number.isInteger(item) && Number(item) > 0) &&
+    Number(timestamps[0]) < Number(timestamps[1]) &&
+    Number(timestamps[1]) < Number(timestamps[2]) &&
+    Number(timestamps[2]) - Number(timestamps[0]) <= 15000
+  return value.format === 'three-panel-horizontal' &&
+    value.panelCount === 3 &&
+    ordered &&
+    orderedTimes
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // NVIDIA Vision NIM helper
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,13 +79,15 @@ const NVIDIA_VISION_MODEL = 'meta/llama-3.2-11b-vision-instruct'
 async function callNvidiaVisionBiometric(
   selfieBase64: string,
   idBase64: string | null,
-  mode: 'face-only' | 'biometric'
+  mode: 'face-only' | 'biometric' | 'panorama',
+  metadata?: Record<string, unknown>
 ): Promise<{
   is_live_person: boolean
   face_detected: boolean
   liveness_score: number
   anti_spoof_flags: string[]
   liveness_agrees: boolean
+  movement_detected: boolean
   faces_match: boolean
   face_match_agrees: boolean
   similarity_score: number
@@ -111,7 +132,32 @@ async function callNvidiaVisionBiometric(
 
   let promptText: string
 
-  if (mode === 'face-only' || !idBase64) {
+  if (mode === 'panorama') {
+    const panelOrder = Array.isArray(metadata?.panelOrder)
+      ? metadata.panelOrder.join(', ')
+      : 'center, turn_left, center_return'
+    promptText = `You are a liveness verification AI analyzing one JPEG panorama made from three
+consecutive selfie frames placed left-to-right: starting position, slight head turn, and return
+to center. The image contains black separator gutters between panels. Panel order is:
+${panelOrder}. Verify a real person only when the three panels show coherent natural temporal
+progression: changed head or eye position, consistent identity and lighting, and no copied,
+printed, masked, deepfake, or screen-replay face. A panorama is evidence of motion, not proof by
+itself: reject if panels are identical, inconsistent, or the face is not clearly visible.
+
+Respond in STRICT JSON ONLY:
+{
+  "is_live_person": <true|false>,
+  "face_detected": <true|false>,
+  "liveness_score": <0-100>,
+  "anti_spoof_flags": ["<flag>" or empty array],
+  "liveness_agrees": <true|false>,
+  "movement_detected": <true|false>,
+  "faces_match": true,
+  "face_match_agrees": true,
+  "similarity_score": 100,
+  "reasoning": "<one sentence summary>"
+}`
+  } else if (mode === 'face-only' || !idBase64) {
     promptText = `You are Cosmos3, a certified liveness and anti-spoofing AI system. Analyze this selfie carefully.
 
 LIVENESS CHECK:
@@ -237,15 +283,18 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
       }
 
       const parsed = JSON.parse(jsonMatch[0])
+      const livenessScore = Math.min(100, Math.max(0, percentage(parsed.liveness_score)))
+      const similarityScore = Math.min(100, Math.max(0, percentage(parsed.similarity_score)))
       return {
         is_live_person: Boolean(parsed.is_live_person),
         face_detected: Boolean(parsed.face_detected),
-        liveness_score: Number(parsed.liveness_score ?? 0),
+        liveness_score: livenessScore,
         anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
         liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person),
+        movement_detected: Boolean(parsed.movement_detected),
         faces_match: Boolean(parsed.faces_match),
         face_match_agrees: parsed.face_match_agrees ?? Boolean(parsed.faces_match),
-        similarity_score: Number(parsed.similarity_score ?? 0),
+        similarity_score: similarityScore,
         reasoning: String(parsed.reasoning ?? ''),
         provider: provider.name,
         raw_text: rawText,
@@ -725,19 +774,36 @@ serve(async (req) => {
     // ─────────────────────────────────────────────────────────────────────────
     // Biometric / selfie actions — NVIDIA Vision primary, Worker fallback
     // ─────────────────────────────────────────────────────────────────────────
-    } else if (action === 'verify-selfie' || action === 'verify-face-only') {
-      const { imageBase64, idImageBase64 } = payload || {}
+    } else if (
+      action === 'verify-selfie' ||
+      action === 'verify-face-only' ||
+      action === 'verify-face-panorama'
+    ) {
+      const { imageBase64, idImageBase64, metadata } = payload || {}
       if (!imageBase64) throw new Error("Missing image payloads for biometric match")
       if (action === 'verify-selfie' && !idImageBase64) throw new Error("Missing idImageBase64 payload for selfie verification")
+      if (action === 'verify-face-panorama' && !validPanoramaMetadata(metadata)) {
+        throw new Error('Invalid panorama metadata')
+      }
 
-      const mode: 'face-only' | 'biometric' = action === 'verify-face-only' ? 'face-only' : 'biometric'
+      const mode: 'face-only' | 'biometric' | 'panorama' =
+        action === 'verify-face-panorama'
+          ? 'panorama'
+          : action === 'verify-face-only'
+            ? 'face-only'
+            : 'biometric'
 
       // ── Attempt configured Vision providers before the Worker fallback ────
       let nvidiaResult: Awaited<ReturnType<typeof callNvidiaVisionBiometric>> | null = null
       let nvidiaError: string | null = null
 
       try {
-        nvidiaResult = await callNvidiaVisionBiometric(imageBase64, idImageBase64 ?? null, mode)
+        nvidiaResult = await callNvidiaVisionBiometric(
+          imageBase64,
+          idImageBase64 ?? null,
+          mode,
+          metadata,
+        )
         console.log(`[Vision] liveness=${nvidiaResult.liveness_score} similarity=${nvidiaResult.similarity_score} live=${nvidiaResult.is_live_person} match=${nvidiaResult.faces_match}`)
       } catch (err: any) {
         nvidiaError = err.message
@@ -753,12 +819,13 @@ serve(async (req) => {
           nvidiaResult.is_live_person &&
           nvidiaResult.face_detected &&
           nvidiaResult.liveness_agrees &&
+          (mode !== 'panorama' || nvidiaResult.movement_detected) &&
           nvidiaResult.liveness_score >= LIVENESS_THRESHOLD &&
           (nvidiaResult.anti_spoof_flags.length === 0 ||
             (nvidiaResult.anti_spoof_flags.length === 1 && nvidiaResult.anti_spoof_flags[0] === ''))
 
         const faceMatch =
-          mode === 'face-only'
+          mode === 'face-only' || mode === 'panorama'
             ? true
             : nvidiaResult.faces_match &&
               nvidiaResult.face_match_agrees &&
@@ -802,10 +869,11 @@ serve(async (req) => {
           requiresManualReview: false,
           score: nvidiaResult.similarity_score,
           livenessScore: nvidiaResult.liveness_score,
+          movementDetected: nvidiaResult.movement_detected,
           antiSpoofFlags: nvidiaResult.anti_spoof_flags,
           engine: nvidiaResult.provider,
           feedback: verified
-            ? (action === 'verify-face-only'
+            ? (action === 'verify-face-only' || action === 'verify-face-panorama'
               ? 'Liveness verification completed successfully.'
               : 'Liveness and National ID face matching completed successfully.')
             : biometricFailureFeedback[reasonCode] ||

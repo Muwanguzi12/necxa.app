@@ -36,8 +36,9 @@ async function fileToDataUrl(file: File): Promise<string> {
 
 async function runDirectAiVerification(
   primaryJwt: string,
-  action: "verify-id-front" | "verify-id-holding" | "verify-face-only",
+  action: "verify-id-front" | "verify-id-back" | "verify-id-holding" | "verify-face-only" | "verify-face-panorama",
   imageBase64: string,
+  metadata?: Record<string, unknown>,
 ): Promise<Record<string, any>> {
   const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-identity-shard`, {
     method: "POST",
@@ -47,7 +48,7 @@ async function runDirectAiVerification(
       "x-primary-jwt": primaryJwt,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ action, payload: { imageBase64 } }),
+    body: JSON.stringify({ action, payload: { imageBase64, metadata } }),
   })
   const result = await response.json().catch(() => ({}))
   if (!response.ok || result?.verified !== true) {
@@ -145,6 +146,22 @@ Deno.serve(async (req) => {
     const idBack = requiredFile(formData, "id_back")
     const idHolding = requiredFile(formData, "id_holding")
     const facePhoto = requiredFile(formData, "face_photo")
+    const livenessEvidenceValue = formData.get("liveness_evidence")
+    const livenessEvidence = livenessEvidenceValue instanceof File && livenessEvidenceValue.size > 0
+      ? livenessEvidenceValue
+      : null
+    if (livenessEvidence && (livenessEvidence.size > 10 * 1024 * 1024 ||
+      !["image/jpeg", "image/png"].includes(livenessEvidence.type))) {
+      throw new Error("liveness_evidence must be a JPEG or PNG image no larger than 10 MB.")
+    }
+    const livenessMetadataText = String(formData.get("liveness_metadata") || "").trim()
+    let livenessMetadata: Record<string, unknown> | undefined
+    if (livenessEvidence) {
+      if (!livenessMetadataText) throw new Error("liveness_metadata is required with liveness_evidence.")
+      const parsed = JSON.parse(livenessMetadataText)
+      if (!validPanoramaMetadata(parsed)) throw new Error("Invalid liveness metadata.")
+      livenessMetadata = parsed
+    }
     const docType = String(formData.get("doc_type") || "National ID")
     const docNumberInput = String(formData.get("doc_number") || "").trim()
     const idempotencyKey = String(req.headers.get("Idempotency-Key") || "").trim()
@@ -160,17 +177,20 @@ Deno.serve(async (req) => {
     }
     const directAiMode = formData.get("verification_mode") === "direct-ai-engine"
     if (directAiMode) {
-      const [frontBase64, backBase64, holdingBase64, faceBase64] = await Promise.all([
+      const [frontBase64, backBase64, holdingBase64, faceBase64, livenessBase64] = await Promise.all([
         fileToDataUrl(idFront),
         fileToDataUrl(idBack),
         fileToDataUrl(idHolding),
         fileToDataUrl(facePhoto),
+        livenessEvidence ? fileToDataUrl(livenessEvidence) : Promise.resolve(null),
       ])
-      const [frontResult, backResult, holdingResult, faceResult] = await Promise.all([
+      const [frontResult, backResult, holdingResult, faceResult, livenessResult] = await Promise.all([
         runDirectAiVerification(primaryJwt, "verify-id-front", frontBase64),
         runDirectAiVerification(primaryJwt, "verify-id-back", backBase64),
         runDirectAiVerification(primaryJwt, "verify-id-holding", holdingBase64),
-        runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64),
+        livenessBase64
+          ? runDirectAiVerification(primaryJwt, "verify-face-panorama", livenessBase64, livenessMetadata)
+          : runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64),
       ])
       const directJobs = await supabase
         .from("ai_verification_jobs")
@@ -214,8 +234,16 @@ Deno.serve(async (req) => {
             decision: "pass",
             policy_version: "direct-ai-engine-v1",
             result_summary: {
+              capture_stage: "biometric",
               selfie_sha256: await fileSha256(facePhoto),
               reference_sha256: await fileSha256(idFront),
+              ...(livenessEvidence && livenessResult
+                ? {
+                    liveness_evidence_sha256: await fileSha256(livenessEvidence),
+                    liveness_metadata: livenessMetadata,
+                    liveness_result: livenessResult,
+                  }
+                : {}),
             },
           },
         ], { onConflict: "subject_user_id,idempotency_key" })
@@ -223,6 +251,7 @@ Deno.serve(async (req) => {
       if (directJobs.error || !directJobs.data || directJobs.data.length !== 4) {
         throw directJobs.error || new Error("Unable to create direct verification receipts.")
       }
+      const biometricResult = livenessResult || faceResult
       const directJobsByStage = new Map(
         (directJobs.data as Record<string, any>[]).map((job) => [
           String(job.result_summary?.capture_stage || ""),
@@ -240,7 +269,7 @@ Deno.serve(async (req) => {
         { job_id: frontJob.id, stage: "front_document_assessment", provider: frontResult.engine || "ai-engine", decision: "pass", metadata: frontResult },
         { job_id: backJob.id, stage: "back_document_assessment", provider: backResult.engine || "ai-engine", decision: "pass", metadata: backResult },
         { job_id: holdingJob.id, stage: "holding_document_assessment", provider: holdingResult.engine || "ai-engine", decision: "pass", metadata: holdingResult },
-        { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: faceResult.engine || "ai-engine", decision: "pass", metadata: { liveness_score: faceResult.livenessScore, similarity_score: faceResult.score, ...faceResult } },
+        { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: biometricResult.engine || "ai-engine", decision: "pass", metadata: { liveness_score: biometricResult.livenessScore, similarity_score: biometricResult.score, ...biometricResult } },
       ], { onConflict: "job_id,stage,attempt" })
       if (stageRows.error) throw stageRows.error
       receiptIds.front = frontJob.id
@@ -341,6 +370,9 @@ Deno.serve(async (req) => {
       store(idHolding, "id_holding.jpg"),
       store(facePhoto, "face_photo.jpg"),
     ])
+    const livenessPath = livenessEvidence
+      ? await store(livenessEvidence, "liveness_evidence.jpg")
+      : null
 
     const aiMetadata = {
       policy_version: "identity-receipts-v1",
@@ -360,6 +392,7 @@ Deno.serve(async (req) => {
       id_back_url: backPath,
       id_holding_url: holdingPath,
       face_scan_url: facePath,
+      liveness_evidence_url: livenessPath,
       verified: true,
       verification_confidence: similarityPercent,
       extracted_name: null,

@@ -136,6 +136,8 @@ class ListingSyncService {
     required String holdingVerificationId,
     required String biometricVerificationId,
     String? idempotencyKey,
+    File? livenessEvidence,
+    Map<String, dynamic>? livenessMetadata,
   }) async {
     final req = http.MultipartRequest('POST', Uri.parse(_identityFuncUrl));
     final headers = await _getHeaders();
@@ -158,6 +160,14 @@ class ListingSyncService {
     req.files.add(await _identityImage('id_back', idBack));
     req.files.add(await _identityImage('id_holding', idHolding));
     req.files.add(await _identityImage('face_photo', facePhoto));
+    if (livenessEvidence != null) {
+      req.files.add(
+        await _identityImage('liveness_evidence', livenessEvidence),
+      );
+      if (livenessMetadata != null) {
+        req.fields['liveness_metadata'] = jsonEncode(livenessMetadata);
+      }
+    }
 
     final res = await req.send().timeout(_verificationTimeout);
     final resBody = await res.stream.bytesToString();

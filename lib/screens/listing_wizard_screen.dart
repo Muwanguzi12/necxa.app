@@ -12,6 +12,18 @@ import '../services/ai_service.dart';
 import '../utils/error_handler.dart';
 import '../main.dart' show cameras;
 
+class _LivenessCapture {
+  final List<File> frames;
+  final List<int> captureTimestampsMs;
+
+  const _LivenessCapture({
+    required this.frames,
+    required this.captureTimestampsMs,
+  });
+}
+
+class _LivenessCaptureCancelled implements Exception {}
+
 // -----------------------------------------------------------------------------
 // NECXA � 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
 // -----------------------------------------------------------------------------
@@ -50,6 +62,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   // -- Step 3: Identity Shard (ShieldSDK) ------------------------------------
   String? _identityShardId;
+  final List<File> _livenessTempFiles = [];
 
   // -- Step 4: Utility Shard --------------------------------------------------
   final _umemeCtrl = TextEditingController();
@@ -120,6 +133,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   @override
   void dispose() {
+    unawaited(_cleanupLivenessFiles());
     _restorePortraitOrientation();
     for (final controller in [
       _titleCtrl,
@@ -698,14 +712,29 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
         await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
-        final xfile = await cameraCtrl.takePicture();
-        state.faceImage = File(xfile.path);
-        final selfieResult = await NecxaAI.verifyFaceOnly(
-          state.faceImage!,
+        final capture = await scanner.captureLivenessFrames();
+        _livenessTempFiles
+          ..clear()
+          ..addAll(capture.frames);
+        final panorama = await NecxaAI.stitchLivenessFrames(capture.frames);
+        _livenessTempFiles.add(panorama);
+        final selfieResult = await NecxaAI.verifyFacePanorama(
+          panorama,
           userId: state.user?.id,
+          captureTimestampsMs: capture.captureTimestampsMs,
+        );
+        // Keep a normal selfie for the identity record; the panorama is the
+        // single-image artifact used only by the liveness Vision check.
+        state.faceImage = await ListingSyncService.compressImage(
+          capture.frames.first,
         );
         final biometric = _selfieResultFrom(selfieResult);
         if (!biometric.faceMatch || biometric.sessionId.isEmpty) {
+          await panorama.delete().catchError((_) {});
+          for (final frame in capture.frames) {
+            await frame.delete().catchError((_) {});
+          }
+          _livenessTempFiles.clear();
           throw UserMessageException(
             _aiFeedback(
               selfieResult,
@@ -716,6 +745,12 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastSelfieResult = biometric;
 
         Map<String, dynamic> res;
+        final livenessMetadata = {
+          'format': 'three-panel-horizontal',
+          'panelCount': 3,
+          'panelOrder': ['center', 'turn_left', 'center_return'],
+          'captureTimestampsMs': capture.captureTimestampsMs,
+        };
         for (var attempt = 0; ; attempt++) {
           try {
             res = await ListingSyncService.submitIdentityShard(
@@ -731,6 +766,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
               holdingVerificationId: state.lastHoldingResult!.sessionId,
               biometricVerificationId: biometric.sessionId,
               idempotencyKey: '$_submissionIdempotencyKey:identity',
+              livenessEvidence: panorama,
+              livenessMetadata: livenessMetadata,
             );
             break;
           } catch (error) {
@@ -744,6 +781,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
 
         final identityShardId = res['identity_shard_id']?.toString();
+        await panorama.delete().catchError((_) {});
+        for (final frame in capture.frames) {
+          await frame.delete().catchError((_) {});
+        }
         if (res['verified'] != true ||
             identityShardId == null ||
             identityShardId.isEmpty) {
@@ -784,11 +825,25 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         });
       }
     } catch (e) {
+      if (e is _LivenessCaptureCancelled) {
+        await _cleanupLivenessFiles();
+        widget.state.setShieldFeedback(null);
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      await _cleanupLivenessFiles();
       final message = getUserFriendlyError(e);
       widget.state.setShieldFeedback(message);
       setState(() => _loading = false);
       _showError(message);
     }
+  }
+
+  Future<void> _cleanupLivenessFiles() async {
+    for (final file in List<File>.from(_livenessTempFiles)) {
+      await file.delete().catchError((_) {});
+    }
+    _livenessTempFiles.clear();
   }
 
   Future<void> _runUtilityVerification() async {
@@ -1807,6 +1862,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   CameraController? cameraCtrl;
   CameraLensDirection _currentDirection = CameraLensDirection.back;
   Future<void>? _cameraInitialization;
+  String _livenessPrompt = 'Look straight at the camera';
 
   @override
   void initState() {
@@ -1872,6 +1928,73 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       await controller.setZoomLevel(await controller.getMinZoomLevel());
     } catch (error) {
       debugPrint('Camera wide-angle zoom unavailable: $error');
+    }
+  }
+
+  int _captureGeneration = 0;
+  int _livenessStep = 0;
+
+  Future<_LivenessCapture> captureLivenessFrames() async {
+    final controller = cameraCtrl;
+    if (controller == null || !controller.value.isInitialized) {
+      throw Exception('Selfie camera is not ready yet. Please try again.');
+    }
+
+    const prompts = [
+      'Look straight at the camera',
+      'Turn your head slightly left',
+      'Return to the center',
+    ];
+    const delays = [
+      Duration(milliseconds: 800),
+      Duration(milliseconds: 600),
+      Duration(milliseconds: 600),
+    ];
+    final generation = ++_captureGeneration;
+    final frames = <File>[];
+    final timestamps = <int>[];
+    try {
+      for (var index = 0; index < delays.length; index++) {
+        if (mounted) {
+          setState(() {
+            _livenessPrompt = prompts[index];
+            _livenessStep = index + 1;
+          });
+        }
+        final delay = delays[index];
+        await Future<void>.delayed(delay);
+        if (!mounted ||
+            generation != _captureGeneration ||
+            !controller.value.isInitialized) {
+          throw _LivenessCaptureCancelled();
+        }
+        final image = await controller.takePicture();
+        if (!mounted || generation != _captureGeneration) {
+          await File(image.path).delete().catchError((_) {});
+          throw _LivenessCaptureCancelled();
+        }
+        frames.add(File(image.path));
+        timestamps.add(DateTime.now().millisecondsSinceEpoch);
+      }
+    } catch (_) {
+      for (final frame in frames) {
+        await frame.delete().catchError((_) {});
+      }
+      rethrow;
+    }
+    if (mounted) {
+      setState(() => _livenessStep = 0);
+    }
+    return _LivenessCapture(frames: frames, captureTimestampsMs: timestamps);
+  }
+
+  void cancelLivenessCapture() {
+    _captureGeneration++;
+    if (mounted) {
+      setState(() {
+        _livenessStep = 0;
+        _livenessPrompt = 'Look straight at the camera';
+      });
     }
   }
 
@@ -1942,6 +2065,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
   @override
   void dispose() {
+    _captureGeneration++;
     _ctrl.dispose();
     cameraCtrl?.dispose();
     super.dispose();
@@ -2137,9 +2261,28 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Fit your face within the oval and look straight',
+                      _livenessPrompt,
                       style: dm(sz: 12, c: Colors.white, w: FontWeight.w500),
                     ),
+                    if (_livenessStep > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Capture $_livenessStep of 3',
+                        style: dm(sz: 10, c: Colors.white70),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: cancelLivenessCapture,
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                        ),
+                        child: const Text('Cancel capture'),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
