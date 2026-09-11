@@ -1996,6 +1996,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                           );
                         },
                       )
+                    : widget.subStep < 2
+                    ? _buildDocumentPreview(cameraCtrl!)
                     : Center(child: CameraPreview(cameraCtrl!)),
               )
             else
@@ -2219,6 +2221,28 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     return isHolding
         ? AspectRatio(aspectRatio: 1.7, child: viewport)
         : SizedBox(height: 220, child: viewport);
+  }
+
+  Widget _buildDocumentPreview(CameraController controller) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewport = constraints.biggest;
+        final previewAspect = controller.value.aspectRatio;
+        final previewWidth = viewport.width;
+        final previewHeight = previewWidth / previewAspect;
+
+        return ClipRect(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: previewWidth,
+              height: previewHeight,
+              child: CameraPreview(controller),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildTip(IconData icon, String label) {
