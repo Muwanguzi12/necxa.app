@@ -2234,9 +2234,9 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewport = constraints.biggest;
-        final rotatedAspect = 1 / controller.value.aspectRatio;
+        final previewAspect = controller.value.aspectRatio;
         final previewHeight = viewport.height;
-        final previewWidth = previewHeight * rotatedAspect;
+        final previewWidth = previewHeight * previewAspect;
 
         return Stack(
           fit: StackFit.expand,
@@ -2247,7 +2247,7 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
                 child: SizedBox(
                   width: previewWidth,
                   height: previewHeight,
-                  child: RotatedBox(quarterTurns: 1, child: preview),
+                  child: preview,
                 ),
               ),
             ),
