@@ -1888,7 +1888,14 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
 
     try {
       await nextController.initialize();
-      final zoomLevel = await nextController.getMinZoomLevel();
+      final stage = _identityCaptureStage(widget.subStep);
+      final minZoom = await nextController.getMinZoomLevel();
+      final maxZoom = await nextController.getMaxZoomLevel();
+      final zoomLevel =
+          stage == _IdentityCaptureStage.front ||
+              stage == _IdentityCaptureStage.back
+          ? 1.0.clamp(minZoom, maxZoom).toDouble()
+          : minZoom;
       await _setZoomLevel(nextController, zoomLevel);
       _currentDirection = direction;
       if (mounted) setState(() {});
