@@ -141,18 +141,10 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Keep the identity document captures in landscape on phones. The Listing
-    // Wizard applies the matching portrait lock when it advances to selfie.
+    // Keep the application portrait. Identity capture rotates only its camera
+    // preview, so the Listing Wizard layout never rotates.
     final double shortestSide = MediaQuery.of(context).size.shortestSide;
-    final isDocumentCapture = (_state.screen == 'list' ||
-            _state.screen == 'property_listing') &&
-        _state.verificationSubStep < 3;
-    if (isDocumentCapture) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-    } else if (shortestSide < 600) {
+    if (shortestSide < 600) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     } else {
       SystemChrome.setPreferredOrientations([
@@ -348,4 +340,3 @@ class _RootShellState extends State<RootShell> {
     }
   }
 }
-

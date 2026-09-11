@@ -101,17 +101,11 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     if (mounted) setState(() {});
   }
 
-  // ── FIXED: Orientation logic for all document captures (0,1,2) + selfie (3+) ──
   Future<void> _applyCaptureOrientation(int subStep) {
-    // Steps 0 (Front ID), 1 (Back ID), 2 (Holding ID) = Landscape
-    // Step 3+ (Selfie/Face) = Portrait
-    final orientations = subStep < 3
-        ? const [
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]
-        : const [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown];
-    return SystemChrome.setPreferredOrientations(orientations);
+    return SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
   }
 
   void _restorePortraitOrientation() {
@@ -2054,12 +2048,24 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
                           return ClipRect(
                             child: Transform.scale(
                               scale: coverScale,
-                              child: Center(child: CameraPreview(cameraCtrl!)),
+                              child: Center(
+                                child: RotatedBox(
+                                  quarterTurns: 1,
+                                  child: CameraPreview(cameraCtrl!),
+                                ),
+                              ),
                             ),
                           );
                         },
                       )
-                    : Center(child: CameraPreview(cameraCtrl!)),
+                    : Center(
+                        child: isLandscapeCapture
+                            ? RotatedBox(
+                                quarterTurns: 1,
+                                child: CameraPreview(cameraCtrl!),
+                              )
+                            : CameraPreview(cameraCtrl!),
+                      ),
               )
             else
               const Center(
