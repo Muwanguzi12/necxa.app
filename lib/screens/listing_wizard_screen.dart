@@ -1823,8 +1823,8 @@ extension on _IdentityCaptureStage {
   CameraLensDirection get lensDirection =>
       this == _IdentityCaptureStage.holding ||
           this == _IdentityCaptureStage.selfie
-          ? CameraLensDirection.front
-          : CameraLensDirection.back;
+      ? CameraLensDirection.front
+      : CameraLensDirection.back;
 
   bool get isLandscape => index < _IdentityCaptureStage.selfie.index;
 
@@ -2027,53 +2027,33 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
               Positioned.fill(
-                child: isHolding
-                    ? LayoutBuilder(
-                        builder: (context, constraints) {
-                          final viewportAspect =
-                              constraints.maxWidth / constraints.maxHeight;
-                          double previewAspect = cameraCtrl!.value.aspectRatio;
-                          final isPortrait =
-                              MediaQuery.of(context).orientation ==
-                              Orientation.portrait;
-                          if (isPortrait && previewAspect > 1.0) {
-                            previewAspect = 1.0 / previewAspect;
-                          } else if (!isPortrait && previewAspect < 1.0) {
-                            previewAspect = 1.0 / previewAspect;
-                          }
-
-                          final coverScale = viewportAspect > previewAspect
-                              ? viewportAspect / previewAspect
-                              : previewAspect / viewportAspect;
-                          return ClipRect(
-                            child: Transform.scale(
-                              scale: coverScale,
-                              child: Center(
-                                child: RotatedBox(
-                                  quarterTurns: 1,
-                                  child: CameraPreview(cameraCtrl!),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      )
-                    : Center(
-                        child: isLandscapeCapture
-                            ? RotatedBox(
-                                quarterTurns: 1,
-                                child: CameraPreview(cameraCtrl!),
-                              )
-                            : CameraPreview(cameraCtrl!),
-                      ),
+                child: _buildCameraPreview(
+                  isLandscapeCapture: isLandscapeCapture,
+                ),
               )
             else
               const Center(
                 child: Opacity(
                   opacity: 0.1,
-                  child: Icon(Icons.camera_alt_outlined, size: 72, color: C.brand),
+                  child: Icon(
+                    Icons.camera_alt_outlined,
+                    size: 72,
+                    color: C.brand,
+                  ),
                 ),
               ),
+
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _ScannerOverlayPainter(
+                    documentMode: widget.documentMode,
+                    holdingMode: isHolding,
+                    progress: 0,
+                  ),
+                ),
+              ),
+            ),
 
             // ── BIOMETRIC HUD (selfie mode only) ──────────────────────────
             if (!widget.documentMode) ...[
@@ -2238,6 +2218,39 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
     return isLandscapeCapture
         ? AspectRatio(aspectRatio: 1.7, child: viewport)
         : SizedBox(height: 220, child: viewport);
+  }
+
+  Widget _buildCameraPreview({required bool isLandscapeCapture}) {
+    final controller = cameraCtrl;
+    if (controller == null) {
+      return const SizedBox.shrink();
+    }
+
+    final preview = CameraPreview(controller);
+    if (!isLandscapeCapture) {
+      return Center(child: preview);
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportSize = constraints.biggest;
+        final previewAspect = controller.value.aspectRatio;
+        final rotatedPreviewAspect = 1 / previewAspect;
+        final viewportAspect = viewportSize.width / viewportSize.height;
+        final scale = viewportAspect > rotatedPreviewAspect
+            ? viewportAspect / rotatedPreviewAspect
+            : rotatedPreviewAspect / viewportAspect;
+
+        return ClipRect(
+          child: Center(
+            child: Transform.scale(
+              scale: scale,
+              child: RotatedBox(quarterTurns: 1, child: preview),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildTip(IconData icon, String label) {
