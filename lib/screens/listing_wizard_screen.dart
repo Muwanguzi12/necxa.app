@@ -2233,21 +2233,25 @@ class _IdentityCameraCaptureState extends State<_IdentityCameraCapture> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final viewportSize = constraints.biggest;
-        final previewAspect = controller.value.aspectRatio;
-        final rotatedPreviewAspect = 1 / previewAspect;
-        final viewportAspect = viewportSize.width / viewportSize.height;
-        final scale = viewportAspect > rotatedPreviewAspect
-            ? viewportAspect / rotatedPreviewAspect
-            : rotatedPreviewAspect / viewportAspect;
+        final viewport = constraints.biggest;
+        final rotatedAspect = 1 / controller.value.aspectRatio;
+        final previewHeight = viewport.height;
+        final previewWidth = previewHeight * rotatedAspect;
 
-        return ClipRect(
-          child: Center(
-            child: Transform.scale(
-              scale: scale,
-              child: RotatedBox(quarterTurns: 1, child: preview),
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRect(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: previewWidth,
+                  height: previewHeight,
+                  child: RotatedBox(quarterTurns: 1, child: preview),
+                ),
+              ),
             ),
-          ),
+          ],
         );
       },
     );
