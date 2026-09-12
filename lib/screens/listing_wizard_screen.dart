@@ -8,6 +8,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import '../theme.dart';
+// Unified identity verification loop (ShieldSDK / Necxa Shield)
 import '../app_state.dart';
 import '../services/listing_sync_service.dart';
 import '../services/ai_service.dart';
