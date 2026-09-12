@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'package:image/image.dart' as img;
 import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/listing_sync_service.dart';
@@ -425,13 +423,13 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   IDResult _idResultFrom(Map<String, dynamic> data) {
-    String extractId(dynamic val) {
-      if (val is Map) return (val['id'] ?? val['sessionId'] ?? val.toString()).toString();
-      return val?.toString() ?? '';
-    }
-
-    final sessionId = extractId(data['verificationSessionId'] ?? data['sessionId']);
-    final verified = (data['verified'] == true || data['faceMatch'] == true) &&
+    final sessionId =
+        data['verificationSessionId']?.toString() ??
+        data['sessionId']?.toString() ??
+        '';
+    final verified =
+        data['verified'] == true &&
+        data['decision'] == 'pass' &&
         sessionId.isNotEmpty;
     return IDResult(
       verified: verified,
@@ -440,11 +438,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   SelfieResult _selfieResultFrom(Map<String, dynamic> data) {
-    String extractId(dynamic val) {
-      if (val is Map) return (val['id'] ?? val['sessionId'] ?? val.toString()).toString();
-      return val?.toString() ?? '';
-    }
-
     // Face matching must be an explicit result from the biometric service.
     final faceMatch = data['faceMatch'] == true || data['verified'] == true;
     double? score;
@@ -455,7 +448,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     }
     return SelfieResult(
       faceMatch: faceMatch,
-      sessionId: extractId(data['verificationSessionId'] ?? data['sessionId']),
+      sessionId:
+          data['verificationSessionId']?.toString() ??
+          data['sessionId']?.toString() ??
+          '',
       score: score,
     );
   }
@@ -535,14 +531,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastIDBackResult = idResult;
         state.verificationSubStep = 2;
-        
-        // Lock to landscape for Hold ID step
-        await SystemChrome.setPreferredOrientations([
+        SystemChrome.setPreferredOrientations([
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
         ]);
-        // Give the OS time to rotate before the user sees the next step
-        await Future.delayed(const Duration(milliseconds: 400));
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
@@ -564,40 +556,27 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
         state.lastHoldingResult = idResult;
         state.verificationSubStep = 3;
-        
-        // Return to portrait for Biometric Match
-        await SystemChrome.setPreferredOrientations([
+        SystemChrome.setPreferredOrientations([
           DeviceOrientation.portraitUp,
         ]);
-        
+
         // Auto-toggle to selfie camera for 3D Biometric Match
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
-        await Future.delayed(const Duration(milliseconds: 400));
+        await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
-        final scanner = _scannerKey.currentState;
-        if (scanner == null) throw Exception('Biometric engine is not ready.');
-
-        // 1. Capture 3 frames with temporal prompts
-        final frames = await scanner.captureLivenessFrames();
-        if (frames.length < 3) throw Exception('Liveness capture was incomplete.');
-
-        // 2. Stitch locally into 1 panoramic proof
-        final panoramaFile = await scanner.stitchFramesToPanorama(frames);
-        state.faceImage = panoramaFile;
-
-        // 3. Convert to base64 and send to AI
-        final panoramaBase64 = await NecxaAI.fileToBase64(panoramaFile);
-        final selfieResult = await NecxaAI.verifyLivenessPanorama(
-          panoramaBase64,
+        final xfile = await cameraCtrl.takePicture();
+        state.faceImage = File(xfile.path);
+        final selfieResult = await NecxaAI.verifySelfie(
+          state.faceImage!,
+          state.idImage!,
           userId: state.user?.id,
         );
-
         final biometric = _selfieResultFrom(selfieResult);
         if (!biometric.faceMatch || biometric.sessionId.isEmpty) {
           throw UserMessageException(
             _aiFeedback(
               selfieResult,
-              'Biometric face match failed. Please retry in better light and ensure natural head movement.',
+              'Biometric face match failed. Please retry in better light.',
             ),
           );
         }
@@ -618,7 +597,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           idempotencyKey: '$_submissionIdempotencyKey:identity',
         );
 
-        final identityShardId = (res['identity_shard_id'] ?? res['id'] ?? '').toString();
+        final identityShardId = res['identity_shard_id']?.toString();
         if (res['verified'] != true ||
             identityShardId == null ||
             identityShardId.isEmpty) {
@@ -1644,10 +1623,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   CameraController? cameraCtrl;
   CameraLensDirection _currentDirection = CameraLensDirection.back;
   Future<void>? _cameraInitialization;
-  String? _livenessPrompt;
 
   bool get isHolding => widget.subStep == 2;
-  bool get isBiometric => widget.subStep == 3;
 
 
   @override
@@ -1730,84 +1707,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       );
     }
     return activeController;
-  }
-
-  Future<List<File>> captureLivenessFrames() async {
-    final controller = await ensureCamera(CameraLensDirection.front);
-
-    const prompts = [
-      'Hold still - Center',
-      'Turn slightly LEFT',
-      'Return to CENTER',
-    ];
-
-    const delays = [
-      Duration(milliseconds: 800),
-      Duration(milliseconds: 700),
-      Duration(milliseconds: 600),
-    ];
-
-    final frames = <File>[];
-
-    for (int i = 0; i < 3; i++) {
-      if (mounted) setState(() => _livenessPrompt = prompts[i]);
-
-      await Future.delayed(delays[i]);
-
-      if (!controller.value.isInitialized) {
-        throw Exception('Camera session interrupted.');
-      }
-
-      final xfile = await controller.takePicture();
-      frames.add(File(xfile.path));
-    }
-
-    if (mounted) setState(() => _livenessPrompt = null);
-    return frames;
-  }
-
-  Future<File> stitchFramesToPanorama(List<File> frames) async {
-    if (frames.length != 3) {
-      throw Exception('Panoramic liveness requires exactly 3 frames.');
-    }
-
-    // Decode all 3 frames
-    final bytes1 = await frames[0].readAsBytes();
-    final bytes2 = await frames[1].readAsBytes();
-    final bytes3 = await frames[2].readAsBytes();
-
-    final img1 = img.decodeImage(bytes1);
-    final img2 = img.decodeImage(bytes2);
-    final img3 = img.decodeImage(bytes3);
-
-    if (img1 == null || img2 == null || img3 == null) {
-      throw Exception('Failed to process biometric frames.');
-    }
-
-    // Normalize to same height for side-by-side panorama
-    const targetHeight = 640;
-    final f1 = img.copyResize(img1, height: targetHeight, maintainAspect: true);
-    final f2 = img.copyResize(img2, height: targetHeight, maintainAspect: true);
-    final f3 = img.copyResize(img3, height: targetHeight, maintainAspect: true);
-
-    // Create panoramic canvas [F1][F2][F3]
-    final panorama = img.Image(
-      width: f1.width + f2.width + f3.width,
-      height: targetHeight,
-    );
-
-    // Composite frames onto panorama
-    img.compositeImage(panorama, f1, dstX: 0);
-    img.compositeImage(panorama, f2, dstX: f1.width);
-    img.compositeImage(panorama, f3, dstX: f1.width + f2.width);
-
-    // Save panorama to temp file
-    final tempDir = await getTemporaryDirectory();
-    final path = '${tempDir.path}/liveness_pano_${DateTime.now().millisecondsSinceEpoch}.jpg';
-    final panoramaFile = File(path);
-    await panoramaFile.writeAsBytes(img.encodeJpg(panorama, quality: 85));
-
-    return panoramaFile;
   }
 
   @override
@@ -1920,49 +1819,12 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 ),
               ),
 
-            if (_livenessPrompt != null)
-              Positioned.fill(
-                child: Container(
-                  color: Colors.black45,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: C.brand,
-                        borderRadius: BorderRadius.circular(30),
-                        boxShadow: [
-                          BoxShadow(
-                            color: C.brand.withOpacity(0.4),
-                            blurRadius: 20,
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        _livenessPrompt!,
-                        style: syne(
-                          sz: 16,
-                          w: FontWeight.w900,
-                          c: Colors.black,
-                          ls: 0.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
             IgnorePointer(
               child: AnimatedBuilder(
                 animation: _ctrl,
                 builder: (context, child) {
-                  final double scannerHeight = isHolding
-                      ? 360
-                      : (widget.subStep < 2 ? 480 : 270);
                   return CustomPaint(
-                    size: Size(double.infinity, scannerHeight),
+                    size: Size(double.infinity, isHolding ? 360 : 270),
                     painter: _ScannerOverlayPainter(
                       documentMode: widget.documentMode,
                       holdingMode: isHolding,
@@ -1978,7 +1840,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               AnimatedBuilder(
                 animation: _ctrl,
                 builder: (context, child) => Positioned(
-                  top: _ctrl.value * 480,
+                  top: _ctrl.value * 270,
                   left: 0,
                   right: 0,
                   child: Container(
