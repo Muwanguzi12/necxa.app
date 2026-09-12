@@ -1776,7 +1776,7 @@ class _LivenessCaptureGuide extends StatelessWidget {
                   ),
                 ),
                 if (index < steps.length - 1)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
                     child: Icon(Icons.chevron_right, size: 14, color: C.dim),
                   ),
