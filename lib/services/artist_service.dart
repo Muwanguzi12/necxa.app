@@ -502,21 +502,8 @@ class NecxaAI {
           documentType: 'national_id',
         ),
       );
-      final verified = data['verified'] == true;
-      final feedback =
-          data['feedback']?.toString() ??
-          data['error']?.toString() ??
-          'ID verification failed';
-      final score = data['score'] is num
-          ? data['score']
-          : num.tryParse(data['score']?.toString() ?? '');
-
-      return {
-        ...data,
-        'verified': verified,
-        'feedback': feedback,
-        'score': score ?? 0,
-      };
+      
+      return _sanitizeVerificationResult(data, fallback: 'ID verification failed');
     } catch (e) {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
@@ -543,25 +530,12 @@ class NecxaAI {
           userId: userId ?? session.user.id,
         ),
       );
-      final faceMatch = data['faceMatch'] == true || data['verified'] == true;
-      final feedback =
-          data['feedback']?.toString() ??
-          data['error']?.toString() ??
-          'Face-only verification failed';
-      final score = data['score'] is num
-          ? data['score']
-          : num.tryParse(data['score']?.toString() ?? '');
-
-      return {
-        ...data,
-        'faceMatch': faceMatch,
-        'feedback': feedback,
-        'score': score ?? 0,
-      };
+      
+      return _sanitizeVerificationResult(data, fallback: 'Face-only verification failed');
     } catch (e) {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {'faceMatch': false, 'feedback': msg, 'score': 0};
+      return {'faceMatch': false, 'verified': false, 'feedback': msg, 'score': 0};
     }
   }
 
@@ -601,6 +575,35 @@ class NecxaAI {
     }
   }
 
+  static Future<Map<String, dynamic>> verifyLivenessPanorama(
+    String panoramaBase64, {
+    String? userId,
+  }) async {
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) {
+        throw Exception("User must be logged in to verify liveness.");
+      }
+
+      final res = await Supabase.instance.client.functions.invoke(
+        'verify-liveness-panorama',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'verify-liveness-panorama',
+          'panoramaBase64': panoramaBase64,
+          'userId': userId ?? session.user.id,
+        },
+      ).timeout(const Duration(seconds: 45));
+
+      final data = Map<String, dynamic>.from(res.data ?? {});
+      return _sanitizeVerificationResult(data, fallback: 'Liveness verification failed');
+    } catch (e) {
+      String msg = e.toString();
+      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
+      return {'verified': false, 'faceMatch': false, 'feedback': msg, 'score': 0};
+    }
+  }
+
   static Future<Map<String, dynamic>> verifySelfie(
     File selfieFile,
     File idReferenceFile, {
@@ -623,26 +626,66 @@ class NecxaAI {
           userId: userId ?? session.user.id,
         ),
       );
-      final faceMatch = data['faceMatch'] == true || data['verified'] == true;
-      final feedback =
-          data['feedback']?.toString() ??
-          data['error']?.toString() ??
-          'Biometric verification failed';
-      final score = data['score'] is num
-          ? data['score']
-          : num.tryParse(data['score']?.toString() ?? '');
-
-      return {
-        ...data,
-        'faceMatch': faceMatch,
-        'feedback': feedback,
-        'score': score ?? 0,
-      };
+      
+      return _sanitizeVerificationResult(data, fallback: 'Biometric verification failed');
     } catch (e) {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {'faceMatch': false, 'feedback': msg, 'score': 0};
+      return {'faceMatch': false, 'verified': false, 'feedback': msg, 'score': 0};
     }
+  }
+
+  /// Ensures IDs and scores are extracted correctly even if returned as nested maps.
+  static Map<String, dynamic> _sanitizeVerificationResult(
+    Map<String, dynamic> data, {
+    required String fallback,
+  }) {
+    final verified = data['verified'] == true || data['faceMatch'] == true;
+
+    // Robust ID extraction
+    String extractId(dynamic val) {
+      if (val == null) return '';
+      if (val is Map) {
+        return (val['id'] ?? val['sessionId'] ?? val['value'] ?? val.toString()).toString();
+      }
+      return val.toString();
+    }
+
+    final sessionId = extractId(
+      data['verificationSessionId'] ?? data['sessionId'] ?? data['session_id'],
+    );
+
+    // Robust Feedback extraction
+    String extractFeedback(dynamic val) {
+      if (val == null) return fallback;
+      if (val is Map) return (val['message'] ?? val['feedback'] ?? val.toString()).toString();
+      return val.toString();
+    }
+
+    final feedback = extractFeedback(data['feedback'] ?? data['error'] ?? data['reason']);
+
+    // Robust Score extraction
+    double extractScore(dynamic val) {
+      if (val is num) return val.toDouble();
+      if (val is String) return double.tryParse(val) ?? 0.0;
+      if (val is Map) {
+        final inner = val['score'] ?? val['confidence'] ?? val['value'];
+        if (inner is num) return inner.toDouble();
+      }
+      return 0.0;
+    }
+
+    final score = extractScore(data['score'] ?? data['liveness_score'] ?? data['confidence']);
+
+    return {
+      ...data,
+      'verified': verified,
+      'faceMatch': verified,
+      'sessionId': sessionId,
+      'verificationSessionId': sessionId,
+      'feedback': feedback,
+      'score': score,
+    };
   }
 
   // Legacy compatibility check
