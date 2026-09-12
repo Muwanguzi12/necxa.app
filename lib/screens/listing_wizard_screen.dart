@@ -176,13 +176,34 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Check if we are in the Landscape Holding ID step
     final bool isHoldIDStep = _step == 2 && widget.state.verificationSubStep == 2;
 
     if (isHoldIDStep) {
+      // ── PHOTO 2: FORCE TRUE FULLSCREEN LANDSCAPE CONTAINER ────────────────
+      // We wrap the entire scaffold to ensure it takes over the whole screen
       return Scaffold(
         backgroundColor: const Color(0xFF030E17),
-        body: _buildStepBody(),
+        body: OrientationBuilder(
+          builder: (context, orientation) {
+            // If the system hasn't rotated yet, we use RotatedBox to FORCE it visually.
+            // This prevents the "squashed" look in Photo 3.
+            final bool isLandscape = orientation == Orientation.landscape;
+            
+            Widget content = _buildStepBody();
+            
+            if (!isLandscape) {
+              return RotatedBox(
+                quarterTurns: 1, 
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.height,
+                  height: MediaQuery.of(context).size.width,
+                  child: content,
+                ),
+              );
+            }
+            return content;
+          },
+        ),
       );
     }
 
@@ -1267,10 +1288,15 @@ class _Step3Identity extends StatelessWidget {
       ];
       final verifiedCount = completedStages.where((v) => v).length;
 
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
+      // Use a consistent height for the camera to prevent overflow on small screens
+      final double screenHeight = MediaQuery.of(context).size.height;
+      final double cameraHeight = screenHeight * 0.65;
+
+      return Container(
+        width: double.infinity,
+        height: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        child: Column(
             children: [
               // 1. Header Row
               Row(
@@ -1340,72 +1366,77 @@ class _Step3Identity extends StatelessWidget {
 
               // 2. Main Camera Area
               Expanded(
-                child: Stack(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.3), width: 1.5),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
-                        child: _NeuralScannerOverlay(
-                          key: scannerKey,
-                          documentMode: false,
-                          subStep: subStep,
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: 2.3, // Ultra-wide for side-by-side guides
+                    child: Stack(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.3), width: 1.5),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(24),
+                            child: _NeuralScannerOverlay(
+                              key: scannerKey,
+                              documentMode: false,
+                              subStep: subStep,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    
-                    // "LIVE" Dot
-                    Positioned(
-                      top: 20,
-                      left: 20,
-                      child: Row(
-                        children: [
-                          const _PulsingLight(),
-                          const SizedBox(width: 6),
-                          Text('LIVE', style: dm(sz: 11, w: FontWeight.w900, ls: 1)),
-                        ],
-                      ),
-                    ),
-
-                    // Labels for Guides (Photo 2)
-                    Positioned(
-                      bottom: 20,
-                      left: 0,
-                      right: 0,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                           _guideLabel(Icons.badge_outlined, 'ID', const Color(0xFFFFD54F)),
-                           const SizedBox(width: 140),
-                           _guideLabel(Icons.face_retouching_natural, 'Face', const Color(0xFF00E5FF)),
-                        ],
-                      ),
-                    ),
-
-                    // Right Side Action Bar (Flash/Switch)
-                    Positioned(
-                      right: 16,
-                      top: 0,
-                      bottom: 0,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          GestureDetector(
-                            onTap: () => scannerKey.currentState?.toggleFlash(),
-                            child: _sideAction(Icons.bolt, 'Flash'),
+                        
+                        // "LIVE" Dot
+                        Positioned(
+                          top: 20,
+                          left: 20,
+                          child: Row(
+                            children: [
+                              const _PulsingLight(),
+                              const SizedBox(width: 6),
+                              Text('LIVE', style: dm(sz: 11, w: FontWeight.w900, ls: 1)),
+                            ],
                           ),
-                          const SizedBox(height: 20),
-                          GestureDetector(
-                            onTap: () => scannerKey.currentState?.switchLens(),
-                            child: _sideAction(Icons.cached, 'Switch'),
+                        ),
+
+                        // Labels for Guides (Photo 2)
+                        Positioned(
+                          bottom: 20,
+                          left: 0,
+                          right: 0,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                               _guideLabel(Icons.badge_outlined, 'ID', const Color(0xFFFFD54F)),
+                               const SizedBox(width: 220), // WIDENED GAP
+                               _guideLabel(Icons.face_retouching_natural, 'Face', const Color(0xFF00E5FF)),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+
+                        // Right Side Action Bar (Flash/Switch)
+                        Positioned(
+                          right: 16,
+                          top: 0,
+                          bottom: 0,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              GestureDetector(
+                                onTap: () => scannerKey.currentState?.toggleFlash(),
+                                child: _sideAction(Icons.bolt, 'Flash'),
+                              ),
+                              const SizedBox(height: 20),
+                              GestureDetector(
+                                onTap: () => scannerKey.currentState?.switchLens(),
+                                child: _sideAction(Icons.cached, 'Switch'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
 
