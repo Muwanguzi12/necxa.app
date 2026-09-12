@@ -804,7 +804,19 @@ serve(async (req) => {
           mode,
           metadata,
         )
-        console.log(`[Vision] liveness=${nvidiaResult.liveness_score} similarity=${nvidiaResult.similarity_score} live=${nvidiaResult.is_live_person} match=${nvidiaResult.faces_match}`)
+        console.log(JSON.stringify({
+          event: 'vision_biometric_decision',
+          liveness: nvidiaResult.liveness_score,
+          similarity: nvidiaResult.similarity_score,
+          live: nvidiaResult.is_live_person,
+          faceDetected: nvidiaResult.face_detected,
+          livenessAgrees: nvidiaResult.liveness_agrees,
+          movementDetected: nvidiaResult.movement_detected,
+          match: nvidiaResult.faces_match,
+          faceMatchAgrees: nvidiaResult.face_match_agrees,
+          antiSpoofFlags: nvidiaResult.anti_spoof_flags,
+          mode,
+        }))
       } catch (err: any) {
         nvidiaError = err.message
         console.warn(`[Vision] Failed (${nvidiaError}), falling back to Cloudflare Worker`)
@@ -832,6 +844,21 @@ serve(async (req) => {
               nvidiaResult.similarity_score >= SIMILARITY_THRESHOLD
 
         const verified = livenessPassed && faceMatch
+        console.log(JSON.stringify({
+          event: 'vision_biometric_approval',
+          livenessPassed,
+          faceMatch,
+          verified,
+          reasonCode: !nvidiaResult.face_detected
+            ? 'face_not_detected'
+            : !livenessPassed && nvidiaResult.anti_spoof_flags.length > 0
+              ? 'presentation_attack_detected'
+              : !livenessPassed
+                ? 'liveness_below_threshold'
+                : !faceMatch
+                  ? 'face_similarity_below_threshold'
+                  : 'biometric_passed',
+        }))
 
         let reasonCode: string
         if (!nvidiaResult.face_detected) {

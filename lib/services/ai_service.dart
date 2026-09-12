@@ -845,7 +845,15 @@ class NecxaAI {
     } catch (e) {
       var message = e.toString();
       if (message.startsWith('Exception: ')) message = message.substring(11);
-      return {'faceMatch': false, 'feedback': message, 'score': 0};
+      return {
+        'verified': false,
+        'faceMatch': false,
+        'livenessPassed': false,
+        'verificationSessionId': '',
+        'reasonCode': 'biometric_request_failed',
+        'feedback': message,
+        'score': 0,
+      };
     }
   }
 

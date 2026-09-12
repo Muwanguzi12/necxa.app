@@ -78,6 +78,16 @@ function requiredFile(formData: FormData, name: string): File {
   return value
 }
 
+class CaptureVerificationError extends Error {
+  constructor(
+    readonly captureStage: "front" | "back" | "holding" | "face",
+    message: string,
+  ) {
+    super(message)
+    this.name = "CaptureVerificationError"
+  }
+}
+
 function stageResult(job: Record<string, any>, expectedStage: string): Record<string, any> | null {
   const stages = Array.isArray(job.ai_verification_stage_results)
     ? job.ai_verification_stage_results
@@ -184,13 +194,22 @@ Deno.serve(async (req) => {
         fileToDataUrl(facePhoto),
         livenessEvidence ? fileToDataUrl(livenessEvidence) : Promise.resolve(null),
       ])
+      const verifyCapture = <T>(
+        stage: CaptureVerificationError["captureStage"],
+        verification: Promise<T>,
+      ) => verification.catch((error) => {
+        throw new CaptureVerificationError(
+          stage,
+          error instanceof Error ? error.message : String(error),
+        )
+      })
       const [frontResult, backResult, holdingResult, faceResult, livenessResult] = await Promise.all([
-        runDirectAiVerification(primaryJwt, "verify-id-front", frontBase64),
-        runDirectAiVerification(primaryJwt, "verify-id-back", backBase64),
-        runDirectAiVerification(primaryJwt, "verify-id-holding", holdingBase64),
+        verifyCapture("front", runDirectAiVerification(primaryJwt, "verify-id-front", frontBase64)),
+        verifyCapture("back", runDirectAiVerification(primaryJwt, "verify-id-back", backBase64)),
+        verifyCapture("holding", runDirectAiVerification(primaryJwt, "verify-id-holding", holdingBase64)),
         livenessBase64
-          ? runDirectAiVerification(primaryJwt, "verify-face-panorama", livenessBase64, livenessMetadata)
-          : runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64),
+          ? verifyCapture("face", runDirectAiVerification(primaryJwt, "verify-face-panorama", livenessBase64, livenessMetadata))
+          : verifyCapture("face", runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64)),
       ])
       const directJobs = await supabase
         .from("ai_verification_jobs")
@@ -252,6 +271,14 @@ Deno.serve(async (req) => {
         throw directJobs.error || new Error("Unable to create direct verification receipts.")
       }
       const biometricResult = livenessResult || faceResult
+      if (biometricResult.verified !== true ||
+        biometricResult.livenessPassed !== true ||
+        biometricResult.verificationSessionId == null ||
+        String(biometricResult.verificationSessionId).trim() === "") {
+        throw new Error(
+          String(biometricResult.feedback || "Biometric liveness was not approved."),
+        )
+      }
       const directJobsByStage = new Map(
         (directJobs.data as Record<string, any>[]).map((job) => [
           String(job.result_summary?.capture_stage || ""),
@@ -269,7 +296,7 @@ Deno.serve(async (req) => {
         { job_id: frontJob.id, stage: "front_document_assessment", provider: frontResult.engine || "ai-engine", decision: "pass", metadata: frontResult },
         { job_id: backJob.id, stage: "back_document_assessment", provider: backResult.engine || "ai-engine", decision: "pass", metadata: backResult },
         { job_id: holdingJob.id, stage: "holding_document_assessment", provider: holdingResult.engine || "ai-engine", decision: "pass", metadata: holdingResult },
-        { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: biometricResult.engine || "ai-engine", decision: "pass", metadata: { liveness_score: biometricResult.livenessScore, similarity_score: biometricResult.score, ...biometricResult } },
+        { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: biometricResult.engine || "ai-engine", decision: biometricResult.verified === true ? "pass" : "fail", metadata: { liveness_score: biometricResult.livenessScore, similarity_score: biometricResult.score, ...biometricResult } },
       ], { onConflict: "job_id,stage,attempt" })
       if (stageRows.error) throw stageRows.error
       receiptIds.front = frontJob.id
@@ -431,6 +458,18 @@ Deno.serve(async (req) => {
       },
     })
   } catch (error) {
+    if (error instanceof CaptureVerificationError) {
+      return json({
+        verified: false,
+        error_code: "identity_capture_rejected",
+        capture_stage: error.captureStage,
+        error: error.message,
+        reasonCode: error.captureStage === "face"
+          ? "biometric_not_approved"
+          : "document_capture_rejected",
+        retryable: true,
+      }, 422)
+    }
     console.error("Identity verification error:", error)
     return json({
       error_code: "identity_provider_unavailable",
