@@ -771,47 +771,6 @@ class NecxaAI {
     };
   }
 
-  static Future<Map<String, dynamic>> verifyFaceOnly(
-    File selfieFile, {
-    String? userId,
-  }) async {
-    try {
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null)
-        throw Exception(
-          "User must be logged in to verify biometrics natively.",
-        );
-
-      final primaryBase64 = await fileToBase64(selfieFile);
-      final data = await _invokeIdentityVerification(
-        buildIdentityShardPayload(
-          action: 'verify-face-only',
-          primaryBase64: primaryBase64,
-          userId: userId ?? session.user.id,
-        ),
-      );
-      final faceMatch = data['faceMatch'] == true || data['verified'] == true;
-      final feedback =
-          data['feedback']?.toString() ??
-          data['error']?.toString() ??
-          'Face-only verification failed';
-      final score = data['score'] is num
-          ? data['score']
-          : num.tryParse(data['score']?.toString() ?? '');
-
-      return {
-        ...data,
-        'faceMatch': faceMatch,
-        'feedback': feedback,
-        'score': score ?? 0,
-      };
-    } catch (e) {
-      String msg = e.toString();
-      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {'faceMatch': false, 'feedback': msg, 'score': 0};
-    }
-  }
-
   // ── LIVE STREAM SAFETY SCAN ──────────────────────────────────────────────────
   /// Scans a single captured live frame for policy violations.
   /// Detects: pornographic content, drug abuse, child safety, dangerous acts, hate symbols.

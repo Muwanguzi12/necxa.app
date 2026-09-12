@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:image/image.dart' as img;
 import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
@@ -1280,7 +1281,7 @@ class _Step3Identity extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text('Identity Shard', style: syne(sz: 18, w: FontWeight.w900)),
-                      Text('ID and face verification', style: dm(sz: 11, c: Colors.white64)),
+                      Text('ID and face verification', style: dm(sz: 11, c: Colors.white54)),
                     ],
                   ),
                   const Spacer(),
