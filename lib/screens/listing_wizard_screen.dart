@@ -9,6 +9,7 @@ import '../theme.dart';
 import '../app_state.dart';
 import '../services/listing_sync_service.dart';
 import '../services/ai_service.dart';
+import '../services/liveness_capture_service.dart';
 import '../utils/error_handler.dart';
 import '../main.dart' show cameras;
 
@@ -610,7 +611,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   String _aiFeedback(Map<String, dynamic> data, String fallback) {
-    final feedback = data['feedback']?.toString().trim();
+    final rawFeedback = data['feedback'] ?? data['error'] ?? data['reason'];
+    final feedback = rawFeedback is String ? rawFeedback.trim() : null;
     final approved = data['verified'] == true || data['faceMatch'] == true;
     if (!approved &&
         feedback != null &&
@@ -619,7 +621,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     }
     return (feedback != null && feedback.isNotEmpty)
         ? feedback
-        : data['error']?.toString() ?? data['reason']?.toString() ?? fallback;
+        : rawFeedback is Map
+        ? (rawFeedback['message'] ?? rawFeedback['error'] ?? fallback)
+              .toString()
+        : fallback;
   }
 
   Future<void> _runIdentityVerification() async {
@@ -751,6 +756,21 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           'panelOrder': ['center', 'turn_left', 'center_return'],
           'captureTimestampsMs': capture.captureTimestampsMs,
         };
+        Map<String, dynamic>? livenessManifest;
+        try {
+          livenessManifest = await LivenessCaptureService.createManifest(
+            frames: capture.frames,
+            captureTimestampsMs: capture.captureTimestampsMs,
+          );
+          livenessMetadata['cryptographicCapture'] = 'accepted';
+        } on UnsupportedError {
+          // iOS/web retain the existing backend flow until native keystore
+          // support is implemented; never pretend this is attested.
+          livenessMetadata['cryptographicCapture'] = 'unsupported';
+        } catch (error) {
+          livenessMetadata['cryptographicCapture'] = 'failed';
+          livenessMetadata['cryptographicCaptureError'] = error.toString();
+        }
         for (var attempt = 0; ; attempt++) {
           try {
             res = await ListingSyncService.submitIdentityShard(
@@ -768,6 +788,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
               idempotencyKey: '$_submissionIdempotencyKey:identity',
               livenessEvidence: panorama,
               livenessMetadata: livenessMetadata,
+              livenessManifest: livenessManifest,
+              livenessFrames: capture.frames,
             );
             break;
           } catch (error) {
@@ -1549,6 +1571,10 @@ class _Step3Identity extends StatelessWidget {
           icon: currentInstr.$3,
           compact: true,
         ),
+        if (subStep == 3) ...[
+          const SizedBox(height: 12),
+          const _LivenessCaptureGuide(),
+        ],
 
         const SizedBox(height: 14),
         _IdentityCaptureProgress(
@@ -1670,6 +1696,92 @@ class _HoldingCaptureStatus extends StatelessWidget {
               value: 'Visible',
               color: Color(0xFF00E5FF),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LivenessCaptureGuide extends StatelessWidget {
+  const _LivenessCaptureGuide();
+
+  @override
+  Widget build(BuildContext context) {
+    const steps = [
+      (Icons.face_outlined, 'Center', 'Look straight'),
+      (Icons.keyboard_arrow_left, 'Turn left', 'Move slowly'),
+      (Icons.refresh, 'Return', 'Face center'),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      decoration: BoxDecoration(
+        color: C.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: C.brand.withOpacity(.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.shield_outlined, size: 16, color: C.brand),
+              const SizedBox(width: 8),
+              Text(
+                'LIVE 3D CHECK',
+                style: syne(sz: 10, c: C.brand, w: FontWeight.w800, ls: 1),
+              ),
+              const Spacer(),
+              Text('3 quick frames', style: dm(sz: 10, c: C.dim)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              for (var index = 0; index < steps.length; index++) ...[
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 27,
+                        height: 27,
+                        decoration: BoxDecoration(
+                          color: C.brand.withOpacity(.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(steps[index].$1, size: 16, color: C.brand),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              steps[index].$2,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: syne(sz: 9, w: FontWeight.w700),
+                            ),
+                            Text(
+                              steps[index].$3,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: dm(sz: 9, c: C.dim),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (index < steps.length - 1)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(Icons.chevron_right, size: 14, color: C.dim),
+                  ),
+              ],
+            ],
           ),
         ],
       ),

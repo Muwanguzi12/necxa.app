@@ -388,8 +388,18 @@ class AppState extends ChangeNotifier {
 
   String? _shieldError;
   String? get shieldFeedback => _shieldError;
-  void setShieldFeedback(String? message) {
-    _shieldError = message;
+  void setShieldFeedback(Object? message) {
+    if (message == null) {
+      _shieldError = null;
+    } else if (message is String) {
+      _shieldError = message;
+    } else if (message is Map) {
+      final value =
+          message['message'] ?? message['error'] ?? message['feedback'];
+      _shieldError = value is String ? value : message.toString();
+    } else {
+      _shieldError = message.toString();
+    }
     notifyListeners();
   }
 

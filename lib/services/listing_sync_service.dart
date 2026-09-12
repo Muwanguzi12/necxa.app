@@ -55,6 +55,14 @@ class ListingSyncService {
     );
   }
 
+  static Future<http.MultipartFile> _identityRawImage(String field, File file) {
+    return http.MultipartFile.fromPath(
+      field,
+      file.path,
+      contentType: MediaType('image', 'jpeg'),
+    );
+  }
+
   static String get _edgeFuncUrl {
     final restUrl = Supabase.instance.client.rest.url;
     final baseUrl = restUrl.split('/rest/v1')[0];
@@ -138,6 +146,8 @@ class ListingSyncService {
     String? idempotencyKey,
     File? livenessEvidence,
     Map<String, dynamic>? livenessMetadata,
+    Map<String, dynamic>? livenessManifest,
+    List<File>? livenessFrames,
   }) async {
     final req = http.MultipartRequest('POST', Uri.parse(_identityFuncUrl));
     final headers = await _getHeaders();
@@ -165,7 +175,21 @@ class ListingSyncService {
         await _identityImage('liveness_evidence', livenessEvidence),
       );
       if (livenessMetadata != null) {
-        req.fields['liveness_metadata'] = jsonEncode(livenessMetadata);
+        req.fields['liveness_metadata'] = jsonEncode({
+          ...livenessMetadata,
+          if (livenessManifest != null)
+            'cryptographicManifest': livenessManifest,
+        });
+      }
+      if (livenessFrames != null) {
+        for (var index = 0; index < livenessFrames.length; index++) {
+          req.files.add(
+            await _identityRawImage(
+              'liveness_frame_$index',
+              livenessFrames[index],
+            ),
+          );
+        }
       }
     }
 

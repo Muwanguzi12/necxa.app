@@ -166,11 +166,32 @@ Deno.serve(async (req) => {
     }
     const livenessMetadataText = String(formData.get("liveness_metadata") || "").trim()
     let livenessMetadata: Record<string, unknown> | undefined
+    let livenessManifest: Record<string, any> | undefined
+    let livenessFrames: File[] = []
     if (livenessEvidence) {
       if (!livenessMetadataText) throw new Error("liveness_metadata is required with liveness_evidence.")
       const parsed = JSON.parse(livenessMetadataText)
       if (!validPanoramaMetadata(parsed)) throw new Error("Invalid liveness metadata.")
       livenessMetadata = parsed
+      if (parsed.cryptographicCapture === "accepted") {
+        const manifest = parsed.cryptographicManifest
+        if (!manifest || typeof manifest !== "object" ||
+          typeof manifest.nonce !== "string" ||
+          typeof manifest.keyId !== "string" ||
+          typeof manifest.signature !== "string" ||
+          !Array.isArray(manifest.frames) ||
+          manifest.frames.length !== 3) {
+          throw new Error("Cryptographic liveness manifest is missing or invalid.")
+        }
+        livenessManifest = manifest as Record<string, any>
+        livenessFrames = [0, 1, 2].map((index) => {
+          const value = formData.get(`liveness_frame_${index}`)
+          if (!(value instanceof File) || value.size === 0) {
+            throw new Error(`Missing liveness_frame_${index} for cryptographic verification.`)
+          }
+          return value
+        })
+      }
     }
     const docType = String(formData.get("doc_type") || "National ID")
     const docNumberInput = String(formData.get("doc_number") || "").trim()
@@ -187,6 +208,32 @@ Deno.serve(async (req) => {
     }
     const directAiMode = formData.get("verification_mode") === "direct-ai-engine"
     if (directAiMode) {
+      if (livenessManifest) {
+        const canonical = JSON.stringify({
+          nonce: livenessManifest.nonce,
+          frames: livenessManifest.frames,
+          createdAt: livenessManifest.createdAt,
+        })
+        const manifestHash = await sha256Hex(canonical)
+        const { data: challenge, error: challengeError } = await supabase
+          .from("liveness_challenges")
+          .select("id,consumed_at,manifest_hash")
+          .eq("user_id", user.id)
+          .eq("nonce", livenessManifest.nonce)
+          .eq("key_id", livenessManifest.keyId)
+          .maybeSingle()
+        if (challengeError) throw challengeError
+        if (!challenge || !challenge.consumed_at || challenge.manifest_hash !== manifestHash) {
+          throw new Error("Cryptographic liveness challenge was not accepted by SP2.")
+        }
+        for (let index = 0; index < livenessFrames.length; index++) {
+          const expected = livenessManifest.frames[index]
+          const actual = await fileSha256(livenessFrames[index])
+          if (expected?.index !== index || expected?.sha256 !== actual) {
+            throw new Error(`Cryptographic liveness frame ${index + 1} does not match its signed hash.`)
+          }
+        }
+      }
       const [frontBase64, backBase64, holdingBase64, faceBase64, livenessBase64] = await Promise.all([
         fileToDataUrl(idFront),
         fileToDataUrl(idBack),
