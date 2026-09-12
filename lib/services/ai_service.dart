@@ -653,7 +653,7 @@ class NecxaAI {
         ),
       );
 
-      return _sanitizeVerificationResult(data, fallback: feedbackFallback);
+      return _sanitizeVerificationResult(data, fallback: 'ID verification failed');
     } catch (e) {
       String msg = e.toString();
       if (msg.startsWith('Exception: ')) msg = msg.substring(11);
