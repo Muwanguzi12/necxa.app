@@ -324,7 +324,7 @@ class NecxaAI {
         }
       }
     } catch (e) {
-      debugPrint(\"Error extracting video frames: $e\");
+      debugPrint('Error extracting video frames: $e');
     } finally {
       await controller.dispose();
     }
@@ -374,7 +374,7 @@ class NecxaAI {
     try {
       final res = await http.post(
         Uri.parse('$_workerBase/api/assistant/chat/sync'),
-        headers: {\"Content-Type\": \"application/json\", ..._workerHeaders()},
+        headers: {'Content-Type': 'application/json', ..._workerHeaders()},
         body: jsonEncode({
           'message': userPrompt,
           'language': language,

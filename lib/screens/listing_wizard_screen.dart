@@ -40,21 +40,17 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   String _submissionIdempotencyKey = '';
   Set<String> _amenities = {};
 
-  // -- Step 3: Identity Shard (ShieldSDK) ------------------------------------
-  String? _identityShardId;
+  // -- Shard Tracking --------------------------------------------------------
+  String? _utilityShardId;
+  String? _gpsNodeId;
 
-  // -- Step 4: Utility Shard --------------------------------------------------
+  // -- Step 4: Utility Shard Controllers -------------------------------------
   final _umemeCtrl = TextEditingController();
   final _nwscCtrl = TextEditingController();
   final _landBlockCtrl = TextEditingController();
   final _landPlotCtrl = TextEditingController();
   final _lc1OfficerCtrl = TextEditingController();
   File? _utilityBillPhoto, _lc1StampPhoto, _landTitlePhoto, _brsLicensePhoto;
-  String? _utilityShardId;
-
-  // -- Step 5: GPS Lock ------------------------------------------------------
-  bool _gpsLocked = false;
-  String? _gpsNodeId;
 
   // -- Step 6: Photos --------------------------------------------------------
   final List<File> _exteriorPhotos = [];
@@ -69,10 +65,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   @override
   void initState() {
     super.initState();
-    _identityShardId = widget.state.identityShardId;
-    _utilityShardId = widget.state.utilityShardId;
-    final userId = widget.state.user?.id ?? 'anonymous';
-    _submissionIdempotencyKey = 'listing-$userId-${DateTime.now().microsecondsSinceEpoch}';
+    _submissionIdempotencyKey = 'listing-${widget.state.user?.id}-${DateTime.now().microsecondsSinceEpoch}';
     for (final controller in [_titleCtrl, _districtCtrl, _cityCtrl, _priceCtrl]) {
       controller.addListener(() => setState(() {}));
     }
@@ -103,7 +96,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       case 1: return (int.tryParse(_priceCtrl.text.replaceAll(',', '').trim()) ?? 0) > 0;
       case 2: return widget.state.identityShardId != null;
       case 3: return _utilityShardId != null;
-      case 4: return _gpsLocked;
+      case 4: return _gpsNodeId != null;
       case 5: return _exteriorPhotos.isNotEmpty && _interiorPhotos.isNotEmpty;
       default: return true;
     }
@@ -172,9 +165,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       case 1: return _Step2(priceCtrl: _priceCtrl, priceType: _priceType, bedrooms: _bedrooms, bathrooms: _bathrooms, sqft: _sqft, amenities: _amenities, onPriceType: (v) => setState(() => _priceType = v), onBeds: (v) => setState(() => _bedrooms = v), onBaths: (v) => setState(() => _bathrooms = v), onSqft: (v) => setState(() => _sqft = v), onAmenities: (v) => setState(() => _amenities = v));
       case 2: return _Step3Identity(state: widget.state, loading: _loading, subStep: widget.state.verificationSubStep, onVerify: _runIdentityVerification, scannerKey: _scannerKey);
       case 3: return _Step4Utility(role: _role, umemeCtrl: _umemeCtrl, nwscCtrl: _nwscCtrl, landBlockCtrl: _landBlockCtrl, landPlotCtrl: _landPlotCtrl, lc1OfficerCtrl: _lc1OfficerCtrl, utilityBillPhoto: _utilityBillPhoto, lc1StampPhoto: _lc1StampPhoto, landTitlePhoto: _landTitlePhoto, brsLicensePhoto: _brsLicensePhoto, loading: _loading, utilityShardId: _utilityShardId, onPickUtilityBill: (f) => setState(() => _utilityBillPhoto = f), onPickLc1: (f) => setState(() => _lc1StampPhoto = f), onPickTitle: (f) => setState(() => _landTitlePhoto = f), onPickBrs: (f) => setState(() => _brsLicensePhoto = f), onSave: _runUtilityVerification);
-      case 4: return _Step5Gps(gpsPosition: widget.state.currentGps, locked: _gpsLocked, loading: _loading, onLock: _runGpsLock);
+      case 4: return _Step5Gps(gpsPosition: widget.state.currentGps, locked: _gpsNodeId != null, loading: _loading, onLock: _runGpsLock);
       case 5: return _Step6Photos(exterior: _exteriorPhotos, interior: _interiorPhotos, bathroom: _bathroomPhotos, onAddExterior: (f) => setState(() => _exteriorPhotos.add(f)), onAddInterior: (f) => setState(() => _interiorPhotos.add(f)), onAddBathroom: (f) => setState(() => _bathroomPhotos.add(f)), onRemoveExterior: (i) => setState(() => _exteriorPhotos.removeAt(i)), onRemoveInterior: (i) => setState(() => _interiorPhotos.removeAt(i)), onRemoveBathroom: (i) => setState(() => _bathroomPhotos.removeAt(i)));
-      case 6: return _Step7Review(title: _titleCtrl.text, role: _role, propType: _propType, price: _priceCtrl.text, priceType: _priceType, idVerified: widget.state.lastIDResult?.verified ?? false, faceVerified: widget.state.lastSelfieResult?.faceMatch ?? false, gpsLocked: _gpsLocked, photoCount: _exteriorPhotos.length + _interiorPhotos.length, submitted: _submitted, mintEventId: _mintEventId, loading: _loading, onSubmit: _runFinalSubmission);
+      case 6: return _Step7Review(title: _titleCtrl.text, role: _role, propType: _propType, price: _priceCtrl.text, priceType: _priceType, idVerified: widget.state.lastIDResult?.verified ?? false, faceVerified: widget.state.lastSelfieResult?.faceMatch ?? false, gpsLocked: _gpsNodeId != null, photoCount: _exteriorPhotos.length + _interiorPhotos.length, submitted: _submitted, mintEventId: _mintEventId, loading: _loading, onSubmit: _runFinalSubmission);
       default: return const SizedBox.shrink();
     }
   }
@@ -204,7 +197,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         if (res['verified'] == true) {
           if (sub == 0) {
             state.lastIDResult = IDResult(verified: true, sessionId: res['sessionId']);
-            state.idImage = File((await ctrl.takePicture()).path); // Ensure we save the file
+            state.idImage = File((await ctrl.takePicture()).path);
           } else {
             state.lastIDBackResult = IDResult(verified: true, sessionId: res['sessionId']);
             state.idBackImage = File((await ctrl.takePicture()).path);
@@ -241,7 +234,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             backVerificationId: state.lastIDBackResult!.sessionId, 
             holdingVerificationId: state.lastHoldingResult!.sessionId, 
             biometricVerificationId: res['sessionId'], 
-            idempotencyKey: _submissionIdempotencyKey
+            idempotencyKey: '$_submissionIdempotencyKey:identity'
           );
           state.identityShardId = sync['identity_shard_id']?.toString();
           if (mounted && _step == 2) _next();
@@ -255,8 +248,20 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   Future<void> _runUtilityVerification() async {
     setState(() => _loading = true);
     try {
-      final res = await ListingSyncService.submitUtilityShard(country: "Uganda", umemeMeter: _umemeCtrl.text, nwscAccount: _nwscCtrl.text, utilityBillPhoto: _utilityBillPhoto!, lc1StampPhoto: _lc1StampPhoto!, lc1OfficerName: _lc1OfficerCtrl.text, landTitlePhoto: _landTitlePhoto!, landBlock: _landBlockCtrl.text, landPlot: _landPlotCtrl.text, brsLicensePhoto: _brsLicensePhoto, idempotencyKey: '$_submissionIdempotencyKey:utility');
-      if (res['verified'] == true) { 
+      final res = await ListingSyncService.submitUtilityShard(
+        country: "Uganda", 
+        umemeMeter: _umemeCtrl.text, 
+        nwscAccount: _nwscCtrl.text, 
+        utilityBillPhoto: _utilityBillPhoto!, 
+        lc1StampPhoto: _lc1StampPhoto!, 
+        lc1Officer: _lc1OfficerCtrl.text, 
+        landTitlePhoto: _landTitlePhoto!, 
+        landBlock: _landBlockCtrl.text, 
+        landPlot: _landPlotCtrl.text, 
+        businessLicensePhoto: _brsLicensePhoto, 
+        idempotencyKey: '$_submissionIdempotencyKey:utility'
+      );
+      if (res['utility_shard_id'] != null) { 
         setState(() { 
           _utilityShardId = res['utility_shard_id']?.toString(); 
           _step++; 
@@ -276,7 +281,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         if (res['gps_node_id'] != null) { 
           setState(() { 
             _gpsNodeId = res['gps_node_id']?.toString(); 
-            _gpsLocked = true; 
             _step++; 
           }); 
         }
@@ -287,10 +291,48 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   Future<void> _runFinalSubmission() async {
     setState(() => _loading = true);
     try {
-      final res = await ListingSyncService.submitNeuralSynthesis(identityShardId: widget.state.identityShardId!, utilityShardId: _utilityShardId!, gpsNodeId: _gpsNodeId!, title: _titleCtrl.text, description: _descCtrl.text, propertyType: _propType, price: double.parse(_priceCtrl.text.replaceAll(',', '')), priceType: _priceType, bedrooms: _bedrooms, bathrooms: _bathrooms, sqft: _sqft, amenities: _amenities.toList(), exteriorPhotos: _exteriorPhotos, interiorPhotos: _interiorPhotos, bathroomPhotos: _bathroomPhotos, idempotencyKey: _submissionIdempotencyKey);
+      final res = await ListingSyncService.submitNeuralSynthesis(
+        identityShardId: widget.state.identityShardId!, 
+        utilityShardId: _utilityShardId!, 
+        gpsNodeId: _gpsNodeId!, 
+        title: _titleCtrl.text, 
+        description: _descCtrl.text, 
+        propertyType: _propType, 
+        purpose: 'rent',
+        country: 'Uganda',
+        district: _districtCtrl.text,
+        address: _cityCtrl.text,
+        priceUgx: int.parse(_priceCtrl.text.replaceAll(',', '')), 
+        pricePeriod: _priceType == 'Monthly' ? '/month' : '/day',
+        bedrooms: _bedrooms, 
+        bathrooms: _bathrooms, 
+        sqft: _sqft, 
+        amenities: _amenities.toList(), 
+        photos: _exteriorPhotos, 
+        bathroomPhotos: _bathroomPhotos, 
+        idempotencyKey: _submissionIdempotencyKey
+      );
       setState(() { _mintEventId = res['mint_event_id']?.toString(); _submitted = true; });
-    } finally { setState(() => _loading = false); }
+    } catch (e) { _showError(e.toString()); }
+    finally { setState(() => _loading = false); }
   }
+
+  void _showError(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), backgroundColor: Colors.redAccent));
+}
+
+// -- UI Step Components ------------------------------------------------------
+
+class _Step1 extends StatelessWidget {
+  final String role, propType; final TextEditingController titleCtrl, districtCtrl, cityCtrl; final ValueChanged<String> onRole, onType;
+  const _Step1({required this.role, required this.propType, required this.titleCtrl, required this.districtCtrl, required this.cityCtrl, required this.onRole, required this.onType});
+  @override Widget build(BuildContext context) => Column(children: [_label('Your Role'), Row(children: [Expanded(child: _roleBtn('Owner', role == 'owner', () => onRole('owner'))), const SizedBox(width: 12), Expanded(child: _roleBtn('Agent', role == 'agent', () => onRole('agent')))]), const SizedBox(height: 24), _label('Listing Title'), _input(titleCtrl, 'e.g. Modern 2BR Apartment'), const SizedBox(height: 16), _label('Location'), Row(children: [Expanded(child: _input(districtCtrl, 'District')), const SizedBox(width: 12), Expanded(child: _input(cityCtrl, 'City'))])]);
+  Widget _roleBtn(String l, bool a, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.symmetric(vertical: 14), decoration: BoxDecoration(color: a ? C.brand : C.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: a ? C.brand : C.border)), child: Center(child: Text(l, style: syne(sz: 14, w: FontWeight.bold, c: a ? Colors.black : C.text)))));
+}
+class _Step2 extends StatelessWidget {
+  final TextEditingController priceCtrl; final String priceType; final int bedrooms, bathrooms, sqft; final Set<String> amenities; final ValueChanged<String> onPriceType; final ValueChanged<int> onBeds, onBaths, onSqft; final ValueChanged<Set<String>> onAmenities;
+  const _Step2({required this.priceCtrl, required this.priceType, required this.bedrooms, required this.bathrooms, required this.sqft, required this.amenities, required this.onPriceType, required this.onBeds, required this.onBaths, required this.onSqft, required this.onAmenities});
+  @override Widget build(BuildContext context) => Column(children: [_label('Price'), Row(children: [Expanded(flex: 2, child: _input(priceCtrl, 'Amount')), const SizedBox(width: 12), Expanded(child: Container(padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.border)), child: DropdownButton<String>(value: priceType, underline: const SizedBox(), items: ['Monthly', 'Daily', 'Total'].map((s) => DropdownMenuItem(value: s, child: Text(s, style: syne(sz: 13)))).toList(), onChanged: (v) => onPriceType(v!))))]), const SizedBox(height: 24), Row(children: [Expanded(child: _counter('Bedrooms', bedrooms, onBeds)), const SizedBox(width: 12), Expanded(child: _counter('Bathrooms', bathrooms, onBaths))])]);
+  Widget _counter(String l, int v, ValueChanged<int> c) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: C.border)), child: Column(children: [Text(l, style: syne(sz: 11, c: C.dim)), Row(mainAxisAlignment: MainAxisAlignment.center, children: [IconButton(onPressed: v > 0 ? () => c(v - 1) : null, icon: const Icon(Icons.remove, size: 16)), Text('$v', style: syne(sz: 18, w: FontWeight.bold)), IconButton(onPressed: () => c(v + 1), icon: const Icon(Icons.add, size: 16))])]));
 }
 
 class _Step3Identity extends StatelessWidget {
