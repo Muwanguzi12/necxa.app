@@ -125,13 +125,13 @@ class ListingSyncService {
       req.headers['Idempotency-Key'] = idempotencyKey;
     }
 
-    req.fields['country'] = country;
-    req.fields['doc_type'] = docType;
-    req.fields['doc_number'] = docNumber;
-    req.fields['front_verification_id'] = frontVerificationId;
-    req.fields['back_verification_id'] = backVerificationId;
-    req.fields['holding_verification_id'] = holdingVerificationId;
-    req.fields['biometric_verification_id'] = biometricVerificationId;
+    req.fields['country'] = country.toString();
+    req.fields['doc_type'] = docType.toString();
+    req.fields['doc_number'] = docNumber.toString();
+    req.fields['front_verification_id'] = frontVerificationId.toString();
+    req.fields['back_verification_id'] = backVerificationId.toString();
+    req.fields['holding_verification_id'] = holdingVerificationId.toString();
+    req.fields['biometric_verification_id'] = biometricVerificationId.toString();
     // The four captures above are immediate UI checks. Ask the authoritative
     // verification project to create and validate its signed receipts before
     // it stores the completed identity shard.
