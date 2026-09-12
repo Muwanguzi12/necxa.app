@@ -1505,7 +1505,6 @@ class _Step3Identity extends StatelessWidget {
               ),
             ],
           ),
-        ),
       );
     }
 
