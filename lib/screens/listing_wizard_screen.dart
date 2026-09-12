@@ -2170,9 +2170,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               child: AnimatedBuilder(
                 animation: _ctrl,
                 builder: (context, child) {
-                  final double scannerHeight = isHolding
-                      ? 360
-                      : (widget.subStep < 2 ? 480 : 270);
+                  final double scannerHeight = isHolding ? 360 : 270;
                   return CustomPaint(
                     size: Size(double.infinity, scannerHeight),
                     painter: _ScannerOverlayPainter(
