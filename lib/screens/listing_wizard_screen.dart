@@ -116,7 +116,15 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     if (isHoldIDStep) {
       return Scaffold(
         backgroundColor: const Color(0xFF030E17),
-        body: _Step3Identity(state: widget.state, loading: _loading, subStep: 2, onVerify: _runIdentityVerification, scannerKey: _scannerKey),
+        body: _Step3Identity(
+          state: widget.state,
+          loading: _loading,
+          subStep: 2,
+          onVerify: _runIdentityVerification,
+          scannerKey: _scannerKey,
+          onBack: _back,
+          onNext: _canGoNext ? _next : null,
+        ),
       );
     }
 
@@ -343,43 +351,101 @@ class _Step2 extends StatelessWidget {
 
 class _Step3Identity extends StatelessWidget {
   final AppState state; final bool loading; final int subStep; final Future<void> Function() onVerify; final GlobalKey<_NeuralScannerOverlayState> scannerKey;
-  const _Step3Identity({required this.state, required this.loading, required this.subStep, required this.onVerify, required this.scannerKey});
+  final VoidCallback? onBack; final VoidCallback? onNext;
+  const _Step3Identity({required this.state, required this.loading, required this.subStep, required this.onVerify, required this.scannerKey, this.onBack, this.onNext});
 
   @override
   Widget build(BuildContext context) {
     if (subStep == 2) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        child: Column(children: [
-          Row(children: [
-            IconButton(icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20), onPressed: () => state.go('home')),
-            const SizedBox(width: 8),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Identity Shard', style: syne(sz: 18, w: FontWeight.w900, c: Colors.white)), Text('Landscape verification', style: dm(sz: 11, c: Colors.white54))]),
-            const Spacer(),
-            Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: const Color(0xFF0F2631), borderRadius: BorderRadius.circular(12)), child: Row(children: [const Icon(Icons.verified_user, color: Colors.green, size: 14), const SizedBox(width: 6), Text('Secure session', style: dm(sz: 10, c: Colors.white))])),
-          ]),
-          const SizedBox(height: 10),
-          Text('Fit face and ID inside the frames', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
-          const SizedBox(height: 10),
-          Expanded(child: Center(child: AspectRatio(aspectRatio: 2.3, child: Stack(children: [
-            ClipRRect(borderRadius: BorderRadius.circular(24), child: _NeuralScannerOverlay(key: scannerKey, documentMode: false, subStep: subStep)),
-            Positioned(top: 15, left: 15, child: Row(children: [const _PulsingLight(), const SizedBox(width: 6), Text('LIVE', style: dm(sz: 10, w: FontWeight.bold, c: Colors.white))])),
-            Positioned(bottom: 15, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [_guideLabel('ID', Colors.yellow), const SizedBox(width: 220), _guideLabel('Face', Colors.cyan)])),
-            Positioned(right: 15, top: 0, bottom: 0, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _iconBtn(Icons.bolt, () => scannerKey.currentState?.toggleFlash()),
-              const SizedBox(height: 16),
-              _iconBtn(Icons.cached, () => scannerKey.currentState?.switchLens()),
-            ])),
-          ])))),
-          const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [_info('Lighting'), _info('ID Readable'), _info('No Glasses')]),
-          const SizedBox(height: 12),
-          Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: const Color(0xFF081622), borderRadius: BorderRadius.circular(16)), child: Row(children: [
-            Text('3 of 4 verified', style: dm(sz: 12, c: Colors.white70)),
-            const Spacer(),
-            ElevatedButton.icon(onPressed: loading ? null : onVerify, style: ElevatedButton.styleFrom(backgroundColor: C.brand, foregroundColor: Colors.black), icon: const Icon(Icons.camera_alt), label: Text(loading ? 'VERIFYING...' : 'SCAN HOLDING ID PHOTO')),
-          ])),
-        ]),
+      final done = [state.lastIDResult?.verified ?? false, state.idBackImage != null, state.lastHoldingResult?.verified ?? false, state.lastSelfieResult?.faceMatch ?? false];
+      final cnt = done.where((v) => v).length;
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              // 1. HEADER (Compact)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Text('Identity Shard', style: syne(sz: 14, w: FontWeight.w900, c: Colors.white)),
+                    const Spacer(),
+                    Text('3 / 7', style: dm(sz: 10, w: FontWeight.bold, c: Colors.white38)),
+                    const SizedBox(width: 12),
+                    const Icon(Icons.verified_user, color: Colors.green, size: 14),
+                  ],
+                ),
+              ),
+              // 2. INSTRUCTION (Compact)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text('Fit face and ID inside the frames', style: syne(sz: 14, w: FontWeight.bold, c: Colors.white70)),
+              ),
+              // 3. CAMERA (Biggest area)
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
+                    children: [
+                      _NeuralScannerOverlay(key: scannerKey, documentMode: false, subStep: subStep),
+                      Positioned(top: 10, left: 12, child: Row(children: [const _PulsingLight(), const SizedBox(width: 4), Text('LIVE', style: dm(sz: 9, w: FontWeight.bold, c: Colors.white))])),
+                      Positioned(bottom: 12, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [_guideLabel('ID', Colors.yellow), const SizedBox(width: 180), _guideLabel('Face', Colors.cyan)])),
+                      Positioned(right: 12, top: 0, bottom: 0, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [_iconBtn(Icons.bolt, () => scannerKey.currentState?.toggleFlash()), const SizedBox(height: 16), _iconBtn(Icons.cached, () => scannerKey.currentState?.switchLens())])),
+                    ],
+                  ),
+                ),
+              ),
+              // 4. STATUS (Compressed)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _miniInfo(Icons.wb_sunny_outlined, 'Lighting'),
+                    const SizedBox(width: 16),
+                    _miniInfo(Icons.badge_outlined, 'ID Readable'),
+                    const SizedBox(width: 16),
+                    _miniInfo(Icons.visibility_off_outlined, 'No Glasses'),
+                  ],
+                ),
+              ),
+              // 5. CAPTURE / VERIFICATION (Compact)
+              Container(
+                height: 48,
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: loading ? null : onVerify,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: C.brand,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                  icon: const Icon(Icons.camera_alt, size: 18),
+                  label: Text(loading ? 'VERIFYING...' : 'SCAN HOLDING ID', style: syne(sz: 13, w: FontWeight.w900)),
+                ),
+              ),
+              // 6. BACK CONTINUE STRIP (52px)
+              Container(
+                height: 52,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: onBack,
+                      child: Row(children: [const Icon(Icons.chevron_left, size: 20, color: Colors.white54), Text('Back', style: syne(sz: 14, c: Colors.white54))]),
+                    ),
+                    TextButton(
+                      onPressed: onNext,
+                      child: Row(children: [Text('Continue', style: syne(sz: 14, c: onNext != null ? C.brand : Colors.white24)), Icon(Icons.chevron_right, size: 20, color: onNext != null ? C.brand : Colors.white24)]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -392,8 +458,9 @@ class _Step3Identity extends StatelessWidget {
     ]);
   }
 
-  Widget _guideLabel(String t, Color c) => Container(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20), border: Border.all(color: c)), child: Text(t, style: dm(sz: 10, w: FontWeight.bold, c: Colors.white)));
-  Widget _iconBtn(IconData i, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white10, shape: BoxShape.circle), child: Icon(i, color: Colors.white, size: 20)));
+  Widget _guideLabel(String t, Color c) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20), border: Border.all(color: c)), child: Text(t, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold)));
+  Widget _iconBtn(IconData i, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.white10, shape: BoxShape.circle), child: Icon(i, color: Colors.white, size: 18)));
+  Widget _miniInfo(IconData i, String t) => Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, color: C.brand, size: 14), const SizedBox(width: 4), Text(t, style: dm(sz: 9, c: Colors.white70))]);
   Widget _info(String t) => Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [const Icon(Icons.check_circle, color: C.brand, size: 14), const SizedBox(width: 6), Text(t, style: dm(sz: 10, c: Colors.white70))]));
 }
 
