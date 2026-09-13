@@ -168,25 +168,27 @@ class FinanceGiftingService {
     }
   }
 
-  Future<Map<String, dynamic>> fetchLiveGiftSnapshot(String contextId) async {
+  Future<Map<String, dynamic>> fetchGiftSnapshot(String contextId) async {
     await FinanceInitializer.instance.ensureInitialized();
     final result = await FinanceBackend.instance.invoke(
-      'list_live_gifts',
+      'list_gifts',
       body: {'contextId': contextId},
     );
     return Map<String, dynamic>.from(result);
   }
 
-  Stream<Map<String, dynamic>> watchLiveGifts(String contextId) async* {
+  Stream<Map<String, dynamic>> watchGifts(String contextId, {Duration pulseInterval = const Duration(seconds: 4)}) async* {
     final seen = <String>{};
     var initialized = false;
+
     while (true) {
       try {
         await FinanceInitializer.instance.ensureInitialized();
-        final result = await fetchLiveGiftSnapshot(contextId);
+        final result = await fetchGiftSnapshot(contextId);
         final gifts = (result['gifts'] as List? ?? const [])
             .map((item) => Map<String, dynamic>.from(item as Map))
             .toList();
+
         if (!initialized) {
           seen.addAll(gifts.map((gift) => gift['id']?.toString() ?? ''));
           initialized = true;
@@ -196,10 +198,8 @@ class FinanceGiftingService {
             if (id.isNotEmpty && seen.add(id)) yield gift;
           }
         }
-      } catch (_) {
-        // A temporary network failure must not terminate live gift updates.
-      }
-      await Future<void>.delayed(const Duration(seconds: 1));
+      } catch (_) {}
+      await Future<void>.delayed(pulseInterval);
     }
   }
 

@@ -18,6 +18,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/live_studio/live_enforcement_overlay.dart';
 import '../utils/error_handler.dart';
+import 'community/gift_container.dart';
 
 enum _GuestJoinMode { video, audioOnly }
 
@@ -162,7 +163,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     _promotionTimer?.cancel();
     _giftEventsSubscription?.cancel();
     _liveGiftEvents = widget.state.financeGifting
-        .watchLiveGifts(_channelName)
+        .watchGifts(_channelName, pulseInterval: const Duration(seconds: 1))
         .map((gift) => <String, dynamic>{'type': 'gift', 'data': gift})
         .asBroadcastStream();
     _giftEventsSubscription = _liveGiftEvents.listen((event) {
@@ -506,7 +507,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   Future<void> _syncGiftStats() async {
     try {
-      final snapshot = await widget.state.financeGifting.fetchLiveGiftSnapshot(
+      final snapshot = await widget.state.financeGifting.fetchGiftSnapshot(
         _channelName,
       );
       final summary = snapshot['summary'];
@@ -3456,247 +3457,20 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     String? receiverId,
     String? receiverName,
   }) async {
-    final gifts = await widget.state.financeGifting.fetchGiftItems();
     if (!mounted) return;
-    var sending = false;
-    final giftReceiverName = receiverName ?? _hostDisplayName;
-
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0C0E14),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (_) => StatefulBuilder(
-        builder: (context, setModalState) {
-          Future<void> sendGift(GiftItem gift) async {
-            if (sending) return;
-            final senderId = widget.state.user?.id;
-            final giftReceiverId = receiverId ?? _hostUserId;
-            if (senderId == null || giftReceiverId == null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Sign in and join a live host before sending gifts.',
-                    style: dm(),
-                  ),
-                ),
-              );
-              return;
-            }
-            if (senderId == giftReceiverId) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'You cannot gift your own live stream.',
-                    style: dm(),
-                  ),
-                ),
-              );
-              return;
-            }
-
-            if (widget.state.coinBalance < gift.ncxValue) {
-              if (widget.state.coinPacks.isEmpty) {
-                widget.state.coinPacks = await widget.state.financeCoinPurchases
-                    .packs();
-              }
-              if (!context.mounted) return;
-              if (widget.state.coinPacks.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Coin packs are temporarily unavailable.',
-                      style: dm(),
-                    ),
-                  ),
-                );
-                return;
-              }
-              final purchased = await showModalBottomSheet<bool>(
-                context: context,
-                backgroundColor: Colors.transparent,
-                isScrollControlled: true,
-                builder: (_) => VaultBuyShardsOverlay(
-                  state: widget.state,
-                  minimumNcx: gift.ncxValue - widget.state.coinBalance.toInt(),
-                  purchaseContextType: 'live_stream_gift',
-                  purchaseContextId: _channelName,
-                  targetGiftItemId: gift.id,
-                ),
-              );
-              if (!context.mounted) return;
-              if (purchased != true) return;
-              await widget.state.syncVault();
-              if (!context.mounted) return;
-              if (widget.state.coinBalance < gift.ncxValue) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'The wallet still needs more NCX for this gift.',
-                      style: dm(),
-                    ),
-                  ),
-                );
-                return;
-              }
-            }
-
-            setModalState(() => sending = true);
-            final result = await widget.state.financeGifting.sendGift(
-              senderId: senderId,
-              receiverId: giftReceiverId,
-              giftItemId: gift.id,
-              ncxAmount: gift.ncxValue,
-              contextType: 'live_stream',
-              contextId: _channelName,
-              contextNote: 'Live gift for $giftReceiverName: ${gift.name}',
-              senderName: widget.state.myDisplayName ?? 'Viewer',
-              senderAvatar: widget.state.myAvatarUrl,
-            );
-
-            if (!mounted) return;
-            if (!result.success) {
-              setModalState(() => sending = false);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(result.message, style: dm())),
-              );
-              return;
-            }
-
-            Navigator.pop(context);
-          }
-
-          return Container(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: C.dim,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Send a gift to support $giftReceiverName!',
-                      style: syne(sz: 12, w: FontWeight.bold, c: C.text),
-                    ),
-                    if (sending)
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: ['Popular', 'New', 'Luxury', 'Fun', 'Bundle'].map((
-                    tab,
-                  ) {
-                    final isSelected = tab == 'Popular';
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      child: Text(
-                        tab,
-                        style: syne(
-                          sz: 12,
-                          w: isSelected ? FontWeight.bold : FontWeight.normal,
-                          c: isSelected ? C.brand : C.dim,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 20),
-                GridView.count(
-                  shrinkWrap: true,
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.9,
-                  children: gifts.take(9).map((gift) {
-                    return GestureDetector(
-                      onTap: sending ? null : () => sendGift(gift),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: C.text.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: C.dim),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 40,
-                              height: 40,
-                              child: () {
-                                final url = gift.imageUrl ?? 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/${gift.id}.jpeg';
-                                return ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: CachedNetworkImage(
-                                    imageUrl: url,
-                                    fit: BoxFit.cover,
-                                    placeholder: (_, __) => Center(child: Text(gift.emoji, style: const TextStyle(fontSize: 32))),
-                                    errorWidget: (_, __, ___) => Center(child: Text(gift.emoji, style: const TextStyle(fontSize: 32))),
-                                  ),
-                                );
-                              }(),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              gift.name,
-                              style: dm(
-                                sz: 11,
-                                w: FontWeight.bold,
-                                c: C.text,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(
-                                  Icons.monetization_on,
-                                  color: Colors.amber,
-                                  size: 10,
-                                ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  '${gift.ncxValue}',
-                                  style: dm(
-                                    sz: 10,
-                                    w: FontWeight.w900,
-                                    c: Colors.amber,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          );
-        },
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => GiftContainer(
+        state: widget.state,
+        receiverId: receiverId ?? _hostUserId ?? '',
+        postId: _channelName,
+        contextType: 'live_stream',
+        onDismiss: () => Navigator.pop(ctx),
       ),
     );
+  }
   }
 
   void _toggleGuestRequest() async {
