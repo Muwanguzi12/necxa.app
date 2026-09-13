@@ -281,7 +281,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         if (res['gps_node_id'] != null) { 
           setState(() { 
             _gpsNodeId = res['gps_node_id']?.toString(); 
-            _gpsLocked = true; 
             _step++; 
           }); 
         }
