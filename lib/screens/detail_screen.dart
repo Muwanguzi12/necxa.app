@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:intl/intl.dart';
 import '../models/booking_models.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../widgets/live_overlays.dart';
 
 // -------------------------------------------------------------
 // PROPERTY DETAIL SCREEN � Production Release 2.0
@@ -24,11 +25,40 @@ class _DetailScreenState extends State<DetailScreen> {
   Duration _timeLeft = Duration.zero;
   final PageController _pageController = PageController();
   int _currentPath = 0;
+  Stream<Map<String, dynamic>>? _giftStream;
 
   @override
   void initState() {
     super.initState();
     _startTimer();
+    _initGiftPulse();
+  }
+
+  void _initGiftPulse() {
+    final p = widget.state.currentProperty;
+    if (p == null) return;
+    
+    _giftStream = widget.state.financeGifting
+        .watchCommunityGifts(p.core.id)
+        .map((gift) => <String, dynamic>{
+              'type': 'gift',
+              'data': {
+                ...gift,
+                'userName': gift['senderName'],
+                'emoji': gift['giftEmoji'],
+                'imageUrl': gift['senderAvatar'],
+              }
+            })
+        .asBroadcastStream();
+
+    _giftStream?.listen((event) {
+      final gift = Map<String, dynamic>.from(event['data'] as Map? ?? const {});
+      final userId = widget.state.user?.id;
+      if (userId != null &&
+          (gift['senderId'] == userId || gift['receiverId'] == userId)) {
+        widget.state.syncVault();
+      }
+    });
   }
 
   @override
@@ -84,6 +114,10 @@ class _DetailScreenState extends State<DetailScreen> {
           // Sticky Header
           Positioned(top: 0, left: 0, right: 0, child: _buildStickyNav(p)),
           
+          // ── Gifting Pulse Layer ──
+          if (_giftStream != null)
+            LiveGiftingOverlay(eventStream: _giftStream!),
+
           // Bottom Interaction Bar
           Positioned(bottom: 0, left: 0, right: 0, child: _buildInteractionBar(p)),
         ],

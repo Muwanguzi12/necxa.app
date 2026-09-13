@@ -18,6 +18,7 @@ import '../widgets/checkout_overlay.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/commerce_service.dart';
+import '../widgets/live_overlays.dart';
 
 String? _extractListingImageUrl(dynamic value) {
   if (value == null) return null;
@@ -1626,6 +1627,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late AnimationController _expandController;
   Timer? _collapseTimer;
+  Stream<Map<String, dynamic>>? _giftStream;
 
   @override
   void initState() {
@@ -1645,6 +1647,28 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
+
+    _giftStream = widget.state.financeGifting
+        .watchCommunityGifts(_engagementTargetId)
+        .map((gift) => <String, dynamic>{
+              'type': 'gift',
+              'data': {
+                ...gift,
+                'userName': gift['senderName'],
+                'emoji': gift['giftEmoji'],
+                'imageUrl': gift['senderAvatar'],
+              }
+            })
+        .asBroadcastStream();
+
+    _giftStream?.listen((event) {
+      final gift = Map<String, dynamic>.from(event['data'] as Map? ?? const {});
+      final userId = widget.state.user?.id;
+      if (userId != null &&
+          (gift['senderId'] == userId || gift['receiverId'] == userId)) {
+        widget.state.syncVault();
+      }
+    });
 
     _discController = AnimationController(
       vsync: this,
@@ -2106,6 +2130,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             ),
           ),
         ),
+
+        // ── Gifting Pulse Layer ──
+        if (_giftStream != null)
+          LiveGiftingOverlay(eventStream: _giftStream!),
 
         // 4. Side Action Hub
         Positioned(
@@ -3066,6 +3094,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
   late AnimationController _pulseController;
   late AnimationController _expandController;
   Timer? _collapseTimer;
+  Stream<Map<String, dynamic>>? _giftStream;
 
   @override
   void initState() {
@@ -3089,6 +3118,28 @@ class _ShopReelItemState extends State<_ShopReelItem>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
+
+    _giftStream = widget.state.financeGifting
+        .watchCommunityGifts(widget.listing['id'].toString())
+        .map((gift) => <String, dynamic>{
+              'type': 'gift',
+              'data': {
+                ...gift,
+                'userName': gift['senderName'],
+                'emoji': gift['giftEmoji'],
+                'imageUrl': gift['senderAvatar'],
+              }
+            })
+        .asBroadcastStream();
+
+    _giftStream?.listen((event) {
+      final gift = Map<String, dynamic>.from(event['data'] as Map? ?? const {});
+      final userId = widget.state.user?.id;
+      if (userId != null &&
+          (gift['senderId'] == userId || gift['receiverId'] == userId)) {
+        widget.state.syncVault();
+      }
+    });
   }
 
   @override
@@ -3272,6 +3323,10 @@ class _ShopReelItemState extends State<_ShopReelItem>
             ),
           ),
         ),
+
+        // ── Gifting Pulse Layer ──
+        if (_giftStream != null)
+          LiveGiftingOverlay(eventStream: _giftStream!),
 
         // 5. SIDE ACTION HUB (RIGHT)
         Positioned(

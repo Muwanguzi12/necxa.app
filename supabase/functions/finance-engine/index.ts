@@ -2853,6 +2853,56 @@ serve(async (req) => {
       });
     }
 
+    // ── Action: list_community_gifts ──────────────────────────────────────────
+    if (action === "list_community_gifts") {
+      const contextId = body.contextId as string;
+      if (!contextId) return json({ success: false, message: "contextId required." }, 400);
+
+      const { data: gifts, error } = await supabase
+        .from("gifts")
+        .select("id, sender_id, gift_item_id, ncx_amount, created_at, metadata, is_anonymous")
+        .eq("context_id", contextId)
+        .in("context_type", ["creator_post", "listing"])
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (error) {
+        return json({ success: false, message: error.message }, 503);
+      }
+
+      // Resolve emojis from a minimal internal map to avoid a secondary join per request
+      const emojiMap: Record<string, string> = {
+        rose: "🌹", clap: "👏", heart: "❤️", coffee: "☕", star: "⭐", fire: "🔥",
+        rocket: "🚀", crown: "👑", diamond: "💎", trophy: "🏆", money_bag: "💰",
+        sports_car: "🏎️", yacht: "🛥️", mansion: "🏰", jet: "✈️", globe: "🌍",
+        stadium: "🏟️", ressort: "🎢"
+      };
+
+      const formatted = (gifts || []).map(g => {
+        const meta = (g.metadata ?? {}) as Record<string, any>;
+        const isAnon = g.is_anonymous === true;
+        const itemId = String(g.gift_item_id ?? "gift");
+
+        return {
+          id: g.id,
+          senderId: g.sender_id,
+          senderName: isAnon ? "Anonymous" : (meta.sender_name || "Someone"),
+          senderAvatar: isAnon ? "" : (meta.sender_avatar || ""),
+          giftItemId: itemId,
+          giftEmoji: emojiMap[itemId] || "🎁",
+          giftName: itemId.split('_').map(w => w[0].toUpperCase() + w.substring(1)).join(' '),
+          amount: g.ncx_amount,
+          timestamp: g.created_at,
+          context_note: meta.context_note,
+        };
+      });
+
+      return json({
+        success: true,
+        gifts: formatted,
+      });
+    }
+
     // ── Action: get_wallet ───────────────────────────────────────────────────
     // Returns the current wallet for the authenticated user.
     // Called by Flutter _syncVault() every time the UI needs to refresh balances.
