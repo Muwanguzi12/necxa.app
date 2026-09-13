@@ -234,7 +234,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             backVerificationId: state.lastIDBackResult!.sessionId, 
             holdingVerificationId: state.lastHoldingResult!.sessionId, 
             biometricVerificationId: res['sessionId'], 
-            idempotencyKey: '$_submissionIdempotencyKey:identity'
+            idempotencyKey: _submissionIdempotencyKey
           );
           state.identityShardId = sync['identity_shard_id']?.toString();
           if (mounted && _step == 2) _next();
@@ -281,6 +281,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         if (res['gps_node_id'] != null) { 
           setState(() { 
             _gpsNodeId = res['gps_node_id']?.toString(); 
+            _gpsLocked = true; 
             _step++; 
           }); 
         }
@@ -328,6 +329,7 @@ class _Step1 extends StatelessWidget {
   @override Widget build(BuildContext context) => Column(children: [_label('Your Role'), Row(children: [Expanded(child: _roleBtn('Owner', role == 'owner', () => onRole('owner'))), const SizedBox(width: 12), Expanded(child: _roleBtn('Agent', role == 'agent', () => onRole('agent')))]), const SizedBox(height: 24), _label('Listing Title'), _input(titleCtrl, 'e.g. Modern 2BR Apartment'), const SizedBox(height: 16), _label('Location'), Row(children: [Expanded(child: _input(districtCtrl, 'District')), const SizedBox(width: 12), Expanded(child: _input(cityCtrl, 'City'))])]);
   Widget _roleBtn(String l, bool a, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.symmetric(vertical: 14), decoration: BoxDecoration(color: a ? C.brand : C.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: a ? C.brand : C.border)), child: Center(child: Text(l, style: syne(sz: 14, w: FontWeight.bold, c: a ? Colors.black : C.text)))));
 }
+
 class _Step2 extends StatelessWidget {
   final TextEditingController priceCtrl; final String priceType; final int bedrooms, bathrooms, sqft; final Set<String> amenities; final ValueChanged<String> onPriceType; final ValueChanged<int> onBeds, onBaths, onSqft; final ValueChanged<Set<String>> onAmenities;
   const _Step2({required this.priceCtrl, required this.priceType, required this.bedrooms, required this.bathrooms, required this.sqft, required this.amenities, required this.onPriceType, required this.onBeds, required this.onBaths, required this.onSqft, required this.onAmenities});
@@ -465,18 +467,6 @@ Widget _label(String t) => Padding(padding: const EdgeInsets.only(bottom: 8), ch
 Widget _input(TextEditingController c, String h, {IconData? icon}) => Container(decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.border)), child: TextField(controller: c, style: syne(sz: 14), decoration: InputDecoration(hintText: h, prefixIcon: icon != null ? Icon(icon, size: 18, color: C.dim) : null, border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12))));
 Widget _filePick(String l, File? f, ValueChanged<File> o) => GestureDetector(onTap: () async { final p = await ImagePicker().pickImage(source: ImageSource.camera); if (p != null) o(File(p.path)); }, child: Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.border)), child: Row(children: [Icon(f != null ? Icons.check_circle : Icons.add_a_photo, color: f != null ? C.brand : C.dim), const SizedBox(width: 12), Expanded(child: Text(l, style: syne(sz: 13))), if (f != null) Text('Captured', style: dm(sz: 11, c: C.brand))])));
 
-class _Step1 extends StatelessWidget {
-  final String role, propType; final TextEditingController titleCtrl, districtCtrl, cityCtrl; final ValueChanged<String> onRole, onType;
-  const _Step1({required this.role, required this.propType, required this.titleCtrl, required this.districtCtrl, required this.cityCtrl, required this.onRole, required this.onType});
-  @override Widget build(BuildContext context) => Column(children: [_label('Your Role'), Row(children: [Expanded(child: _roleBtn('Owner', role == 'owner', () => onRole('owner'))), const SizedBox(width: 12), Expanded(child: _roleBtn('Agent', role == 'agent', () => onRole('agent')))]), const SizedBox(height: 24), _label('Listing Title'), _input(titleCtrl, 'e.g. Modern 2BR Apartment'), const SizedBox(height: 16), _label('Location'), Row(children: [Expanded(child: _input(districtCtrl, 'District')), const SizedBox(width: 12), Expanded(child: _input(cityCtrl, 'City'))])]);
-  Widget _roleBtn(String l, bool a, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.symmetric(vertical: 14), decoration: BoxDecoration(color: a ? C.brand : C.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: a ? C.brand : C.border)), child: Center(child: Text(l, style: syne(sz: 14, w: FontWeight.bold, c: a ? Colors.black : C.text)))));
-}
-class _Step2 extends StatelessWidget {
-  final TextEditingController priceCtrl; final String priceType; final int bedrooms, bathrooms, sqft; final Set<String> amenities; final ValueChanged<String> onPriceType; final ValueChanged<int> onBeds, onBaths, onSqft; final ValueChanged<Set<String>> onAmenities;
-  const _Step2({required this.priceCtrl, required this.priceType, required this.bedrooms, required this.bathrooms, required this.sqft, required this.amenities, required this.onPriceType, required this.onBeds, required this.onBaths, required this.onSqft, required this.onAmenities});
-  @override Widget build(BuildContext context) => Column(children: [_label('Price'), Row(children: [Expanded(flex: 2, child: _input(priceCtrl, 'Amount')), const SizedBox(width: 12), Expanded(child: Container(padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.border)), child: DropdownButton<String>(value: priceType, underline: const SizedBox(), items: ['Monthly', 'Daily', 'Total'].map((s) => DropdownMenuItem(value: s, child: Text(s, style: syne(sz: 13)))).toList(), onChanged: (v) => onPriceType(v!))))]), const SizedBox(height: 24), Row(children: [Expanded(child: _counter('Bedrooms', bedrooms, onBeds)), const SizedBox(width: 12), Expanded(child: _counter('Bathrooms', bathrooms, onBaths))])]);
-  Widget _counter(String l, int v, ValueChanged<int> c) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(16), border: Border.all(color: C.border)), child: Column(children: [Text(l, style: syne(sz: 11, c: C.dim)), Row(mainAxisAlignment: MainAxisAlignment.center, children: [IconButton(onPressed: v > 0 ? () => c(v - 1) : null, icon: const Icon(Icons.remove, size: 16)), Text('$v', style: syne(sz: 18, w: FontWeight.bold)), IconButton(onPressed: () => c(v + 1), icon: const Icon(Icons.add, size: 16))])]));
-}
 class _Step4Utility extends StatelessWidget {
   final String role; final TextEditingController umemeCtrl, nwscCtrl, landBlockCtrl, landPlotCtrl, lc1OfficerCtrl; final File? utilityBillPhoto, lc1StampPhoto, landTitlePhoto, brsLicensePhoto; final bool loading; final String? utilityShardId; final ValueChanged<File> onPickUtilityBill, onPickLc1, onPickTitle, onPickBrs; final VoidCallback onSave;
   const _Step4Utility({required this.role, required this.umemeCtrl, required this.nwscCtrl, required this.landBlockCtrl, required this.landPlotCtrl, required this.lc1OfficerCtrl, this.utilityBillPhoto, this.lc1StampPhoto, this.landTitlePhoto, this.brsLicensePhoto, required this.loading, this.utilityShardId, required this.onPickUtilityBill, required this.onPickLc1, required this.onPickTitle, required this.onPickBrs, required this.onSave});
