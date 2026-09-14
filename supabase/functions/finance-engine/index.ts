@@ -2660,12 +2660,23 @@ serve(async (req) => {
       const effectiveGiftFeeRate = isLiveGift ? 0.11 : giftFeeRate;
       const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
+      // FINANCIAL LEDGER REQUIRES UUIDs.
+      // If the community ID is an integer, we must not pass it to strict UUID params.
+      const safeReceiverId = isUUID(receiverId) ? receiverId : null;
+      const safeTargetId = (contextId && isUUID(contextId)) ? contextId : null;
+
+      if (!safeReceiverId) {
+        return json({
+          success: false,
+          code: "invalid_receiver",
+          message: "Receiver identity must be a valid UUID for financial settlement."
+        }, 400);
+      }
+
       const rpcPayload = {
         p_sender_auth_id: user.id,
-        p_receiver_auth_id: receiverId,
-        p_target_id: (contextType === "creator_post" || contextType === "listing") && contextId && isUUID(contextId)
-          ? contextId
-          : null,
+        p_receiver_auth_id: safeReceiverId,
+        p_target_id: safeTargetId,
         p_ncx_amount: ncxAmount,
         p_gift_platform_fee_rate: isLiveGift ? 0.11 : giftFeeRate,
         p_gift_details: {
