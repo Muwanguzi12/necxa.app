@@ -39,7 +39,7 @@ class _DetailScreenState extends State<DetailScreen> {
     if (p == null) return;
     
     _giftStream = widget.state.financeGifting
-        .watchCommunityGifts(p.core.id)
+        .watchGifts(p.core.id)
         .map((gift) => <String, dynamic>{
               'type': 'gift',
               'data': {

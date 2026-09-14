@@ -1649,7 +1649,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     );
 
     _giftStream = widget.state.financeGifting
-        .watchCommunityGifts(_engagementTargetId)
+        .watchGifts(_engagementTargetId)
         .map((gift) => <String, dynamic>{
               'type': 'gift',
               'data': {
@@ -3120,7 +3120,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
     );
 
     _giftStream = widget.state.financeGifting
-        .watchCommunityGifts(widget.listing['id'].toString())
+        .watchGifts(widget.listing['id'].toString())
         .map((gift) => <String, dynamic>{
               'type': 'gift',
               'data': {
