@@ -341,15 +341,9 @@ class NecxaAI {
   /// Endpoint: `/api/verify/audio`.
   static Future<Map<String, dynamic>> verifyAudioWorker(File audioFile) async {
     try {
-      final req =
-          http.MultipartRequest(
-              'POST',
-              Uri.parse('$_workerBase/api/verify/audio'),
-            )
-            ..headers.addAll(_workerHeaders())
-            ..files.add(
-              await http.MultipartFile.fromPath('audio', audioFile.path),
-            );
+      final req = await _createWorkerMultipartRequest('/api/verify/audio');
+      req.files.add(await http.MultipartFile.fromPath('audio', audioFile.path));
+      
       final streamed = await req.send().timeout(_audioVerificationTimeout);
       final body = await streamed.stream.bytesToString();
       return _decodeWorkerResponse(
@@ -373,14 +367,9 @@ class NecxaAI {
     String? idempotencyKey,
   }) async {
     try {
-      final req =
-          http.MultipartRequest(
-              'POST',
-              Uri.parse('$_workerBase/api/verify/listing'),
-            )
-            ..headers.addAll(_workerHeaders())
-            ..fields['title'] = title
-            ..files.add(await http.MultipartFile.fromPath('photo', photo.path));
+      final req = await _createWorkerMultipartRequest('/api/verify/listing');
+      req.fields['title'] = title;
+      req.files.add(await http.MultipartFile.fromPath('photo', photo.path));
       if (category != null && category.trim().isNotEmpty) {
         req.fields['category'] = category.trim();
       }
@@ -403,6 +392,37 @@ class NecxaAI {
         'error': _verificationRequestError(e, 'Listing'),
       };
     }
+  }
+
+  // ── WORKER: IDENTITY VERIFICATION FALLBACK ────────────────────────────────
+  /// Fallback for biometric and ID verification when Supabase functions are down.
+  /// Endpoint: `/api/verify/identity`.
+  static Future<Map<String, dynamic>> _verifyIdentityWorker(
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$_workerBase/api/verify/identity'),
+        headers: {'Content-Type': 'application/json', ..._workerHeaders()},
+        body: jsonEncode(payload),
+      ).timeout(_imageVerificationTimeout);
+
+      return _decodeWorkerResponse(
+        body: res.body,
+        statusCode: res.statusCode,
+        operation: 'Identity verification fallback',
+      );
+    } catch (e) {
+      debugPrint('⚡ Worker identity verify fallback failed: $e');
+      return {'verified': false, 'success': false, 'error': _verificationRequestError(e, 'Identity')};
+    }
+  }
+
+  /// Private helper for Cloudflare Worker multipart requests.
+  static Future<http.MultipartRequest> _createWorkerMultipartRequest(String path) async {
+    final req = http.MultipartRequest('POST', Uri.parse('$_workerBase$path'));
+    req.headers.addAll(_workerHeaders());
+    return req;
   }
 
   // ── NVIDIA VISION: PROPERTY PHOTO VERIFICATION ───────────────────────────
@@ -632,27 +652,24 @@ class NecxaAI {
     String? userId,
     String action = 'verify-id',
   }) async {
+    final payload = buildIdentityShardPayload(
+      action: action,
+      primaryBase64: await fileToBase64(imageFile),
+      userId: userId,
+      countryCode: 'UG',
+      documentType: 'national_id',
+    );
+
     try {
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null)
-        throw Exception("User must be logged in to verify ID natively.");
-
-      final primaryBase64 = await fileToBase64(imageFile);
-      final data = await _invokeIdentityVerification(
-        buildIdentityShardPayload(
-          action: action,
-          primaryBase64: primaryBase64,
-          userId: userId ?? session.user.id,
-          countryCode: 'UG',
-          documentType: 'national_id',
-        ),
-      );
-
+      final data = await _invokeIdentityVerification(payload);
       return _sanitizeVerificationResult(data, fallback: 'ID verification failed');
     } catch (e) {
-      String msg = e.toString();
-      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {'verified': false, 'feedback': msg, 'score': 0};
+      debugPrint('⚡ Supabase identity verify failed, trying Cloudflare fallback: $e');
+      final workerRes = await _verifyIdentityWorker(payload);
+      if (workerRes['success'] == true || workerRes['verified'] == true) {
+        return _sanitizeVerificationResult(workerRes, fallback: 'ID verification failed');
+      }
+      return {'verified': false, 'feedback': e.toString().replaceAll('Exception: ', ''), 'score': 0};
     }
   }
 
@@ -660,27 +677,22 @@ class NecxaAI {
     File selfieFile, {
     String? userId,
   }) async {
+    final payload = buildIdentityShardPayload(
+      action: 'verify-face-only',
+      primaryBase64: await fileToBase64(selfieFile),
+      userId: userId,
+    );
+
     try {
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null)
-        throw Exception(
-          "User must be logged in to verify biometrics natively.",
-        );
-
-      final primaryBase64 = await fileToBase64(selfieFile);
-      final data = await _invokeIdentityVerification(
-        buildIdentityShardPayload(
-          action: 'verify-face-only',
-          primaryBase64: primaryBase64,
-          userId: userId ?? session.user.id,
-        ),
-      );
-
+      final data = await _invokeIdentityVerification(payload);
       return _sanitizeVerificationResult(data, fallback: 'Face-only verification failed');
     } catch (e) {
-      String msg = e.toString();
-      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {'faceMatch': false, 'verified': false, 'feedback': msg, 'score': 0};
+      debugPrint('⚡ Supabase face verify failed, trying Cloudflare fallback: $e');
+      final workerRes = await _verifyIdentityWorker(payload);
+      if (workerRes['success'] == true || workerRes['verified'] == true) {
+        return _sanitizeVerificationResult(workerRes, fallback: 'Face-only verification failed');
+      }
+      return {'faceMatch': false, 'verified': false, 'feedback': e.toString().replaceAll('Exception: ', ''), 'score': 0};
     }
   }
 
@@ -688,28 +700,28 @@ class NecxaAI {
     String panoramaBase64, {
     String? userId,
   }) async {
-    try {
-      final session = Supabase.instance.client.auth.currentSession;
-      if (session == null) {
-        throw Exception("User must be logged in to verify liveness.");
-      }
+    final body = {
+      'action': 'verify-liveness-panorama',
+      'panoramaBase64': panoramaBase64,
+      'userId': userId,
+    };
 
+    try {
       final res = await Supabase.instance.client.functions.invoke(
         'verify-liveness-panorama',
         headers: _aiHeaders(),
-        body: {
-          'action': 'verify-liveness-panorama',
-          'panoramaBase64': panoramaBase64,
-          'userId': userId ?? session.user.id,
-        },
+        body: body,
       ).timeout(const Duration(seconds: 45));
 
       final data = Map<String, dynamic>.from(res.data ?? {});
       return _sanitizeVerificationResult(data, fallback: 'Liveness verification failed');
     } catch (e) {
-      String msg = e.toString();
-      if (msg.startsWith('Exception: ')) msg = msg.substring(11);
-      return {'verified': false, 'faceMatch': false, 'feedback': msg, 'score': 0};
+      debugPrint('⚡ Supabase liveness verify failed, trying Cloudflare fallback: $e');
+      final workerRes = await _verifyIdentityWorker(body);
+      if (workerRes['success'] == true || workerRes['verified'] == true) {
+        return _sanitizeVerificationResult(workerRes, fallback: 'Liveness verification failed');
+      }
+      return {'verified': false, 'faceMatch': false, 'feedback': e.toString().replaceAll('Exception: ', ''), 'score': 0};
     }
   }
 
@@ -1110,32 +1122,46 @@ class NecxaAI {
     String type, {
     String? userId,
   }) async {
+    final payload = {
+      'action': 'verify-utility',
+      'payload': {'type': type, 'imageBase64': billBase64, 'userId': userId},
+    };
+
     try {
       final res = await Supabase.instance.client.functions.invoke(
         'utility-verify',
         headers: _aiHeaders(),
-        body: {
-          'action': 'verify-utility',
-          'payload': {'type': type, 'imageBase64': billBase64},
-        },
-      );
+        body: payload,
+      ).timeout(const Duration(seconds: 40));
       return Map<String, dynamic>.from(res.data);
     } catch (e) {
-      return {'status': 'error', 'description': e.toString()};
+      debugPrint('⚡ Supabase utility verify failed, trying Cloudflare fallback: $e');
+      return _verifyIdentityWorker(payload);
     }
   }
 
   // ── NATIVE PROPERTY VERIFICATION ──
   static Future<Map<String, dynamic>> verifyProperty(String propertyId) async {
+    final payload = {'property_id': propertyId};
     try {
       final res = await Supabase.instance.client.functions.invoke(
         'verify-property',
         headers: _aiHeaders(),
-        body: {'property_id': propertyId},
-      );
+        body: payload,
+      ).timeout(const Duration(seconds: 60));
       return Map<String, dynamic>.from(res.data);
     } catch (e) {
-      return {'verified': false, 'score': 0, 'feedback': e.toString()};
+      debugPrint('⚡ Supabase property verify failed, trying Cloudflare fallback: $e');
+      try {
+        final res = await http.post(
+          Uri.parse('$_workerBase/api/verify/property'),
+          headers: {'Content-Type': 'application/json', ..._workerHeaders()},
+          body: jsonEncode(payload),
+        ).timeout(const Duration(seconds: 30));
+        return _decodeWorkerResponse(body: res.body, statusCode: res.statusCode, operation: 'Property verification');
+      } catch (err) {
+        return {'verified': false, 'score': 0, 'feedback': e.toString()};
+      }
     }
   }
 }
