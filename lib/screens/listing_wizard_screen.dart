@@ -116,15 +116,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     if (isHoldIDStep) {
       return Scaffold(
         backgroundColor: const Color(0xFF030E17),
-        body: _Step3Identity(
-          state: widget.state,
-          loading: _loading,
-          subStep: 2,
-          onVerify: _runIdentityVerification,
-          scannerKey: _scannerKey,
-          onBack: _back,
-          onNext: _canGoNext ? _next : null,
-        ),
+        body: _Step3Identity(state: widget.state, loading: _loading, subStep: 2, onVerify: _runIdentityVerification, scannerKey: _scannerKey),
       );
     }
 
@@ -440,14 +432,8 @@ class _Step3Identity extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    GestureDetector(
-                      onTap: onBack,
-                      child: Row(children: [const Icon(Icons.chevron_left, size: 16, color: Colors.white54), Text('Back', style: syne(sz: 12, c: Colors.white54))]),
-                    ),
-                    GestureDetector(
-                      onTap: onNext,
-                      child: Row(children: [Text('Continue', style: syne(sz: 12, c: onNext != null ? C.brand : Colors.white24)), Icon(Icons.chevron_right, size: 16, color: onNext != null ? C.brand : Colors.white24)]),
-                    ),
+                    _navBtn(Icons.chevron_left, 'Back', onBack),
+                    _navBtn(Icons.chevron_right, 'Continue', onNext, isNext: true),
                   ],
                 ),
               ),
@@ -474,6 +460,19 @@ class _Step3Identity extends StatelessWidget {
   Widget _compactIconBtn(IconData i, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.white10, shape: BoxShape.circle), child: Icon(i, color: Colors.white, size: 18)));
 
   Widget _miniInfo(IconData i, String t) => Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, color: C.brand, size: 14), const SizedBox(width: 4), Text(t, style: dm(sz: 9, c: Colors.white70))]);
+
+  Widget _navBtn(IconData? i, String t, VoidCallback? onTap, {bool isNext = false}) => TextButton(
+    onPressed: onTap,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (i != null && !isNext) Icon(i, size: 16, color: Colors.white54),
+        Text(t, style: syne(sz: 12, c: isNext ? (onTap != null ? C.brand : Colors.white24) : Colors.white54)),
+        if (i != null && isNext) Icon(i, size: 16, color: onTap != null ? C.brand : Colors.white24),
+      ],
+    ),
+  );
+
   Widget _info(String t) => Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [const Icon(Icons.check_circle, color: C.brand, size: 14), const SizedBox(width: 6), Text(t, style: dm(sz: 10, c: Colors.white70))]));
 }
 
