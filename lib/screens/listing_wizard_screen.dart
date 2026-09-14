@@ -358,87 +358,88 @@ class _Step3Identity extends StatelessWidget {
   Widget build(BuildContext context) {
     if (subStep == 2) {
       final done = [state.lastIDResult?.verified ?? false, state.idBackImage != null, state.lastHoldingResult?.verified ?? false, state.lastSelfieResult?.faceMatch ?? false];
-      final cnt = done.where((v) => v).length;
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Column(
             children: [
-              // 1. HEADER (Compact)
+              // 1. HEADER (Ultra-compact)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.only(top: 4, bottom: 6),
                 child: Row(
                   children: [
-                    Text('Identity Shard', style: syne(sz: 14, w: FontWeight.w900, c: Colors.white)),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Identity Shard', style: syne(sz: 13, w: FontWeight.w900, c: Colors.white)),
+                        Text('Fit face & ID inside frames', style: dm(sz: 10, c: Colors.white38)),
+                      ],
+                    ),
                     const Spacer(),
-                    Text('3 / 7', style: dm(sz: 10, w: FontWeight.bold, c: Colors.white38)),
-                    const SizedBox(width: 12),
+                    Text('3/7', style: dm(sz: 10, w: FontWeight.bold, c: Colors.white38)),
+                    const SizedBox(width: 8),
                     const Icon(Icons.verified_user, color: Colors.green, size: 14),
                   ],
                 ),
               ),
-              // 2. INSTRUCTION (Compact)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Text('Fit face and ID inside the frames', style: syne(sz: 14, w: FontWeight.bold, c: Colors.white70)),
-              ),
-              // 3. CAMERA (Biggest area)
+              // 2. CAMERA (MAXized area)
               Expanded(
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(16),
                   child: Stack(
                     children: [
                       _NeuralScannerOverlay(key: scannerKey, documentMode: false, subStep: subStep),
-                      Positioned(top: 10, left: 12, child: Row(children: [const _PulsingLight(), const SizedBox(width: 4), Text('LIVE', style: dm(sz: 9, w: FontWeight.bold, c: Colors.white))])),
-                      Positioned(bottom: 12, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [_guideLabel('ID', Colors.yellow), const SizedBox(width: 180), _guideLabel('Face', Colors.cyan)])),
-                      Positioned(right: 12, top: 0, bottom: 0, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [_iconBtn(Icons.bolt, () => scannerKey.currentState?.toggleFlash()), const SizedBox(height: 16), _iconBtn(Icons.cached, () => scannerKey.currentState?.switchLens())])),
+                      Positioned(top: 8, left: 10, child: Row(children: [const _PulsingLight(), const SizedBox(width: 4), Text('LIVE', style: dm(sz: 8, w: FontWeight.bold, c: Colors.white))])),
+                      Positioned(bottom: 10, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [_guideLabel('ID', Colors.yellow), const SizedBox(width: 160), _guideLabel('Face', Colors.cyan)])),
+                      Positioned(right: 10, top: 0, bottom: 0, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [_iconBtn(Icons.bolt, () => scannerKey.currentState?.toggleFlash()), const SizedBox(height: 12), _iconBtn(Icons.cached, () => scannerKey.currentState?.switchLens())])),
                     ],
                   ),
                 ),
               ),
-              // 4. STATUS (Compressed)
+              // 3. STATUS (Tight)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     _miniInfo(Icons.wb_sunny_outlined, 'Lighting'),
-                    const SizedBox(width: 16),
-                    _miniInfo(Icons.badge_outlined, 'ID Readable'),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 12),
+                    _miniInfo(Icons.badge_outlined, 'Readable'),
+                    const SizedBox(width: 12),
                     _miniInfo(Icons.visibility_off_outlined, 'No Glasses'),
                   ],
                 ),
               ),
-              // 5. CAPTURE / VERIFICATION (Compact)
-              Container(
-                height: 48,
+              // 4. CAPTURE / VERIFICATION (Compact)
+              SizedBox(
+                height: 40,
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: loading ? null : onVerify,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: C.brand,
                     foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     elevation: 0,
+                    padding: EdgeInsets.zero,
                   ),
-                  icon: const Icon(Icons.camera_alt, size: 18),
-                  label: Text(loading ? 'VERIFYING...' : 'SCAN HOLDING ID', style: syne(sz: 13, w: FontWeight.w900)),
+                  icon: const Icon(Icons.camera_alt, size: 16),
+                  label: Text(loading ? 'VERIFYING...' : 'SCAN HOLDING ID', style: syne(sz: 12, w: FontWeight.w900)),
                 ),
               ),
-              // 6. BACK CONTINUE STRIP (52px)
+              // 5. NAV STRIP (Ultra-compact strip)
               Container(
-                height: 52,
+                height: 44,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    TextButton(
-                      onPressed: onBack,
-                      child: Row(children: [const Icon(Icons.chevron_left, size: 20, color: Colors.white54), Text('Back', style: syne(sz: 14, c: Colors.white54))]),
+                    GestureDetector(
+                      onTap: onBack,
+                      child: Row(children: [const Icon(Icons.chevron_left, size: 16, color: Colors.white54), Text('Back', style: syne(sz: 12, c: Colors.white54))]),
                     ),
-                    TextButton(
-                      onPressed: onNext,
-                      child: Row(children: [Text('Continue', style: syne(sz: 14, c: onNext != null ? C.brand : Colors.white24)), Icon(Icons.chevron_right, size: 20, color: onNext != null ? C.brand : Colors.white24)]),
+                    GestureDetector(
+                      onTap: onNext,
+                      child: Row(children: [Text('Continue', style: syne(sz: 12, c: onNext != null ? C.brand : Colors.white24)), Icon(Icons.chevron_right, size: 16, color: onNext != null ? C.brand : Colors.white24)]),
                     ),
                   ],
                 ),

@@ -202,43 +202,4 @@ class FinanceGiftingService {
       await Future<void>.delayed(pulseInterval);
     }
   }
-
-  Future<Map<String, dynamic>> fetchCommunityGiftSnapshot(String contextId) async {
-    await FinanceInitializer.instance.ensureInitialized();
-    final result = await FinanceBackend.instance.invoke(
-      'list_community_gifts',
-      body: {'contextId': contextId},
-    );
-    return Map<String, dynamic>.from(result);
-  }
-
-  Stream<Map<String, dynamic>> watchCommunityGifts(String contextId) async* {
-    final seen = <String>{};
-    var initialized = false;
-    // Community feed pulses are optimized to balance real-time feel with data egress.
-    const pulseInterval = Duration(seconds: 5);
-
-    while (true) {
-      try {
-        await FinanceInitializer.instance.ensureInitialized();
-        final result = await fetchCommunityGiftSnapshot(contextId);
-        final gifts = (result['gifts'] as List? ?? const [])
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
-
-        if (!initialized) {
-          seen.addAll(gifts.map((gift) => gift['id']?.toString() ?? ''));
-          initialized = true;
-        } else {
-          for (final gift in gifts.reversed) {
-            final id = gift['id']?.toString() ?? '';
-            if (id.isNotEmpty && seen.add(id)) yield gift;
-          }
-        }
-      } catch (_) {
-        // Network failures are expected; the pulse loop persists.
-      }
-      await Future<void>.delayed(pulseInterval);
-    }
-  }
 }

@@ -3471,7 +3471,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       ),
     );
   }
-  }
 
   void _toggleGuestRequest() async {
     if (_isCoHosting) {
