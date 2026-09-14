@@ -146,7 +146,7 @@ class _GiftContainerState extends State<GiftContainer> {
         try {
           await widget.state.syncVault();
         } catch (error) {
-          debugPrint('Gift wallet refresh failed after successful send: $error');
+          debugPrint('Gift wallet refresh failed: $error');
         }
         await SoundService().playWithFade(
           soundPath: SoundService.SOUND_SUCCESS,
@@ -157,10 +157,14 @@ class _GiftContainerState extends State<GiftContainer> {
         _next(3);
         _giftIdempotencyKey = null;
       } else {
+        setState(() => _sending = false);
         _showError(res.message);
+        return;
       }
     } catch (e) {
+      setState(() => _sending = false);
       _showError(getUserFriendlyError(e));
+      return;
     }
     setState(() => _sending = false);
   }

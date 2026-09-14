@@ -2658,10 +2658,12 @@ serve(async (req) => {
         : 1100;
       const giftFeeRate = giftFeeBasisPoints / 10000;
       const effectiveGiftFeeRate = isLiveGift ? 0.11 : giftFeeRate;
+      const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
       const rpcPayload = {
         p_sender_auth_id: user.id,
         p_receiver_auth_id: receiverId,
-        p_target_id: (contextType === "creator_post" || contextType === "listing")
+        p_target_id: (contextType === "creator_post" || contextType === "listing") && contextId && isUUID(contextId)
           ? contextId
           : null,
         p_ncx_amount: ncxAmount,
