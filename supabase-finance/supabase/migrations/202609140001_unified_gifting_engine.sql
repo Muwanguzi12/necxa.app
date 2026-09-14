@@ -62,13 +62,14 @@ begin
     v_receiver_amount,v_fee,p_is_anonymous,p_idempotency_key,p_metadata)
   returning * into v_gift;
 
-  v_receiver_origin_hash := encode(digest((p_receiver_id::text || '|GIFT|' || v_gift.id::text)::text, 'sha256'::text), 'hex');
+  -- Use explicit schema prefix for digest (Supabase standard)
+  v_receiver_origin_hash := encode(extensions.digest((p_receiver_id::text || '|GIFT|' || v_gift.id::text)::text, 'sha256'::text), 'hex');
   insert into public.coin_issuances (user_id, ncx_amount, remaining_ncx, fiat_amount, fiat_currency, exchange_rate, issuance_type, idempotency_key, origin_hash, coin_balance_after, fiat_balance_after)
   values (p_receiver_id, v_receiver_amount, v_receiver_amount, 0, 'UGX', 0, 'GIFT_RECEIVED', p_idempotency_key || ':receiver', v_receiver_origin_hash, 0, 0)
   returning id into v_receiver_issuance_id;
 
   if v_fee > 0 then
-    v_platform_origin_hash := encode(digest((v_platform_id::text || '|FEE|' || v_gift.id::text)::text, 'sha256'::text), 'hex');
+    v_platform_origin_hash := encode(extensions.digest((v_platform_id::text || '|FEE|' || v_gift.id::text)::text, 'sha256'::text), 'hex');
     insert into public.coin_issuances (user_id, ncx_amount, remaining_ncx, fiat_amount, fiat_currency, exchange_rate, issuance_type, idempotency_key, origin_hash, coin_balance_after, fiat_balance_after)
     values (v_platform_id, v_fee, v_fee, 0, 'UGX', 0, 'PLATFORM_FEE', p_idempotency_key || ':platform', v_platform_origin_hash, 0, 0)
     returning id into v_platform_issuance_id;

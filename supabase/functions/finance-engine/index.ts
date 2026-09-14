@@ -2660,8 +2660,7 @@ serve(async (req) => {
       const effectiveGiftFeeRate = isLiveGift ? 0.11 : giftFeeRate;
       const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
-      // FINANCIAL LEDGER REQUIRES UUIDs.
-      // If the community ID is an integer, we must not pass it to strict UUID params.
+      // FINANCIAL LEDGER REQUIRES UUIDs for auth parameters.
       const safeReceiverId = isUUID(receiverId) ? receiverId : null;
       const safeTargetId = (contextId && isUUID(contextId)) ? contextId : null;
 
@@ -2669,7 +2668,7 @@ serve(async (req) => {
         return json({
           success: false,
           code: "invalid_receiver",
-          message: "Receiver identity must be a valid UUID for financial settlement."
+          message: `The recipient ID (${receiverId}) is not a valid financial identity (Non-UUID).`
         }, 400);
       }
 

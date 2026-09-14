@@ -163,10 +163,14 @@ class _GiftContainerState extends State<GiftContainer> {
       }
     } catch (e) {
       setState(() => _sending = false);
-      _showError(getUserFriendlyError(e));
+      String msg = getUserFriendlyError(e);
+      if (e is FinanceBackendException) {
+        msg = e.message; // Use the raw error from Finance for debugging
+      }
+      _showError(msg);
       return;
     }
-    setState(() => _sending = false);
+    if (mounted) setState(() => _sending = false);
   }
 
   String _newGiftIdempotencyKey() =>
