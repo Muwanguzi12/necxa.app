@@ -747,6 +747,42 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Liveness Panorama — Analyze 3-stage stitched image for liveness
+    // ─────────────────────────────────────────────────────────────────────────
+    } else if (action === 'verify-liveness-panorama') {
+      const { panoramaBase64 } = payload || {}
+      if (!panoramaBase64) throw new Error('Missing panoramaBase64 payload')
+
+      try {
+        // We use the same biometric caller but in face-only mode for the panorama
+        const nvidiaResult = await callNvidiaVisionBiometric(panoramaBase64, null, 'face-only')
+
+        const isVerified = nvidiaResult.is_live_person &&
+                         nvidiaResult.face_detected &&
+                         nvidiaResult.liveness_score >= 60
+
+        return new Response(JSON.stringify({
+          verified: isVerified,
+          faceMatch: isVerified,
+          livenessPassed: isVerified,
+          score: nvidiaResult.liveness_score,
+          reasoning: nvidiaResult.reasoning,
+          feedback: isVerified
+            ? 'Panorama liveness confirmed. Identity shard assembly ready.'
+            : 'Liveness could not be confirmed from the panorama. Please keep your face centered and try again.',
+          verificationSessionId: sessionId,
+          sessionLink,
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      } catch (err: any) {
+        console.error('[NVIDIA Panorama] Error:', err.message)
+        return new Response(JSON.stringify({
+          verified: false,
+          decision: 'deferred',
+          feedback: 'Liveness verification is temporarily unavailable. Please retry shortly.',
+        }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Biometric / selfie actions — NVIDIA Vision primary, Worker fallback
     // ─────────────────────────────────────────────────────────────────────────
     } else if (action === 'verify-selfie' || action === 'verify-face-only') {

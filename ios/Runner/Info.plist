@@ -66,5 +66,11 @@
 	<string>Necxa requires GPS access to capture the exact physical location of the property being listed.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Necxa requires microphone access to record and send voice notes in chat.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Necxa requires FaceID to secure your financial vault and authenticate transactions.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Necxa requires contacts access to help you find and invite friends to the platform.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Necxa requires media library access to play and remix sounds in the Sound Hub.</string>
 </dict>
 </plist>
