@@ -389,8 +389,16 @@ class _Step3Identity extends StatelessWidget {
                     children: [
                       _NeuralScannerOverlay(key: scannerKey, documentMode: false, subStep: subStep),
                       Positioned(top: 8, left: 10, child: Row(children: [const _PulsingLight(), const SizedBox(width: 4), Text('LIVE', style: dm(sz: 8, w: FontWeight.bold, c: Colors.white))])),
-                      Positioned(bottom: 10, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [_guideLabel('ID', Colors.yellow), const SizedBox(width: 160), _guideLabel('Face', Colors.cyan)])),
-                      Positioned(right: 10, top: 0, bottom: 0, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [_iconBtn(Icons.bolt, () => scannerKey.currentState?.toggleFlash()), const SizedBox(height: 12), _iconBtn(Icons.cached, () => scannerKey.currentState?.switchLens())])),
+                      Positioned(bottom: 10, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        _compactGuideLabel('ID', Colors.yellow), 
+                        const SizedBox(width: 160), 
+                        _compactGuideLabel('Face', Colors.cyan)
+                      ])),
+                      Positioned(right: 10, top: 0, bottom: 0, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        _compactIconBtn(Icons.bolt, () => scannerKey.currentState?.toggleFlash()), 
+                        const SizedBox(height: 12), 
+                        _compactIconBtn(Icons.cached, () => scannerKey.currentState?.switchLens())
+                      ])),
                     ],
                   ),
                 ),
@@ -458,8 +466,13 @@ class _Step3Identity extends StatelessWidget {
     ]);
   }
 
-  Widget _guideLabel(String t, Color c) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20), border: Border.all(color: c)), child: Text(t, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold)));
-  Widget _iconBtn(IconData i, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.white10, shape: BoxShape.circle), child: Icon(i, color: Colors.white, size: 18)));
+  Widget _guideLabel(String t, Color c) => Container(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20), border: Border.all(color: c)), child: Text(t, style: dm(sz: 10, w: FontWeight.bold, c: Colors.white)));
+  Widget _iconBtn(IconData i, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: Colors.white10, shape: BoxShape.circle), child: Icon(i, color: Colors.white, size: 20)));
+
+  // Compact helpers for Hold ID (subStep 2)
+  Widget _compactGuideLabel(String t, Color c) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20), border: Border.all(color: c)), child: Text(t, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold)));
+  Widget _compactIconBtn(IconData i, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.white10, shape: BoxShape.circle), child: Icon(i, color: Colors.white, size: 18)));
+
   Widget _miniInfo(IconData i, String t) => Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, color: C.brand, size: 14), const SizedBox(width: 4), Text(t, style: dm(sz: 9, c: Colors.white70))]);
   Widget _info(String t) => Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [const Icon(Icons.check_circle, color: C.brand, size: 14), const SizedBox(width: 6), Text(t, style: dm(sz: 10, c: Colors.white70))]));
 }
