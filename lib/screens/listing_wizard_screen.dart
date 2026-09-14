@@ -176,7 +176,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     switch (_step) {
       case 0: return _Step1(role: _role, propType: _propType, titleCtrl: _titleCtrl, districtCtrl: _districtCtrl, cityCtrl: _cityCtrl, onRole: (v) => setState(() => _role = v), onType: (v) => setState(() => _propType = v));
       case 1: return _Step2(priceCtrl: _priceCtrl, priceType: _priceType, bedrooms: _bedrooms, bathrooms: _bathrooms, sqft: _sqft, amenities: _amenities, onPriceType: (v) => setState(() => _priceType = v), onBeds: (v) => setState(() => _bedrooms = v), onBaths: (v) => setState(() => _bathrooms = v), onSqft: (v) => setState(() => _sqft = v), onAmenities: (v) => setState(() => _amenities = v));
-      case 2: return _Step3Identity(state: widget.state, loading: _loading, subStep: widget.state.verificationSubStep, onVerify: _runIdentityVerification, scannerKey: _scannerKey);
+      case 2: return _Step3Identity(state: widget.state, loading: _loading, subStep: widget.state.verificationSubStep, onVerify: _runIdentityVerification, scannerKey: _scannerKey, onBack: _back, onNext: _canGoNext ? _next : null);
       case 3: return _Step4Utility(role: _role, umemeCtrl: _umemeCtrl, nwscCtrl: _nwscCtrl, landBlockCtrl: _landBlockCtrl, landPlotCtrl: _landPlotCtrl, lc1OfficerCtrl: _lc1OfficerCtrl, utilityBillPhoto: _utilityBillPhoto, lc1StampPhoto: _lc1StampPhoto, landTitlePhoto: _landTitlePhoto, brsLicensePhoto: _brsLicensePhoto, loading: _loading, utilityShardId: _utilityShardId, onPickUtilityBill: (f) => setState(() => _utilityBillPhoto = f), onPickLc1: (f) => setState(() => _lc1StampPhoto = f), onPickTitle: (f) => setState(() => _landTitlePhoto = f), onPickBrs: (f) => setState(() => _brsLicensePhoto = f), onSave: _runUtilityVerification);
       case 4: return _Step5Gps(gpsPosition: widget.state.currentGps, locked: _gpsNodeId != null, loading: _loading, onLock: _runGpsLock);
       case 5: return _Step6Photos(exterior: _exteriorPhotos, interior: _interiorPhotos, bathroom: _bathroomPhotos, onAddExterior: (f) => setState(() => _exteriorPhotos.add(f)), onAddInterior: (f) => setState(() => _interiorPhotos.add(f)), onAddBathroom: (f) => setState(() => _bathroomPhotos.add(f)), onRemoveExterior: (i) => setState(() => _exteriorPhotos.removeAt(i)), onRemoveInterior: (i) => setState(() => _interiorPhotos.removeAt(i)), onRemoveBathroom: (i) => setState(() => _bathroomPhotos.removeAt(i)));
@@ -351,13 +351,12 @@ class _Step2 extends StatelessWidget {
 
 class _Step3Identity extends StatelessWidget {
   final AppState state; final bool loading; final int subStep; final Future<void> Function() onVerify; final GlobalKey<_NeuralScannerOverlayState> scannerKey;
-  final VoidCallback? onBack; final VoidCallback? onNext;
+  final VoidCallback? onBack, onNext;
   const _Step3Identity({required this.state, required this.loading, required this.subStep, required this.onVerify, required this.scannerKey, this.onBack, this.onNext});
 
   @override
   Widget build(BuildContext context) {
     if (subStep == 2) {
-      final done = [state.lastIDResult?.verified ?? false, state.idBackImage != null, state.lastHoldingResult?.verified ?? false, state.lastSelfieResult?.faceMatch ?? false];
       return SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
