@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- NECXA PLATFORM – MIGRATION: Notification System Harmonization
 -- File: 20260503_notification_harmonization.sql
--- Goal: Align Supabase notifications with Redis and Firebase event flows.
+-- Goal: Align Supabase notifications with Redis event flows.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- 1. Relax the notification_type constraint and add social types
@@ -71,5 +71,5 @@ CREATE POLICY "Users can update own notifications"
 
 -- 6. Log the harmonization
 INSERT INTO system_logs (category, message, metadata)
-VALUES ('ENGAGEMENT', 'Notification system harmonized across Supabase, Redis, and Firebase.', 
+VALUES ('ENGAGEMENT', 'Notification system harmonized across Supabase and Redis.',
         '{"unified": true, "realtime": true}');
