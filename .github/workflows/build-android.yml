@@ -2,9 +2,9 @@ name: Build Android
 
 on:
   push:
-    branches: [ main, feature/engagement-service-skeleton ]
+    branches: [ main, feature/engagement-service-skeleton, feature/unified-gifting ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, feature/unified-gifting ]
   workflow_dispatch:
 
 jobs:

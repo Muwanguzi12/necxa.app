@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:image/image.dart' as img;
 import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -292,6 +293,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           loading: _loading,
           subStep: widget.state.verificationSubStep,
           scannerKey: _scannerKey,
+          onBack: _back,
+          onNext: _canGoNext ? _next : null,
         );
       case 3:
         return _Step4Utility(
@@ -1206,137 +1209,104 @@ class _Step2 extends StatelessWidget {
 }
 
 class _Step3Identity extends StatelessWidget {
-  final AppState state;
-  final bool idVerified, faceVerified, loading;
-  final int subStep;
-  final Future<void> Function() onVerify;
-  final GlobalKey<_NeuralScannerOverlayState> scannerKey;
-  const _Step3Identity({
-    required this.state,
-    required this.idVerified,
-    required this.faceVerified,
-    required this.loading,
-    required this.subStep,
-    required this.onVerify,
-    required this.scannerKey,
-  });
+  final AppState state; final bool idVerified, faceVerified, loading; final int subStep; final Future<void> Function() onVerify; final GlobalKey<_NeuralScannerOverlayState> scannerKey;
+  final VoidCallback? onBack, onNext;
+  const _Step3Identity({required this.state, required this.idVerified, required this.faceVerified, required this.loading, required this.subStep, required this.onVerify, required this.scannerKey, this.onBack, this.onNext});
 
   @override
   Widget build(BuildContext context) {
     if (subStep == 2) {
-      // ── TRUE LANDSCAPE HOLD-ID LAYOUT ────────────────────────────────────
-      // Device stays in portrait; we create a wide landscape-feel camera zone.
-      final completedStages = [
-        state.lastIDResult?.verified ?? false,
-        state.idBackImage != null,
-        state.lastHoldingResult?.verified ?? false,
-        state.lastSelfieResult?.faceMatch ?? false,
-      ];
-
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Left side: wide camera ───────────────────────────────────────
-          Expanded(
-            flex: 3,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: _NeuralScannerOverlay(
-                key: scannerKey,
-                documentMode: false,
-                subStep: subStep,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-
-          // ── Right side: side panel for controls & instructions ────────────
-          Expanded(
-            flex: 1,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Top header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              // 1. HEADER (Ultra-compact)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 6),
+                child: Row(
                   children: [
-                    const _PulsingLight(),
-                    const SizedBox(width: 4),
-                    Text('LIVE', style: dm(sz: 10, c: C.brand, w: FontWeight.w900, ls: 0.8)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Capture button — right side, thumb-reachable
-                GestureDetector(
-                  onTap: loading ? null : onVerify,
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: loading ? Colors.grey : C.brand,
-                      boxShadow: [
-                        BoxShadow(color: C.brand.withOpacity(.45), blurRadius: 14, spreadRadius: 2),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Identity Shard', style: syne(sz: 13, w: FontWeight.w900, c: Colors.white)),
+                        Text('Fit face & ID inside frames', style: dm(sz: 10, c: Colors.white38)),
                       ],
                     ),
-                    child: loading
-                        ? const Padding(
-                            padding: EdgeInsets.all(16),
-                            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
-                          )
-                        : const Icon(Icons.camera_alt, color: Colors.black, size: 26),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  loading ? 'WAIT' : 'CAPTURE',
-                  style: syne(sz: 9, c: loading ? Colors.grey : C.brand, w: FontWeight.w800, ls: 0.5),
-                ),
-                const SizedBox(height: 20),
-
-                // Area labels
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD54F).withOpacity(.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFFFD54F).withOpacity(.7), width: 1),
-                      ),
-                      child: Text('ID: Left hand', style: dm(sz: 9, c: const Color(0xFFFFD54F), w: FontWeight.bold), textAlign: TextAlign.center),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF00E5FF).withOpacity(.10),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.7), width: 1),
-                      ),
-                      child: Text('Face: Center-right', style: dm(sz: 9, c: const Color(0xFF00E5FF), w: FontWeight.bold), textAlign: TextAlign.center),
-                    ),
+                    const Spacer(),
+                    Text('3/7', style: dm(sz: 10, w: FontWeight.bold, c: Colors.white38)),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.verified_user, color: Colors.green, size: 14),
                   ],
                 ),
-                const SizedBox(height: 12),
-
-                // Error feedback
-                if (state.shieldFeedback != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(.10),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(state.shieldFeedback!, style: dm(sz: 9.5, c: Colors.redAccent), textAlign: TextAlign.center),
+              ),
+              // 2. CAMERA (MAXized area)
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Stack(
+                    children: [
+                      _NeuralScannerOverlay(key: scannerKey, documentMode: false, subStep: subStep),
+                      Positioned(top: 8, left: 10, child: Row(children: [const _PulsingLight(), const SizedBox(width: 4), Text('LIVE', style: dm(sz: 8, w: FontWeight.bold, c: Colors.white))])),
+                      Positioned(bottom: 10, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        _compactGuideLabel('ID', Colors.yellow), 
+                        const SizedBox(width: 160), 
+                        _compactGuideLabel('Face', Colors.cyan)
+                      ])),
+                      Positioned(right: 10, top: 0, bottom: 0, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        _compactIconBtn(Icons.bolt, () => scannerKey.currentState?.toggleFlash()), 
+                        const SizedBox(height: 12), 
+                        _compactIconBtn(Icons.cached, () => scannerKey.currentState?.switchLens())
+                      ])),
+                    ],
                   ),
-                ],
-              ],
-            ),
+                ),
+              ),
+              // 3. STATUS (Tight)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _miniInfo(Icons.wb_sunny_outlined, 'Lighting'),
+                    const SizedBox(width: 12),
+                    _miniInfo(Icons.badge_outlined, 'Readable'),
+                    const SizedBox(width: 12),
+                    _miniInfo(Icons.visibility_off_outlined, 'No Glasses'),
+                  ],
+                ),
+              ),
+              // 4. CAPTURE / VERIFICATION (Compact)
+              SizedBox(
+                height: 40,
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: loading ? null : onVerify,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: C.brand,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 0,
+                    padding: EdgeInsets.zero,
+                  ),
+                  icon: const Icon(Icons.camera_alt, size: 16),
+                  label: Text(loading ? 'VERIFYING...' : 'SCAN HOLDING ID', style: syne(sz: 12, w: FontWeight.w900)),
+                ),
+              ),
+              // 5. NAV STRIP (Ultra-compact strip)
+              Container(
+                height: 44,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _navBtn(Icons.chevron_left, 'Back', onBack),
+                    _navBtn(Icons.chevron_right, 'Continue', onNext, isNext: true),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       );
     }
 
@@ -1486,19 +1456,22 @@ class _Step3Identity extends StatelessWidget {
     );
   }
 
-  Widget _holdingInfoChip(IconData icon, String title, String subtitle, Color color) {
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: color),
-          const SizedBox(height: 2),
-          Text(title, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold), textAlign: TextAlign.center),
-          Text(subtitle, style: dm(sz: 7.5, c: Colors.white54), textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
+  Widget _miniInfo(IconData i, String t) => Row(mainAxisSize: MainAxisSize.min, children: [Icon(i, color: C.brand, size: 14), const SizedBox(width: 4), Text(t, style: dm(sz: 9, c: Colors.white70))]);
+
+  Widget _compactGuideLabel(String t, Color c) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20), border: Border.all(color: c)), child: Text(t, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold)));
+  Widget _compactIconBtn(IconData i, VoidCallback t) => GestureDetector(onTap: t, child: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.white10, shape: BoxShape.circle), child: Icon(i, color: Colors.white, size: 18)));
+
+  Widget _navBtn(IconData? i, String t, VoidCallback? onTap, {bool isNext = false}) => TextButton(
+    onPressed: onTap,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (i != null && !isNext) Icon(i, size: 16, color: Colors.white54),
+        Text(t, style: syne(sz: 12, c: isNext ? (onTap != null ? C.brand : Colors.white24) : Colors.white54)),
+        if (i != null && isNext) Icon(i, size: 16, color: onTap != null ? C.brand : Colors.white24),
+      ],
+    ),
+  );
 }
 
 class _IdentityCaptureProgress extends StatelessWidget {
@@ -1713,6 +1686,21 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     await switchCamera(_currentDirection == CameraLensDirection.back
         ? CameraLensDirection.front
         : CameraLensDirection.back);
+  }
+
+  Future<List<File>> captureLivenessFrames() async {
+    final c = await ensureCamera(CameraLensDirection.front);
+    final fs = <File>[];
+    const pms = ['Center', 'Left', 'Center'];
+    for (int i = 0; i < 3; i++) {
+      if (mounted) setState(() => _livenessPrompt = pms[i]);
+      await Future.delayed(const Duration(milliseconds: 700));
+      fs.add(File((await c.takePicture()).path));
+    }
+    if (mounted) setState(() => _livenessPrompt = null);
+    return fs;
+  }
+
   }
 
   Future<List<File>> captureLivenessFrames() async {
