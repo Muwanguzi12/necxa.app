@@ -2,9 +2,9 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, feature/unified-gifting ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, feature/unified-gifting ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
