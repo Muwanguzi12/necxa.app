@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../services/listing_sync_service.dart';
@@ -293,8 +294,6 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           loading: _loading,
           subStep: widget.state.verificationSubStep,
           scannerKey: _scannerKey,
-          onBack: _back,
-          onNext: _canGoNext ? _next : null,
         );
       case 3:
         return _Step4Utility(
@@ -569,11 +568,14 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       } else if (state.verificationSubStep == 3) {
         final frames = await scanner.captureLivenessFrames();
         final pano = await scanner.stitchFramesToPanorama(frames);
-        state.faceImage = pano;
+        final compressedPano = await ListingSyncService.compressImage(pano);
+        state.faceImage = compressedPano;
+        
         final res = await NecxaAI.verifyLivenessPanorama(
-          await NecxaAI.fileToBase64(pano),
+          await NecxaAI.fileToBase64(compressedPano),
           userId: state.user?.id,
         );
+        
         final biometric = _selfieResultFrom(res);
         if (!biometric.faceMatch || biometric.sessionId.isEmpty) {
           throw UserMessageException(
@@ -592,7 +594,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           idFront: state.idImage!,
           idBack: state.idBackImage!,
           idHolding: state.idHoldingImage!,
-          facePhoto: state.faceImage!,
+          facePhoto: compressedPano,
           frontVerificationId: state.lastIDResult!.sessionId,
           backVerificationId: state.lastIDBackResult!.sessionId,
           holdingVerificationId: state.lastHoldingResult!.sessionId,
@@ -1209,8 +1211,7 @@ class _Step2 extends StatelessWidget {
 }
 
 class _Step3Identity extends StatelessWidget {
-  final AppState state; final bool idVerified, faceVerified, loading; final int subStep; final Future<void> Function() onVerify; final GlobalKey<_NeuralScannerOverlayState> scannerKey;
-  final VoidCallback? onBack, onNext;
+  final AppState state; final bool idVerified, faceVerified, loading; final int subStep; final Future<void> Function() onVerify; final GlobalKey<_NeuralScannerOverlayState> scannerKey; final VoidCallback? onBack, onNext;
   const _Step3Identity({required this.state, required this.idVerified, required this.faceVerified, required this.loading, required this.subStep, required this.onVerify, required this.scannerKey, this.onBack, this.onNext});
 
   @override
@@ -1596,6 +1597,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   CameraController? cameraCtrl;
   CameraLensDirection _currentDirection = CameraLensDirection.back;
   Future<void>? _cameraInitialization;
+  String? _livenessPrompt;
 
   bool get isHolding => widget.subStep == 2;
 
@@ -1682,25 +1684,22 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     return activeController;
   }
 
-  Future<void> switchLens() async {
-    await switchCamera(_currentDirection == CameraLensDirection.back
-        ? CameraLensDirection.front
-        : CameraLensDirection.back);
-  }
-
-  Future<List<File>> captureLivenessFrames() async {
-    final c = await ensureCamera(CameraLensDirection.front);
-    final fs = <File>[];
-    const pms = ['Center', 'Left', 'Center'];
-    for (int i = 0; i < 3; i++) {
-      if (mounted) setState(() => _livenessPrompt = pms[i]);
-      await Future.delayed(const Duration(milliseconds: 700));
-      fs.add(File((await c.takePicture()).path));
+  Future<void> toggleFlash() async {
+    if (cameraCtrl != null) {
+      await cameraCtrl!.setFlashMode(
+        cameraCtrl!.value.flashMode == FlashMode.off
+            ? FlashMode.torch
+            : FlashMode.off,
+      );
     }
-    if (mounted) setState(() => _livenessPrompt = null);
-    return fs;
   }
 
+  Future<void> switchLens() async {
+    await switchCamera(
+      _currentDirection == CameraLensDirection.back
+          ? CameraLensDirection.front
+          : CameraLensDirection.back,
+    );
   }
 
   Future<List<File>> captureLivenessFrames() async {
@@ -1838,6 +1837,19 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                     Icons.document_scanner,
                     size: 100,
                     color: C.brand,
+                  ),
+                ),
+              ),
+
+            if (_livenessPrompt != null)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black45,
+                  child: Center(
+                    child: Text(
+                      _livenessPrompt!,
+                      style: syne(sz: 24, w: FontWeight.w900, c: C.brand),
+                    ),
                   ),
                 ),
               ),
