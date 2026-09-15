@@ -564,25 +564,25 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
         await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
-        final xfile = await cameraCtrl.takePicture();
-        state.faceImage = File(xfile.path);
-        final selfieResult = await NecxaAI.verifySelfie(
-          state.faceImage!,
-          state.idImage!,
+        final frames = await scanner.captureLivenessFrames();
+        final pano = await scanner.stitchFramesToPanorama(frames);
+        state.faceImage = pano;
+        final res = await NecxaAI.verifyLivenessPanorama(
+          await NecxaAI.fileToBase64(pano),
           userId: state.user?.id,
         );
-        final biometric = _selfieResultFrom(selfieResult);
+        final biometric = _selfieResultFrom(res);
         if (!biometric.faceMatch || biometric.sessionId.isEmpty) {
           throw UserMessageException(
             _aiFeedback(
-              selfieResult,
+              res,
               'Biometric face match failed. Please retry in better light.',
             ),
           );
         }
         state.lastSelfieResult = biometric;
 
-        final res = await ListingSyncService.submitIdentityShard(
+        final resSync = await ListingSyncService.submitIdentityShard(
           country: 'Uganda',
           docType: 'National ID',
           docNumber: '',
@@ -597,12 +597,12 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           idempotencyKey: '$_submissionIdempotencyKey:identity',
         );
 
-        final identityShardId = res['identity_shard_id']?.toString();
-        if (res['verified'] != true ||
+        final identityShardId = resSync['identity_shard_id']?.toString();
+        if (resSync['verified'] != true ||
             identityShardId == null ||
             identityShardId.isEmpty) {
           throw UserMessageException(
-            res['message']?.toString() ??
+            resSync['message']?.toString() ??
                 'Identity shard verification was not approved. Please retake the scans.',
           );
         }
@@ -1707,6 +1707,41 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       );
     }
     return activeController;
+  }
+
+  Future<void> switchLens() async {
+    await switchCamera(_currentDirection == CameraLensDirection.back
+        ? CameraLensDirection.front
+        : CameraLensDirection.back);
+  }
+
+  Future<List<File>> captureLivenessFrames() async {
+    final c = await ensureCamera(CameraLensDirection.front);
+    final fs = <File>[];
+    const pms = ['Center', 'Left', 'Center'];
+    for (int i = 0; i < 3; i++) {
+      if (mounted) setState(() => _livenessPrompt = pms[i]);
+      await Future.delayed(const Duration(milliseconds: 700));
+      fs.add(File((await c.takePicture()).path));
+    }
+    if (mounted) setState(() => _livenessPrompt = null);
+    return fs;
+  }
+
+  Future<File> stitchFramesToPanorama(List<File> frames) async {
+    final i1 = img.decodeImage(await frames[0].readAsBytes());
+    final i2 = img.decodeImage(await frames[1].readAsBytes());
+    final i3 = img.decodeImage(await frames[2].readAsBytes());
+    if (i1 == null || i2 == null || i3 == null) {
+      throw Exception('Failed to decode liveness frames');
+    }
+    final p = img.Image(width: i1.width * 3, height: i1.height);
+    img.compositeImage(p, i1, dstX: 0);
+    img.compositeImage(p, i2, dstX: i1.width);
+    img.compositeImage(p, i3, dstX: i1.width * 2);
+    final f = File('${(await getTemporaryDirectory()).path}/lp.jpg');
+    await f.writeAsBytes(img.encodeJpg(p));
+    return f;
   }
 
   @override
