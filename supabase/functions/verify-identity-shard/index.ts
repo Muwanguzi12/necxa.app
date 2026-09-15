@@ -56,6 +56,7 @@ function percentage(value: unknown): number {
 
 const NVIDIA_API_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
 const NVIDIA_VISION_MODEL = 'meta/llama-3.2-11b-vision-instruct'
+const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
 const LIGHT_BACK_ID_MAX_TOKENS = 128
 
 async function callNvidiaVisionBiometric(
@@ -84,6 +85,7 @@ async function callNvidiaVisionBiometric(
           apiKey: NEBIUS_API_KEY,
           endpoint: 'https://api.tokenfactory.nebius.com/v1/chat/completions',
           model: 'nvidia/Cosmos3-Super-Reasoner',
+          type: 'vision' as const,
         }
       : null,
     NVIDIA_API_KEY
@@ -92,8 +94,14 @@ async function callNvidiaVisionBiometric(
           apiKey: NVIDIA_API_KEY,
           endpoint: NVIDIA_API_URL,
           model: NVIDIA_VISION_MODEL,
+          type: 'vision' as const,
         }
       : null,
+    {
+      name: 'necxa-worker-ai',
+      endpoint: `${NECXA_AI_URL}/api/verify/identity`,
+      type: 'worker' as const,
+    }
   ].filter((provider): provider is NonNullable<typeof provider> => provider !== null)
   if (providers.length === 0) {
     throw new Error('Neither NVIDIA_API_KEY nor NEBIUS_API_KEY is configured')
@@ -113,17 +121,18 @@ async function callNvidiaVisionBiometric(
   let promptText: string
 
   if (mode === 'face-only' || !idBase64) {
-    promptText = `You are Cosmos3, a certified liveness and anti-spoofing AI system. Analyze this selfie carefully.
+    promptText = `You are Cosmos3, a certified liveness and anti-spoofing AI system.
+You are looking at a 3-stage panoramic liveness scan (3 stitched selfies).
 
 LIVENESS CHECK:
-Determine if Image 1 shows a real, live human being physically present in front of the camera.
+Determine if the image shows a real, live human being physically present in front of the camera.
 First confirm that a real human face is clearly visible. If no face is visible, set face_detected=false,
 is_live_person=false, liveness_score=0, and liveness_agrees=false.
 Look for:
-- Screen replay attack: a second face displayed on a screen, with pixel grid/moiré patterns, bezel borders, refresh banding, or a flat screen boundary. Ordinary catchlights or phone-screen reflections in the eyes are not attacks.
-- Paper/printout attack: flat 2D surface, paper edges, paper sheen, uniform lighting with no depth
-- 3D printed mask: unnatural skin texture, rigid surface, mask seams
-- Deepfake/digital manipulation: unnatural skin grain, edge blurring, inconsistent lighting
+- Screen replay attack: pixel grid/moiré patterns, bezel borders, or refresh banding.
+- Paper/printout attack: flat 2D surface, paper sheen, uniform lighting.
+- 3D printed mask: unnatural skin texture, rigid surface, mask seams.
+- Deepfake/digital manipulation: unnatural skin grain, edge blurring.
 
 Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 {
@@ -191,68 +200,100 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
   let lastError = 'Vision providers unavailable'
   for (const provider of providers) {
     try {
-      const response = await fetch(provider.endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${provider.apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          model: provider.model,
-          messages: [{ role: 'user', content: contentParts }],
-          max_tokens: provider.name === 'cosmos3-face-verification' ? 1024 : 256,
-          temperature: 0.1,
-        }),
-      })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 35000)
 
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => response.statusText)
-        throw new Error(`${provider.name} API error ${response.status}: ${errorText}`)
-      }
+      let parsed: any
 
-      const data = await response.json()
-      const message = data?.choices?.[0]?.message ?? {}
-      const parts = [message.content, message.reasoning_content, data?.output_text]
-      const rawText = parts
-        .filter((part: unknown) => part !== null && part !== undefined)
-        .map((part: unknown) => {
-          if (typeof part === 'string') return part
-          if (Array.isArray(part)) {
-            return part
-              .map((item: unknown) => {
-                if (typeof item === 'string') return item
-                if (typeof item !== 'object' || item === null) return ''
-                if ('text' in item) return String((item as { text?: unknown }).text ?? '')
-                if ('content' in item) return String((item as { content?: unknown }).content ?? '')
-                return ''
-              })
-              .join('')
-          }
-          return typeof part === 'object' ? JSON.stringify(part) : String(part)
+      if (provider.type === 'vision') {
+        const response = await fetch(provider.endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            model: provider.model,
+            messages: [{ role: 'user', content: contentParts }],
+            max_tokens: provider.name === 'cosmos3-face-verification' ? 1024 : 256,
+            temperature: 0.1,
+          }),
+          signal: controller.signal,
         })
-        .join('\n')
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
-        throw new Error(`${provider.name} returned no JSON decision`)
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => response.statusText)
+          throw new Error(`${provider.name} API error ${response.status}: ${errorText}`)
+        }
+
+        const data = await response.json()
+        const message = data?.choices?.[0]?.message ?? {}
+        const parts = [message.content, message.reasoning_content, data?.output_text]
+        const rawText = parts
+          .filter((part: unknown) => part !== null && part !== undefined)
+          .map((part: unknown) => {
+            if (typeof part === 'string') return part
+            if (Array.isArray(part)) {
+              return part
+                .map((item: unknown) => {
+                  if (typeof item === 'string') return item
+                  if (typeof item !== 'object' || item === null) return ''
+                  if ('text' in item) return String((item as { text?: unknown }).text ?? '')
+                  if ('content' in item) return String((item as { content?: unknown }).content ?? '')
+                  return ''
+                })
+                .join('')
+            }
+            return typeof part === 'object' ? JSON.stringify(part) : String(part)
+          })
+          .join('\n')
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+        if (!jsonMatch) {
+          throw new Error(`${provider.name} returned no JSON decision`)
+        }
+        parsed = JSON.parse(jsonMatch[0])
+      } else {
+        // WORKER FALLBACK
+        const response = await fetch(provider.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: mode === 'biometric' ? 'verify-selfie' : 'verify-face-only',
+            payload: {
+              imageBase64: selfieBase64,
+              idImageBase64: idBase64,
+            },
+          }),
+          signal: controller.signal,
+        })
+
+        if (!response.ok) throw new Error(`Worker returned ${response.status}`)
+        parsed = await response.json()
       }
 
-      const parsed = JSON.parse(jsonMatch[0])
+      clearTimeout(timeoutId)
+
       return {
-        is_live_person: Boolean(parsed.is_live_person),
-        face_detected: Boolean(parsed.face_detected),
-        liveness_score: Number(parsed.liveness_score ?? 0),
+        is_live_person: Boolean(parsed.is_live_person ?? parsed.verified ?? parsed.success),
+        face_detected: Boolean(parsed.face_detected ?? true),
+        liveness_score: Number(parsed.liveness_score ?? parsed.score ?? 0),
         anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
-        liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person),
-        faces_match: Boolean(parsed.faces_match),
-        face_match_agrees: parsed.face_match_agrees ?? Boolean(parsed.faces_match),
-        similarity_score: Number(parsed.similarity_score ?? 0),
-        reasoning: String(parsed.reasoning ?? ''),
+        liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person ?? parsed.verified),
+        faces_match: Boolean(parsed.faces_match ?? parsed.match ?? parsed.faceMatch),
+        face_match_agrees: parsed.face_match_agrees ?? Boolean(parsed.faces_match ?? parsed.match),
+        similarity_score: Number(parsed.similarity_score ?? parsed.score ?? 0),
+        reasoning: String(parsed.reasoning ?? parsed.feedback ?? parsed.reason ?? ''),
         provider: provider.name,
-        raw_text: rawText,
       }
     } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error)
+      if (error instanceof Error && error.name === 'AbortError') {
+        lastError = `${provider.name} request timed out`
+      } else {
+        lastError = error instanceof Error ? error.message : String(error)
+      }
       console.warn(`[${provider.name}] biometric verification failed: ${lastError}`)
     }
   }
@@ -750,12 +791,12 @@ serve(async (req) => {
     // Liveness Panorama — Analyze 3-stage stitched image for liveness
     // ─────────────────────────────────────────────────────────────────────────
     } else if (action === 'verify-liveness-panorama') {
-      const { panoramaBase64 } = payload || {}
-      if (!panoramaBase64) throw new Error('Missing panoramaBase64 payload')
+      const panoramaData = payload?.panoramaBase64 || payload?.imageBase64
+      if (!panoramaData) throw new Error('Missing image payload for panorama liveness')
 
       try {
         // We use the same biometric caller but in face-only mode for the panorama
-        const nvidiaResult = await callNvidiaVisionBiometric(panoramaBase64, null, 'face-only')
+        const nvidiaResult = await callNvidiaVisionBiometric(panoramaData, null, 'face-only')
 
         const isVerified = nvidiaResult.is_live_person &&
                          nvidiaResult.face_detected &&

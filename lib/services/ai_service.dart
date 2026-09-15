@@ -635,7 +635,7 @@ class NecxaAI {
         'verify-identity-shard',
         headers: _aiHeaders(),
         body: payload,
-      ).timeout(const Duration(seconds: 45));
+      ).timeout(const Duration(seconds: 120));
 
       if (res.data != null && res.data is Map) {
         return Map<String, dynamic>.from(res.data);
@@ -700,20 +700,14 @@ class NecxaAI {
     String panoramaBase64, {
     String? userId,
   }) async {
-    final body = {
-      'action': 'verify-liveness-panorama',
-      'panoramaBase64': panoramaBase64,
-      'userId': userId,
-    };
+    final body = buildIdentityShardPayload(
+      action: 'verify-liveness-panorama',
+      primaryBase64: panoramaBase64,
+      userId: userId,
+    );
 
     try {
-      final res = await Supabase.instance.client.functions.invoke(
-        'verify-liveness-panorama',
-        headers: _aiHeaders(),
-        body: body,
-      ).timeout(const Duration(seconds: 45));
-
-      final data = Map<String, dynamic>.from(res.data ?? {});
+      final data = await _invokeIdentityVerification(body);
       return _sanitizeVerificationResult(data, fallback: 'Liveness verification failed');
     } catch (e) {
       debugPrint('⚡ Supabase liveness verify failed, trying Cloudflare fallback: $e');
