@@ -312,44 +312,46 @@ async function callNvidiaVisionId(
   docType: string
   country: string
   extractedData: any
+  provider: string
 }> {
   const NVIDIA_API_KEY = Deno.env.get('NVIDIA_API_KEY')
-  if (!NVIDIA_API_KEY) throw new Error('NVIDIA_API_KEY not configured')
+  const NEBIUS_API_KEY = Deno.env.get('NEBIUS_API_KEY')
+
+  const providers = [
+    NEBIUS_API_KEY ? { name: 'nebius-id-verification', endpoint: 'https://api.tokenfactory.nebius.com/v1/chat/completions', apiKey: NEBIUS_API_KEY, model: 'nvidia/Cosmos3-Super-Reasoner' } : null,
+    NVIDIA_API_KEY ? { name: 'nvidia-id-verification', endpoint: NVIDIA_API_URL, apiKey: NVIDIA_API_KEY, model: NVIDIA_VISION_MODEL } : null
+  ].filter((p): p is NonNullable<typeof p> => p !== null);
+
+  if (providers.length === 0) throw new Error('No Vision API keys configured');
 
   const imageData = imageBase64.replace(/^data:image\/\w+;base64,/, '')
   const imageUrl = `data:image/jpeg;base64,${imageData}`
 
   const isBackCapture = stage === 'back'
   const promptText = isBackCapture
-    ? `You are a lightweight identity-document presence verifier.
-Analyze the back side of this ID card or passport.
-Do not perform OCR, extract personal data, or compare faces.
-Only decide whether a real identity document back is clearly visible and not a
-blank space, wall, object, or illegible blur.
+    ? `You are an identity document presence verifier. Analyze the BACK side of this National ID.
+Look for features like a QR code, barcode, machine-readable zone (MRZ), or serial numbers.
+Confirm if this is a real document back and not a blank wall or random object.
 
 Respond in STRICT JSON ONLY:
 {
   "verified": <true|false>,
-  "decision": "<pass|fail|manual_review>",
-  "reasonCode": "<document_present|document_unreadable|not_an_id>",
+  "decision": "<pass|fail>",
+  "reasonCode": "<document_back_detected|not_a_document_back>",
   "score": <0-100>,
   "qualityScore": <0-100>,
   "docType": "national_id",
   "country": "UG",
   "extractedData": {}
 }`
-    : `You are a certified identity document verification AI.
-Analyze this image of an ID card or Passport (${stage} side).
-Is it a clear, legible, and valid identity document?
-If the user captured a blank space, a wall, an object like a chair, a face without an ID, or an illegible blur, it MUST fail with reasonCode "not_an_id".
-
-Extract the person's full name, the document/ID number, and their date of birth if they are visible.
+    : `You are a certified identity document verification AI. Analyze this image of an ID card or Passport (${stage} side).
+Is it a clear, legible, and valid identity document? Extract the person's full name, ID number, and date of birth if visible.
 
 Respond in STRICT JSON ONLY:
 {
   "verified": <true|false>,
-  "decision": "<pass|fail|manual_review>",
-  "reasonCode": "<document_valid|document_unreadable|not_an_id|document_requires_review>",
+  "decision": "<pass|fail>",
+  "reasonCode": "<document_valid|not_an_id>",
   "score": <0-100>,
   "qualityScore": <0-100>,
   "docType": "national_id",
@@ -357,54 +359,67 @@ Respond in STRICT JSON ONLY:
   "extractedData": {
     "fullName": "extracted name or null",
     "documentNumber": "extracted ID number or null",
-    "dateOfBirth": "extracted DOB (YYYY-MM-DD) or null"
+    "dateOfBirth": "extracted DOB or null"
   }
-}`
+}`;
 
-  const nvidiaRes = await fetch(NVIDIA_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${NVIDIA_API_KEY}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      model: NVIDIA_VISION_MODEL,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: imageUrl } },
-            { type: 'text', text: promptText }
-          ]
-        }
-      ],
-      // The back of an ID is only checked for a visible, usable document. Keep
-      // this deliberately small: it has no OCR or personal-data extraction.
-      max_tokens: isBackCapture ? LIGHT_BACK_ID_MAX_TOKENS : 512,
-      temperature: 0.1,
-    }),
-  })
+  const contentParts = [
+    { type: 'image_url', image_url: { url: imageUrl } },
+    { type: 'text', text: promptText }
+  ];
 
-  if (!nvidiaRes.ok) throw new Error(`NVIDIA Vision API error ${nvidiaRes.status}`)
+  let lastError = 'Vision providers unavailable'
+  for (const provider of providers) {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 35000)
 
-  const nvidiaData = await nvidiaRes.json()
-  const rawText: string = nvidiaData?.choices?.[0]?.message?.content ?? ''
-  
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) throw new Error(`NVIDIA Vision returned non-JSON response`)
+      const response = await fetch(provider.endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${provider.apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          messages: [{ role: 'user', content: contentParts }],
+          max_tokens: isBackCapture ? 128 : 512,
+          temperature: 0.1,
+        }),
+        signal: controller.signal,
+      })
 
-  const parsed = JSON.parse(jsonMatch[0])
-  return {
-    verified: Boolean(parsed.verified),
-    decision: parsed.decision ?? 'manual_review',
-    reasonCode: parsed.reasonCode ?? 'document_requires_review',
-    score: Number(parsed.score ?? 0),
-    qualityScore: Number(parsed.qualityScore ?? 0),
-    docType: parsed.docType ?? 'national_id',
-    country: parsed.country ?? 'UG',
-    extractedData: parsed.extractedData ?? {}
+      if (!response.ok) throw new Error(`${provider.name} API error ${response.status}`)
+
+      const data = await response.json()
+      clearTimeout(timeoutId)
+
+      const message = data?.choices?.[0]?.message ?? {}
+      const parts = [message.content, message.reasoning_content, data?.output_text]
+      const rawText = parts.filter(p => p).join('\n')
+
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error(`${provider.name} no JSON decision`)
+
+      const parsed = JSON.parse(jsonMatch[0])
+      return {
+        verified: Boolean(parsed.verified),
+        decision: parsed.decision ?? 'manual_review',
+        reasonCode: parsed.reasonCode ?? 'requires_review',
+        score: Number(parsed.score ?? 0),
+        qualityScore: Number(parsed.qualityScore ?? 0),
+        docType: parsed.docType ?? 'national_id',
+        country: parsed.country ?? 'UG',
+        extractedData: parsed.extractedData ?? {},
+        provider: provider.name
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+      console.warn(`[${provider.name}] ID verification failed: ${lastError}`)
+    }
   }
+  throw new Error(lastError)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
