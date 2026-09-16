@@ -715,12 +715,28 @@ class NecxaAI {
     } catch (e) {
       debugPrint('⚡ Supabase panorama verify failed: $e');
       
-      // Do NOT fall back to Worker for panorama action yet, as the worker 
-      // doesn't support the 3-stage stitched logic. Return a clear error.
-      if (e.toString().contains('timeout')) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('timeout')) {
         return {'verified': false, 'feedback': 'Verification took too long. Check your internet and retry.'};
       }
-      return {'verified': false, 'feedback': 'Identity system is busy. Please retry in a moment.'};
+      
+      // If we got a specific error from the backend, show it.
+      // e.g. "Exception: status: 400, details: {error: ...}"
+      if (msg.contains('unknown action')) {
+        return {'verified': false, 'feedback': 'Identity system update in progress. Please wait a moment.'};
+      }
+      
+      // Extract the nested error message if possible
+      String feedback = 'Identity system is busy. Please retry in a moment.';
+      if (msg.contains('error:')) {
+        final start = msg.indexOf('error:') + 6;
+        final end = msg.indexOf('}', start);
+        if (end > start) {
+          feedback = e.toString().substring(start, end).trim();
+        }
+      }
+      
+      return {'verified': false, 'feedback': feedback};
     }
   }
 

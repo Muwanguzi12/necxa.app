@@ -798,12 +798,20 @@ serve(async (req) => {
       default:
         return new Response(JSON.stringify({
           error: `Unknown Action provided: ${trimmedAction}`,
-          details: `The action '${trimmedAction}' is not handled by this version of the verify-identity-shard function.`
+          details: `The action '${trimmedAction}' is not handled by this version of the verify-identity-shard function.`,
+          action_received: trimmedAction,
+          requestId
         }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
 
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    console.error(`[FATAL] Identity Shard Audit Crash: ${err.message}`);
+    return new Response(JSON.stringify({
+      error: err.message,
+      stack: err.stack,
+      status: 'crashed',
+      requestId
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
     })
