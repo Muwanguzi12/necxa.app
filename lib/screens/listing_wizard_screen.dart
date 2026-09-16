@@ -568,10 +568,11 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       } else if (state.verificationSubStep == 3) {
         final frames = await scanner.captureLivenessFrames();
         final pano = await scanner.stitchFramesToPanorama(frames);
-        state.faceImage = pano;
+        final compressedPano = await ListingSyncService.compressImage(pano);
+        state.faceImage = compressedPano;
         
         final res = await NecxaAI.verifyLivenessPanorama(
-          await NecxaAI.fileToBase64(pano),
+          await NecxaAI.fileToBase64(compressedPano),
           userId: state.user?.id,
         );
         
