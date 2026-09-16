@@ -10,8 +10,8 @@ import 'package:http/http.dart' as http;
 class LivenessCaptureService {
   static const _channel = MethodChannel('com.necxa/liveness_keystore');
   static final _client = Supabase.instance.client;
-  static const _sp2Url = 'https://ayvescksetiuekoyfqar.supabase.co';
-  static const _sp2Key = 'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
+  static const _sp2Url = 'https://lzdtrmjcwzalckszdzpt.supabase.co';
+  static const _sp2Key = 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR';
 
   static Future<Map<String, dynamic>> _call(
     String action,

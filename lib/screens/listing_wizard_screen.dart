@@ -1564,7 +1564,7 @@ class _Step3Identity extends StatelessWidget {
           const SizedBox(height: 12),
           const _HoldingCaptureStatus(),
         ],
-        const SizedBox(height: 20),
+        SizedBox(height: subStep == 3 ? 10 : 20),
         _InstructionCard(
           title: currentInstr.$1,
           desc: currentInstr.$2,
@@ -1572,14 +1572,15 @@ class _Step3Identity extends StatelessWidget {
           compact: true,
         ),
         if (subStep == 3) ...[
-          const SizedBox(height: 12),
-          const _LivenessCaptureGuide(),
+          const SizedBox(height: 8),
+          const _LivenessCaptureGuide(compact: true),
         ],
 
-        const SizedBox(height: 14),
+        SizedBox(height: subStep == 3 ? 8 : 14),
         _IdentityCaptureProgress(
           completedStages: completedStages,
           completedCount: completedCount,
+          compact: subStep == 3,
         ),
 
         if (state.shieldFeedback != null) ...[
@@ -1609,7 +1610,7 @@ class _Step3Identity extends StatelessWidget {
           ),
         ],
 
-        const SizedBox(height: 36),
+        SizedBox(height: subStep == 3 ? 14 : 36),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -1704,7 +1705,9 @@ class _HoldingCaptureStatus extends StatelessWidget {
 }
 
 class _LivenessCaptureGuide extends StatelessWidget {
-  const _LivenessCaptureGuide();
+  final bool compact;
+
+  const _LivenessCaptureGuide({this.compact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1715,7 +1718,12 @@ class _LivenessCaptureGuide extends StatelessWidget {
     ];
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 10 : 14,
+        compact ? 8 : 12,
+        compact ? 10 : 14,
+        compact ? 7 : 10,
+      ),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(16),
@@ -1726,17 +1734,25 @@ class _LivenessCaptureGuide extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.shield_outlined, size: 16, color: C.brand),
-              const SizedBox(width: 8),
+              const Icon(Icons.shield_outlined, size: 14, color: C.brand),
+              const SizedBox(width: 6),
               Text(
                 'LIVE 3D CHECK',
-                style: syne(sz: 10, c: C.brand, w: FontWeight.w800, ls: 1),
+                style: syne(
+                  sz: compact ? 9 : 10,
+                  c: C.brand,
+                  w: FontWeight.w800,
+                  ls: .8,
+                ),
               ),
               const Spacer(),
-              Text('3 quick frames', style: dm(sz: 10, c: C.dim)),
+              Text(
+                '3 quick frames',
+                style: dm(sz: compact ? 9 : 10, c: C.dim),
+              ),
             ],
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: compact ? 6 : 10),
           Row(
             children: [
               for (var index = 0; index < steps.length; index++) ...[
@@ -1744,15 +1760,19 @@ class _LivenessCaptureGuide extends StatelessWidget {
                   child: Row(
                     children: [
                       Container(
-                        width: 27,
-                        height: 27,
+                        width: compact ? 22 : 27,
+                        height: compact ? 22 : 27,
                         decoration: BoxDecoration(
                           color: C.brand.withOpacity(.12),
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(steps[index].$1, size: 16, color: C.brand),
+                        child: Icon(
+                          steps[index].$1,
+                          size: compact ? 13 : 16,
+                          color: C.brand,
+                        ),
                       ),
-                      const SizedBox(width: 6),
+                      SizedBox(width: compact ? 4 : 6),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1761,13 +1781,16 @@ class _LivenessCaptureGuide extends StatelessWidget {
                               steps[index].$2,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: syne(sz: 9, w: FontWeight.w700),
+                              style: syne(
+                                sz: compact ? 8 : 9,
+                                w: FontWeight.w700,
+                              ),
                             ),
                             Text(
                               steps[index].$3,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: dm(sz: 9, c: C.dim),
+                              style: dm(sz: compact ? 8 : 9, c: C.dim),
                             ),
                           ],
                         ),
@@ -1777,8 +1800,12 @@ class _LivenessCaptureGuide extends StatelessWidget {
                 ),
                 if (index < steps.length - 1)
                   Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: Icon(Icons.chevron_right, size: 14, color: C.dim),
+                    padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 4),
+                    child: Icon(
+                      Icons.chevron_right,
+                      size: compact ? 12 : 14,
+                      color: C.dim,
+                    ),
                   ),
               ],
             ],
@@ -1843,10 +1870,12 @@ class _HoldingStatusItem extends StatelessWidget {
 class _IdentityCaptureProgress extends StatelessWidget {
   final List<bool> completedStages;
   final int completedCount;
+  final bool compact;
 
   const _IdentityCaptureProgress({
     required this.completedStages,
     required this.completedCount,
+    this.compact = false,
   });
 
   @override
@@ -1854,7 +1883,7 @@ class _IdentityCaptureProgress extends StatelessWidget {
     const labels = ['Front', 'Back', 'Holding ID', 'Face match'];
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(compact ? 8 : 12),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(12),
@@ -1865,16 +1894,19 @@ class _IdentityCaptureProgress extends StatelessWidget {
         children: [
           Text(
             '$completedCount of 4 secure captures verified',
-            style: syne(sz: 11, w: FontWeight.w700, c: C.dim),
+            style: syne(sz: compact ? 9 : 11, w: FontWeight.w700, c: C.dim),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: compact ? 6 : 10),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: compact ? 4 : 8,
+            runSpacing: compact ? 4 : 8,
             children: List.generate(labels.length, (index) {
               final complete = completedStages[index];
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 6 : 9,
+                  vertical: compact ? 4 : 6,
+                ),
                 decoration: BoxDecoration(
                   color: complete
                       ? C.brand.withOpacity(.12)
@@ -1891,13 +1923,16 @@ class _IdentityCaptureProgress extends StatelessWidget {
                       complete
                           ? Icons.check_circle
                           : Icons.radio_button_unchecked,
-                      size: 14,
+                      size: compact ? 12 : 14,
                       color: complete ? C.brand : C.dim,
                     ),
-                    const SizedBox(width: 5),
+                    SizedBox(width: compact ? 3 : 5),
                     Text(
                       labels[index],
-                      style: dm(sz: 10, c: complete ? C.brand : C.dim),
+                      style: dm(
+                        sz: compact ? 8 : 10,
+                        c: complete ? C.brand : C.dim,
+                      ),
                     ),
                   ],
                 ),
@@ -2475,7 +2510,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     );
     return isHolding
         ? AspectRatio(aspectRatio: 1.7, child: viewport)
-        : SizedBox(height: 220, child: viewport);
+        : SizedBox(height: widget.subStep == 3 ? 190 : 220, child: viewport);
   }
 
   Widget _buildDocumentPreview(CameraController controller) {

@@ -831,7 +831,7 @@ serve(async (req) => {
           nvidiaResult.is_live_person &&
           nvidiaResult.face_detected &&
           nvidiaResult.liveness_agrees &&
-          (mode !== 'panorama' || nvidiaResult.movement_detected) &&
+          (mode !== 'panorama' || nvidiaResult.movement_detected !== false) &&
           nvidiaResult.liveness_score >= LIVENESS_THRESHOLD &&
           (nvidiaResult.anti_spoof_flags.length === 0 ||
             (nvidiaResult.anti_spoof_flags.length === 1 && nvidiaResult.anti_spoof_flags[0] === ''))
