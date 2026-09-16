@@ -700,22 +700,27 @@ class NecxaAI {
     String panoramaBase64, {
     String? userId,
   }) async {
-    final body = buildIdentityShardPayload(
-      action: 'verify-liveness-panorama',
-      primaryBase64: panoramaBase64,
-      userId: userId,
-    );
+    final body = {
+      'action': 'verify-liveness-panorama',
+      'payload': {
+        'panoramaBase64': panoramaBase64,
+        'userId': userId,
+      }
+    };
 
     try {
+      // Identity and Panorama stitching require more time than simple photos
       final data = await _invokeIdentityVerification(body);
       return _sanitizeVerificationResult(data, fallback: 'Liveness verification failed');
     } catch (e) {
-      debugPrint('⚡ Supabase liveness verify failed, trying Cloudflare fallback: $e');
-      final workerRes = await _verifyIdentityWorker(body);
-      if (workerRes['success'] == true || workerRes['verified'] == true) {
-        return _sanitizeVerificationResult(workerRes, fallback: 'Liveness verification failed');
+      debugPrint('⚡ Supabase panorama verify failed: $e');
+      
+      // Do NOT fall back to Worker for panorama action yet, as the worker 
+      // doesn't support the 3-stage stitched logic. Return a clear error.
+      if (e.toString().contains('timeout')) {
+        return {'verified': false, 'feedback': 'Verification took too long. Check your internet and retry.'};
       }
-      return {'verified': false, 'faceMatch': false, 'feedback': e.toString().replaceAll('Exception: ', ''), 'score': 0};
+      return {'verified': false, 'feedback': 'Identity system is busy. Please retry in a moment.'};
     }
   }
 

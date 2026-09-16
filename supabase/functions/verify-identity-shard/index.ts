@@ -597,351 +597,210 @@ serve(async (req) => {
 
     // Optional: Parse the incoming payload natively
     const { action, payload } = await req.json()
-    console.log(`Auditing incoming Identity Shard for User ID: ${secureUserId} - Action: ${action}`);
+    const trimmedAction = String(action || '').trim();
+    console.log(`Auditing Identity Shard | User: ${secureUserId} | Action: ${trimmedAction}`);
 
     const sessionId = `SES-${Date.now()}`
     const sessionLink = `https://dashboard.necxa.com/audit/sessions/${sessionId}`
-
     const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ID document capture actions
+    // Unified Action Router
     // ─────────────────────────────────────────────────────────────────────────
-    // ─────────────────────────────────────────────────────────────────────────
-    // Holding check — person physically holding an ID card (no OCR)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (action === 'verify-id-holding') {
-      const { imageBase64 } = payload || {}
-      if (!imageBase64) throw new Error('Missing imageBase64 payload')
+    switch (trimmedAction) {
+      // 1. Holding Check
+      case 'verify-id-holding': {
+        const { imageBase64 } = payload || {}
+        if (!imageBase64) throw new Error('Missing imageBase64 payload')
 
-      let holdingResult: Awaited<ReturnType<typeof callNvidiaVisionHolding>> | null = null
-      try {
-        holdingResult = await callNvidiaVisionHolding(imageBase64)
-        console.log(`[NVIDIA Holding] verified=${holdingResult.verified} person=${holdingResult.person_detected} id=${holdingResult.id_card_detected}`)
-      } catch (err: any) {
-        console.error('[NVIDIA Holding] Error:', err.message)
-        return new Response(JSON.stringify({
-          verified: false,
-          decision: 'deferred',
-          reasonCode: 'holding_check_unavailable',
-          retryable: true,
-          feedback: 'The holding verification is temporarily unavailable. Please retry shortly.',
-        }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-      }
+        let holdingResult: Awaited<ReturnType<typeof callNvidiaVisionHolding>> | null = null
+        try {
+          holdingResult = await callNvidiaVisionHolding(imageBase64)
+          console.log(`[NVIDIA Holding] verified=${holdingResult.verified} person=${holdingResult.person_detected} id=${holdingResult.id_card_detected}`)
+        } catch (err: any) {
+          console.error('[NVIDIA Holding] Error:', err.message)
+          return new Response(JSON.stringify({
+            verified: false,
+            decision: 'deferred',
+            reasonCode: 'holding_check_unavailable',
+            retryable: true,
+            feedback: 'The holding verification is temporarily unavailable. Please retry shortly.',
+          }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
 
-      const feedback = holdingResult.verified
-        ? 'Confirmed: you are physically holding your ID card. Proceed to the next step.'
-        : !holdingResult.person_detected
-          ? 'No person was detected. Make sure your full upper body and face are visible.'
-          : !holdingResult.id_card_detected
-            ? 'No ID card was detected. Hold your ID card clearly in front of the camera.'
-            : 'The ID card must be clearly visible and held in your hands. Retake the photo.'
-
-      return new Response(JSON.stringify({
-        verified: holdingResult.verified,
-        decision: holdingResult.verified ? 'pass' : 'fail',
-        reasonCode: holdingResult.verified ? 'holding_confirmed' : 'holding_not_confirmed',
-        person_detected: holdingResult.person_detected,
-        id_card_detected: holdingResult.id_card_detected,
-        holding_confirmed: holdingResult.holding_confirmed,
-        score: holdingResult.score,
-        reasoning: holdingResult.reasoning,
-        feedback,
-        verificationSessionId: sessionId,
-        sessionLink,
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // ID document front / back capture (OCR + data extraction)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (action === 'verify-id' || action === 'verify-id-front' || action === 'verify-id-back') {
-      const { imageBase64 } = payload || {}
-      if (!imageBase64) throw new Error("Missing imageBase64 payload")
-
-      const stage = action === 'verify-id' ? 'front' : action.replace('verify-id-', '')
-      
-      // ── Attempt NVIDIA Vision ID verification first ─────────────────────
-      let nvidiaIdResult: any = null
-      let nvidiaIdError: string | null = null
-
-      try {
-        nvidiaIdResult = await callNvidiaVisionId(imageBase64, stage)
-        console.log(`[NVIDIA Vision ID] verified=${nvidiaIdResult.verified} decision=${nvidiaIdResult.decision}`)
-      } catch (err: any) {
-        nvidiaIdError = err.message
-        console.warn(`[NVIDIA Vision ID] Failed (${nvidiaIdError}), falling back to Cloudflare Worker`)
-      }
-
-      if (nvidiaIdResult) {
-        const automaticallyVerified = nvidiaIdResult.verified === true && nvidiaIdResult.decision === 'pass'
-        const reasonCode = String(nvidiaIdResult.reasonCode || 'document_requires_review')
-        const feedback = automaticallyVerified
-          ? `National ID ${stage} scan verified by NVIDIA Vision AI. Continue to the next capture.`
-          : documentFailureFeedback[reasonCode] || 'This document scan could not be accepted.'
+        const feedback = holdingResult.verified
+          ? 'Confirmed: you are physically holding your ID card. Proceed to the next step.'
+          : !holdingResult.person_detected
+            ? 'No person was detected. Make sure your full upper body and face are visible.'
+            : !holdingResult.id_card_detected
+              ? 'No ID card was detected. Hold your ID card clearly in front of the camera.'
+              : 'The ID card must be clearly visible and held in your hands. Retake the photo.'
 
         return new Response(JSON.stringify({
-          verified: automaticallyVerified,
-          automaticallyVerified,
-          decision: nvidiaIdResult.decision || 'manual_review',
-          reasonCode,
-          requiresManualReview: nvidiaIdResult.decision === 'manual_review',
-          score: percentage(nvidiaIdResult.score),
-          qualityScore: percentage(nvidiaIdResult.qualityScore),
-          docType: nvidiaIdResult.docType,
-          country: nvidiaIdResult.country,
-          extractedData: nvidiaIdResult.extractedData,
-          engine: stage === 'back' ? 'nvidia-vision-light' : 'nvidia-vision',
-          stage,
+          verified: holdingResult.verified,
+          decision: holdingResult.verified ? 'pass' : 'fail',
+          reasonCode: holdingResult.verified ? 'holding_confirmed' : 'holding_not_confirmed',
+          person_detected: holdingResult.person_detected,
+          id_card_detected: holdingResult.id_card_detected,
+          holding_confirmed: holdingResult.holding_confirmed,
+          score: holdingResult.score,
+          reasoning: holdingResult.reasoning,
           feedback,
           verificationSessionId: sessionId,
-          sessionLink
+          sessionLink,
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
 
-      // A back capture is intentionally a light presence/quality check only.
-      // Do not send it to the full OCR/document-verification fallback: that
-      // would read more information than this stage needs.
-      if (stage === 'back') {
-        return new Response(JSON.stringify({
-          verified: false,
-          automaticallyVerified: false,
-          decision: 'deferred',
-          reasonCode: 'light_back_verification_unavailable',
-          retryable: true,
-          stage,
-          feedback: 'Quick back-of-ID verification is temporarily unavailable. Your image was not rejected; please retry shortly.',
-          verificationSessionId: sessionId,
-          sessionLink,
-        }), {
-          status: 503,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
-      }
+      // 2. ID Document (Front/Back)
+      case 'verify-id':
+      case 'verify-id-front':
+      case 'verify-id-back': {
+        const { imageBase64 } = payload || {}
+        if (!imageBase64) throw new Error("Missing imageBase64 payload")
 
-      console.log('[ID Capture] Using Cloudflare Worker fallback')
-      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-      const imageBytes = decode(base64Data);
-      
-      const formData = new FormData();
-      formData.append('idFront', new Blob([imageBytes], { type: 'image/jpeg' }), `${stage}.jpg`);
-      formData.append('countryCode', payload?.countryCode || 'UG');
-      formData.append('documentType', payload?.documentType || 'national_id');
-      formData.append('captureStage', stage);
+        const stage = trimmedAction === 'verify-id' ? 'front' : trimmedAction.replace('verify-id-', '')
 
-      const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
-        method: 'POST',
-        headers: {
-          'x-primary-jwt': primaryJwt,
-          'Idempotency-Key': `${secureUserId}:${stage}:${crypto.randomUUID()}`,
-        },
-        body: formData
-      });
+        let nvidiaIdResult: any = null
+        try {
+          nvidiaIdResult = await callNvidiaVisionId(imageBase64, stage)
+          console.log(`[NVIDIA Vision ID] verified=${nvidiaIdResult.verified} decision=${nvidiaIdResult.decision}`)
+        } catch (err: any) {
+          console.warn(`[NVIDIA Vision ID] Failed (${err.message}), falling back to Cloudflare Worker`)
+        }
 
-      if (!aiRes.ok) {
-        const aiError = await aiRes.json().catch(() => ({}));
-        const providerUnavailable = aiRes.status === 503 ||
-          aiError.code === 'document_provider_unavailable';
-        return new Response(JSON.stringify({
-          verified: false,
-          decision: 'deferred',
-          reasonCode: providerUnavailable
-            ? 'document_provider_unavailable'
-            : 'document_analysis_failed',
-          retryable: providerUnavailable,
-          feedback: providerUnavailable
-            ? 'Document verification is temporarily unavailable. Your photo was not rejected; please retry shortly.'
-            : 'The document could not be analyzed. Please retake it with the whole card inside the frame.'
-        }), {
-          status: providerUnavailable ? 503 : 422,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        if (nvidiaIdResult) {
+          const automaticallyVerified = nvidiaIdResult.verified === true && nvidiaIdResult.decision === 'pass'
+          const reasonCode = String(nvidiaIdResult.reasonCode || 'document_requires_review')
+          const feedback = automaticallyVerified
+            ? `National ID ${stage} scan verified by NVIDIA Vision AI. Continue to the next capture.`
+            : documentFailureFeedback[reasonCode] || 'This document scan could not be accepted.'
+
+          return new Response(JSON.stringify({
+            verified: automaticallyVerified,
+            automaticallyVerified,
+            decision: nvidiaIdResult.decision || 'manual_review',
+            reasonCode,
+            requiresManualReview: nvidiaIdResult.decision === 'manual_review',
+            score: percentage(nvidiaIdResult.score),
+            qualityScore: percentage(nvidiaIdResult.qualityScore),
+            docType: nvidiaIdResult.docType,
+            country: nvidiaIdResult.country,
+            extractedData: nvidiaIdResult.extractedData,
+            engine: stage === 'back' ? 'nvidia-vision-light' : 'nvidia-vision',
+            stage,
+            feedback,
+            verificationSessionId: sessionId,
+            sessionLink
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
+        if (stage === 'back') {
+          return new Response(JSON.stringify({
+            verified: false,
+            decision: 'deferred',
+            retryable: true,
+            feedback: 'Quick back-of-ID verification is temporarily unavailable. Please retry shortly.',
+          }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
+        const imageBytes = decode(imageBase64.replace(/^data:image\/\w+;base64,/, ""));
+        const formData = new FormData();
+        formData.append('idFront', new Blob([imageBytes], { type: 'image/jpeg' }), `${stage}.jpg`);
+        formData.append('countryCode', payload?.countryCode || 'UG');
+        formData.append('documentType', payload?.documentType || 'national_id');
+        formData.append('captureStage', stage);
+
+        const aiRes = await fetch(`${NECXA_AI_URL}/api/verify/id`, {
+          method: 'POST',
+          headers: { 'x-primary-jwt': primaryJwt, 'Idempotency-Key': `${secureUserId}:${stage}:${crypto.randomUUID()}` },
+          body: formData
         });
-      }
-      const aiData = await aiRes.json();
-      if (!aiData.success) throw new Error(`Verification Failed: ${aiData.error}`);
 
-      const ocrResult = aiData.ocrResult || {}
-      const reasonCode = String(ocrResult.reasonCode || 'document_requires_review')
-      const automaticallyVerified = ocrResult.verified === true && ocrResult.decision === 'pass'
-      const feedback = automaticallyVerified
-        ? `National ID ${stage} scan verified by ${ocrResult.model || 'the vision model'}. Continue to the next capture.`
-        : documentFailureFeedback[reasonCode] ||
-          'This document scan could not be accepted.'
-
-      return new Response(JSON.stringify({
-        verified: automaticallyVerified,
-        automaticallyVerified,
-        decision: ocrResult.decision || 'manual_review',
-        reasonCode,
-        requiresManualReview: ocrResult.decision === 'manual_review',
-        score: percentage(ocrResult.score),
-        qualityScore: percentage(ocrResult.qualityScore),
-        docType: ocrResult.docType,
-        country: ocrResult.country,
-        extractedData: ocrResult.extractedData,
-        warnings: ocrResult.warnings,
-        ocrLogs: ocrResult.ocrLogs,
-        stage,
-        feedback,
-        verificationSessionId: aiData.sessionId,
-        sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Liveness Panorama — Analyze 3-stage stitched image for liveness
-    // ─────────────────────────────────────────────────────────────────────────
-    } else if (action === 'verify-liveness-panorama') {
-      const panoramaData = payload?.panoramaBase64 || payload?.imageBase64
-      if (!panoramaData) throw new Error('Missing image payload for panorama liveness')
-
-      try {
-        // We use the same biometric caller but in face-only mode for the panorama
-        const nvidiaResult = await callNvidiaVisionBiometric(panoramaData, null, 'face-only')
-
-        const isVerified = nvidiaResult.is_live_person &&
-                         nvidiaResult.face_detected &&
-                         nvidiaResult.liveness_score >= 60
-
-        return new Response(JSON.stringify({
-          verified: isVerified,
-          faceMatch: isVerified,
-          livenessPassed: isVerified,
-          score: nvidiaResult.liveness_score,
-          reasoning: nvidiaResult.reasoning,
-          feedback: isVerified
-            ? 'Panorama liveness confirmed. Identity shard assembly ready.'
-            : 'Liveness could not be confirmed from the panorama. Please keep your face centered and try again.',
-          verificationSessionId: sessionId,
-          sessionLink,
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-      } catch (err: any) {
-        console.error('[NVIDIA Panorama] Error:', err.message)
-        return new Response(JSON.stringify({
-          verified: false,
-          decision: 'deferred',
-          feedback: 'Liveness verification is temporarily unavailable. Please retry shortly.',
-        }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-      }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Biometric / selfie actions — NVIDIA Vision primary, Worker fallback
-    // ─────────────────────────────────────────────────────────────────────────
-    } else if (action === 'verify-selfie' || action === 'verify-face-only') {
-      const { imageBase64, idImageBase64 } = payload || {}
-      if (!imageBase64) throw new Error("Missing image payloads for biometric match")
-      if (action === 'verify-selfie' && !idImageBase64) throw new Error("Missing idImageBase64 payload for selfie verification")
-
-      const mode: 'face-only' | 'biometric' = action === 'verify-face-only' ? 'face-only' : 'biometric'
-
-      // ── Attempt configured Vision providers before the Worker fallback ────
-      let nvidiaResult: Awaited<ReturnType<typeof callNvidiaVisionBiometric>> | null = null
-      let nvidiaError: string | null = null
-
-      try {
-        nvidiaResult = await callNvidiaVisionBiometric(imageBase64, idImageBase64 ?? null, mode)
-        console.log(`[Vision] liveness=${nvidiaResult.liveness_score} similarity=${nvidiaResult.similarity_score} live=${nvidiaResult.is_live_person} match=${nvidiaResult.faces_match}`)
-      } catch (err: any) {
-        nvidiaError = err.message
-        console.warn(`[Vision] Failed (${nvidiaError}), falling back to Cloudflare Worker`)
-      }
-
-      // ── Build biometric result; liveness is always required ──────────────
-      if (nvidiaResult) {
-        const LIVENESS_THRESHOLD = 60
-        const SIMILARITY_THRESHOLD = 30
-
-        const livenessPassed =
-          nvidiaResult.is_live_person &&
-          nvidiaResult.face_detected &&
-          nvidiaResult.liveness_agrees &&
-          nvidiaResult.liveness_score >= LIVENESS_THRESHOLD &&
-          (nvidiaResult.anti_spoof_flags.length === 0 ||
-            (nvidiaResult.anti_spoof_flags.length === 1 && nvidiaResult.anti_spoof_flags[0] === ''))
-
-        const faceMatch =
-          mode === 'face-only'
-            ? true
-            : nvidiaResult.faces_match &&
-              nvidiaResult.face_match_agrees &&
-              nvidiaResult.similarity_score >= SIMILARITY_THRESHOLD
-
-        const verified = livenessPassed && faceMatch
-
-        let reasonCode: string
-        if (!nvidiaResult.face_detected) {
-          reasonCode = 'face_not_detected'
-        } else if (!livenessPassed && nvidiaResult.anti_spoof_flags.length > 0) {
-          reasonCode = 'presentation_attack_detected'
-        } else if (!livenessPassed) {
-          reasonCode = 'liveness_below_threshold'
-        } else if (!faceMatch) {
-          reasonCode = 'face_similarity_below_threshold'
-        } else {
-          reasonCode = 'biometric_passed'
+        if (!aiRes.ok) {
+          return new Response(JSON.stringify({ verified: false, decision: 'deferred', feedback: 'Document verification is temporarily unavailable.' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
-
-        // Mark profile as verified agent if selfie fully passes
-        if (action === 'verify-selfie' && verified) {
-          const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
-          const primaryAdminClient = PRIMARY_SUPABASE_SERVICE_ROLE_KEY 
-            ? createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY)
-            : primaryClient;
-
-          await primaryAdminClient
-            .from('profiles')
-            .update({ is_agent: true })
-            .eq('id', secureUserId);
-        }
+        const aiData = await aiRes.json();
+        const ocrResult = aiData.ocrResult || {}
+        const autoVerified = ocrResult.verified === true && ocrResult.decision === 'pass'
 
         return new Response(JSON.stringify({
-          verified,
-          faceMatch,
-          livenessPassed,
-          faceDetected: nvidiaResult.face_detected,
-          decision: verified ? 'pass' : 'fail',
-          reasonCode,
-          requiresManualReview: false,
-          score: nvidiaResult.similarity_score,
-          livenessScore: nvidiaResult.liveness_score,
-          antiSpoofFlags: nvidiaResult.anti_spoof_flags,
-          engine: nvidiaResult.provider,
-          feedback: verified
-            ? (action === 'verify-face-only'
-              ? 'Liveness verification completed successfully.'
-              : 'Liveness and National ID face matching completed successfully.')
-            : biometricFailureFeedback[reasonCode] ||
-              'Biometric verification was not approved. Please retry with your face clearly visible.',
-          reasoning: nvidiaResult.reasoning,
-          verificationSessionId: sessionId,
-          sessionLink,
+          verified: autoVerified,
+          automaticallyVerified: autoVerified,
+          decision: ocrResult.decision || 'manual_review',
+          reasonCode: ocrResult.reasonCode || 'requires_review',
+          score: percentage(ocrResult.score),
+          feedback: autoVerified ? `ID verified via ${ocrResult.model}` : documentFailureFeedback[ocrResult.reasonCode] || 'Document scan not accepted.',
+          verificationSessionId: aiData.sessionId,
+          sessionLink: `https://dashboard.necxa.com/audit/sessions/${aiData.sessionId}`
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
 
-      // Do not fall through to the legacy Worker: it reports misleading
-      // provider-configuration errors for this face-match flow.
-      return new Response(JSON.stringify({
-        verified: false,
-        faceMatch: false,
-        livenessPassed: false,
-        decision: 'deferred',
-        reasonCode: 'biometric_provider_unavailable',
-        retryable: true,
-        engine: 'vision-provider-unavailable',
-        feedback: biometricFailureFeedback['biometric_provider_unavailable'],
-        requestId,
-        verificationSessionId: sessionId,
-        sessionLink,
-      }), {
-        status: 503,
-        headers: responseHeaders
-      })
+      // 3. Panoramic Liveness
+      case 'verify-liveness-panorama': {
+        const panoramaData = payload?.panoramaBase64 || payload?.imageBase64
+        if (!panoramaData) throw new Error('Missing image payload for panorama liveness')
+
+        try {
+          const nvidiaResult = await callNvidiaVisionBiometric(panoramaData, null, 'face-only')
+          const isVerified = nvidiaResult.is_live_person && nvidiaResult.face_detected && nvidiaResult.liveness_score >= 60
+
+          return new Response(JSON.stringify({
+            verified: isVerified,
+            faceMatch: isVerified,
+            livenessPassed: isVerified,
+            score: nvidiaResult.liveness_score,
+            reasoning: nvidiaResult.reasoning,
+            feedback: isVerified ? 'Panorama liveness confirmed. Identity shard assembly ready.' : 'Liveness could not be confirmed from the panorama.',
+            verificationSessionId: sessionId,
+            sessionLink,
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        } catch (err: any) {
+          console.error('[NVIDIA Panorama] Error:', err.message)
+          return new Response(JSON.stringify({ verified: false, feedback: 'Liveness verification is temporarily unavailable.' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+      }
+
+      // 4. Biometric Selfie
+      case 'verify-selfie':
+      case 'verify-face-only': {
+        const { imageBase64, idImageBase64 } = payload || {}
+        if (!imageBase64) throw new Error("Missing image payload for biometric match")
+
+        const mode = trimmedAction === 'verify-face-only' ? 'face-only' : 'biometric'
+        let nvidiaResult = await callNvidiaVisionBiometric(imageBase64, idImageBase64 ?? null, mode)
+
+        if (nvidiaResult) {
+          const verified = nvidiaResult.is_live_person && nvidiaResult.face_detected && nvidiaResult.liveness_score >= 60 &&
+                          (mode === 'face-only' || (nvidiaResult.faces_match && nvidiaResult.similarity_score >= 30))
+
+          if (trimmedAction === 'verify-selfie' && verified) {
+            const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('PRIMARY_SUPABASE_SERVICE_ROLE_KEY')
+            const admin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY || PRIMARY_SUPABASE_ANON_KEY)
+            await admin.from('profiles').update({ is_agent: true }).eq('id', secureUserId);
+          }
+
+          return new Response(JSON.stringify({
+            verified,
+            faceMatch: verified,
+            livenessPassed: nvidiaResult.is_live_person,
+            score: nvidiaResult.similarity_score,
+            livenessScore: nvidiaResult.liveness_score,
+            feedback: verified ? 'Verification completed successfully.' : 'Biometric verification was not approved.',
+            reasoning: nvidiaResult.reasoning,
+            verificationSessionId: sessionId,
+            sessionLink,
+          }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+
+        return new Response(JSON.stringify({ verified: false, feedback: 'Face-match service is temporarily offline.' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      default:
+        return new Response(JSON.stringify({
+          error: `Unknown Action provided: ${trimmedAction}`,
+          details: `The action '${trimmedAction}' is not handled by this version of the verify-identity-shard function.`
+        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
     }
-
-    // Fallback error safely
-    return new Response(JSON.stringify({ error: 'Unknown Action provided' }), { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400 
-    })
 
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), {
