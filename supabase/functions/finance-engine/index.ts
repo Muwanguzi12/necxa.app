@@ -2607,341 +2607,6 @@ serve(async (req) => {
       return json({ success: true, status: mappedStatus.toLowerCase() });
     }
 
-    // ── Action: list_gift_items ──────────────────────────────────────────────
-    if (action === "list_gift_items") {
-      const { data: giftItems, error } = await supabase
-        .from("gift_items")
-        .select("*")
-        .eq("is_active", true)
-        .order("sort_order", { ascending: true });
-      if (error) throw new Error(error.message);
-      return json({ success: true, giftItems });
-    }
-
-    // ── Action: send_gift ────────────────────────────────────────────────────
-    if (action === "send_gift") {
-      const receiverId = body.receiverId as string;
-      const giftItemId = body.giftItemId as string;
-      const ncxAmount = Number(body.ncxAmount) || 0;
-      const contextType = body.contextType as string;
-      const contextId = body.contextId as string; // The post ID or live stream ID
-      const contextNote = body.contextNote as string;
-      const isAnonymous = Boolean(body.isAnonymous);
-      const idempotencyKey = (body.idempotencyKey as string) || `gift-${user.id}-${Date.now()}`;
-      const metadata = (body.metadata ?? {}) as Record<string, unknown>;
-      const supportedContextTypes = new Set([
-        "direct",
-        "creator_post",
-        "listing",
-        "live_stream",
-        "live",
-      ]);
-      if (!supportedContextTypes.has(contextType)) {
-        return json({ success: false, message: "Unsupported gift context." }, 400);
-      }
-      if (!receiverId || !giftItemId || !contextId || ncxAmount <= 0) {
-        return json({ success: false, message: "Gift recipient, item, context, and amount are required." }, 400);
-      }
-      const isLiveGift = contextType === "live_stream" || contextType === "live";
-      const { data: feeConfig } = await supabase
-        .from("finance_config")
-        .select("value")
-        .eq("key", "gift_platform_fee_basis_points")
-        .maybeSingle();
-      const configuredFeeBasisPoints = Number(
-        (feeConfig?.value as Record<string, unknown> | null)?.basis_points ?? 1100,
-      );
-      const giftFeeBasisPoints = Number.isInteger(configuredFeeBasisPoints) &&
-          configuredFeeBasisPoints >= 0 &&
-          configuredFeeBasisPoints <= 10000
-        ? configuredFeeBasisPoints
-        : 1100;
-      const giftFeeRate = giftFeeBasisPoints / 10000;
-      const effectiveGiftFeeRate = isLiveGift ? 0.11 : giftFeeRate;
-      const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-
-      // FINANCIAL LEDGER REQUIRES UUIDs for auth parameters.
-      const safeReceiverId = isUUID(receiverId) ? receiverId : null;
-      const safeTargetId = (contextId && isUUID(contextId)) ? contextId : null;
-
-      if (!safeReceiverId) {
-        return json({
-          success: false,
-          code: "invalid_receiver",
-          message: `The recipient ID (${receiverId}) is not a valid financial identity (Non-UUID).`
-        }, 400);
-      }
-
-      const rpcPayload = {
-        p_sender_auth_id: user.id,
-        p_receiver_auth_id: safeReceiverId,
-        p_target_id: safeTargetId,
-        p_ncx_amount: ncxAmount,
-        p_gift_platform_fee_rate: isLiveGift ? 0.11 : giftFeeRate,
-        p_gift_details: {
-          gift_item_id: giftItemId,
-          context_type: contextType,
-          context_id: contextId,
-          context_note: contextNote,
-          is_anonymous: isAnonymous,
-          idempotency_key: idempotencyKey,
-          sender_name: isAnonymous ? "Anonymous" : (metadata.sender_name || user.email || "Viewer"),
-          sender_avatar: isAnonymous ? "" : (metadata.sender_avatar || ""),
-        },
-      };
-
-      const { data, error } = await supabase.rpc("process_gift_ncx", rpcPayload);
-
-      if (error) {
-        const message = error.message || "Gift transaction failed.";
-        const normalizedMessage = message.toLowerCase();
-        if (normalizedMessage.includes("insufficient ncx") ||
-            normalizedMessage.includes("insufficient balance")) {
-          return json({
-            success: false,
-            code: "insufficient_funds",
-            message: "Insufficient NCX balance.",
-          }, 402);
-        }
-        return json({ success: false, code: "gift_failed", message }, 400);
-      }
-
-      // The RPC returns { success, message, platform_fee_paid, receiver_amount_credited }
-      // Due to how Supabase returns tabular RPCs it's an array of length 1
-      const resData = Array.isArray(data) ? data[0] : data;
-      if (resData && resData.success === false) {
-        return json({ success: false, message: resData.message }, 400);
-      }
-
-      const { data: giftDef } = await supabase
-        .from("gift_items")
-        .select("name, emoji, ugx_value")
-        .eq("id", giftItemId)
-        .maybeSingle();
-      const receiverNcx = Number(resData?.receiver_amount_credited);
-      const platformFeeNcx = Number(resData?.platform_fee_paid);
-      if (!giftDef || !Number.isFinite(receiverNcx) || !Number.isFinite(platformFeeNcx)) {
-        return json({ success: false, message: "Finance returned an incomplete gift settlement." }, 502);
-      }
-      const financeGiftId = resData?.gift_id?.toString();
-      let communitySync: Record<string, unknown> = { synced: false, reason: "not_supported_context" };
-      if ((contextType === "creator_post" || contextType === "listing") && contextId && financeGiftId && !contextId.startsWith("direct")) {
-        try {
-          communitySync = await syncCommunityGiftToPrimary(
-            financeGiftId,
-            user.id,
-            receiverId,
-            contextId,
-            giftItemId,
-            ncxAmount,
-            receiverNcx,
-            platformFeeNcx,
-            idempotencyKey,
-            { ...metadata, context_type: contextType, ugx_value: Number(giftDef.ugx_value) },
-          );
-          if (!communitySync.synced) {
-            throw new Error(String(communitySync.reason ?? "Community sync is not configured."));
-          }
-          try {
-            await completeGiftProjection(supabase, financeGiftId, true);
-          } catch (statusError) {
-            // Projection success must remain visible even while the optional
-            // finance-side status migration is rolling out.
-            console.error("Unable to persist community sync success:", statusError);
-          }
-        } catch (syncError) {
-          // Finance remains authoritative; a failed social projection must be
-          // observable without turning a completed debit into a false failure.
-          console.error(syncError);
-          if (financeGiftId) {
-            try {
-              await completeGiftProjection(
-                supabase,
-                financeGiftId,
-                false,
-                syncError instanceof Error ? syncError.message : "Community sync failed.",
-              );
-            } catch (statusError) {
-              console.error("Unable to persist community sync failure:", statusError);
-            }
-          }
-          communitySync = { synced: false, reason: "sync_failed" };
-        }
-      }
-
-      return json({
-        success: true,
-        giftId: resData?.gift_id || idempotencyKey,
-        giftEmoji: giftDef?.emoji || "🎁",
-        giftName: giftDef?.name || "Gift",
-        ncxAmount: ncxAmount,
-        receiverNcx,
-        platformFeeNcx,
-        ugxEquivalent: Number(giftDef.ugx_value),
-        isHighlighted: ncxAmount >= 50,
-        communitySynced: communitySync.synced,
-        message: "Gift sent successfully.",
-      });
-    }
-
-    // ── Action: list_live_gifts ──────────────────────────────────────────────
-    if (action === "list_live_gifts") {
-      const contextId = body.contextId as string;
-      if (!contextId) return json({ success: false, message: "contextId required." }, 400);
-
-      // Live channels are text identifiers and have their own finance table.
-      const { data: gifts, error } = await supabase
-        .from("live_gifts")
-        .select("id, sender_id, sender_name, sender_avatar, gift_type, coin_amount, created_at")
-        .eq("channel_id", contextId)
-        .order("created_at", { ascending: false })
-        .limit(1000);
-
-      if (error) {
-        return json({ success: false, message: error.message }, 503);
-      }
-
-      const formatted = (gifts || []).slice(0, 20).map(g => ({
-        id: g.id,
-        senderId: g.sender_id,
-        senderName: g.sender_name || "Anonymous",
-        senderAvatar: g.sender_avatar || "",
-        giftEmoji: g.gift_type === "rose" ? "🌹" : (g.gift_type === "diamond" ? "💎" : "🎁"),
-        giftName: g.gift_type,
-        amount: g.coin_amount,
-        timestamp: g.created_at,
-      }));
-
-      const totalsBySender = new Map<string, {
-        senderId: string;
-        senderName: string;
-        senderAvatar: string;
-        amount: number;
-      }>();
-      let totalAmount = 0;
-      for (const gift of gifts || []) {
-        const amount = Number(gift.coin_amount) || 0;
-        totalAmount += amount;
-        const senderId = gift.sender_id || gift.sender_name || "anonymous";
-        const current = totalsBySender.get(senderId) ?? {
-          senderId,
-          senderName: gift.sender_name || "Anonymous",
-          senderAvatar: gift.sender_avatar || "",
-          amount: 0,
-        };
-        current.amount += amount;
-        totalsBySender.set(senderId, current);
-      }
-      const leaderboard = [...totalsBySender.values()]
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 10)
-        .map((entry, index) => ({ ...entry, rank: index + 1 }));
-      const topGifter = leaderboard[0] ?? null;
-      const milestones = [100, 500, 1000, 5000, 10000, 25000, 50000, 100000];
-      const goalTarget = milestones.find(value => value > totalAmount)
-        ?? Math.ceil((totalAmount + 1) / 100000) * 100000;
-
-      return json({
-        success: true,
-        gifts: formatted,
-        summary: { totalAmount, goalTarget, topGifter, leaderboard },
-      });
-    }
-
-    // ── Action: list_gifts (Unified) ──────────────────────────────────────────
-    if (action === "list_gifts") {
-      const contextId = body.contextId as string;
-      if (!contextId) return json({ success: false, message: "contextId required." }, 400);
-
-      const { data: gifts, error } = await supabase
-        .from("gifts")
-        .select("id, sender_id, gift_item_id, ncx_amount, created_at, metadata, is_anonymous")
-        .eq("context_id", contextId)
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (error) {
-        return json({ success: false, message: error.message }, 503);
-      }
-
-      const emojiMap: Record<string, string> = {
-        rose: "🌹", clap: "👏", heart: "❤️", coffee: "☕", star: "⭐", fire: "🔥",
-        rocket: "🚀", crown: "👑", diamond: "💎", trophy: "🏆", money_bag: "💰",
-        sports_car: "🏎️", yacht: "🛥️", mansion: "🏰", jet: "✈️", globe: "🌍",
-        stadium: "🏟️", ressort: "🎢"
-      };
-
-      const formatted = (gifts || []).map(g => {
-        const meta = (g.metadata ?? {}) as Record<string, any>;
-        const isAnon = g.is_anonymous === true;
-        const itemId = String(g.gift_item_id ?? "gift");
-        return {
-          id: g.id,
-          senderId: g.sender_id,
-          senderName: isAnon ? "Anonymous" : (meta.sender_name || "Someone"),
-          senderAvatar: isAnon ? "" : (meta.sender_avatar || ""),
-          giftItemId: itemId,
-          giftEmoji: emojiMap[itemId] || "🎁",
-          giftName: itemId.split('_').map(w => w[0].toUpperCase() + w.substring(1)).join(' '),
-          amount: g.ncx_amount,
-          timestamp: g.created_at,
-          context_note: meta.context_note,
-        };
-      });
-
-      return json({ success: true, gifts: formatted });
-    }
-
-    // ── Action: list_community_gifts ──────────────────────────────────────────
-    if (action === "list_community_gifts") {
-      const contextId = body.contextId as string;
-      if (!contextId) return json({ success: false, message: "contextId required." }, 400);
-
-      const { data: gifts, error } = await supabase
-        .from("gifts")
-        .select("id, sender_id, gift_item_id, ncx_amount, created_at, metadata, is_anonymous")
-        .eq("context_id", contextId)
-        .in("context_type", ["creator_post", "listing"])
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (error) {
-        return json({ success: false, message: error.message }, 503);
-      }
-
-      // Resolve emojis from a minimal internal map to avoid a secondary join per request
-      const emojiMap: Record<string, string> = {
-        rose: "🌹", clap: "👏", heart: "❤️", coffee: "☕", star: "⭐", fire: "🔥",
-        rocket: "🚀", crown: "👑", diamond: "💎", trophy: "🏆", money_bag: "💰",
-        sports_car: "🏎️", yacht: "🛥️", mansion: "🏰", jet: "✈️", globe: "🌍",
-        stadium: "🏟️", ressort: "🎢"
-      };
-
-      const formatted = (gifts || []).map(g => {
-        const meta = (g.metadata ?? {}) as Record<string, any>;
-        const isAnon = g.is_anonymous === true;
-        const itemId = String(g.gift_item_id ?? "gift");
-
-        return {
-          id: g.id,
-          senderId: g.sender_id,
-          senderName: isAnon ? "Anonymous" : (meta.sender_name || "Someone"),
-          senderAvatar: isAnon ? "" : (meta.sender_avatar || ""),
-          giftItemId: itemId,
-          giftEmoji: emojiMap[itemId] || "🎁",
-          giftName: itemId.split('_').map(w => w[0].toUpperCase() + w.substring(1)).join(' '),
-          amount: g.ncx_amount,
-          timestamp: g.created_at,
-          context_note: meta.context_note,
-        };
-      });
-
-      return json({
-        success: true,
-        gifts: formatted,
-      });
-    }
-
     // ── Action: get_wallet ───────────────────────────────────────────────────
     // Returns the current wallet for the authenticated user.
     // Called by Flutter _syncVault() every time the UI needs to refresh balances.
@@ -3333,6 +2998,284 @@ serve(async (req) => {
         withdrawalId: withdrawal.id,
         status: withdrawal.workflow_status ?? withdrawal.status,
       });
+    }
+
+    // ── Gifting Actions ──────────────────────────────────────────────────────
+
+    // Resolve emojis from a minimal internal map to avoid a secondary join per request
+    const giftEmojiMap: Record<string, string> = {
+      rose: "🌹", clap: "👏", heart: "❤️", coffee: "☕", star: "⭐", fire: "🔥",
+      rocket: "🚀", crown: "👑", diamond: "💎", trophy: "🏆", money_bag: "💰",
+      sports_car: "🏎️", yacht: "🛥️", mansion: "🏰", jet: "✈️", globe: "🌍",
+      stadium: "🏟️", ressort: "🎢"
+    };
+
+    if (action === "list_gift_items") {
+      const { data: giftItems, error } = await supabase
+        .from("gift_items")
+        .select("*")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      if (error) throw new Error(error.message);
+      return json({ success: true, giftItems });
+    }
+
+    if (action === "send_gift") {
+      const receiverId = body.receiverId as string;
+      const giftItemId = body.giftItemId as string;
+      const ncxAmount = Number(body.ncxAmount) || 0;
+      const contextType = body.contextType as string;
+      const contextId = body.contextId as string;
+      const contextNote = body.contextNote as string;
+      const isAnonymous = Boolean(body.isAnonymous);
+      const idempotencyKey = (body.idempotencyKey as string) || `gift-${user.id}-${Date.now()}`;
+      const metadata = (body.metadata ?? {}) as Record<string, unknown>;
+
+      const supportedContextTypes = new Set(["direct", "creator_post", "listing", "live_stream", "live"]);
+      if (!supportedContextTypes.has(contextType)) {
+        return json({ success: false, message: "Unsupported gift context." }, 400);
+      }
+      if (!receiverId || !giftItemId || !contextId || ncxAmount <= 0) {
+        return json({ success: false, message: "Gift recipient, item, context, and amount are required." }, 400);
+      }
+
+      const isLiveGift = contextType === "live_stream" || contextType === "live";
+      const { data: feeConfig } = await supabase.from("finance_config").select("value").eq("key", "gift_platform_fee_basis_points").maybeSingle();
+      const giftFeeBasisPoints = Number((feeConfig?.value as any)?.basis_points ?? 1100);
+      const giftFeeRate = giftFeeBasisPoints / 10000;
+      const effectiveGiftFeeRate = isLiveGift ? 0.11 : giftFeeRate;
+
+      const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+      const safeReceiverId = isUUID(receiverId) ? receiverId : null;
+      const safeTargetId = (contextId && isUUID(contextId)) ? contextId : null;
+
+      if (!safeReceiverId) {
+        return json({ success: false, code: "invalid_receiver", message: `The recipient ID (${receiverId}) is not a valid financial identity.` }, 400);
+      }
+
+      const rpcPayload = {
+        p_sender_auth_id: user.id,
+        p_receiver_auth_id: safeReceiverId,
+        p_post_id: safeTargetId,
+        p_ncx_amount: ncxAmount,
+        p_gift_platform_fee_rate: effectiveGiftFeeRate,
+        p_gift_details: {
+          gift_item_id: giftItemId,
+          context_type: contextType,
+          context_id: contextId,
+          context_note: contextNote,
+          is_anonymous: isAnonymous,
+          idempotency_key: idempotencyKey,
+          sender_name: isAnonymous ? "Anonymous" : (metadata.sender_name || user.email || "Viewer"),
+          sender_avatar: isAnonymous ? "" : (metadata.sender_avatar || ""),
+        },
+      };
+
+      const { data, error } = await supabase.rpc("process_gift_ncx", rpcPayload);
+      if (error) {
+        const isInsufficient = error.message?.toLowerCase().includes("insufficient");
+        return json({ success: false, code: isInsufficient ? "insufficient_funds" : "gift_failed", message: error.message }, isInsufficient ? 402 : 400);
+      }
+
+      const resData = Array.isArray(data) ? data[0] : data;
+      const { data: giftDef } = await supabase.from("gift_items").select("name, emoji, ugx_value").eq("id", giftItemId).maybeSingle();
+      const receiverNcx = Number(resData?.receiver_amount_credited);
+      const platformFeeNcx = Number(resData?.platform_fee_paid);
+      const financeGiftId = resData?.gift_id?.toString();
+
+      let communitySync = { synced: false };
+      if ((contextType === "creator_post" || contextType === "listing") && contextId && financeGiftId && !contextId.startsWith("direct")) {
+        try {
+          const sync = await syncCommunityGiftToPrimary(financeGiftId, user.id, receiverId, contextId, giftItemId, ncxAmount, receiverNcx, platformFeeNcx, idempotencyKey, { ...metadata, context_type: contextType, ugx_value: Number(giftDef?.ugx_value ?? 0) });
+          if (sync.synced) {
+            await completeGiftProjection(supabase, financeGiftId, true);
+            communitySync.synced = true;
+          }
+        } catch (e) {
+          console.error("Community sync failed:", e);
+          if (financeGiftId) await completeGiftProjection(supabase, financeGiftId, false, e.message);
+        }
+      }
+
+      return json({
+        success: true,
+        giftId: financeGiftId || idempotencyKey,
+        giftEmoji: giftDef?.emoji || "🎁",
+        giftName: giftDef?.name || "Gift",
+        ncxAmount,
+        receiverNcx,
+        platformFeeNcx,
+        ugxEquivalent: Number(giftDef?.ugx_value ?? 0),
+        ugxCreatorCut: receiverNcx * 100,
+        ugxPlatformFee: platformFeeNcx * 100,
+        communitySynced: communitySync.synced,
+      });
+    }
+
+    if (action === "list_live_gifts") {
+      const contextId = body.contextId as string;
+      if (!contextId) return json({ success: false, message: "contextId required." }, 400);
+      const { data: gifts, error } = await supabase.from("live_gifts").select("id, sender_id, sender_name, sender_avatar, gift_type, coin_amount, creator_ncx_cut, necxa_ncx_fee, created_at").eq("channel_id", contextId).order("created_at", { ascending: false }).limit(1000);
+      if (error) return json({ success: false, message: error.message }, 503);
+
+      const totalsBySender = new Map<string, {
+        senderId: string;
+        senderName: string;
+        senderAvatar: string;
+        amount: number;
+      }>();
+      let totalAmount = 0;
+
+      const formatted = (gifts || []).map(g => {
+        const amount = Number(g.coin_amount) || 0;
+        totalAmount += amount;
+        const senderId = g.sender_id || g.sender_name || "anonymous";
+        const current = totalsBySender.get(senderId) ?? {
+          senderId,
+          senderName: g.sender_name || "Anonymous",
+          senderAvatar: g.sender_avatar || "",
+          amount: 0,
+        };
+        current.amount += amount;
+        totalsBySender.set(senderId, current);
+
+        const itemId = String(g.gift_type || "rose");
+        const receiverNcx = Number(g.creator_ncx_cut ?? 0);
+        const platformFeeNcx = Number(g.necxa_ncx_fee ?? 0);
+
+        return {
+          id: g.id,
+          senderId: g.sender_id,
+          senderName: g.sender_name || "Anonymous",
+          senderAvatar: g.sender_avatar || "",
+          giftEmoji: giftEmojiMap[itemId] || "🎁",
+          giftName: itemId.split('_').map(w => w[0].toUpperCase() + w.substring(1)).join(' '),
+          amount: amount,
+          receiverNcx,
+          platformFeeNcx,
+          ugxEquivalent: amount * 100,
+          ugxCreatorCut: receiverNcx * 100,
+          ugxPlatformFee: platformFeeNcx * 100,
+          timestamp: g.created_at,
+        };
+      });
+
+      const leaderboard = [...totalsBySender.values()]
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 10)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+      const topGifter = leaderboard[0] ?? null;
+      const milestones = [100, 500, 1000, 5000, 10000, 25000, 50000, 100000];
+      const goalTarget = milestones.find(value => value > totalAmount)
+        ?? Math.ceil((totalAmount + 1) / 100000) * 100000;
+
+      return json({
+        success: true,
+        gifts: formatted.slice(0, 20),
+        summary: { totalAmount, goalTarget, topGifter, leaderboard },
+      });
+    }
+
+    if (action === "list_community_gifts") {
+      const contextId = body.contextId as string;
+      if (!contextId) return json({ success: false, message: "contextId required." }, 400);
+      const { data: gifts, error } = await supabase.from("gifts").select("id, sender_id, gift_item_id, ncx_amount, receiver_ncx, platform_fee_ncx, created_at, metadata, is_anonymous").eq("context_id", contextId).in("context_type", ["creator_post", "listing"]).order("created_at", { ascending: false }).limit(1000);
+      if (error) return json({ success: false, message: error.message }, 503);
+
+      const totalsBySender = new Map<string, {
+        senderId: string;
+        senderName: string;
+        senderAvatar: string;
+        amount: number;
+      }>();
+      let totalAmount = 0;
+
+      const formatted = (gifts || []).map(g => {
+        const meta = (g.metadata ?? {}) as Record<string, any>;
+        const isAnon = g.is_anonymous === true;
+        const itemId = String(g.gift_item_id ?? "gift");
+        const amount = Number(g.ncx_amount) || 0;
+        totalAmount += amount;
+
+        const senderId = g.sender_id || "anonymous";
+        const senderName = isAnon ? "Anonymous" : (meta.sender_name || "Someone");
+        const current = totalsBySender.get(senderId) ?? {
+          senderId,
+          senderName,
+          senderAvatar: isAnon ? "" : (meta.sender_avatar || ""),
+          amount: 0,
+        };
+        current.amount += amount;
+        totalsBySender.set(senderId, current);
+
+        const receiverNcx = Number(g.receiver_ncx ?? 0);
+        const platformFeeNcx = Number(g.platform_fee_ncx ?? 0);
+
+        return {
+          id: g.id,
+          senderId: g.sender_id,
+          senderName,
+          senderAvatar: isAnon ? "" : (meta.sender_avatar || ""),
+          giftItemId: itemId,
+          giftEmoji: giftEmojiMap[itemId] || "🎁",
+          giftName: itemId.split('_').map(w => w[0].toUpperCase() + w.substring(1)).join(' '),
+          amount: amount,
+          receiverNcx,
+          platformFeeNcx,
+          ugxEquivalent: amount * 100,
+          ugxCreatorCut: receiverNcx * 100,
+          ugxPlatformFee: platformFeeNcx * 100,
+          timestamp: g.created_at,
+          context_note: meta.context_note,
+        };
+      });
+
+      const leaderboard = [...totalsBySender.values()]
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 10)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+      return json({
+        success: true,
+        gifts: formatted.slice(0, 50),
+        summary: { totalAmount, topGifter: leaderboard[0] ?? null, leaderboard },
+      });
+    }
+
+    if (action === "list_gifts") {
+      const contextId = body.contextId as string;
+      if (!contextId) return json({ success: false, message: "contextId required." }, 400);
+      const { data: gifts, error } = await supabase.from("gifts").select("id, sender_id, gift_item_id, ncx_amount, receiver_ncx, platform_fee_ncx, created_at, metadata, is_anonymous").eq("context_id", contextId).order("created_at", { ascending: false }).limit(100);
+      if (error) return json({ success: false, message: error.message }, 503);
+
+      const formatted = (gifts || []).map(g => {
+        const meta = (g.metadata ?? {}) as Record<string, any>;
+        const itemId = String(g.gift_item_id ?? "gift");
+        const amount = Number(g.ncx_amount) || 0;
+        const receiverNcx = Number(g.receiver_ncx ?? 0);
+        const platformFeeNcx = Number(g.platform_fee_ncx ?? 0);
+
+        return {
+          id: g.id,
+          senderId: g.sender_id,
+          senderName: g.is_anonymous ? "Anonymous" : (meta.sender_name || "Someone"),
+          senderAvatar: g.is_anonymous ? "" : (meta.sender_avatar || ""),
+          giftItemId: itemId,
+          giftEmoji: giftEmojiMap[itemId] || "🎁",
+          giftName: itemId.split('_').map(w => w[0].toUpperCase() + w.substring(1)).join(' '),
+          amount: amount,
+          receiverNcx,
+          platformFeeNcx,
+          ugxEquivalent: amount * 100,
+          ugxCreatorCut: receiverNcx * 100,
+          ugxPlatformFee: platformFeeNcx * 100,
+          timestamp: g.created_at,
+          context_note: meta.context_note,
+        };
+      });
+
+      return json({ success: true, gifts: formatted });
     }
 
     return json({ success: false, message: `Unknown action: ${action}` }, 400);
