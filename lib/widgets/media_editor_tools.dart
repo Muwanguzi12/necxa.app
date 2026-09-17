@@ -136,12 +136,12 @@ class FilterTool extends StatelessWidget {
                     height: 50,
                     decoration: BoxDecoration(
                         color: Colors.grey[800],
-                        border: Border.all(color: isActive ? C.brand : Colors.white30, width: isActive ? 2.0 : 1.0),
+                        border: Border.all(color: isActive ? C.brand : C.dim, width: isActive ? 2.0 : 1.0),
                         borderRadius: BorderRadius.circular(4)),
-                    child: const Icon(Icons.videocam, color: Colors.white54, size: 24),
+                    child: Icon(Icons.videocam, color: C.dim, size: 24),
                   ),
                   const SizedBox(height: 6),
-                  Text(filterName, style: dm(sz: 10, c: isActive ? C.brand : Colors.white70)),
+                  Text(filterName, style: dm(sz: 10, c: isActive ? C.brand : C.sub)),
                 ],
               ),
             ),
@@ -166,11 +166,14 @@ class _ToolButton extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: color ?? Colors.white, size: 28),
+          Icon(icon, color: color ?? C.text, size: 28),
           const SizedBox(height: 4),
-          Text(label, style: dm(sz: 10, c: color ?? Colors.white70)),
+          Text(label, style: dm(sz: 10, c: color ?? C.sub)),
         ],
       ),
     );
   }
 }
+
+
+

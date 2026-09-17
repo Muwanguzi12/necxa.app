@@ -13,6 +13,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: false
+        fetch-depth: 0
 
     # ── Free up disk space (~10GB) before heavy Flutter/FFmpeg build ──
     - name: Free disk space
@@ -32,7 +35,7 @@ jobs:
         df -h
 
     - name: Setup Java
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
         java-version: '17'
@@ -48,11 +51,21 @@ jobs:
       run: flutter pub get
 
     - name: Build APK Release (split per ABI)
+      env:
+        GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
       run: flutter build apk --release --split-per-abi
+
+    - name: Add build provenance
+      run: |
+        printf "commit=%s\nbranch=%s\nrun=%s\n" \
+          "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" \
+          > build/app/outputs/flutter-apk/BUILD_INFO.txt
 
     - name: Upload Release APKs
       uses: actions/upload-artifact@v4
       with:
-        name: necxa-apk-release
-        path: build/app/outputs/flutter-apk/app-*-release.apk
+        name: necxa-apk-${{ github.run_number }}-${{ github.sha }}
+        path: |
+          build/app/outputs/flutter-apk/app-*-release.apk
+          build/app/outputs/flutter-apk/BUILD_INFO.txt
         retention-days: 30

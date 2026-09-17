@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart' hide ImageFormat;
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import '../theme.dart';
@@ -24,13 +26,21 @@ import '../services/editor_export_service.dart';
 import '../services/ai_service.dart';
 import '../utils/error_handler.dart';
 
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 // CREATOR TYPE ENUM
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 enum CreatorType {
-  unified, // 🎭  Automatic Content Selector (Photo/Video/Music)
-  artist, // 👨‍🎤  Artist Hub (Visual mood + beat track)
-  audio, // 🎙️  Podcast & Voice (Simplified audio-first)
+  unified, // ??  Automatic Content Selector (Photo/Video/Music)
+  artist, // ?????  Artist Hub (Visual mood + beat track)
+  audio, // ???  Podcast & Voice (Simplified audio-first)
+}
+
+enum _LiveCapturePreviewState {
+  idle,
+  permissionRequired,
+  initializing,
+  ready,
+  unavailable,
 }
 
 class _PublishingStageException implements Exception {
@@ -65,7 +75,7 @@ extension CreatorTypeX on CreatorType {
       case CreatorType.unified:
         return 'Automatic selector for photos, videos, and music';
       case CreatorType.artist:
-        return 'Select visual mood · Add your own beat';
+        return 'Select visual mood � Add your own beat';
       case CreatorType.audio:
         return 'Record or upload your next hit or podcast';
     }
@@ -74,11 +84,11 @@ extension CreatorTypeX on CreatorType {
   String get emoji {
     switch (this) {
       case CreatorType.unified:
-        return '✨';
+        return '?';
       case CreatorType.artist:
-        return '👨‍🎤';
+        return '?????';
       case CreatorType.audio:
-        return '🎙️';
+        return '???';
     }
   }
 
@@ -88,9 +98,9 @@ extension CreatorTypeX on CreatorType {
   bool get isUnified => this == CreatorType.unified;
 }
 
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 // UPLOAD SCREEN
-// ══════════════════════════════════════════════════════════════
+// --------------------------------------------------------------
 class UploadScreen extends StatefulWidget {
   final AppState state;
   final MusicTrack? initialTrack;
@@ -101,8 +111,8 @@ class UploadScreen extends StatefulWidget {
 }
 
 class _UploadScreenState extends State<UploadScreen>
-    with TickerProviderStateMixin {
-  // ── Navigation ──────────────────────────────────────────────
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+  // -- Navigation ----------------------------------------------
   // NEW Campaign Hierarchy
   // Step 0: Goal Selection
   // Step 1: Setup (Budget/Target/Category)
@@ -111,11 +121,11 @@ class _UploadScreenState extends State<UploadScreen>
   int _step = 0;
   String? _objectiveId; // awareness, conversion, sales
 
-  // ── Creative Metadata ───────────────────────────────────────
+  // -- Creative Metadata ---------------------------------------
   MusicTrack? _bakedTrack;
   File? _visualFile;
   List<File> _multiFiles = [];
-  final List<File> _productPhotos = []; // 📸 Miniature product photos for Sales
+  final List<File> _productPhotos = []; // ?? Miniature product photos for Sales
   bool _isVideo = false;
   File? _preparedThumbnailFile;
   Map<String, dynamic>? _aiVerification;
@@ -141,7 +151,7 @@ class _UploadScreenState extends State<UploadScreen>
   final Map<int, double> _startOffsets = {};
   final Map<int, double> _endOffsets = {};
 
-  // ── Setup Metadata ──────────────────────────────────────────
+  // -- Setup Metadata ------------------------------------------
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descController = TextEditingController();
   final TextEditingController _tagsController = TextEditingController();
@@ -164,14 +174,20 @@ class _UploadScreenState extends State<UploadScreen>
   double? _pickupLatitude;
   double? _pickupLongitude;
 
-  // ── Sync State ──────────────────────────────────────────────
+  // -- Sync State ----------------------------------------------
   bool _isOptimizing = false;
   String _optimizingStatus = "";
   bool _agreedToPolicies = false;
 
+  CameraController? _livePreviewController;
+  CameraLensDirection _livePreviewLens = CameraLensDirection.front;
+  _LiveCapturePreviewState _livePreviewState = _LiveCapturePreviewState.idle;
+  int _livePreviewGeneration = 0;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bakedTrack = widget.initialTrack;
     if (_bakedTrack != null) {
       _title = _bakedTrack!.title;
@@ -188,6 +204,11 @@ class _UploadScreenState extends State<UploadScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _livePreviewGeneration++;
+    final livePreviewController = _livePreviewController;
+    _livePreviewController = null;
+    unawaited(livePreviewController?.dispose());
     _recTimer?.cancel();
     _recorder.dispose();
     _player.dispose();
@@ -204,7 +225,138 @@ class _UploadScreenState extends State<UploadScreen>
     super.dispose();
   }
 
-  // ── Helpers ───────────────────────────────────────────────────
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_shouldRunLivePreview) unawaited(_startLivePreview());
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      unawaited(_stopLivePreview());
+    }
+  }
+
+  bool get _shouldRunLivePreview =>
+      mounted && _step == 2 && _objectiveId == 'awareness';
+
+  Future<void> _startLivePreview() async {
+    if (!_shouldRunLivePreview) return;
+    if (_livePreviewState == _LiveCapturePreviewState.initializing) return;
+    final activeController = _livePreviewController;
+    if (_livePreviewState == _LiveCapturePreviewState.ready &&
+        activeController != null &&
+        activeController.value.isInitialized &&
+        activeController.description.lensDirection == _livePreviewLens) {
+      return;
+    }
+
+    PermissionStatus permission;
+    try {
+      permission = await Permission.camera.status;
+    } catch (error) {
+      debugPrint('Live preview permission check failed: $error');
+      if (mounted) {
+        setState(
+          () => _livePreviewState = _LiveCapturePreviewState.unavailable,
+        );
+      }
+      return;
+    }
+    if (!permission.isGranted) {
+      await _stopLivePreview(
+        nextState: _LiveCapturePreviewState.permissionRequired,
+      );
+      return;
+    }
+    if (cameras.isEmpty) {
+      await _stopLivePreview(nextState: _LiveCapturePreviewState.unavailable);
+      return;
+    }
+
+    final generation = ++_livePreviewGeneration;
+    final previousController = _livePreviewController;
+    _livePreviewController = null;
+    if (mounted) {
+      setState(() => _livePreviewState = _LiveCapturePreviewState.initializing);
+    }
+    await previousController?.dispose();
+    if (!_shouldRunLivePreview || generation != _livePreviewGeneration) return;
+
+    final description = cameras.firstWhere(
+      (camera) => camera.lensDirection == _livePreviewLens,
+      orElse: () => cameras.first,
+    );
+    final controller = CameraController(
+      description,
+      ResolutionPreset.medium,
+      enableAudio: false,
+    );
+    try {
+      await controller.initialize();
+      if (!_shouldRunLivePreview || generation != _livePreviewGeneration) {
+        await controller.dispose();
+        return;
+      }
+      _livePreviewController = controller;
+      _livePreviewLens = description.lensDirection;
+      if (mounted) {
+        setState(() => _livePreviewState = _LiveCapturePreviewState.ready);
+      }
+    } on CameraException catch (error) {
+      await controller.dispose();
+      if (!mounted || generation != _livePreviewGeneration) return;
+      final permissionDenied =
+          error.code == 'CameraAccessDenied' ||
+          error.code == 'CameraAccessDeniedWithoutPrompt' ||
+          error.code == 'CameraAccessRestricted';
+      setState(
+        () => _livePreviewState = permissionDenied
+            ? _LiveCapturePreviewState.permissionRequired
+            : _LiveCapturePreviewState.unavailable,
+      );
+    } catch (error) {
+      debugPrint('Live capture preview failed: $error');
+      await controller.dispose();
+      if (mounted && generation == _livePreviewGeneration) {
+        setState(
+          () => _livePreviewState = _LiveCapturePreviewState.unavailable,
+        );
+      }
+    }
+  }
+
+  Future<void> _stopLivePreview({
+    _LiveCapturePreviewState nextState = _LiveCapturePreviewState.idle,
+  }) async {
+    _livePreviewGeneration++;
+    final controller = _livePreviewController;
+    _livePreviewController = null;
+    if (mounted && _livePreviewState != nextState) {
+      setState(() => _livePreviewState = nextState);
+    }
+    await controller?.dispose();
+  }
+
+  Future<void> _enableLivePreviewCamera() async {
+    var permission = await Permission.camera.request();
+    if (permission.isPermanentlyDenied || permission.isRestricted) {
+      await openAppSettings();
+      permission = await Permission.camera.status;
+    }
+    if (!mounted) return;
+    if (permission.isGranted) {
+      await _startLivePreview();
+    } else {
+      setState(
+        () => _livePreviewState = _LiveCapturePreviewState.permissionRequired,
+      );
+    }
+  }
+
+  // -- Helpers ---------------------------------------------------
   void _err(String m) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(m), backgroundColor: C.red));
@@ -214,8 +366,9 @@ class _UploadScreenState extends State<UploadScreen>
 
   Future<void> _capturePickupLocation() async {
     var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied)
+    if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
+    }
     if (permission != LocationPermission.whileInUse &&
         permission != LocationPermission.always) {
       _err('Pickup location permission is required for delivery pricing');
@@ -231,7 +384,7 @@ class _UploadScreenState extends State<UploadScreen>
     });
   }
 
-  // ── Media pickers ─────────────────────────────────────────────
+  // -- Media pickers ---------------------------------------------
   Future<void> _processResult(
     XFile? f,
     bool isVideo, {
@@ -241,6 +394,9 @@ class _UploadScreenState extends State<UploadScreen>
       return;
     }
     final file = File(f.path);
+    if (!mounted) return;
+    final resumeLivePreview = _shouldRunLivePreview;
+    if (resumeLivePreview) await _stopLivePreview();
     if (!mounted) return;
     final result = await Navigator.push(
       context,
@@ -255,6 +411,9 @@ class _UploadScreenState extends State<UploadScreen>
         ),
       ),
     );
+    if (resumeLivePreview && _shouldRunLivePreview) {
+      unawaited(_startLivePreview());
+    }
 
     if (result is EditorExportResult && result.success) {
       final outputPath = result.outputPath;
@@ -344,55 +503,83 @@ class _UploadScreenState extends State<UploadScreen>
             _title = track.title;
             _titleController.text = _title;
           }
-          _step = 3; // 🚀 JUMP straight to Final Review (Step 3)
+          _step = 3; // Jump straight to Final Review.
         });
       }
     }
   }
 
   Future<void> _pickUnifiedMedia() async {
-    // 🎭 TikTok Style: Pick multiple media (Images & Videos)
-    final res = await ImagePicker().pickMultipleMedia();
-    if (res.isNotEmpty) {
-      setState(() {
-        _multiFiles = res.map((x) => File(x.path)).toList();
-        _visualFile = _multiFiles.first;
-        _isVideo =
-            _visualFile!.path.toLowerCase().endsWith('.mp4') ||
-            _visualFile!.path.toLowerCase().endsWith('.mov');
-      });
-      await _processResult(res.first, _isVideo);
+    // ?? TikTok Style: Pick multiple media (Images & Videos)
+    final resumeLivePreview = _shouldRunLivePreview;
+    if (resumeLivePreview) await _stopLivePreview();
+    if (!mounted) return;
+    try {
+      final res = await ImagePicker().pickMultipleMedia();
+      if (res.isNotEmpty) {
+        setState(() {
+          _multiFiles = res.map((x) => File(x.path)).toList();
+          _visualFile = _multiFiles.first;
+          _isVideo =
+              _visualFile!.path.toLowerCase().endsWith('.mp4') ||
+              _visualFile!.path.toLowerCase().endsWith('.mov');
+        });
+        await _processResult(res.first, _isVideo);
+      }
+    } finally {
+      if (resumeLivePreview && _shouldRunLivePreview) {
+        unawaited(_startLivePreview());
+      }
     }
   }
 
   Future<void> _captureMedia() async {
     if (cameras.isEmpty) {
+      if (mounted) {
+        setState(
+          () => _livePreviewState = _LiveCapturePreviewState.unavailable,
+        );
+      }
       _err('No cameras detected on this device');
       return;
     }
 
-    final dynamic result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NecxaCameraCaptureScreen(cameras: cameras),
-      ),
-    );
+    final resumeLivePreview = _shouldRunLivePreview;
+    if (resumeLivePreview) await _stopLivePreview();
+    if (!mounted) return;
+    try {
+      final dynamic result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NecxaCameraCaptureScreen(
+            cameras: cameras,
+            initialLensDirection: _livePreviewLens,
+            onLensChanged: (direction) => _livePreviewLens = direction,
+          ),
+        ),
+      );
 
-    if (result == 'OPEN_GALLERY') {
-      _pickUnifiedMedia();
-    } else if (result is File) {
-      _processResult(XFile(result.path), true);
-    } else if (result is List<File>) {
-      setState(() {
-        _multiFiles = [..._multiFiles, ...result];
-        _visualFile = _multiFiles.first;
-        _isVideo = true;
-      });
-      _processResult(XFile(_multiFiles.first.path), true);
+      if (!mounted) return;
+      if (result == 'OPEN_GALLERY') {
+        await _pickUnifiedMedia();
+      } else if (result is File) {
+        await _processResult(XFile(result.path), true);
+      } else if (result is List<File>) {
+        setState(() {
+          _multiFiles = [..._multiFiles, ...result];
+          _visualFile = _multiFiles.first;
+          _isVideo = true;
+        });
+        await _processResult(XFile(_multiFiles.first.path), true);
+      }
+    } finally {
+      if (resumeLivePreview && _shouldRunLivePreview) {
+        unawaited(_startLivePreview());
+      }
     }
   }
 
-  // ── Step navigation ────────────────────────────────────────────
+  // -- Step navigation --------------------------------------------
   void _next() {
     if (_step == 0) {
       if (_objectiveId == null) {
@@ -445,7 +632,13 @@ class _UploadScreenState extends State<UploadScreen>
       return;
     }
 
+    final previousStep = _step;
     setState(() => _step++);
+    if (_step == 2) {
+      unawaited(_startLivePreview());
+    } else if (previousStep == 2) {
+      unawaited(_stopLivePreview());
+    }
   }
 
   Future<void> _publishPost() async {
@@ -462,13 +655,13 @@ class _UploadScreenState extends State<UploadScreen>
       // Cleanup compression cache
       await VideoCompress.deleteAllCache();
 
-      // 🚀 NEURAL DESTINATION WARP: Teleport user to where their content lives
+      // ?? NEURAL DESTINATION WARP: Teleport user to where their content lives
       final destinationTab = (_objectiveId == 'sales') ? 'shop' : 'feed';
       final successMsg = (_objectiveId == 'sales')
           ? '🛍️ Your product is LIVE in the Shop!'
           : (_objectiveId == 'conversion')
           ? '🎵 Your release is LIVE in the Feed!'
-          : '⚡ Your post is LIVE in the Feed!';
+          : '✨ Your post is LIVE in the Feed!';
 
       _onShareSuccess(successMsg, destinationTab: destinationTab);
     } catch (e) {
@@ -876,7 +1069,7 @@ class _UploadScreenState extends State<UploadScreen>
       _aiVerification = verification;
     }
 
-    // 🛡️ Upload product photos only after all AI checks have passed.
+    // ??? Upload product photos only after all AI checks have passed.
     List<String> productPhotoUrls = [];
     if (compressedProductPhotos.isNotEmpty) {
       setState(() => _optimizingStatus = "Syncing Product Miniatures...");
@@ -1157,11 +1350,11 @@ class _UploadScreenState extends State<UploadScreen>
   void _onShareSuccess(String msg, {String destinationTab = 'feed'}) {
     if (!mounted) return;
 
-    // 🚀 NEURAL DESTINATION WARP
+    // ?? NEURAL DESTINATION WARP
     // 1. Set the correct community tab BEFORE navigating
     widget.state.setCreatorTab(destinationTab);
 
-    // 2. Navigate to CommunityScreen — user lands directly on their content
+    // 2. Navigate to CommunityScreen � user lands directly on their content
     widget.state.go('community');
 
     // 3. Show a premium confirmation banner
@@ -1169,9 +1362,9 @@ class _UploadScreenState extends State<UploadScreen>
       SnackBar(
         content: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.check_circle_rounded,
-              color: Colors.white,
+              color: C.text,
               size: 22,
             ),
             const SizedBox(width: 12),
@@ -1182,13 +1375,13 @@ class _UploadScreenState extends State<UploadScreen>
                 children: [
                   Text(
                     msg,
-                    style: syne(sz: 13, w: FontWeight.bold, c: Colors.white),
+                    style: syne(sz: 13, w: FontWeight.bold, c: C.text),
                   ),
                   Text(
                     destinationTab == 'shop'
                         ? 'Tap Shop to see your product'
                         : 'Scroll to find your post',
-                    style: dm(sz: 11, c: Colors.white70),
+                    style: dm(sz: 11, c: C.sub),
                   ),
                 ],
               ),
@@ -1206,9 +1399,9 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // ════════════════════════════════════════════════════════════
+  // ------------------------------------------------------------
   // BUILD
-  // ════════════════════════════════════════════════════════════
+  // ------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     Color accent = _objectiveId == 'sales' ? C.gold : C.brand;
@@ -1220,7 +1413,13 @@ class _UploadScreenState extends State<UploadScreen>
           children: [
             _topBar(_getStepTitle(), () {
               if (_step > 0) {
+                final previousStep = _step;
                 setState(() => _step--);
+                if (_step == 2) {
+                  unawaited(_startLivePreview());
+                } else if (previousStep == 2) {
+                  unawaited(_stopLivePreview());
+                }
               } else {
                 widget.state.go('community');
               }
@@ -1281,14 +1480,14 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
-  // ── STEP 0: OBJECTIVE SELECTION ─────────────────────────────
+  // -- STEP 0: OBJECTIVE SELECTION -----------------------------
   Widget _buildObjectiveSelection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'CHOOSE YOUR GOAL',
-          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+          style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
         ),
         const SizedBox(height: 16),
         ObjectiveCard(
@@ -1325,14 +1524,14 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // ── STEP 1: CAMPAIGN SETUP ──────────────────────────────────
+  // -- STEP 1: CAMPAIGN SETUP ----------------------------------
   Widget _buildSetupStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'CAMPAIGN DETAILS',
-          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+          style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
         ),
         const SizedBox(height: 24),
         GlassCard(
@@ -1344,7 +1543,7 @@ class _UploadScreenState extends State<UploadScreen>
                   _buildProductPhotoPicker(),
                   const SizedBox(height: 20),
                 ],
-                const Divider(color: Colors.white10),
+                Divider(color: C.dim),
                 const SizedBox(height: 20),
               ],
               _inputField(
@@ -1450,13 +1649,13 @@ class _UploadScreenState extends State<UploadScreen>
                     _pickupLatitude == null
                         ? 'Pin pickup location'
                         : 'Pickup location pinned',
-                    style: dm(sz: 14, c: Colors.white),
+                    style: dm(sz: 14, c: C.text),
                   ),
                   subtitle: _pickupLatitude == null
                       ? null
                       : Text(
                           '${_pickupLatitude!.toStringAsFixed(5)}, ${_pickupLongitude!.toStringAsFixed(5)}',
-                          style: dm(sz: 11, c: Colors.white38),
+                          style: dm(sz: 11, c: C.dim),
                         ),
                   onTap: _capturePickupLocation,
                 ),
@@ -1474,7 +1673,7 @@ class _UploadScreenState extends State<UploadScreen>
       children: [
         Text(
           'PRODUCT MINIATURES (MAX 3)',
-          style: syne(sz: 10, w: FontWeight.w900, c: Colors.white38, ls: 1.5),
+          style: syne(sz: 10, w: FontWeight.w900, c: C.dim, ls: 1.5),
         ),
         const SizedBox(height: 12),
         SizedBox(
@@ -1492,16 +1691,16 @@ class _UploadScreenState extends State<UploadScreen>
                     width: 80,
                     margin: const EdgeInsets.only(right: 12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(13),
+                      color: C.text.withAlpha(13),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: Colors.white10,
+                        color: C.dim,
                         style: BorderStyle.solid,
                       ),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.add_a_photo_outlined,
-                      color: Colors.white24,
+                      color: C.dim,
                       size: 24,
                     ),
                   ),
@@ -1516,7 +1715,7 @@ class _UploadScreenState extends State<UploadScreen>
                     image: FileImage(_productPhotos[i]),
                     fit: BoxFit.cover,
                   ),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(color: C.dim),
                 ),
                 child: Align(
                   alignment: Alignment.topRight,
@@ -1524,14 +1723,14 @@ class _UploadScreenState extends State<UploadScreen>
                     onTap: () => setState(() => _productPhotos.removeAt(i)),
                     child: Container(
                       margin: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         color: Colors.black54,
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.close,
                         size: 14,
-                        color: Colors.white,
+                        color: C.text,
                       ),
                     ),
                   ),
@@ -1556,7 +1755,74 @@ class _UploadScreenState extends State<UploadScreen>
     }
   }
 
-  // ── STEP 2: FILM HUB ────────────────────────────────────────
+  Widget _buildLiveCapturePreview() {
+    final controller = _livePreviewController;
+    if (_livePreviewState == _LiveCapturePreviewState.ready &&
+        controller != null &&
+        controller.value.isInitialized) {
+      final previewSize = controller.value.previewSize;
+      if (previewSize == null) return CameraPreview(controller);
+      return FittedBox(
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        child: SizedBox(
+          width: previewSize.width,
+          height: previewSize.height,
+          child: CameraPreview(controller),
+        ),
+      );
+    }
+
+    if (_livePreviewState == _LiveCapturePreviewState.initializing) {
+      return ColoredBox(
+        color: Color(0xFF0C0D10),
+        child: Center(
+          child: SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(
+              color: C.dim,
+              strokeWidth: 2,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: Color(0xFF111317),
+      child: Center(
+        child: Icon(Icons.videocam_outlined, color: C.dim, size: 58),
+      ),
+    );
+  }
+
+  Widget _buildEnableCameraOverlay() {
+    return ColoredBox(
+      color: Colors.black.withAlpha(156),
+      child: Center(
+        child: FilledButton.icon(
+          onPressed: _enableLivePreviewCamera,
+          style: FilledButton.styleFrom(
+            backgroundColor: C.text,
+            foregroundColor: Colors.black,
+            minimumSize: const Size(0, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            visualDensity: VisualDensity.compact,
+          ),
+          icon: Icon(Icons.videocam_outlined, size: 17),
+          label: Text(
+            'Enable Camera',
+            style: dm(sz: 11, w: FontWeight.w800, c: Colors.black),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // -- STEP 2: FILM HUB ----------------------------------------
   Widget _buildCreativeStep() {
     return Column(
       children: [
@@ -1565,7 +1831,7 @@ class _UploadScreenState extends State<UploadScreen>
           children: [
             Text(
               'ASSETS',
-              style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+              style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
             ),
             if (_multiFiles.isNotEmpty)
               Text(
@@ -1576,68 +1842,82 @@ class _UploadScreenState extends State<UploadScreen>
         ),
         const SizedBox(height: 16),
 
-        // 🚀 LIVE CONTENT CAPTURE BUTTON
+        // ?? LIVE CONTENT CAPTURE BUTTON
         if (_objectiveId == 'awareness')
           Padding(
             padding: const EdgeInsets.only(bottom: 20),
             child: GestureDetector(
-              onTap: _captureMedia,
+              onTap:
+                  _livePreviewState ==
+                      _LiveCapturePreviewState.permissionRequired
+                  ? _enableLivePreviewCamera
+                  : _captureMedia,
               child: Container(
-                padding: const EdgeInsets.all(24),
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF0000), Color(0xFF990000)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Colors.black,
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.red.withAlpha(77),
+                      color: Colors.black.withAlpha(102),
                       blurRadius: 15,
                       offset: const Offset(0, 8),
                     ),
                   ],
                 ),
-                child: Row(
+                child: Stack(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: const BoxDecoration(
-                        color: Colors.white24,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.videocam,
-                        color: Colors.white,
-                        size: 32,
-                      ),
+                    Positioned.fill(child: _buildLiveCapturePreview()),
+                    Positioned.fill(
+                      child: ColoredBox(color: Colors.black.withAlpha(82)),
                     ),
-                    const SizedBox(width: 20),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Row(
                         children: [
-                          Text(
-                            'LIVE CAPTURE',
-                            style: syne(
-                              sz: 18,
-                              w: FontWeight.w900,
-                              c: Colors.white,
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: C.dim,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.videocam,
+                              color: C.text,
+                              size: 32,
                             ),
                           ),
-                          Text(
-                            'Speed · Filters · 4K Mastery',
-                            style: dm(sz: 12, c: Colors.white70),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'LIVE CAPTURE',
+                                  style: syne(
+                                    sz: 18,
+                                    w: FontWeight.w900,
+                                    c: C.text,
+                                  ),
+                                ),
+                                Text(
+                                  'Speed � Filters � 4K Mastery',
+                                  style: dm(sz: 12, c: C.sub),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            color: C.text,
+                            size: 16,
                           ),
                         ],
                       ),
                     ),
-                    const Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.white,
-                      size: 16,
-                    ),
+                    if (_livePreviewState ==
+                        _LiveCapturePreviewState.permissionRequired)
+                      Positioned.fill(child: _buildEnableCameraOverlay()),
                   ],
                 ),
               ),
@@ -1659,7 +1939,7 @@ class _UploadScreenState extends State<UploadScreen>
               ),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.movie_filter_outlined,
                     color: C.brand,
                     size: 32,
@@ -1675,12 +1955,12 @@ class _UploadScreenState extends State<UploadScreen>
                         ),
                         Text(
                           'Edit layers, tracks, and timing',
-                          style: dm(sz: 11, c: Colors.white54),
+                          style: dm(sz: 11, c: C.dim),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.arrow_forward_ios, color: C.brand, size: 16),
+                  Icon(Icons.arrow_forward_ios, color: C.brand, size: 16),
                 ],
               ),
             ),
@@ -1689,14 +1969,14 @@ class _UploadScreenState extends State<UploadScreen>
     );
   }
 
-  // ── STEP 3: FINAL REVIEW ────────────────────────────────────
+  // -- STEP 3: FINAL REVIEW ------------------------------------
   Widget _buildFinalReview() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'FINAL SYNTHESIS',
-          style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+          style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
         ),
         const SizedBox(height: 16),
         GlassCard(
@@ -1705,7 +1985,7 @@ class _UploadScreenState extends State<UploadScreen>
               _reviewRow('Objective', _objectiveId?.toUpperCase() ?? 'NONE'),
               _reviewRow('Tracks', '${_multiFiles.length} Layers'),
               _reviewRow('Sound', _bakedTrack?.title ?? 'Original'),
-              const Divider(color: Colors.white10, height: 32),
+              Divider(color: C.dim, height: 32),
               Row(
                 children: [
                   Checkbox(
@@ -1717,7 +1997,7 @@ class _UploadScreenState extends State<UploadScreen>
                   Expanded(
                     child: Text(
                       'I agree to Necxa Content Policies',
-                      style: dm(sz: 11, c: Colors.white60),
+                      style: dm(sz: 11, c: C.sub),
                     ),
                   ),
                 ],
@@ -1735,34 +2015,35 @@ class _UploadScreenState extends State<UploadScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: dm(sz: 12, c: Colors.white38)),
+          Text(label, style: dm(sz: 12, c: C.dim)),
           Text(
             value,
-            style: syne(sz: 12, w: FontWeight.bold, c: Colors.white),
+            style: syne(sz: 12, w: FontWeight.bold, c: C.text),
           ),
         ],
       ),
     );
   }
 
-  // ── SHARED WIDGETS ───────────────────────────────────────────
+  // -- SHARED WIDGETS -------------------------------------------
   Widget _topBar(
     String title,
     VoidCallback onBack, {
-    Color color = Colors.white,
+    Color? color,
   }) {
+    final activeColor = color ?? C.text;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 16, 0),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new),
+            icon: Icon(Icons.arrow_back_ios_new),
             onPressed: onBack,
-            color: color,
+            color: activeColor,
           ),
           Text(
             title,
-            style: syne(sz: 18, w: FontWeight.w900, c: color),
+            style: syne(sz: 18, w: FontWeight.w900, c: activeColor),
           ),
         ],
       ),
@@ -1782,7 +2063,7 @@ class _UploadScreenState extends State<UploadScreen>
       children: [
         Text(
           label,
-          style: syne(sz: 11, w: FontWeight.w800, c: Colors.white38, ls: 1),
+          style: syne(sz: 11, w: FontWeight.w800, c: C.dim, ls: 1),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -1790,10 +2071,10 @@ class _UploadScreenState extends State<UploadScreen>
           maxLines: maxLines,
           keyboardType: keyboardType,
           inputFormatters: inputFormatters,
-          style: dm(sz: 14, c: Colors.white),
+          style: dm(sz: 14, c: C.text),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: dm(sz: 14, c: Colors.white12),
+            hintStyle: dm(sz: 14, c: C.dim),
             filled: true,
             fillColor: Colors.black26,
             border: OutlineInputBorder(
@@ -1815,20 +2096,20 @@ class _UploadScreenState extends State<UploadScreen>
           height: 160,
           width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.white.withAlpha(13),
+            color: C.text.withAlpha(13),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: C.dim),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
+              Icon(
                 Icons.add_photo_alternate_outlined,
-                color: Colors.white24,
+                color: C.dim,
                 size: 40,
               ),
               const SizedBox(height: 12),
-              Text('Tap to select media', style: dm(sz: 13, c: Colors.white24)),
+              Text('Tap to select media', style: dm(sz: 13, c: C.dim)),
             ],
           ),
         ),
@@ -1850,11 +2131,11 @@ class _UploadScreenState extends State<UploadScreen>
             onTap: _pickUnifiedMedia,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white10,
+                color: C.dim,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
+                border: Border.all(color: C.dim),
               ),
-              child: const Icon(Icons.add, color: Colors.white54),
+              child: Icon(Icons.add, color: C.dim),
             ),
           );
         }
@@ -1874,18 +2155,18 @@ class _UploadScreenState extends State<UploadScreen>
               right: 4,
               child: GestureDetector(
                 onTap: () => setState(() => _multiFiles.removeAt(i)),
-                child: const CircleAvatar(
+                child: CircleAvatar(
                   radius: 10,
                   backgroundColor: Colors.black54,
-                  child: Icon(Icons.close, size: 12, color: Colors.white),
+                  child: Icon(Icons.close, size: 12, color: C.text),
                 ),
               ),
             ),
             if (_multiFiles[i].path.toLowerCase().endsWith('.mp4'))
-              const Center(
+              Center(
                 child: Icon(
                   Icons.play_circle_outline,
-                  color: Colors.white70,
+                  color: C.sub,
                   size: 30,
                 ),
               ),
@@ -1957,7 +2238,7 @@ class _UploadScreenState extends State<UploadScreen>
                   strokeWidth: 4,
                 ),
               ),
-              const Icon(Icons.psychology_outlined, color: C.brand, size: 40),
+              Icon(Icons.psychology_outlined, color: C.brand, size: 40),
             ],
           ),
           const SizedBox(height: 48),
@@ -1988,14 +2269,14 @@ class _UploadScreenState extends State<UploadScreen>
                     style: syne(
                       sz: 10,
                       w: FontWeight.bold,
-                      c: _isOptimizing ? C.brand : Colors.white70,
+                      c: _isOptimizing ? C.brand : C.sub,
                       ls: 1.5,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Step ${value + 1} of 5',
-                    style: dm(sz: 10, c: Colors.white24),
+                    style: dm(sz: 10, c: C.dim),
                   ),
                 ],
               );
@@ -2008,8 +2289,8 @@ class _UploadScreenState extends State<UploadScreen>
             padding: const EdgeInsets.symmetric(horizontal: 60),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
-              child: const LinearProgressIndicator(
-                backgroundColor: Colors.white10,
+              child: LinearProgressIndicator(
+                backgroundColor: C.dim,
                 valueColor: AlwaysStoppedAnimation<Color>(C.brand),
                 minHeight: 2,
               ),
@@ -2028,3 +2309,5 @@ class _UpperCaseTextFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) => newValue.copyWith(text: newValue.text.toUpperCase());
 }
+
+

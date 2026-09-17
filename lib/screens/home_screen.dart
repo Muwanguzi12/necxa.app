@@ -40,7 +40,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Nav ──
+  // -- Nav --
   Widget _buildNav(BuildContext context) {
     return Container(
       color: C.card,
@@ -100,7 +100,7 @@ class HomeScreen extends StatelessWidget {
                     border: Border.all(color: C.brand, width: 1.5),
                     image: url != null ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover) : null,
                   ),
-                  child: url == null ? const Icon(Icons.person, color: C.brand, size: 20) : null,
+                  child: url == null ? Icon(Icons.person, color: C.brand, size: 20) : null,
                 );
               }
             ),
@@ -119,7 +119,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── App Tabs ──
+  // -- App Tabs --
   Widget _buildAppTabs() {
     return _AppTabs(current: 'home', state: state, onTap: (t) {
       if (t == 'transport') state.go('transport');
@@ -128,7 +128,7 @@ class HomeScreen extends StatelessWidget {
     });
   }
 
-  // ── Hero ──
+  // -- Hero --
   Widget _buildHero() {
     return Container(
       decoration: BoxDecoration(
@@ -237,7 +237,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Stats row ──
+  // -- Stats row --
   Widget _buildStats(int count) {
     return Container(
       decoration: BoxDecoration(
@@ -247,7 +247,7 @@ class HomeScreen extends StatelessWidget {
         children: [
           _StatCell(icon: '🏠', val: '$count+', lab: 'Listings'),
           Container(width: 1, height: 60, color: C.border),
-          const _StatCell(icon: '✅', val: '100%', lab: 'AI Verified'),
+          const _StatCell(icon: '🛡️', val: '100%', lab: 'AI Verified'),
           Container(width: 1, height: 60, color: C.border),
           const _StatCell(icon: '🔐', val: '5%', lab: 'Broker Fee'),
         ],
@@ -255,7 +255,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Filters ──
+  // -- Filters --
   Widget _buildFilterRow() {
     return Container(
       decoration: BoxDecoration(
@@ -291,7 +291,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Listings ──
+  // -- Listings --
   Widget _buildListings(List<PropertyContainer> filtered) {
     if (state.isLoadingProperties) {
       return const Padding(
@@ -321,7 +321,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Bottom Nav ──
+  // -- Bottom Nav --
   Widget _buildBottomNav() {
     return _BottomNav(
       current: 'home',
@@ -336,7 +336,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-// ── Property Card ─────────────────────────────────────────────
+// -- Property Card ---------------------------------------------
 class _PropertyCard extends StatelessWidget {
   final PropertyContainer p;
   final AppState state;
@@ -385,9 +385,9 @@ class _PropertyCard extends StatelessWidget {
                       child: _PurposeBadge(p.core.listingType.name.toUpperCase(), C.brand),
                     ),
                     if (p.shadow.isUnlockedByCurrentUser)
-                      const Positioned(
+                      Positioned(
                         bottom: 10, right: 10,
-                        child: _Badge('🔓 Unlocked', C.green, Colors.white),
+                        child: _Badge('🔓 Unlocked', C.green, C.text),
                       ),
                     if (isReserved)
                        Positioned.fill(
@@ -397,7 +397,7 @@ class _PropertyCard extends StatelessWidget {
                              child: Container(
                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
-                               child: Text('RESERVED', style: syne(sz: 10, c: Colors.white, w: FontWeight.w800)),
+                               child: Text('RESERVED', style: syne(sz: 10, c: C.text, w: FontWeight.w800)),
                              ),
                            ),
                          ),
@@ -454,7 +454,7 @@ class _PropertyCard extends StatelessWidget {
                               Text(p.financial.priceType == PriceType.monthly ? '/mo' : '/night', style: dm(sz: 10, c: C.dim)),
                               const SizedBox(width: 8),
                               if (!p.shadow.isUnlockedByCurrentUser)
-                                Text('•  Unlock: ${ugx(p.financial.unlockCost)}', 
+                                Text('�  Unlock: ${ugx(p.financial.unlockCost)}', 
                                   style: dm(sz: 10, c: C.gold, w: FontWeight.w700)),
                             ],
                           ),
@@ -470,7 +470,7 @@ class _PropertyCard extends StatelessWidget {
                           border: Border.all(
                               color: isReserved ? C.red : C.brand.withOpacity(.22)),
                         ),
-                        child: Text(isReserved ? 'Reserved' : 'View →',
+                        child: Text(isReserved ? 'Reserved' : 'View ➜',
                             style: dm(sz: 11, w: FontWeight.w700,
                                 c: isReserved ? C.red : C.brand)),
                       ),
@@ -486,7 +486,7 @@ class _PropertyCard extends StatelessWidget {
   }
 }
 
-// ── Shared Widgets ────────────────────────────────────────────
+// -- Shared Widgets --------------------------------------------
 class _TrustBadge extends StatelessWidget {
   final TrustStatus status;
   const _TrustBadge({required this.status});
@@ -499,7 +499,7 @@ class _TrustBadge extends StatelessWidget {
       case TrustStatus.titan_trust:
         bg = const Color(0xFFB8860B); label = '💎 TITAN TRUST'; break;
       case TrustStatus.verified:
-        bg = C.green; label = '✓ VERIFIED'; break;
+        bg = C.green; label = '✅ VERIFIED'; break;
       case TrustStatus.limited:
         bg = Colors.orange; label = '⚠️ LIMITED'; break;
       default:
@@ -515,8 +515,8 @@ class _TrustBadge extends StatelessWidget {
             BoxShadow(color: bg.withOpacity(.4), blurRadius: 8, spreadRadius: 1),
         ],
       ),
-      child: Text(label, style: const TextStyle(
-        fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
+      child: Text(label, style: TextStyle(
+        fontSize: 9, fontWeight: FontWeight.w900, color: C.text, letterSpacing: 0.5)),
     );
   }
 }
@@ -600,12 +600,12 @@ class _PulsingDotState extends State<_PulsingDot>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _anim,
-      child: const Text('●', style: TextStyle(color: C.brand, fontSize: 10)),
+      child: Text('•', style: TextStyle(color: C.brand, fontSize: 10)),
     );
   }
 }
 
-// ── App Tabs (shared) ─────────────────────────────────────────
+// -- App Tabs (shared) -----------------------------------------
 class _AppTabs extends StatelessWidget {
   final String current;
   final void Function(String) onTap;
@@ -615,7 +615,7 @@ class _AppTabs extends StatelessWidget {
   static final _tabs = [
     ('home', '🏠', 'Property'),
     ('transport', '🚚', 'Transport'),
-    ('upload', '➕', 'Upload'),
+    ('upload', '📤', 'Upload'),
     ('profile', '👤', 'Profile'),
   ];
 
@@ -688,7 +688,7 @@ class _AppTabs extends StatelessWidget {
   }
 }
 
-// ── Bottom Nav (shared) ───────────────────────────────────────
+// -- Bottom Nav (shared) ---------------------------------------
 class _BottomNav extends StatelessWidget {
   final String current;
   final int savedCount;
@@ -708,7 +708,7 @@ class _BottomNav extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _BotBtn('🏠', 'Property', current == 'home', () => onTap('home')),
-          _BotBtn('⚡', 'Community', current == 'community', () => onTap('community')),
+          _BotBtn('🌍', 'Community', current == 'community', () => onTap('community')),
           _BotBtn('📋', 'Listings', current == 'list', () => onTap('list')),
           _BotBtn('💬', 'Chat', current == 'chat', () => onTap('chat')),
         ],
@@ -739,3 +739,5 @@ class _BotBtn extends StatelessWidget {
     );
   }
 }
+
+

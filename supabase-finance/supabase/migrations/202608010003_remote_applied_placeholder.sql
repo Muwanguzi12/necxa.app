@@ -1,0 +1,2 @@
+-- This migration version is already applied on the linked finance project.
+-- The original migration is maintained in the primary Supabase workspace.

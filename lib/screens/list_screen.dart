@@ -50,7 +50,7 @@ class ListScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Center(
-                child: Text('←', style: TextStyle(color: C.text, fontSize: 18)),
+                child: Text('?', style: TextStyle(color: C.text, fontSize: 18)),
               ),
             ),
           ),
@@ -113,7 +113,7 @@ class ListScreen extends StatelessWidget {
     }
   }
 
-  // ── Step 0: National ID ──────────────────────────────────────
+  // -- Step 0: National ID --------------------------------------
   Widget _buildIdStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -149,7 +149,7 @@ class ListScreen extends StatelessWidget {
                 ? null
                 : state.idDone
                 ? null
-                : '📸 Scan National ID',
+                : '?? Scan National ID',
             loading: state.idScanning || state.idDone,
             loadingLabel: state.aiChecking
                 ? 'AI verifying identity...'
@@ -161,7 +161,7 @@ class ListScreen extends StatelessWidget {
                 : () => state.doIdScan('Uganda', 'National ID'),
           )
         else
-          _SuccessBtn(label: 'Next: Face ID →', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Face ID ?', onTap: state.nextStep),
       ],
     );
   }
@@ -171,18 +171,18 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('✅', style: TextStyle(fontSize: 54)),
+          const Text('?', style: TextStyle(fontSize: 54)),
           const SizedBox(height: 8),
           Text('ID Verified!', style: syne(sz: 16, c: C.green)),
           const SizedBox(height: 4),
-          Text('Nakato Sarah · NIN: CM123456ABCD', style: dm(sz: 11, c: C.dim)),
+          Text('Nakato Sarah � NIN: CM123456ABCD', style: dm(sz: 11, c: C.dim)),
         ],
       );
     } else if (state.aiChecking) {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _SpinningEmoji('🤖', size: 40),
+          const _SpinningEmoji('??', size: 40),
           const SizedBox(height: 8),
           Text('AI verifying identity...', style: dm(sz: 13, c: C.gold)),
         ],
@@ -191,7 +191,7 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('⏳', style: TextStyle(fontSize: 40)),
+          const Text('?', style: TextStyle(fontSize: 40)),
           const SizedBox(height: 8),
           Text('Cross-checking NIRA database...', style: dm(sz: 13, c: C.gold)),
         ],
@@ -200,7 +200,7 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _PulsingText('📷', size: 40),
+          const _PulsingText('??', size: 40),
           const SizedBox(height: 8),
           Text('Scanning ID document...', style: dm(sz: 13, c: C.gold)),
         ],
@@ -209,7 +209,7 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('🪪', style: TextStyle(fontSize: 44)),
+          const Text('??', style: TextStyle(fontSize: 44)),
           const SizedBox(height: 8),
           Text(
             'Position your Uganda National ID here',
@@ -220,7 +220,7 @@ class ListScreen extends StatelessWidget {
     }
   }
 
-  // ── Step 1: Face ID ──────────────────────────────────────────
+  // -- Step 1: Face ID ------------------------------------------
   Widget _buildFaceStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,7 +238,7 @@ class ListScreen extends StatelessWidget {
             width: 200,
             height: 200,
             decoration: BoxDecoration(
-              color: state.faceDone ? const Color(0xFF0d1f14) : C.card,
+              color: state.faceDone ? Color(0xFF0d1f14) : C.card,
               shape: BoxShape.circle,
               border: Border.all(
                 color: state.faceDone ? C.green.withOpacity(.25) : C.border,
@@ -256,9 +256,9 @@ class ListScreen extends StatelessWidget {
                       ? Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('😊', style: TextStyle(fontSize: 64)),
+                            const Text('??', style: TextStyle(fontSize: 64)),
                             Text(
-                              '✓ Face Matched!',
+                              '? Face Matched!',
                               style: dm(sz: 12, c: C.green, w: FontWeight.w700),
                             ),
                           ],
@@ -267,7 +267,7 @@ class ListScreen extends StatelessWidget {
                       ? Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const _PulsingText('📷', size: 64),
+                            const _PulsingText('??', size: 64),
                             Text(
                               'Scanning face...',
                               style: dm(sz: 10, c: C.gold),
@@ -277,7 +277,7 @@ class ListScreen extends StatelessWidget {
                       : Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('🤳', style: TextStyle(fontSize: 64)),
+                            const Text('??', style: TextStyle(fontSize: 64)),
                             Text(
                               'Position your face',
                               style: dm(sz: 10, c: C.dim),
@@ -292,18 +292,18 @@ class ListScreen extends StatelessWidget {
         const SizedBox(height: 20),
         if (!state.faceDone)
           _PrimaryBtn(
-            label: state.faceScanning ? null : '🤳 Take Selfie',
+            label: state.faceScanning ? null : '?? Take Selfie',
             loading: state.faceScanning,
             loadingLabel: 'Scanning face...',
             onTap: state.faceScanning ? null : () => state.doFaceScan(),
           )
         else
-          _SuccessBtn(label: 'Next: Property Details →', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Property Details ?', onTap: state.nextStep),
       ],
     );
   }
 
-  // ── Step 2: Details ──────────────────────────────────────────
+  // -- Step 2: Details ------------------------------------------
   Widget _buildDetailsStep() {
     const fields = [
       ('Property Title', 'text', 'title'),
@@ -359,7 +359,7 @@ class ListScreen extends StatelessWidget {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: C.gold),
+                    borderSide: BorderSide(color: C.gold),
                   ),
                 ),
               ),
@@ -393,23 +393,23 @@ class ListScreen extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: C.gold),
+              borderSide: BorderSide(color: C.gold),
             ),
           ),
         ),
         const SizedBox(height: 18),
-        _PrimaryBtn(label: 'Next: Photos & Docs →', onTap: state.nextStep),
+        _PrimaryBtn(label: 'Next: Photos & Docs ?', onTap: state.nextStep),
       ],
     );
   }
 
-  // ── Step 3: Photos ───────────────────────────────────────────
+  // -- Step 3: Photos -------------------------------------------
   Widget _buildPhotosStep() {
     final docs = [
-      ('🏠', 'Exterior Photos (min 3)', 'Required'),
-      ('🛋️', 'Interior Photos (min 4)', 'Required'),
-      ('📄', 'Title Deed / Land Certificate', 'Required'),
-      ('📋', 'Other Ownership Documents', 'Optional'),
+      ('??', 'Exterior Photos (min 3)', 'Required'),
+      ('???', 'Interior Photos (min 4)', 'Required'),
+      ('??', 'Title Deed / Land Certificate', 'Required'),
+      ('??', 'Other Ownership Documents', 'Optional'),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -440,7 +440,7 @@ class ListScreen extends StatelessWidget {
                     children: [
                       Text(d.$2, style: dm(sz: 13, w: FontWeight.w600)),
                       Text(
-                        '${d.$3} · Tap to capture',
+                        '${d.$3} � Tap to capture',
                         style: dm(
                           sz: 10,
                           c: d.$3 == 'Required' ? C.gold : C.dim,
@@ -449,7 +449,7 @@ class ListScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                Text('📷', style: TextStyle(fontSize: 22, color: C.dim)),
+                Text('??', style: TextStyle(fontSize: 22, color: C.dim)),
               ],
             ),
           ),
@@ -473,12 +473,12 @@ class ListScreen extends StatelessWidget {
           onTap: state.pickMedia,
         ),
         const SizedBox(height: 6),
-        _PrimaryBtn(label: 'Next: GPS Location →', onTap: state.nextStep),
+        _PrimaryBtn(label: 'Next: GPS Location ?', onTap: state.nextStep),
       ],
     );
   }
 
-  // ── Step 4: GPS ──────────────────────────────────────────────
+  // -- Step 4: GPS ----------------------------------------------
   Widget _buildGpsStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -494,7 +494,7 @@ class ListScreen extends StatelessWidget {
           duration: const Duration(milliseconds: 300),
           height: 180,
           decoration: BoxDecoration(
-            color: state.gpsDone ? const Color(0xFF0d1f14) : C.card,
+            color: state.gpsDone ? Color(0xFF0d1f14) : C.card,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: state.gpsDone ? C.green.withOpacity(.25) : C.border,
@@ -505,12 +505,12 @@ class ListScreen extends StatelessWidget {
                 ? Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('📍', style: TextStyle(fontSize: 50)),
+                      const Text('??', style: TextStyle(fontSize: 50)),
                       const SizedBox(height: 8),
                       Text('GPS Captured!', style: syne(sz: 14, c: C.green)),
                       const SizedBox(height: 4),
                       Text(
-                        '0.3476° N, 32.5825° E · Kololo, Kampala',
+                        '0.3476� N, 32.5825� E � Kololo, Kampala',
                         style: dm(sz: 11, c: C.dim),
                       ),
                     ],
@@ -518,7 +518,7 @@ class ListScreen extends StatelessWidget {
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const _PulsingText('🌐', size: 50),
+                      const _PulsingText('??', size: 50),
                       const SizedBox(height: 8),
                       Text(
                         'Stand at the property, then tap capture',
@@ -530,21 +530,21 @@ class ListScreen extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         if (!state.gpsDone)
-          _PrimaryBtn(label: '📍 Capture GPS Now', onTap: state.captureGps)
+          _PrimaryBtn(label: '?? Capture GPS Now', onTap: state.captureGps)
         else
-          _SuccessBtn(label: 'Next: Review & Submit →', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Review & Submit ?', onTap: state.nextStep),
       ],
     );
   }
 
-  // ── Step 5: Review ───────────────────────────────────────────
+  // -- Step 5: Review -------------------------------------------
   Widget _buildReviewStep() {
     final items = [
-      ('✅', 'National ID', 'Verified — Nakato Sarah'),
-      ('✅', 'Face ID Biometrics', 'Matched 97.4% confidence'),
-      ('✅', 'Property Photos', '7 photos uploaded'),
-      ('✅', 'Legal Documents', 'Title Deed + Land Cert'),
-      ('✅', 'GPS Location', '0.3476° N, 32.5825° E'),
+      ('?', 'National ID', 'Verified � Nakato Sarah'),
+      ('?', 'Face ID Biometrics', 'Matched 97.4% confidence'),
+      ('?', 'Property Photos', '7 photos uploaded'),
+      ('?', 'Legal Documents', 'Title Deed + Land Cert'),
+      ('?', 'GPS Location', '0.3476� N, 32.5825� E'),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -598,7 +598,7 @@ class ListScreen extends StatelessWidget {
           _buildSubmittedSuccess()
         else ...[
           _PrimaryBtn(
-            label: state.aiSubmitting ? null : '🚀 Submit for AI Review',
+            label: state.aiSubmitting ? null : '?? Submit for AI Review',
             loading: state.aiSubmitting,
             loadingLabel: 'AI Verifying Listing...',
             onTap: state.aiSubmitting
@@ -638,7 +638,7 @@ class ListScreen extends StatelessWidget {
           ),
           child: Column(
             children: [
-              const Text('🎉', style: TextStyle(fontSize: 52)),
+              const Text('??', style: TextStyle(fontSize: 52)),
               const SizedBox(height: 10),
               Text('Listing Submitted!', style: syne(sz: 20, c: C.green)),
               const SizedBox(height: 6),
@@ -659,7 +659,7 @@ class ListScreen extends StatelessWidget {
                     color: C.gold,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text('← Back to Home', style: syne(sz: 14, c: C.bg)),
+                  child: Text('? Back to Home', style: syne(sz: 14, c: C.bg)),
                 ),
               ),
             ],
@@ -670,7 +670,7 @@ class ListScreen extends StatelessWidget {
   }
 }
 
-// ── Shared step widgets ───────────────────────────────────────
+// -- Shared step widgets ---------------------------------------
 class _PrimaryBtn extends StatelessWidget {
   final String? label;
   final bool loading;
@@ -739,14 +739,14 @@ class _SuccessBtn extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
         ),
         child: Center(
-          child: Text(label, style: syne(sz: 15, c: Colors.white)),
+          child: Text(label, style: syne(sz: 15, c: C.text)),
         ),
       ),
     );
   }
 }
 
-// ── Scan line animation ───────────────────────────────────────
+// -- Scan line animation ---------------------------------------
 class _ScanLine extends StatefulWidget {
   final Color color;
   final double? width;
@@ -791,7 +791,7 @@ class _ScanLineState extends State<_ScanLine>
   }
 }
 
-// ── Pulsing emoji ─────────────────────────────────────────────
+// -- Pulsing emoji ---------------------------------------------
 class _PulsingText extends StatefulWidget {
   final String text;
   final double size;
@@ -821,7 +821,7 @@ class _PulsingTextState extends State<_PulsingText>
   }
 }
 
-// ── Spinning emoji ────────────────────────────────────────────
+// -- Spinning emoji --------------------------------------------
 class _SpinningEmoji extends StatefulWidget {
   final String emoji;
   final double size;
@@ -852,3 +852,5 @@ class _SpinningEmojiState extends State<_SpinningEmoji>
     );
   }
 }
+
+

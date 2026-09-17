@@ -1,61 +1,180 @@
 import 'finance_backend.dart';
 import 'finance_initializer.dart';
+import '../data.dart' show giftPickerImageUrlFor, gifts;
 
 class GiftItem {
-  const GiftItem({required this.id, required this.name, required this.emoji, required this.ncxValue,
-    required this.ugxValue, required this.category, required this.sortOrder, this.isActive = true});
+  const GiftItem({
+    required this.id,
+    required this.name,
+    required this.emoji,
+    required this.ncxValue,
+    required this.ugxValue,
+    required this.category,
+    required this.sortOrder,
+    this.isActive = true,
+    this.imageUrl,
+  });
   final String id, name, emoji, category;
   final int ncxValue, ugxValue, sortOrder;
   final bool isActive;
+  final String? imageUrl;
   factory GiftItem.fromJson(Map<String, dynamic> json) => GiftItem(
-    id: json['id']?.toString() ?? '', name: json['name']?.toString() ?? '',
-    emoji: json['emoji']?.toString() ?? '\u{1F48E}', ncxValue: (json['ncx_value'] as num?)?.toInt() ?? 0,
-    ugxValue: (json['ugx_value'] as num?)?.toInt() ?? 0, category: json['category']?.toString() ?? 'standard',
-    sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0, isActive: json['is_active'] as bool? ?? true);
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? '',
+    emoji: json['emoji']?.toString() ?? '\u{1F48E}',
+    ncxValue: (json['ncx_value'] as num?)?.toInt() ?? 0,
+    ugxValue: (json['ugx_value'] as num?)?.toInt() ?? 0,
+    category: json['category']?.toString() ?? 'standard',
+    sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
+    isActive: json['is_active'] as bool? ?? true,
+    // The client-owned picker catalogue supplies the optimized PNG artwork.
+    // A server URL remains a fallback for future dynamic gifts only.
+    imageUrl: giftPickerImageUrlFor(json['id']?.toString() ?? '') ??
+        json['image_url']?.toString(),
+  );
 }
 
 class GiftResult {
-  const GiftResult({required this.success, required this.giftId, required this.giftEmoji,
-    required this.giftName, required this.ncxAmount, required this.receiverNcx,
-    required this.platformFeeNcx, required this.ugxEquivalent, required this.isHighlighted,
-    required this.message});
+  const GiftResult({
+    required this.success,
+    required this.giftId,
+    required this.giftEmoji,
+    required this.giftName,
+    required this.ncxAmount,
+    required this.receiverNcx,
+    required this.platformFeeNcx,
+    required this.ugxEquivalent,
+    required this.isHighlighted,
+    required this.message,
+  });
   final bool success, isHighlighted;
   final String giftId, giftEmoji, giftName, message;
   final int ncxAmount, receiverNcx, platformFeeNcx, ugxEquivalent;
 }
 
 class FinanceGiftingService {
-  Future<List<GiftItem>> fetchGiftItems() async {
+  List<GiftItem>? _catalogCache;
+
+  Future<List<GiftItem>> fetchGiftItems({bool allowNetwork = true}) async {
+    final cached = _catalogCache;
+    if (cached != null) return List<GiftItem>.of(cached);
+
+    if (!allowNetwork) return _builtInGiftItems();
+
     await FinanceInitializer.instance.ensureInitialized();
     final result = await FinanceBackend.instance.invoke('list_gift_items');
-    return (result['giftItems'] as List? ?? const [])
-        .map((item) => GiftItem.fromJson(Map<String, dynamic>.from(item as Map))).toList();
+    final remoteItems = (result['giftItems'] as List? ?? const [])
+        .map(
+          (item) => GiftItem.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
+        .toList();
+
+    // Finance owns the gift ID and price contract. Do not merge a local list
+    // ahead of it: a stale local ID (for example `money_bag` instead of
+    // `moneybag`) passes the UI but is rejected by the atomic transfer RPC.
+    if (remoteItems.isNotEmpty) {
+      _catalogCache = remoteItems;
+      return List<GiftItem>.of(_catalogCache!);
+    }
+
+    // This is display-only continuity while Finance is temporarily
+    // unavailable. sendGift still requires the Finance service and cannot
+    // transfer a locally invented item.
+    _catalogCache = _builtInGiftItems();
+    return List<GiftItem>.of(_catalogCache!);
   }
 
-  Future<GiftResult> sendGift({required String senderId, required String receiverId,
-    required String giftItemId, required int ncxAmount, required String contextType,
-    String? contextId, String? contextNote, String? senderName, bool isAnonymous = false, String? idempotencyKey}) async {
+  List<GiftItem> _builtInGiftItems() {
+    return gifts
+        .map(
+          (gift) => GiftItem(
+            id: gift.id,
+            name: gift.name,
+            emoji: gift.emoji,
+            ncxValue: gift.price,
+            ugxValue: gift.price * 100,
+            category: gift.price >= 500 ? 'premium' : 'standard',
+            sortOrder: gifts.indexOf(gift) + 1,
+            isActive: true,
+            imageUrl: gift.imageUrl,
+          ),
+        )
+        .toList();
+  }
+
+  Future<GiftResult> sendGift({
+    required String senderId,
+    required String receiverId,
+    required String giftItemId,
+    required int ncxAmount,
+    required String contextType,
+    String? contextId,
+    String? contextNote,
+    String? senderName,
+    String? senderAvatar,
+    bool isAnonymous = false,
+    String? idempotencyKey,
+  }) async {
     try {
       await FinanceInitializer.instance.ensureInitialized();
-      final result = await FinanceBackend.instance.invoke('send_gift', body: {
-        'receiverId': receiverId, 'giftItemId': giftItemId, 'ncxAmount': ncxAmount,
-        'contextType': contextType, 'contextId': contextId ?? 'direct:$receiverId',
-        'contextNote': contextNote, 'isAnonymous': isAnonymous,
-        'metadata': {'context_note': contextNote, 'sender_name': senderName},
-        'idempotencyKey': idempotencyKey ?? 'gift-${DateTime.now().microsecondsSinceEpoch}',
-      });
-      return GiftResult(success: true, giftId: result['giftId']?.toString() ?? '',
-        giftEmoji: result['giftEmoji']?.toString() ?? '\u{1F48E}', giftName: result['giftName']?.toString() ?? '',
+      final result = await FinanceBackend.instance.invoke(
+        'send_gift',
+        body: {
+          // The finance server derives identity from the bearer token. Keep
+          // this field for compatibility with an already-deployed processor
+          // that still expects it; it must never be trusted by the server.
+          'senderId': senderId,
+          'receiverId': receiverId,
+          'giftItemId': giftItemId,
+          'ncxAmount': ncxAmount,
+          'contextType': contextType,
+          'contextId': contextId ?? 'direct:$receiverId',
+          'contextNote': contextNote,
+          'isAnonymous': isAnonymous,
+          'metadata': {
+            'context_note': contextNote,
+            'sender_name': senderName,
+            'sender_avatar': senderAvatar,
+          },
+          'idempotencyKey':
+              idempotencyKey ?? 'gift-${DateTime.now().microsecondsSinceEpoch}',
+        },
+      );
+      return GiftResult(
+        success: true,
+        giftId: result['giftId']?.toString() ?? '',
+        giftEmoji: result['giftEmoji']?.toString() ?? '\u{1F48E}',
+        giftName: result['giftName']?.toString() ?? '',
         ncxAmount: (result['ncxAmount'] as num?)?.toInt() ?? 0,
         receiverNcx: (result['receiverNcx'] as num?)?.toInt() ?? 0,
         platformFeeNcx: (result['platformFeeNcx'] as num?)?.toInt() ?? 0,
         ugxEquivalent: (result['ugxEquivalent'] as num?)?.toInt() ?? 0,
-        isHighlighted: result['isHighlighted'] == true, message: result['message']?.toString() ?? 'Gift sent.');
+        isHighlighted: result['isHighlighted'] == true,
+        message: result['message']?.toString() ?? 'Gift sent.',
+      );
     } catch (error) {
-      return GiftResult(success: false, giftId: '', giftEmoji: '\u{1F48E}', giftName: '',
-        ncxAmount: ncxAmount, receiverNcx: 0, platformFeeNcx: 0, ugxEquivalent: 0,
-        isHighlighted: false, message: error.toString());
+      return GiftResult(
+        success: false,
+        giftId: '',
+        giftEmoji: '\u{1F48E}',
+        giftName: '',
+        ncxAmount: ncxAmount,
+        receiverNcx: 0,
+        platformFeeNcx: 0,
+        ugxEquivalent: 0,
+        isHighlighted: false,
+        message: error.toString(),
+      );
     }
+  }
+
+  Future<Map<String, dynamic>> fetchLiveGiftSnapshot(String contextId) async {
+    await FinanceInitializer.instance.ensureInitialized();
+    final result = await FinanceBackend.instance.invoke(
+      'list_live_gifts',
+      body: {'contextId': contextId},
+    );
+    return Map<String, dynamic>.from(result);
   }
 
   Stream<Map<String, dynamic>> watchLiveGifts(String contextId) async* {
@@ -64,10 +183,7 @@ class FinanceGiftingService {
     while (true) {
       try {
         await FinanceInitializer.instance.ensureInitialized();
-        final result = await FinanceBackend.instance.invoke(
-          'list_live_gifts',
-          body: {'contextId': contextId},
-        );
+        final result = await fetchLiveGiftSnapshot(contextId);
         final gifts = (result['gifts'] as List? ?? const [])
             .map((item) => Map<String, dynamic>.from(item as Map))
             .toList();
