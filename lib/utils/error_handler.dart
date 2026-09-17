@@ -31,10 +31,14 @@ String getUserFriendlyError(dynamic error) {
           'The listing could not be submitted. Please retry this step.',
     };
     final message = stageMessages[error.code] ?? error.message;
+    final finalMessage = error.code == 'identity_provider_unavailable' 
+        ? '$message DETAILS: ${error.message}' 
+        : message;
+        
     final requestId = error.requestId?.trim();
     return requestId != null && requestId.isNotEmpty
-        ? '$message (Reference: ${requestId.substring(0, requestId.length > 12 ? 12 : requestId.length)})'
-        : message;
+        ? '$finalMessage (Reference: ${requestId.substring(0, requestId.length > 12 ? 12 : requestId.length)})'
+        : finalMessage;
   }
 
   // Network / Socket Exceptions
