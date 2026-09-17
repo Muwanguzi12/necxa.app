@@ -186,7 +186,7 @@ class CreatorScreen extends StatelessWidget {
   }
 
   Widget _buildCatFilter() {
-    cats = ['All','Music','Afrobeats','RnB','HipHop','Dance','Art'];
+    final cats = ['All', 'Music', 'Afrobeats', 'RnB', 'HipHop', 'Dance', 'Art'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
