@@ -607,7 +607,8 @@ serve(async (req) => {
     const sessionId = `SES-${Date.now()}`
     const sessionLink = `https://dashboard.necxa.com/audit/sessions/${sessionId}`
 
-    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
+    // FORCE the canonical worker URL, bypassing the broken api.necxa.uk DNS
+    const NECXA_AI_URL = 'https://necxa-ai-engine.knestars.workers.dev'
 
     // ─────────────────────────────────────────────────────────────────────────
     // ID document capture actions
