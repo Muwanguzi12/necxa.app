@@ -26,7 +26,7 @@ class _LivenessCapture {
 class _LivenessCaptureCancelled implements Exception {}
 
 // -----------------------------------------------------------------------------
-// NECXA � 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
+// NECXA - 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
 // -----------------------------------------------------------------------------
 class ListingWizardScreen extends StatefulWidget {
   final AppState state;
@@ -154,6 +154,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     _landBlockCtrl.dispose();
     _landPlotCtrl.dispose();
     _lc1OfficerCtrl.dispose();
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
@@ -668,6 +669,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
+        // Back of ID — use presence/quality check and compress raw frame.
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
         state.idBackImage = await ListingSyncService.compressImage(rawFile);
@@ -681,7 +683,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           throw UserMessageException(
             _aiFeedback(
               result,
-              'Back of ID scan failed. Keep the document flat and retake it.',
+              'National ID back scan failed. Keep the whole back of your ID in the frame and retry.',
             ),
           );
         }
@@ -689,6 +691,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         await _applyCaptureOrientation(2);
         await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 2;
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
       } else if (state.verificationSubStep == 2) {
         final xfile = await cameraCtrl.takePicture();
         final rawFile = File(xfile.path);
@@ -712,6 +718,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         await _applyCaptureOrientation(3);
         await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 3;
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+        ]);
 
         // Auto-toggle to selfie camera for 3D Biometric Match
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
@@ -1474,7 +1483,122 @@ class _Step3Identity extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // scannerKey is now passed from parent to maintain stability
+    if (subStep == 2) {
+      // ── TRUE LANDSCAPE HOLD-ID LAYOUT ────────────────────────────────────
+      // Device stays in portrait; we create a wide landscape-feel camera zone.
+      final completedStages = [
+        state.lastIDResult?.verified ?? false,
+        state.idBackImage != null,
+        state.lastHoldingResult?.verified ?? false,
+        state.lastSelfieResult?.faceMatch ?? false,
+      ];
+
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Left side: wide camera ───────────────────────────────────────
+          Expanded(
+            flex: 3,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: _NeuralScannerOverlay(
+                key: scannerKey,
+                documentMode: false,
+                subStep: subStep,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // ── Right side: side panel for controls & instructions ────────────
+          Expanded(
+            flex: 1,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Top header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const _PulsingLight(),
+                    const SizedBox(width: 4),
+                    Text('LIVE', style: dm(sz: 10, c: C.brand, w: FontWeight.w900, ls: 0.8)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Capture button — right side, thumb-reachable
+                GestureDetector(
+                  onTap: loading ? null : onVerify,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: loading ? Colors.grey : C.brand,
+                      boxShadow: [
+                        BoxShadow(color: C.brand.withOpacity(.45), blurRadius: 14, spreadRadius: 2),
+                      ],
+                    ),
+                    child: loading
+                        ? const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
+                          )
+                        : const Icon(Icons.camera_alt, color: Colors.black, size: 26),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  loading ? 'WAIT' : 'CAPTURE',
+                  style: syne(sz: 9, c: loading ? Colors.grey : C.brand, w: FontWeight.w800, ls: 0.5),
+                ),
+                const SizedBox(height: 20),
+
+                // Area labels
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFD54F).withOpacity(.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFFFD54F).withOpacity(.7), width: 1),
+                      ),
+                      child: Text('ID: Left hand', style: dm(sz: 9, c: const Color(0xFFFFD54F), w: FontWeight.bold), textAlign: TextAlign.center),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E5FF).withOpacity(.10),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.7), width: 1),
+                      ),
+                      child: Text('Face: Center-right', style: dm(sz: 9, c: const Color(0xFF00E5FF), w: FontWeight.bold), textAlign: TextAlign.center),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Error feedback
+                if (state.shieldFeedback != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(.10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(state.shieldFeedback!, style: dm(sz: 9.5, c: Colors.redAccent), textAlign: TextAlign.center),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      );
+    }
 
     final instructions = [
       (
@@ -1653,6 +1777,20 @@ class _Step3Identity extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _holdingInfoChip(IconData icon, String title, String subtitle, Color color) {
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(height: 2),
+          Text(title, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold), textAlign: TextAlign.center),
+          Text(subtitle, style: dm(sz: 7.5, c: Colors.white54), textAlign: TextAlign.center),
+        ],
+      ),
     );
   }
 }
@@ -2011,6 +2149,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   Future<void>? _cameraInitialization;
   String _livenessPrompt = 'Look straight at the camera';
 
+  bool get isHolding => widget.subStep == 2;
+
+
   @override
   void initState() {
     super.initState();
@@ -2051,6 +2192,13 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
             : 1.0,
       );
       _currentDirection = direction;
+
+      // For Hold ID (subStep==2) and Selfie (subStep==3): zoom out to minimum
+      if (widget.subStep >= 2) {
+        final minZoom = await nextController.getMinZoomLevel();
+        await nextController.setZoomLevel(minZoom);
+      }
+
       if (mounted) setState(() {});
     } catch (e) {
       if (identical(cameraCtrl, nextController)) cameraCtrl = null;
@@ -2225,7 +2373,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       width: double.infinity,
       decoration: BoxDecoration(
         color: C.cardDk,
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: C.brand.withOpacity(.7), width: 1.2),
         boxShadow: [
           BoxShadow(
@@ -2329,18 +2477,54 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 ),
               ),
 
-            // ── BIOMETRIC HUD (selfie mode only) ──────────────────────────
-            if (!widget.documentMode) ...[
+            // ── HOLDING ID: minimal in-camera HUD — NO overlapping text ──
+            if (isHolding) ...[
+              Positioned(
+                top: 8,
+                left: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(.5),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: C.brand.withOpacity(.5), width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(width: 5, height: 5, decoration: BoxDecoration(color: C.brand, shape: BoxShape.circle)),
+                      const SizedBox(width: 5),
+                      Text('LIVE', style: dm(sz: 9, c: Colors.white, w: FontWeight.bold, ls: 0.5)),
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 10,
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: C.text.withOpacity(.85),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Icon(Icons.bolt_outlined, color: C.bg, size: 18),
+                ),
+              ),
+            ],
+
+            // ── BIOMETRIC HUD (selfie step 3 only) ───────────────────────
+            if (!widget.documentMode && widget.subStep == 3) ...[
               // Top 'LIVE' pill
               Positioned(
                 top: 14,
                 left: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: const BoxDecoration(
+                    color: Colors.transparent,
                   ),
-                  decoration: BoxDecoration(color: Colors.transparent),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -2461,49 +2645,51 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
             if (!isHolding)
               const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
-            Positioned(
-              top: 14,
-              right: 14,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: C.text.withOpacity(.94),
-                      borderRadius: BorderRadius.circular(8),
+            // Flash + camera-flip controls
+            if (!isHolding)
+              Positioned(
+                top: 14,
+                right: 14,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: C.text.withOpacity(.94),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
                     ),
-                    child: Icon(Icons.bolt_outlined, color: C.bg, size: 22),
-                  ),
-                  if (widget.subStep >= 2) ...[
-                    const SizedBox(height: 10),
-                    GestureDetector(
-                      onTap: () {
-                        final newDirection =
-                            _currentDirection == CameraLensDirection.front
-                            ? CameraLensDirection.back
-                            : CameraLensDirection.front;
-                        switchCamera(newDirection).catchError((_) {});
-                      },
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: C.text.withOpacity(.94),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.flip_camera_ios_outlined,
-                          color: C.bg,
-                          size: 20,
+                    if (widget.subStep >= 2) ...[
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () {
+                          final newDirection =
+                              _currentDirection == CameraLensDirection.front
+                              ? CameraLensDirection.back
+                              : CameraLensDirection.front;
+                          switchCamera(newDirection).catchError((_) {});
+                        },
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: C.text.withOpacity(.94),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.flip_camera_ios_outlined,
+                            color: C.bg,
+                            size: 20,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -2679,7 +2865,7 @@ class _Step4Utility extends StatelessWidget {
         if (utilityShardId != null)
           const Center(
             child: Text(
-              '? Utility Shard Synced',
+              '✔ Utility Shard Synced',
               style: TextStyle(color: C.brand),
             ),
           ),
@@ -2993,12 +3179,12 @@ class _Step7Review extends StatelessWidget {
       children: [
         _reviewCard(
           'Identity Shard',
-          idVerified && faceVerified ? 'Verified ?' : 'Required ?',
+          idVerified && faceVerified ? 'Verified ✔' : 'Required ❌',
         ),
-        _reviewCard('GPS Node', gpsLocked ? 'Locked ?' : 'Required ?'),
+        _reviewCard('GPS Node', gpsLocked ? 'Locked ✔' : 'Required ❌'),
         _reviewCard(
           'Photos',
-          photoCount > 0 ? '$photoCount Uploaded ?' : 'Required ?',
+          photoCount > 0 ? '$photoCount Uploaded ✔' : 'Required ❌',
         ),
         const SizedBox(height: 40),
         SizedBox(
