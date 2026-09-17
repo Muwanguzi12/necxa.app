@@ -833,14 +833,30 @@ class NecxaAI {
           },
         ),
       );
+      final passed =
+          data['verified'] == true ||
+          data['liveness'] == true ||
+          data['livenessPassed'] == true ||
+          data['faceMatch'] == true ||
+          data['decision'] == 'pass';
+      final sessionId =
+          data['verificationSessionId']?.toString() ??
+          data['sessionId']?.toString() ??
+          data['session_id']?.toString() ??
+          data['id']?.toString() ??
+          'panorama_session_${DateTime.now().millisecondsSinceEpoch}';
       return {
         ...data,
-        'faceMatch': data['faceMatch'] == true,
+        'verified': passed,
+        'livenessPassed': passed,
+        'faceMatch': passed,
+        'verificationSessionId': sessionId,
+        'sessionId': sessionId,
         'feedback':
             data['feedback']?.toString() ??
             data['error']?.toString() ??
-            'Panorama liveness verification failed',
-        'score': data['score'] ?? data['livenessScore'] ?? 0,
+            (passed ? 'Liveness verified' : 'Panorama liveness verification failed'),
+        'score': data['score'] ?? data['livenessScore'] ?? (passed ? 1.0 : 0.0),
       };
     } catch (e) {
       var message = e.toString();
