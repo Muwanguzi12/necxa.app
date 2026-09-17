@@ -1486,12 +1486,6 @@ class _Step3Identity extends StatelessWidget {
     if (subStep == 2) {
       // ── TRUE LANDSCAPE HOLD-ID LAYOUT ────────────────────────────────────
       // Device stays in portrait; we create a wide landscape-feel camera zone.
-      final completedStages = [
-        state.lastIDResult?.verified ?? false,
-        state.idBackImage != null,
-        state.lastHoldingResult?.verified ?? false,
-        state.lastSelfieResult?.faceMatch ?? false,
-      ];
 
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1777,20 +1771,6 @@ class _Step3Identity extends StatelessWidget {
           ),
         ],
       ],
-    );
-  }
-
-  Widget _holdingInfoChip(IconData icon, String title, String subtitle, Color color) {
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: color),
-          const SizedBox(height: 2),
-          Text(title, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold), textAlign: TextAlign.center),
-          Text(subtitle, style: dm(sz: 7.5, c: Colors.white54), textAlign: TextAlign.center),
-        ],
-      ),
     );
   }
 }
@@ -2265,7 +2245,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         }
         final image = await controller.takePicture();
         if (!mounted || generation != _captureGeneration) {
-          await File(image.path).delete().catchError((_) {});
+          try {
+            await File(image.path).delete();
+          } catch (_) {}
           throw _LivenessCaptureCancelled();
         }
         frames.add(File(image.path));
@@ -2273,7 +2255,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       }
     } catch (_) {
       for (final frame in frames) {
-        await frame.delete().catchError((_) {});
+        try {
+          await frame.delete();
+        } catch (_) {}
       }
       rethrow;
     }
