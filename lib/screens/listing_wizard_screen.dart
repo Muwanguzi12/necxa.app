@@ -1602,22 +1602,22 @@ class _Step3Identity extends StatelessWidget {
     final instructions = [
       (
         'National ID (Front)',
-        'Ensure the text is clearly visible and within the frame.',
+        'Ensure the front of your ID card is clear and within frame.',
         Icons.badge_outlined,
       ),
       (
         'National ID (Back)',
-        'Flip your card and scan the reverse side barcode/details.',
+        'Light verification: scan reverse side barcode or QR code.',
         Icons.qr_code_scanner,
       ),
       (
         'Holding ID Photo',
-        'Fit your face and ID inside the frame. Indoor light is okay.',
+        'Light verification: position yourself holding your ID. No text extraction required.',
         Icons.front_hand_outlined,
       ),
       (
-        '3D Biometric Match',
-        'Hold your phone at eye level for a live biometric synthesis.',
+        '3D Face Panorama Liveness',
+        'Perform 3D panorama liveness capture (no ID face comparison).',
         Icons.face_retouching_natural,
       ),
     ];
@@ -2003,7 +2003,7 @@ class _IdentityCaptureProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['Front', 'Back', 'Holding ID', 'Face match'];
+    const labels = ['Front ID', 'Back ID', 'Holding ID', 'Liveness'];
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(compact ? 8 : 12),
