@@ -90,6 +90,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   bool _locatingGps = false;
   bool _onSiteVerified = false;
   double _onSiteDistanceMeters = 0.0;
+  bool _submitted = false;
+  String? _mintEventId;
   final GlobalKey<_NeuralScannerOverlayState> _scannerKey = GlobalKey();
 
   Future<void> _autofillGpsLocation() async {
