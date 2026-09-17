@@ -1791,7 +1791,28 @@ class _Step3Identity extends StatelessWidget {
                   loading ? 'WAIT' : 'CAPTURE',
                   style: syne(sz: 9, c: loading ? Colors.grey : C.brand, w: FontWeight.w800, ls: 0.5),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                
+                // Flip camera button
+                GestureDetector(
+                  onTap: () => scannerKey.currentState?.toggleCamera(),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: C.text.withOpacity(.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: C.brand.withOpacity(.5)),
+                    ),
+                    child: const Icon(Icons.flip_camera_ios, color: C.brand, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'FLIP',
+                  style: syne(sz: 8, c: C.brand, w: FontWeight.w800, ls: 0.5),
+                ),
+                
+                const SizedBox(height: 16),
 
                 // Area labels
                 Column(
@@ -2519,6 +2540,13 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         _livenessPrompt = 'Look straight at the camera';
       });
     }
+  }
+
+  void toggleCamera() {
+    final nextDir = _currentDirection == CameraLensDirection.back
+        ? CameraLensDirection.front
+        : CameraLensDirection.back;
+    unawaited(switchCamera(nextDir).catchError((_) {}));
   }
 
   Future<void> switchCamera(

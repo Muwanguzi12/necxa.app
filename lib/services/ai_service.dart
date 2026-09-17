@@ -845,18 +845,30 @@ class NecxaAI {
           data['session_id']?.toString() ??
           data['id']?.toString() ??
           'panorama_session_${DateTime.now().millisecondsSinceEpoch}';
+      // ── Sanitize: flatten nested Maps/Lists to strings so no downstream
+      // typed field (e.g. Map<String,String>) receives a Map value.
+      final rawFeedback = data['feedback'];
+      final feedbackStr = rawFeedback is String
+          ? rawFeedback
+          : rawFeedback is Map
+          ? (rawFeedback['message'] ?? rawFeedback['error'] ?? '')
+                .toString()
+          : rawFeedback?.toString() ?? '';
+      final scoreVal = data['score'] ?? data['livenessScore'];
+      final score =
+          scoreVal is num ? scoreVal.toDouble() : (passed ? 1.0 : 0.0);
       return {
-        ...data,
         'verified': passed,
         'livenessPassed': passed,
         'faceMatch': passed,
         'verificationSessionId': sessionId,
         'sessionId': sessionId,
-        'feedback':
-            data['feedback']?.toString() ??
-            data['error']?.toString() ??
-            (passed ? 'Liveness verified' : 'Panorama liveness verification failed'),
-        'score': data['score'] ?? data['livenessScore'] ?? (passed ? 1.0 : 0.0),
+        'feedback': feedbackStr.isNotEmpty
+            ? feedbackStr
+            : (passed ? 'Liveness verified' : 'Panorama liveness verification failed'),
+        'score': score,
+        'reasonCode': data['reasonCode']?.toString() ?? '',
+        'decision': data['decision']?.toString() ?? (passed ? 'pass' : 'fail'),
       };
     } catch (e) {
       var message = e.toString();
