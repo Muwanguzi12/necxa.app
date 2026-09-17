@@ -2486,9 +2486,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       'Return to the center',
     ];
     const delays = [
-      Duration(milliseconds: 800),
-      Duration(milliseconds: 600),
-      Duration(milliseconds: 600),
+      Duration(milliseconds: 1500),
+      Duration(milliseconds: 2000),
+      Duration(milliseconds: 1500),
     ];
     final generation = ++_captureGeneration;
     final frames = <File>[];
