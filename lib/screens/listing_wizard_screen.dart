@@ -2432,6 +2432,11 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       await nextController.initialize();
       _currentDirection = direction;
 
+      // National ID Front (subStep==0) and Back (subStep==1): explicit 1x zoom
+      if (widget.subStep == 0 || widget.subStep == 1) {
+        await _setZoomLevel(nextController, 1.0);
+      }
+
       // For Hold ID (subStep==2) and Selfie (subStep==3): zoom out to minimum
       if (widget.subStep >= 2) {
         final minZoom = await nextController.getMinZoomLevel();
@@ -2585,7 +2590,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
       if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
-        if (widget.subStep >= 2) {
+        if (widget.subStep == 0 || widget.subStep == 1) {
+          unawaited(_setZoomLevel(cameraCtrl!, 1.0));
+        } else if (widget.subStep >= 2) {
           unawaited(_setWidestZoom(cameraCtrl!));
         }
       }
