@@ -25,7 +25,14 @@ class NecxaBottomNav extends StatelessWidget {
             () => state.go('home'),
           ),
           _BotBtn(
-            '⚡',
+            Opacity(
+              opacity: state.screen == 'community' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/community_icon_colored.png', 
+                width: 24, 
+                height: 24,
+              ),
+            ),
             'Community',
             state.screen == 'community',
             () => state.go('community'),
@@ -52,20 +59,25 @@ class NecxaBottomNav extends StatelessWidget {
 }
 
 class _BotBtn extends StatelessWidget {
-  final String icon, label;
+  final Object icon; // String or Widget
+  final String label;
   final bool active;
   final VoidCallback onTap;
   const _BotBtn(this.icon, this.label, this.active, this.onTap);
 
   @override
   Widget build(BuildContext context) {
+    final Widget iconWidget = icon is Widget 
+        ? (icon as Widget) 
+        : Text(icon.toString(), style: const TextStyle(fontSize: 22));
+        
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: const TextStyle(fontSize: 22)),
+          iconWidget,
           const SizedBox(height: 3),
           Text(
             label,
