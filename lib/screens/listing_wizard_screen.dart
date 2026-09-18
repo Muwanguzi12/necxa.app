@@ -2662,6 +2662,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                             ),
                           );
                         },
+                      )
                     : Center(child: CameraPreview(cameraCtrl!)),
               )
             else
