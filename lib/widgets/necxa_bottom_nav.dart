@@ -45,7 +45,14 @@ class NecxaBottomNav extends StatelessWidget {
           ),
           if (!kIsWeb)
             _BotBtn(
-              '💬',
+              Opacity(
+                opacity: (state.screen == 'chat' || state.screen == 'chat-list' || state.screen == 'new-chat') ? 1.0 : 0.5,
+                child: Image.asset(
+                  'assets/images/chat_icon.png',
+                  width: 24,
+                  height: 24,
+                ),
+              ),
               'Chat',
               state.screen == 'chat' ||
                   state.screen == 'chat-list' ||
