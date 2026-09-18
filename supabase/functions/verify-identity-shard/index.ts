@@ -922,7 +922,7 @@ serve(async (req) => {
         reasonCode: 'biometric_provider_unavailable',
         retryable: true,
         engine: 'vision-provider-unavailable',
-        feedback: \`Vision API Failed: \${nvidiaError}. \${biometricFailureFeedback['biometric_provider_unavailable']}\`,
+        feedback: 'Vision API Failed: ' + nvidiaError + '. ' + biometricFailureFeedback['biometric_provider_unavailable'],
         requestId,
         verificationSessionId: sessionId,
         sessionLink,
