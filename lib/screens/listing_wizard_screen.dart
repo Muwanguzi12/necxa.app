@@ -2644,8 +2644,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
               Positioned.fill(
-                child: isHolding
-                    ? LayoutBuilder(
+                child: LayoutBuilder(
                         builder: (context, constraints) {
                           final viewportAspect =
                               constraints.maxWidth / constraints.maxHeight;
@@ -2670,7 +2669,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                           );
                         },
                       )
-                    : Center(child: CameraPreview(cameraCtrl!)),
               )
             else
               const Center(
