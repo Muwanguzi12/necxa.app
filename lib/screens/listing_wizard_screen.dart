@@ -2430,12 +2430,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
     try {
       await nextController.initialize();
-      await _setZoomLevel(
-        nextController,
-        widget.subStep == 2 || widget.subStep == 3
-            ? await nextController.getMinZoomLevel()
-            : 1.0,
-      );
       _currentDirection = direction;
 
       // For Hold ID (subStep==2) and Selfie (subStep==3): zoom out to minimum
@@ -2591,11 +2585,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
       if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
-        unawaited(
-          widget.subStep == 2 || widget.subStep == 3
-              ? _setWidestZoom(cameraCtrl!)
-              : _setZoomLevel(cameraCtrl!, 1.0),
-        );
+        if (widget.subStep >= 2) {
+          unawaited(_setWidestZoom(cameraCtrl!));
+        }
       }
 
       if (widget.subStep == 3) {
@@ -2670,9 +2662,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                             ),
                           );
                         },
-                      )
-                    : widget.subStep < 2
-                    ? _buildDocumentPreview(cameraCtrl!)
                     : Center(child: CameraPreview(cameraCtrl!)),
               )
             else
@@ -2953,28 +2942,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     return isHolding
         ? AspectRatio(aspectRatio: 1.7, child: viewport)
         : SizedBox(height: widget.subStep == 3 ? 190 : 220, child: viewport);
-  }
-
-  Widget _buildDocumentPreview(CameraController controller) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final viewport = constraints.biggest;
-        final previewAspect = controller.value.aspectRatio;
-        final previewWidth = viewport.width;
-        final previewHeight = previewWidth / previewAspect;
-
-        return ClipRect(
-          child: FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: previewWidth,
-              height: previewHeight,
-              child: CameraPreview(controller),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   Widget _buildTip(IconData icon, String label) {
