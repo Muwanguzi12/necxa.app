@@ -812,11 +812,11 @@ class _AppTabs extends StatelessWidget {
     required this.state,
   });
 
-  static final _tabs = [
-    ('home', Image.asset('assets/images/property_icon.png', width: 14, height: 14), 'Property'),
-    ('transport', Image.asset('assets/images/transport_icon.png', width: 14, height: 14), 'Transport'),
-    ('upload', Image.asset('assets/images/upload_icon.png', width: 14, height: 14), 'Upload'),
-    ('profile', const Icon(Icons.person, size: 14), 'Profile'),
+  static const _tabRoutes = [
+    ('home', 'assets/images/property_icon.png', 'Property'),
+    ('transport', 'assets/images/transport_icon.png', 'Transport'),
+    ('upload', 'assets/images/upload_icon.png', 'Upload'),
+    ('profile', null, 'Profile'),
   ];
 
   @override
@@ -827,9 +827,10 @@ class _AppTabs extends StatelessWidget {
         border: Border(bottom: BorderSide(color: C.border)),
       ),
       child: Row(
-        children: _tabs.map((t) {
+        children: _tabRoutes.map((t) {
           final active = t.$1 == current;
           final isProfile = t.$1 == 'profile';
+          final iconAsset = t.$2;
 
           return Expanded(
             child: GestureDetector(
@@ -873,8 +874,11 @@ class _AppTabs extends StatelessWidget {
                           );
                         },
                       )
-                    else
-                      t.$2,
+                    else if (iconAsset != null)
+                      Opacity(
+                        opacity: active ? 1.0 : 0.6,
+                        child: Image.asset(iconAsset, width: 14, height: 14),
+                      ),
 
                     if (!isProfile) const SizedBox(width: 4),
 
