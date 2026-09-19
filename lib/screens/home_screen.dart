@@ -813,10 +813,10 @@ class _AppTabs extends StatelessWidget {
   });
 
   static final _tabs = [
-    ('home', '🏠', 'Property'),
-    ('transport', '🚚', 'Transport'),
-    ('upload', '📤', 'Upload'),
-    ('profile', '👤', 'Profile'),
+    ('home', Image.asset('assets/images/property_icon.png', width: 14, height: 14), 'Property'),
+    ('transport', Image.asset('assets/images/transport_icon.png', width: 14, height: 14), 'Transport'),
+    ('upload', Image.asset('assets/images/upload_icon.png', width: 14, height: 14), 'Upload'),
+    ('profile', const Icon(Icons.person, size: 14), 'Profile'),
   ];
 
   @override
@@ -874,7 +874,7 @@ class _AppTabs extends StatelessWidget {
                         },
                       )
                     else
-                      Text(t.$2, style: const TextStyle(fontSize: 10)),
+                      t.$2,
 
                     if (!isProfile) const SizedBox(width: 4),
 
@@ -920,7 +920,19 @@ class _BottomNav extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', current == 'home', () => onTap('home')),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'home' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/property_icon.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
+            'Property', 
+            current == 'home', 
+            () => onTap('home')
+          ),
           _BotBtn(
             Opacity(
               opacity: current == 'community' ? 1.0 : 0.5,
@@ -934,7 +946,19 @@ class _BottomNav extends StatelessWidget {
             current == 'community',
             () => onTap('community'),
           ),
-          _BotBtn('📋', 'Listings', current == 'list', () => onTap('list')),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'list' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/listing_icon.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
+            'Listings', 
+            current == 'list', 
+            () => onTap('list')
+          ),
           if (!kIsWeb)
             _BotBtn(
               Opacity(
