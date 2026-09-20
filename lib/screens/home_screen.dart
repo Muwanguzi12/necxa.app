@@ -98,6 +98,7 @@ class HomeScreen extends StatelessWidget {
                       'assets/images/logo.png',
                       width: 14,
                       height: 14,
+                      color: C.text,
                     ),
                     const SizedBox(width: 6),
                     Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
