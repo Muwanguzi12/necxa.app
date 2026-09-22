@@ -13,9 +13,9 @@ class ListingSyncService {
   // SP2 owns encrypted identity-verification evidence. SP1 remains the
   // application/session and listing project.
   static const _verificationProjectUrl =
-      'https://lzdtrmjcwzalckszdzpt.supabase.co';
+      'https://ayvescksetiuekoyfqar.supabase.co';
   static const _verificationPublishableKey =
-      'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR';
+      'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
 
   static Future<File> compressImage(File file) async {
     try {

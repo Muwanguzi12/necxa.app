@@ -96,9 +96,9 @@ class NecxaAI {
   static const String _workerBase =
       'https://necxa-ai-engine.knestars.workers.dev';
   static const String _identityVerificationUrl =
-      'https://lzdtrmjcwzalckszdzpt.supabase.co/functions/v1/verify-identity-shard';
+      'https://ayvescksetiuekoyfqar.supabase.co/functions/v1/verify-identity-shard';
   static const String _identityVerificationPublishableKey =
-      'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR';
+      'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
   static const Duration _imageVerificationTimeout = Duration(seconds: 45);
   static const Duration _videoVerificationTimeout = Duration(seconds: 90);
   static const Duration _audioVerificationTimeout = Duration(seconds: 90);

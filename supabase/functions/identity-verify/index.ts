@@ -539,7 +539,7 @@ Deno.serve(async (req) => {
     console.error("Identity verification error:", error)
     return json({
       error_code: "identity_provider_unavailable",
-      error: error instanceof Error ? error.message : "Identity verification failed.",
+      error: error instanceof Error ? error.message : (typeof error === "object" ? JSON.stringify(error) : "Identity verification failed."),
     }, 503)
   }
 })
