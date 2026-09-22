@@ -476,7 +476,17 @@ Deno.serve(async (req) => {
       biometric_provider: biometricStage.provider,
       biometric_result: biometricStage.metadata,
     }
+    let shardId = crypto.randomUUID()
+    const { data: existingShard } = await supabase
+      .from("identity_shards")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle()
+    if (existingShard?.id) shardId = existingShard.id
+
     const row = {
+      id: shardId,
       user_id: user.id,
       idempotency_key: idempotencyKey,
       doc_type: docType,
