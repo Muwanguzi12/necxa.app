@@ -700,6 +700,10 @@ class NecxaAI {
     String panoramaBase64, {
     String? userId,
   }) async {
+    if (panoramaBase64.length < 1000) {
+      return {'verified': false, 'feedback': 'Panoramic scan failed to capture. Please retry.'};
+    }
+    
     final body = {
       'action': 'verify-liveness-panorama',
       'payload': {
@@ -713,30 +717,19 @@ class NecxaAI {
       final data = await _invokeIdentityVerification(body);
       return _sanitizeVerificationResult(data, fallback: 'Liveness verification failed');
     } catch (e) {
-      debugPrint('⚡ Supabase panorama verify failed: $e');
+      final errorStr = e.toString();
+      debugPrint('⚡ Supabase panorama verify failed: $errorStr');
       
-      final msg = e.toString().toLowerCase();
-      if (msg.contains('timeout')) {
+      if (errorStr.toLowerCase().contains('timeout')) {
         return {'verified': false, 'feedback': 'Verification took too long. Check your internet and retry.'};
       }
       
-      // If we got a specific error from the backend, show it.
-      // e.g. "Exception: status: 400, details: {error: ...}"
-      if (msg.contains('unknown action')) {
-        return {'verified': false, 'feedback': 'Identity system update in progress. Please wait a moment.'};
+      // If we have status code info, show it
+      if (errorStr.contains('status:')) {
+        return {'verified': false, 'feedback': 'Identity system error ($errorStr). Please report this.'};
       }
       
-      // Extract the nested error message if possible
-      String feedback = 'Identity system is busy. Please retry in a moment.';
-      if (msg.contains('error:')) {
-        final start = msg.indexOf('error:') + 6;
-        final end = msg.indexOf('}', start);
-        if (end > start) {
-          feedback = e.toString().substring(start, end).trim();
-        }
-      }
-      
-      return {'verified': false, 'feedback': feedback};
+      return {'verified': false, 'feedback': 'Identity system is busy. Details: ${errorStr.length > 60 ? errorStr.substring(0, 60) + "..." : errorStr}'};
     }
   }
 

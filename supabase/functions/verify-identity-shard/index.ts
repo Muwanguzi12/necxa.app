@@ -200,12 +200,15 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
   let lastError = 'Vision providers unavailable'
   for (const provider of providers) {
     try {
+      const startTime = Date.now()
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 35000)
+      const timeoutId = setTimeout(() => controller.abort(), 55000) // Increase to 55s per provider
 
       let parsed: any
 
       if (provider.type === 'vision') {
+        console.log(`[${provider.name}] Sending request to ${provider.model}...`)
+
         const response = await fetch(provider.endpoint, {
           method: 'POST',
           headers: {
@@ -216,11 +219,14 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
           body: JSON.stringify({
             model: provider.model,
             messages: [{ role: 'user', content: contentParts }],
-            max_tokens: provider.name === 'cosmos3-face-verification' ? 1024 : 256,
+            max_tokens: 1024,
             temperature: 0.1,
           }),
           signal: controller.signal,
         })
+
+        const duration = Date.now() - startTime
+        console.log(`[${provider.name}] Response: status=${response.status} in ${duration}ms`)
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => response.statusText)
@@ -229,25 +235,10 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
 
         const data = await response.json()
         const message = data?.choices?.[0]?.message ?? {}
-        const parts = [message.content, message.reasoning_content, data?.output_text]
-        const rawText = parts
-          .filter((part: unknown) => part !== null && part !== undefined)
-          .map((part: unknown) => {
-            if (typeof part === 'string') return part
-            if (Array.isArray(part)) {
-              return part
-                .map((item: unknown) => {
-                  if (typeof item === 'string') return item
-                  if (typeof item !== 'object' || item === null) return ''
-                  if ('text' in item) return String((item as { text?: unknown }).text ?? '')
-                  if ('content' in item) return String((item as { content?: unknown }).content ?? '')
-                  return ''
-                })
-                .join('')
-            }
-            return typeof part === 'object' ? JSON.stringify(part) : String(part)
-          })
-          .join('\n')
+        const rawText = [message.content, message.reasoning_content, data?.output_text].filter(p => p).join('\n')
+
+        console.log(`[${provider.name}] Parsing result...`)
+
         const jsonMatch = rawText.match(/\{[\s\S]*\}/)
         if (!jsonMatch) {
           throw new Error(`${provider.name} returned no JSON decision`)
@@ -771,7 +762,12 @@ serve(async (req) => {
           }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         } catch (err: any) {
           console.error('[NVIDIA Panorama] Error:', err.message)
-          return new Response(JSON.stringify({ verified: false, feedback: 'Liveness verification is temporarily unavailable.' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          return new Response(JSON.stringify({
+            verified: false,
+            feedback: `Liveness verification is busy (${err.message}). Please retry in a moment.`,
+            error: err.message,
+            requestId
+          }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
         }
       }
 
