@@ -2472,6 +2472,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
   int _captureGeneration = 0;
   int _livenessStep = 0;
+  int? _livenessCountdown;
+  bool _livenessCapturedSignal = false;
+  String? _livenessCapturedMessage;
 
   Future<_LivenessCapture> captureLivenessFrames() async {
     final controller = cameraCtrl;
@@ -2479,34 +2482,64 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       throw Exception('Selfie camera is not ready yet. Please try again.');
     }
 
-    const prompts = [
-      'Look straight at the camera',
-      'Turn your head slightly left',
-      'Return to the center',
+    // Ensure selfie camera is zoomed out to maximum wide angle
+    await _setWidestZoom(controller);
+
+    final steps = [
+      (
+        prompt: 'Look straight at the camera',
+        countdownSec: 2,
+        successMsg: 'Center captured! ✓',
+      ),
+      (
+        prompt: 'Turn your head slightly left',
+        countdownSec: 3,
+        successMsg: 'Left captured! ✓',
+      ),
+      (
+        prompt: 'Return to the center',
+        countdownSec: 3,
+        successMsg: 'Center return captured! ✓',
+      ),
     ];
-    const delays = [
-      Duration(milliseconds: 1500),
-      Duration(milliseconds: 2000),
-      Duration(milliseconds: 1500),
-    ];
+
     final generation = ++_captureGeneration;
     final frames = <File>[];
     final timestamps = <int>[];
+
     try {
-      for (var index = 0; index < delays.length; index++) {
+      for (var index = 0; index < steps.length; index++) {
+        final step = steps[index];
         if (mounted) {
           setState(() {
-            _livenessPrompt = prompts[index];
+            _livenessPrompt = step.prompt;
             _livenessStep = index + 1;
+            _livenessCountdown = null;
+            _livenessCapturedSignal = false;
+            _livenessCapturedMessage = null;
           });
         }
-        final delay = delays[index];
-        await Future<void>.delayed(delay);
+
+        // Run countdown timer before capture so user can follow through comfortably
+        for (var c = step.countdownSec; c > 0; c--) {
+          if (!mounted || generation != _captureGeneration) {
+            throw _LivenessCaptureCancelled();
+          }
+          setState(() => _livenessCountdown = c);
+          await Future<void>.delayed(const Duration(seconds: 1));
+        }
+
         if (!mounted ||
             generation != _captureGeneration ||
             !controller.value.isInitialized) {
           throw _LivenessCaptureCancelled();
         }
+
+        if (mounted) {
+          setState(() => _livenessCountdown = null);
+        }
+
+        // Take picture
         final image = await controller.takePicture();
         if (!mounted || generation != _captureGeneration) {
           try {
@@ -2514,8 +2547,24 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
           } catch (_) {}
           throw _LivenessCaptureCancelled();
         }
+
         frames.add(File(image.path));
         timestamps.add(DateTime.now().millisecondsSinceEpoch);
+
+        // Flash green signal for successful capture
+        if (mounted && generation == _captureGeneration) {
+          setState(() {
+            _livenessCapturedSignal = true;
+            _livenessCapturedMessage = step.successMsg;
+          });
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (mounted && generation == _captureGeneration) {
+          setState(() {
+            _livenessCapturedSignal = false;
+            _livenessCapturedMessage = null;
+          });
+        }
       }
     } catch (_) {
       for (final frame in frames) {
@@ -2524,10 +2573,17 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         } catch (_) {}
       }
       rethrow;
+    } finally {
+      if (mounted && generation == _captureGeneration) {
+        setState(() {
+          _livenessCountdown = null;
+          _livenessCapturedSignal = false;
+          _livenessCapturedMessage = null;
+          _livenessStep = 0;
+        });
+      }
     }
-    if (mounted) {
-      setState(() => _livenessStep = 0);
-    }
+
     return _LivenessCapture(frames: frames, captureTimestampsMs: timestamps);
   }
 
@@ -2536,6 +2592,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     if (mounted) {
       setState(() {
         _livenessStep = 0;
+        _livenessCountdown = null;
+        _livenessCapturedSignal = false;
+        _livenessCapturedMessage = null;
         _livenessPrompt = 'Look straight at the camera';
       });
     }
@@ -2692,6 +2751,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       documentMode: widget.documentMode,
                       holdingMode: isHolding,
                       progress: _ctrl.value,
+                      isSuccessCapture: _livenessCapturedSignal,
                     ),
                   );
                 },
@@ -2765,16 +2825,19 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               ),
             ],
 
-            // ── BIOMETRIC HUD (selfie step 3 only) ───────────────────────
+            // ── CLEAN BIOMETRIC HUD (selfie step 3 only) ─────────────────
+            // Free from wordings over the face frame; clear timer and capture signal.
             if (!widget.documentMode && widget.subStep == 3) ...[
-              // Top 'LIVE' pill
+              // Top Bar: Clean "3D LIVENESS" pill on left, 3-frame progress on right
               Positioned(
-                top: 14,
+                top: 10,
                 left: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: const BoxDecoration(
-                    color: Colors.transparent,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: C.brand.withOpacity(0.5), width: 1),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -2789,12 +2852,12 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'LIVE',
+                        '3D LIVENESS',
                         style: dm(
-                          sz: 10,
+                          sz: 9.5,
                           c: Colors.white,
                           w: FontWeight.bold,
-                          ls: 0.5,
+                          ls: 0.8,
                         ),
                       ),
                     ],
@@ -2802,102 +2865,146 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 ),
               ),
 
-              // Top 'Tips' pill
               Positioned(
-                top: 14,
+                top: 10,
                 right: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.5),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(.2)),
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.info_outline,
-                        size: 12,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 5),
+                      for (int i = 1; i <= 3; i++) ...[
+                        if (i > 1) const SizedBox(width: 5),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _livenessStep >= i ? C.brand : Colors.white24,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
                       Text(
-                        'Tips',
-                        style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
+                        _livenessStep > 0 ? '$_livenessStep/3' : 'READY',
+                        style: dm(sz: 9.5, c: Colors.white, w: FontWeight.w600),
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // Bottom prompts
-              Positioned(
-                bottom: 24,
-                left: 0,
-                right: 0,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _livenessPrompt,
-                      style: dm(sz: 12, c: Colors.white, w: FontWeight.w500),
-                    ),
-                    if (_livenessStep > 0) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Capture $_livenessStep of 3',
-                        style: dm(sz: 10, c: Colors.white70),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: cancelLivenessCapture,
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
+              // Center: Countdown Timer (3... 2... 1...)
+              if (_livenessCountdown != null && !_livenessCapturedSignal)
+                Positioned.fill(
+                  child: Center(
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withOpacity(0.68),
+                        border: Border.all(color: C.brand, width: 2.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: C.brand.withOpacity(0.4),
+                            blurRadius: 18,
+                            spreadRadius: 2,
                           ),
-                        ),
-                        child: const Text('Cancel capture'),
+                        ],
                       ),
-                    ],
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildTip(Icons.light_mode_outlined, 'Good lighting'),
-                        Container(
-                          width: 1,
-                          height: 12,
-                          color: Colors.white.withOpacity(.2),
-                          margin: const EdgeInsets.symmetric(horizontal: 12),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '$_livenessCountdown',
+                        style: syne(sz: 32, c: Colors.white, w: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Center: Capture Success Signal
+              if (_livenessCapturedSignal)
+                Positioned.fill(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E676).withOpacity(0.92),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00E676).withOpacity(0.55),
+                            blurRadius: 20,
+                            spreadRadius: 3,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle, color: Colors.black, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            _livenessCapturedMessage ?? 'Captured! ✓',
+                            style: syne(sz: 12, c: Colors.black, w: FontWeight.w800),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Bottom: Clean instruction banner floating beneath the face frame
+              Positioned(
+                bottom: 12,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.75),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _livenessCapturedSignal
+                          ? const Color(0xFF00E676)
+                          : C.brand.withOpacity(0.6),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _livenessPrompt,
+                        textAlign: TextAlign.center,
+                        style: dm(
+                          sz: 12,
+                          c: Colors.white,
+                          w: FontWeight.w600,
                         ),
-                        _buildTip(Icons.shield_outlined, 'No filters'),
-                        Container(
-                          width: 1,
-                          height: 12,
-                          color: Colors.white.withOpacity(.2),
-                          margin: const EdgeInsets.symmetric(horizontal: 12),
-                        ),
-                        _buildTip(
-                          Icons.face_retouching_off,
-                          'No hats or glasses',
+                      ),
+                      if (_livenessStep > 0) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Frame $_livenessStep of 3 • Hold phone steady',
+                          style: dm(sz: 9.5, c: Colors.white60),
                         ),
                       ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
 
-            if (!isHolding)
+            if (!isHolding && widget.subStep != 3)
               const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
-            // Flash + camera-flip controls
-            if (!isHolding)
+            // Flash + camera-flip controls (not shown during selfie liveness)
+            if (!isHolding && widget.subStep != 3)
               Positioned(
                 top: 14,
                 right: 14,
@@ -2947,7 +3054,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     );
     return isHolding
         ? AspectRatio(aspectRatio: 1.7, child: viewport)
-        : SizedBox(height: widget.subStep == 3 ? 190 : 220, child: viewport);
+        : SizedBox(height: widget.subStep == 3 ? 270 : 220, child: viewport);
   }
 
   Widget _buildTip(IconData icon, String label) {
@@ -3556,11 +3663,13 @@ class _ScannerOverlayPainter extends CustomPainter {
   final bool documentMode;
   final bool holdingMode;
   final double progress;
+  final bool isSuccessCapture;
 
   _ScannerOverlayPainter({
     required this.documentMode,
     this.holdingMode = false,
     required this.progress,
+    this.isSuccessCapture = false,
   });
 
   @override
@@ -3723,30 +3832,39 @@ class _ScannerOverlayPainter extends CustomPainter {
         ..strokeWidth = 2.5;
       canvas.drawPath(cutoutPath, docBorderPaint);
     } else {
-      final dimPaint = Paint()
-        ..color = C.text.withOpacity(0.2)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0;
-      canvas.drawOval(cutoutRect, dimPaint);
+      if (isSuccessCapture) {
+        final successPaint = Paint()
+          ..color = const Color(0xFF00E676)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4.2
+          ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 4);
+        canvas.drawOval(cutoutRect, successPaint);
+      } else {
+        final dimPaint = Paint()
+          ..color = C.text.withOpacity(0.2)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0;
+        canvas.drawOval(cutoutRect, dimPaint);
 
-      final sweepPaint = Paint()
-        ..color = const Color(0xFF00E5FF)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.5
-        ..strokeCap = StrokeCap.round
-        ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 3);
+        final sweepPaint = Paint()
+          ..color = const Color(0xFF00E5FF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.5
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 3);
 
-      final startAngle =
-          (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
-      const sweepAngle = 3.141592653589793 * 0.45;
-      canvas.drawArc(cutoutRect, startAngle, sweepAngle, false, sweepPaint);
-      canvas.drawArc(
-        cutoutRect,
-        startAngle + 3.141592653589793,
-        sweepAngle,
-        false,
-        sweepPaint,
-      );
+        final startAngle =
+            (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
+        const sweepAngle = 3.141592653589793 * 0.45;
+        canvas.drawArc(cutoutRect, startAngle, sweepAngle, false, sweepPaint);
+        canvas.drawArc(
+          cutoutRect,
+          startAngle + 3.141592653589793,
+          sweepAngle,
+          false,
+          sweepPaint,
+        );
+      }
 
       final cx = size.width / 2;
       final cy = size.height / 2;
@@ -3756,7 +3874,9 @@ class _ScannerOverlayPainter extends CustomPainter {
       const len = 22.0;
 
       final cornerPaint = Paint()
-        ..color = C.text.withOpacity(0.9)
+        ..color = isSuccessCapture
+            ? const Color(0xFF00E676)
+            : C.text.withOpacity(0.9)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5
         ..strokeCap = StrokeCap.round;
@@ -3796,6 +3916,7 @@ class _ScannerOverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) {
     return oldDelegate.documentMode != documentMode ||
         oldDelegate.holdingMode != holdingMode ||
-        oldDelegate.progress != progress;
+        oldDelegate.progress != progress ||
+        oldDelegate.isSuccessCapture != isSuccessCapture;
   }
 }

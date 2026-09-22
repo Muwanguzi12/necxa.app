@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 
 // CORS remains open for native Flutter clients unless an allowed origin is configured.
@@ -29,9 +29,9 @@ const documentFailureFeedback: Record<string, string> = {
 
 const biometricFailureFeedback: Record<string, string> = {
   biometric_provider_not_configured:
-    'Face-match service is not configured yet. Your approved ID captures remain on this step; do not retake them. Try face verification later.',
+    'Liveness verification service is not configured yet. Your approved ID captures remain on this step; do not retake them. Try face verification later.',
   biometric_provider_unavailable:
-    'Face-match service is temporarily offline. Keep this screen open and retry only the selfie later; do not retake the ID images.',
+    'Liveness verification service is temporarily offline. Keep this screen open and retry only the selfie later; do not retake the ID images.',
   identity_reference_required:
     'The National ID reference image is missing. Restart the identity scan.',
   presentation_attack_detected:
@@ -136,26 +136,31 @@ async function callNvidiaVisionBiometric(
     const panelOrder = Array.isArray(metadata?.panelOrder)
       ? metadata.panelOrder.join(', ')
       : 'center, turn_left, center_return'
-    promptText = `You are a liveness verification AI analyzing one JPEG panorama made from three
-consecutive selfie frames placed left-to-right: starting position, slight head turn, and return
-to center. The image contains black separator gutters between panels. Panel order is:
-${panelOrder}. Verify a real person only when the three panels show coherent natural temporal
-progression: changed head or eye position, consistent identity and lighting, and no copied,
-printed, masked, deepfake, or screen-replay face. A panorama is evidence of motion, not proof by
-itself: reject if panels are identical, inconsistent, or the face is not clearly visible.
+    promptText = `You are a liveness verification AI. Your ONLY job is to check if a real live human face appears in this panorama image. Do NOT do face matching or ID comparison.
 
-Respond in STRICT JSON ONLY:
+The image is a single JPEG containing THREE selfie frames placed side-by-side left-to-right, separated by black vertical gutters. Panel order: ${panelOrder}.
+
+STEP 1 - FACE DETECTION:
+Is a real human face clearly visible in at least two of the three panels?
+- If NO face is visible, or only empty space/background/hands/objects are shown: set face_detected=false, is_live_person=false, liveness_score=0, movement_detected=false, liveness_agrees=false, anti_spoof_flags=[].
+
+STEP 2 - LIVENESS CHECK (only if face detected):
+Do the three panels show natural temporal progression of the SAME person? (slight head/eye movement between panels, consistent skin tone and lighting)
+- PASS if: face visible in panels, minor natural movement detected, consistent identity across panels.
+- FAIL if: panels are identical copies, face is on a screen/printout/mask, or panels are completely inconsistent.
+
+Output ONLY a raw JSON object. No markdown. No explanation. No preamble. Start your response with { and end with }:
 {
   "is_live_person": <true|false>,
   "face_detected": <true|false>,
   "liveness_score": <0-100>,
-  "anti_spoof_flags": ["<flag>" or empty array],
+  "anti_spoof_flags": [],
   "liveness_agrees": <true|false>,
   "movement_detected": <true|false>,
   "faces_match": true,
   "face_match_agrees": true,
   "similarity_score": 100,
-  "reasoning": "<one sentence summary>"
+  "reasoning": "<one sentence>"
 }`
   } else if (mode === 'face-only' || !idBase64) {
     promptText = `You are Cosmos3, a certified liveness and anti-spoofing AI system. Analyze this selfie carefully.
@@ -277,19 +282,30 @@ Respond in STRICT JSON ONLY (no markdown, no explanation outside JSON):
           return typeof part === 'object' ? JSON.stringify(part) : String(part)
         })
         .join('\n')
+      // Try to extract JSON — model sometimes wraps it in preamble text
       const jsonMatch = rawText.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
+        console.error(`[${provider.name}] raw response (no JSON found): ${rawText.slice(0, 500)}`)
         throw new Error(`${provider.name} returned no JSON decision`)
       }
 
-      const parsed = JSON.parse(jsonMatch[0])
+      let parsed: Record<string, unknown>
+      try {
+        parsed = JSON.parse(jsonMatch[0])
+      } catch {
+        // Last resort: try extracting just the last {...} block
+        const allMatches = [...rawText.matchAll(/\{[^{}]*\}/g)]
+        const lastMatch = allMatches[allMatches.length - 1]
+        if (!lastMatch) throw new Error(`${provider.name} returned unparseable response`)
+        parsed = JSON.parse(lastMatch[0])
+      }
       const livenessScore = Math.min(100, Math.max(0, percentage(parsed.liveness_score)))
       const similarityScore = Math.min(100, Math.max(0, percentage(parsed.similarity_score)))
       return {
         is_live_person: Boolean(parsed.is_live_person),
         face_detected: Boolean(parsed.face_detected),
         liveness_score: livenessScore,
-        anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags : [],
+        anti_spoof_flags: Array.isArray(parsed.anti_spoof_flags) ? parsed.anti_spoof_flags.map(String).filter((f: string) => f && f.toLowerCase() !== 'none' && f.toLowerCase() !== 'null' && f.toLowerCase() !== 'n/a' && !f.toLowerCase().includes('no face')) : [],
         liveness_agrees: parsed.liveness_agrees ?? Boolean(parsed.is_live_person),
         movement_detected: Boolean(parsed.movement_detected),
         faces_match: Boolean(parsed.faces_match),

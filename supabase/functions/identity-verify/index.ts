@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "npm:@supabase/supabase-js@2"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -86,6 +86,25 @@ class CaptureVerificationError extends Error {
     super(message)
     this.name = "CaptureVerificationError"
   }
+}
+
+function validPanoramaMetadata(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== 'object') return false
+  const value = metadata as Record<string, unknown>
+  const timestamps = value.captureTimestampsMs
+  const panelOrder = value.panelOrder
+  const ordered = Array.isArray(panelOrder) &&
+    panelOrder.join('|') === 'center|turn_left|center_return'
+  const orderedTimes = Array.isArray(timestamps) &&
+    timestamps.length === 3 &&
+    timestamps.every((item) => Number.isInteger(item) && Number(item) > 0) &&
+    Number(timestamps[0]) < Number(timestamps[1]) &&
+    Number(timestamps[1]) < Number(timestamps[2]) &&
+    Number(timestamps[2]) - Number(timestamps[0]) <= 15000
+  return value.format === 'three-panel-horizontal' &&
+    value.panelCount === 3 &&
+    ordered &&
+    orderedTimes
 }
 
 function stageResult(job: Record<string, any>, expectedStage: string): Record<string, any> | null {
