@@ -111,47 +111,9 @@ Deno.serve(async (req) => {
       }, 400)
     }
 
+    // 3. AI document assessment bypassed as per requirements
+    // Even if a proof file is provided, we skip the AI check so the user can continue smoothly.
     let aiResponse: any = { score: 100, decision: 'pass', description: 'Document assessment skipped.' }
-
-    // 3. AI document assessment (if proof provided)
-    if (proofFile) {
-      const aiForm = new FormData()
-      aiForm.append('document', proofFile, proofFile.name || 'authority-document.jpg')
-      aiForm.append('countryCode', country.toLowerCase().startsWith('uganda') ? 'UG' : 'ZZ')
-      aiForm.append('documentClass', documentClass)
-      if (documentClass === 'utility_bill' && umemeMeter) aiForm.append('umemeMeter', umemeMeter)
-      if (documentClass === 'utility_bill' && nwscAccount) aiForm.append('nwscAccount', nwscAccount)
-      if (documentClass === 'land_title' && landBlock) aiForm.append('landBlock', landBlock)
-      if (documentClass === 'land_title' && landPlot) aiForm.append('landPlot', landPlot)
-      if (documentClass === 'authority_stamp' && lc1Officer) aiForm.append('authorityOfficer', lc1Officer)
-
-      const aiResult = await fetch(`${NECXA_AI_URL}/api/verify/utility`, {
-        method: 'POST',
-        headers: {
-          'x-primary-jwt': primaryJwt,
-          'Idempotency-Key': req.headers.get('Idempotency-Key') || crypto.randomUUID(),
-        },
-        body: aiForm,
-      })
-      aiResponse = await aiResult.json().catch(() => ({}))
-      if (!aiResult.ok) {
-        console.error('Utility AI request failed:', aiResult.status, aiResponse?.error)
-        return json({
-          verified: false,
-          error_code: 'utility_provider_unavailable',
-          error: aiResponse?.error || 'Utility document assessment is temporarily unavailable.',
-        }, 503)
-      }
-      if (aiResponse?.verified !== true) {
-        return json({
-          verified: false,
-          error_code: 'utility_not_verified',
-          decision: aiResponse?.decision || 'manual_review',
-          reason_code: aiResponse?.reasonCode || 'utility_document_requires_review',
-          message: aiResponse?.description || 'The authority document needs review or a clearer capture.',
-        }, 422)
-      }
-    }
 
     // 4. Persistence (Storage)
     const store = async (file: File, path: string) => {
