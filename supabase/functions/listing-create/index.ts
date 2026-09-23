@@ -322,10 +322,7 @@ Deno.serve(async (req) => {
         .select()
         .single()
 
-      if (gpsErr) {
-        console.error("GPS node error:", gpsErr)
-        return err(`GPS node error: ${gpsErr.message}`, 500)
-      }
+      if (gpsErr) { return err(`DB Error: ${gpsErr.message} - ${JSON.stringify(gpsErr)}`, 400, "unmapped_error"); }
 
       return json({
         gps_node_id: gpsNode.id,
@@ -746,6 +743,10 @@ Deno.serve(async (req) => {
 
   } catch (e) {
     console.error("listing-create error:", e)
-    return err(`Server error: ${e.message}`, 500, "listing_submission_failed")
+    return err(`Server error: ${e.message} - ${JSON.stringify(e)}`, 500, "listing_submission_failed")
   }
 })
+
+
+
+
