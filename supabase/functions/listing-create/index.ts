@@ -574,7 +574,29 @@ Deno.serve(async (req) => {
         return err(`Listing creation failed: ${listErr.message}`, 500)
       }
 
-      // Add photos to listing_photos table
+              // Sync to legacy properties table for home screen compatibility
+        await supabaseAdmin.from("properties").insert({
+          id: deterministicId,
+          lister_id: userId,
+          title,
+          description,
+          property_type: propertyType.toLowerCase(),
+          listing_type: purpose.toLowerCase(),
+          price: priceUgx,
+          price_type: (pricePeriod === "nightly") ? "nightly" : "monthly",
+          bedrooms,
+          bathrooms,
+          size_sqft: sqft,
+          address,
+          district,
+          country,
+          images: [...photoPaths, ...bathroomPaths],
+          videos: videoPaths,
+          status: "active",
+          is_honeypot: false
+        })
+
+        // Add photos to listing_photos table
       if (photoPaths.length > 0) {
         await supabaseAdmin.from("listing_photos").insert(
           photoPaths.map((p, i) => ({
@@ -749,6 +771,8 @@ Deno.serve(async (req) => {
     return err(`Server error: ${e.message} - ${JSON.stringify(e)}`, 500, "utility_provider_unavailable")
   }
 })
+
+
 
 
 

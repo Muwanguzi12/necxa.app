@@ -559,6 +559,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           submitted: _submitted,
           mintEventId: _mintEventId,
           onSubmit: _submitListing,
+          onReturnHome: () => widget.state.go('home'),
         );
       default:
         return const SizedBox();
@@ -3497,6 +3498,7 @@ class _Step7Review extends StatelessWidget {
   final bool idVerified, faceVerified, gpsLocked, submitted, loading;
   final int photoCount;
   final VoidCallback onSubmit;
+  final VoidCallback onReturnHome;
 
   const _Step7Review({
     required this.title,
@@ -3512,6 +3514,7 @@ class _Step7Review extends StatelessWidget {
     required this.loading,
     required this.photoCount,
     required this.onSubmit,
+    required this.onReturnHome,
   });
 
   @override
@@ -3596,7 +3599,7 @@ class _Step7Review extends StatelessWidget {
           ),
           const SizedBox(height: 48),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: onReturnHome,
             child: const Text('Back to Home'),
           ),
         ],
@@ -3926,5 +3929,6 @@ class _ScannerOverlayPainter extends CustomPainter {
         oldDelegate.isSuccessCapture != isSuccessCapture;
   }
 }
+
 
 
