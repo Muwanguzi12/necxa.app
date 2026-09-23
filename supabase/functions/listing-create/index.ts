@@ -620,74 +620,7 @@ Deno.serve(async (req) => {
         )
       }
 
-      // 🚀 NEURAL SYNC: Create a Shadow Post so the listing appears in the Community Feed
-      let shadowPostId = null;
-      if (videoPaths.length > 0 || photoPaths.length > 0) {
-        const { data: post, error: postErr } = await supabaseAdmin
-          .from('community_posts')
-          .insert({
-            author_id: userId,
-            title: title,
-            content: description,
-            media_url: videoPaths.length > 0 ? videoPaths[0] : photoPaths[0],
-            media_type: videoPaths.length > 0 ? 'video' : 'image',
-            thumbnail_url: photoPaths.length > 0 ? photoPaths[0] : null,
-            listing_id: listing.id,
-            music_track_id: musicTrackId || null,
-            audio_url: audioUrl || null,
-            status: 'verified',
-            visibility: 'public'
-          })
-          .select()
-          .single();
-        
-        
-        if (!postErr) {
-          shadowPostId = post.id;
-          
-          // 🚀 INSTANT SYNC: Push to Redis discovery feed immediately
-          const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-          const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-          const supabaseUrl = process.env.SUPABASE_URL;
-          
-          if (redisUrl && redisToken && supabaseUrl) {
-            try {
-              const score = Date.now();
-              const cdnBase = `${supabaseUrl}/storage/v1/object/public/listing-photos/`;
-              
-              const cdnPost = {
-                ...post,
-                media_url: videoPaths.length > 0 ? `${cdnBase}${videoPaths[0]}` : `${cdnBase}${photoPaths[0]}`,
-                thumbnail_url: photoPaths.length > 0 ? `${cdnBase}${photoPaths[0]}` : null,
-                profiles: {
-                  display_name: profile.full_name,
-                  photo_url: profile.avatar_url,
-                  trust_score: profile.trust_score,
-                  trust_score_tier: profile.trust_score_tier
-                },
-                listings: {
-                  ...listing,
-                  media_url: videoPaths.length > 0 ? `${cdnBase}${videoPaths[0]}` : null,
-                  film_hub_content: videoPaths.length > 0 ? `${cdnBase}${videoPaths[0]}` : null,
-                  miniature_photos: photoPaths.map(p => `${cdnBase}${p}`)
-                }
-              };
-
-              await fetch(`${redisUrl}/pipeline`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${redisToken}` },
-                body: JSON.stringify([
-                  ["ZADD", "feed:global", score.toString(), cdnPost.id],
-                  ["SET", `post:${cdnPost.id}`, JSON.stringify(cdnPost), "EX", "3600"]
-                ])
-              });
-              console.log(`🚀 NEURAL SYNC COMPLETE: New Container ${cdnPost.id} is LIVE.`);
-            } catch (re) {
-              console.error("Redis Sync Error in listing-create:", re);
-            }
-          }
-        }
-      }
+      // Property listings go to the Property home screen only (via properties table).
 
       // Update agent contact methods
       if (agentPhone || agentWhatsapp || agentMeet) {
@@ -771,6 +704,8 @@ Deno.serve(async (req) => {
     return err(`Server error: ${e.message} - ${JSON.stringify(e)}`, 500, "utility_provider_unavailable")
   }
 })
+
+
 
 
 
