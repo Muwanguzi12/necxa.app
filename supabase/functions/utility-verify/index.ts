@@ -172,17 +172,22 @@ Deno.serve(async (req) => {
     const { data: shard, error: dbError } = await supabase.from('utility_shards').insert({
       user_id: user.id,
       country: country,
-      umeme_meter_number: umemeMeter,
-      nwsc_customer_number: nwscAccount,
-      land_title_block: landBlock,
-      land_title_plot: landPlot,
-      bill_image_url: billPath || businessPath,
-      stamp_image_url: stampPath,
-      title_image_url: titlePath,
-      verified: true,
-      confidence_score: aiResponse.score || 0,
-      extracted_meter_number: umemeMeter,
-      rejection_reason: null
+      umeme_meter: umemeMeter,
+      nwsc_account: nwscAccount,
+      land_block: landBlock,
+      land_plot: landPlot,
+      lc1_stamp_url: stampPath,
+      land_title_url: titlePath,
+      business_license_url: businessPath,
+      status: 'verified',
+      verified_at: new Date().toISOString(),
+      audit_metadata: {
+        score: aiResponse.score || 100,
+        decision: aiResponse.decision || 'pass',
+        bill_image_url: billPath,
+        rejection_reason: null,
+        extracted_meter_number: umemeMeter
+      }
     }).select().single()
 
     if (dbError) throw dbError
