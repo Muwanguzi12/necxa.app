@@ -103,53 +103,54 @@ Deno.serve(async (req) => {
       ? 'land_title'
       : 'authority_stamp'
 
-    if (!proofFile) {
+    if (!umemeMeter) {
       return json({
         verified: false,
         error_code: 'utility_not_verified',
-        error: role === 'agent'
-          ? 'A brokerage or business licence photo is required for an agent.'
-          : 'Add a utility bill with its account number, a land title with block and plot, or an LC1 document with the officer name.',
+        error: 'Umeme meter number is mandatory.',
       }, 400)
     }
 
-    // 3. AI document assessment. The model extracts observations; deterministic
-    // policy in the Worker makes the pass/review/reject decision.
-    const aiForm = new FormData()
-    aiForm.append('document', proofFile, proofFile.name || 'authority-document.jpg')
-    aiForm.append('countryCode', country.toLowerCase().startsWith('uganda') ? 'UG' : 'ZZ')
-    aiForm.append('documentClass', documentClass)
-    if (documentClass === 'utility_bill' && umemeMeter) aiForm.append('umemeMeter', umemeMeter)
-    if (documentClass === 'utility_bill' && nwscAccount) aiForm.append('nwscAccount', nwscAccount)
-    if (documentClass === 'land_title' && landBlock) aiForm.append('landBlock', landBlock)
-    if (documentClass === 'land_title' && landPlot) aiForm.append('landPlot', landPlot)
-    if (documentClass === 'authority_stamp' && lc1Officer) aiForm.append('authorityOfficer', lc1Officer)
+    let aiResponse: any = { score: 100, decision: 'pass', description: 'Document assessment skipped.' }
 
-    const aiResult = await fetch(`${NECXA_AI_URL}/api/verify/utility`, {
-      method: 'POST',
-      headers: {
-        'x-primary-jwt': primaryJwt,
-        'Idempotency-Key': req.headers.get('Idempotency-Key') || crypto.randomUUID(),
-      },
-      body: aiForm,
-    })
-    const aiResponse = await aiResult.json().catch(() => ({}))
-    if (!aiResult.ok) {
-      console.error('Utility AI request failed:', aiResult.status, aiResponse?.error)
-      return json({
-        verified: false,
-        error_code: 'utility_provider_unavailable',
-        error: aiResponse?.error || 'Utility document assessment is temporarily unavailable.',
-      }, 503)
-    }
-    if (aiResponse?.verified !== true) {
-      return json({
-        verified: false,
-        error_code: 'utility_not_verified',
-        decision: aiResponse?.decision || 'manual_review',
-        reason_code: aiResponse?.reasonCode || 'utility_document_requires_review',
-        message: aiResponse?.description || 'The authority document needs review or a clearer capture.',
-      }, 422)
+    // 3. AI document assessment (if proof provided)
+    if (proofFile) {
+      const aiForm = new FormData()
+      aiForm.append('document', proofFile, proofFile.name || 'authority-document.jpg')
+      aiForm.append('countryCode', country.toLowerCase().startsWith('uganda') ? 'UG' : 'ZZ')
+      aiForm.append('documentClass', documentClass)
+      if (documentClass === 'utility_bill' && umemeMeter) aiForm.append('umemeMeter', umemeMeter)
+      if (documentClass === 'utility_bill' && nwscAccount) aiForm.append('nwscAccount', nwscAccount)
+      if (documentClass === 'land_title' && landBlock) aiForm.append('landBlock', landBlock)
+      if (documentClass === 'land_title' && landPlot) aiForm.append('landPlot', landPlot)
+      if (documentClass === 'authority_stamp' && lc1Officer) aiForm.append('authorityOfficer', lc1Officer)
+
+      const aiResult = await fetch(`${NECXA_AI_URL}/api/verify/utility`, {
+        method: 'POST',
+        headers: {
+          'x-primary-jwt': primaryJwt,
+          'Idempotency-Key': req.headers.get('Idempotency-Key') || crypto.randomUUID(),
+        },
+        body: aiForm,
+      })
+      aiResponse = await aiResult.json().catch(() => ({}))
+      if (!aiResult.ok) {
+        console.error('Utility AI request failed:', aiResult.status, aiResponse?.error)
+        return json({
+          verified: false,
+          error_code: 'utility_provider_unavailable',
+          error: aiResponse?.error || 'Utility document assessment is temporarily unavailable.',
+        }, 503)
+      }
+      if (aiResponse?.verified !== true) {
+        return json({
+          verified: false,
+          error_code: 'utility_not_verified',
+          decision: aiResponse?.decision || 'manual_review',
+          reason_code: aiResponse?.reasonCode || 'utility_document_requires_review',
+          message: aiResponse?.description || 'The authority document needs review or a clearer capture.',
+        }, 422)
+      }
     }
 
     // 4. Persistence (Storage)
@@ -162,10 +163,10 @@ Deno.serve(async (req) => {
       return data?.path
     }
 
-    const billPath = proofFile === utilityBillPhoto ? await store(proofFile, 'utility_bill.jpg') : null
-    const stampPath = proofFile === lc1StampPhoto ? await store(proofFile, 'authority_stamp.jpg') : null
-    const titlePath = proofFile === landTitlePhoto ? await store(proofFile, 'land_title.jpg') : null
-    const businessPath = proofFile === businessLicensePhoto ? await store(proofFile, 'business_license.jpg') : null
+    const billPath = (proofFile && proofFile === utilityBillPhoto) ? await store(proofFile, 'utility_bill.jpg') : null
+    const stampPath = (proofFile && proofFile === lc1StampPhoto) ? await store(proofFile, 'authority_stamp.jpg') : null
+    const titlePath = (proofFile && proofFile === landTitlePhoto) ? await store(proofFile, 'land_title.jpg') : null
+    const businessPath = (proofFile && proofFile === businessLicensePhoto) ? await store(proofFile, 'business_license.jpg') : null
 
     // 5. Persistence (DB)
     const { data: shard, error: dbError } = await supabase.from('utility_shards').insert({

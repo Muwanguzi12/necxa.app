@@ -933,6 +933,12 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   Future<void> _runUtilityVerification() async {
+    if (_umemeCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Umeme Meter Number is mandatory.')),
+      );
+      return;
+    }
     setState(() => _loading = true);
     try {
       final res = await ListingSyncService.submitUtilityShard(
@@ -3157,19 +3163,19 @@ class _Step4Utility extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label('Umeme Meter Number'),
+        _label('Umeme Meter Number *'),
         _input(umemeCtrl, 'e.g. 1012345'),
         const SizedBox(height: 16),
-        _label('NWSC Account'),
+        _label('NWSC Account (Optional)'),
         _input(nwscCtrl, 'e.g. NW-9876'),
         const SizedBox(height: 16),
         _filePick(
-          'Utility Bill (UMEME / NWSC)',
+          'Utility Bill (UMEME / NWSC) (Optional)',
           utilityBillPhoto,
           onPickUtilityBill,
         ),
         const SizedBox(height: 20),
-        _label('Land Title Reference'),
+        _label('Land Title Reference (Optional)'),
         Row(
           children: [
             Expanded(child: _input(landBlockCtrl, 'Block number')),
@@ -3178,13 +3184,13 @@ class _Step4Utility extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        _label('LC1 Authorising Officer'),
+        _label('LC1 Authorising Officer (Optional)'),
         _input(lc1OfficerCtrl, 'Officer name shown on the stamp'),
         const SizedBox(height: 16),
-        _label('Authority Docs'),
-        _filePick('LC1 Authority Stamp', lc1StampPhoto, onPickLc1),
+        _label('Authority Docs (Optional)'),
+        _filePick('LC1 Authority Stamp (Optional)', lc1StampPhoto, onPickLc1),
         const SizedBox(height: 12),
-        _filePick('Land Title (Proof)', landTitlePhoto, onPickTitle),
+        _filePick('Land Title (Proof) (Optional)', landTitlePhoto, onPickTitle),
         if (role == 'agent') ...[
           const SizedBox(height: 12),
           _filePick('Brokerage / BRS License', brsLicensePhoto, onPickBrs),
@@ -3920,3 +3926,5 @@ class _ScannerOverlayPainter extends CustomPainter {
         oldDelegate.isSuccessCapture != isSuccessCapture;
   }
 }
+
+
