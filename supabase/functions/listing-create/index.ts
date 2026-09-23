@@ -470,27 +470,30 @@ Deno.serve(async (req) => {
       const bathroomPaths: string[] = []
 
       for (let i = 0; i < photoFiles.length; i++) {
-        const path = `${userId}/${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, photoFiles[i], { upsert: false, contentType: (photoFiles[i].type && photoFiles[i].type !== 'application/octet-stream') ? photoFiles[i].type : 'image/jpeg' })
-        if (error) throw new Error(`Property photo upload failed: ${error.message}`)
-        photoPaths.push(path)
-      }
+          const path = `${userId}/${timestamp}_${i}.jpg`
+          const fileBuffer = await photoFiles[i].arrayBuffer()
+          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, { upsert: false, contentType: "image/jpeg" })
+          if (error) throw new Error(`Property photo upload failed: ${error.message}`)
+          photoPaths.push(path)
+        }
 
       const videoPaths: string[] = []
       for (let i = 0; i < videoFiles.length; i++) {
-        const ext = videoFiles[i].name.split('.').pop() || 'mp4'
-        const path = `${userId}/reel_${timestamp}_${i}.${ext}`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, videoFiles[i], { upsert: false, contentType: (videoFiles[i].type && videoFiles[i].type !== 'application/octet-stream') ? videoFiles[i].type : 'video/mp4' })
-        if (error) throw new Error(`Property video upload failed: ${error.message}`)
-        videoPaths.push(path)
-      }
+          const ext = videoFiles[i].name.split(".").pop() || "mp4"
+          const path = `${userId}/reel_${timestamp}_${i}.${ext}`
+          const fileBuffer = await videoFiles[i].arrayBuffer()
+          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, { upsert: false, contentType: "video/mp4" })
+          if (error) throw new Error(`Property video upload failed: ${error.message}`)
+          videoPaths.push(path)
+        }
 
       for (let i = 0; i < bathroomFiles.length; i++) {
-        const path = `${userId}/bath_${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, bathroomFiles[i], { upsert: false, contentType: (bathroomFiles[i].type && bathroomFiles[i].type !== 'application/octet-stream') ? bathroomFiles[i].type : 'image/jpeg' })
-        if (error) throw new Error(`Bathroom photo upload failed: ${error.message}`)
-        bathroomPaths.push(path)
-      }
+          const path = `${userId}/bath_${timestamp}_${i}.jpg`
+          const fileBuffer = await bathroomFiles[i].arrayBuffer()
+          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, { upsert: false, contentType: "image/jpeg" })
+          if (error) throw new Error(`Bathroom photo upload failed: ${error.message}`)
+          bathroomPaths.push(path)
+        }
 
       // Calculate broker fee (5% for agent, 2% for Necxa = 7% total)
       const brokerFee = Math.floor(priceUgx * 0.07)
@@ -746,6 +749,8 @@ Deno.serve(async (req) => {
     return err(`Server error: ${e.message} - ${JSON.stringify(e)}`, 500, "utility_provider_unavailable")
   }
 })
+
+
 
 
 
