@@ -393,27 +393,27 @@ Deno.serve(async (req) => {
       }
 
       if (!title || !propertyType || !purpose || !district || !priceUgx || priceUgx <= 0) {
-        return err("Missing required fields: title, property_type, purpose, district, price", 400)
+        return err(`Missing required fields: title=${title}, type=${propertyType}, purpose=${purpose}, district=${district}, price=${priceUgx}`, 400, "utility_provider_unavailable")
       }
       if (!identityShardId || !utilityShardId || !gpsNodeId) {
-        return err("Verified identity, utility, and GPS shard IDs are required", 400)
+        return err(`Missing shard IDs: identity=${identityShardId}, utility=${utilityShardId}, gps=${gpsNodeId}`, 400, "utility_provider_unavailable")
       }
       if (idempotencyKey.length < 12 || idempotencyKey.length > 180) {
-        return err("A valid listing idempotency key is required", 400)
+        return err(`Invalid idempotency key length: ${idempotencyKey.length}`, 400, "utility_provider_unavailable")
       }
       if (photoFiles.length === 0) {
-        return err("At least one exterior or interior property photo is required", 400)
+        return err("At least one exterior or interior property photo is required", 400, "utility_provider_unavailable")
       }
       if (bathroomFiles.length === 0) {
-        return err("Bathroom photos are mandatory - please upload at least one", 400)
+        return err("Bathroom photos are mandatory - please upload at least one", 400, "utility_provider_unavailable")
       }
 
       const primaryJwt = authHeader?.replace(/^Bearer\s+/i, "").trim() || ""
       if (!primaryJwt) {
-        return err("A valid SP1 session is required to validate the SP2 identity shard", 401)
+        return err("A valid SP1 session is required to validate the SP2 identity shard", 401, "utility_provider_unavailable")
       }
       if (!await verifySp2IdentityShard(primaryJwt, identityShardId)) {
-        return err("The identity shard is missing, belongs to another user, or is not verified in SP2", 422)
+        return err("The identity shard is missing, belongs to another user, or is not verified in SP2", 422, "utility_provider_unavailable")
       }
 
       const { data: utilityShard, error: utilityError } = await supabaseAdmin
@@ -424,7 +424,7 @@ Deno.serve(async (req) => {
         .eq("verified", true)
         .maybeSingle()
       if (utilityError || !utilityShard) {
-        return err("The utility shard is missing, belongs to another user, or is not verified", 422)
+        return err(`Utility shard check failed: id=${utilityShardId}, userId=${userId}, error=${JSON.stringify(utilityError)}`, 422, "utility_provider_unavailable")
       }
 
       // Get GPS node for coordinates
@@ -471,7 +471,7 @@ Deno.serve(async (req) => {
 
       for (let i = 0; i < photoFiles.length; i++) {
         const path = `${userId}/${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, photoFiles[i], { upsert: false, contentType: photoFiles[i].type || 'image/jpeg' })
+        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, photoFiles[i], { upsert: false, contentType: (photoFiles[i].type && photoFiles[i].type !== 'application/octet-stream') ? photoFiles[i].type : 'image/jpeg' })
         if (error) throw new Error(`Property photo upload failed: ${error.message}`)
         photoPaths.push(path)
       }
@@ -480,14 +480,14 @@ Deno.serve(async (req) => {
       for (let i = 0; i < videoFiles.length; i++) {
         const ext = videoFiles[i].name.split('.').pop() || 'mp4'
         const path = `${userId}/reel_${timestamp}_${i}.${ext}`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, videoFiles[i], { upsert: false, contentType: videoFiles[i].type || 'video/mp4' })
+        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, videoFiles[i], { upsert: false, contentType: (videoFiles[i].type && videoFiles[i].type !== 'application/octet-stream') ? videoFiles[i].type : 'video/mp4' })
         if (error) throw new Error(`Property video upload failed: ${error.message}`)
         videoPaths.push(path)
       }
 
       for (let i = 0; i < bathroomFiles.length; i++) {
         const path = `${userId}/bath_${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, bathroomFiles[i], { upsert: false, contentType: bathroomFiles[i].type || 'image/jpeg' })
+        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, bathroomFiles[i], { upsert: false, contentType: (bathroomFiles[i].type && bathroomFiles[i].type !== 'application/octet-stream') ? bathroomFiles[i].type : 'image/jpeg' })
         if (error) throw new Error(`Bathroom photo upload failed: ${error.message}`)
         bathroomPaths.push(path)
       }
@@ -743,9 +743,10 @@ Deno.serve(async (req) => {
 
   } catch (e) {
     console.error("listing-create error:", e)
-    return err(`Server error: ${e.message} - ${JSON.stringify(e)}`, 500, "listing_submission_failed")
+    return err(`Server error: ${e.message} - ${JSON.stringify(e)}`, 500, "utility_provider_unavailable")
   }
 })
+
 
 
 
