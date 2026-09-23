@@ -114,6 +114,7 @@ class ListingSyncService {
     }
     final message = decoded?['message']?.toString().trim();
     final error = decoded?['error']?.toString().trim();
+      final details = decoded?['details']?.toString().trim();
     final safeMessage = (message?.isNotEmpty ?? false)
         ? message!
         : (error?.isNotEmpty ?? false)
@@ -466,3 +467,6 @@ class ListingSyncException implements Exception {
   @override
   String toString() => message;
 }
+
+
+

@@ -152,7 +152,14 @@ Deno.serve(async (req) => {
       }
     }).select().single()
 
-    if (dbError) throw dbError
+    if (dbError) {
+      console.error('DB insert error:', JSON.stringify(dbError))
+      return json({
+        error_code: 'utility_provider_unavailable',
+        error: dbError.message || 'Database insert failed.',
+        details: JSON.stringify(dbError),
+      }, 503)
+    }
 
     return json({
       utility_shard_id: shard.id,
@@ -163,6 +170,9 @@ Deno.serve(async (req) => {
 
   } catch (e) {
     console.error("Utility Error:", e)
-    return json({ error_code: 'utility_provider_unavailable', error: e.message }, 503)
+    const msg = typeof e === 'object' && e !== null
+      ? (e as any).message || JSON.stringify(e)
+      : String(e)
+    return json({ error_code: 'utility_provider_unavailable', error: msg, details: typeof e === 'object' ? JSON.stringify(e) : String(e) }, 503)
   }
 })

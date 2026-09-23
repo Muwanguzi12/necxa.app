@@ -31,7 +31,7 @@ String getUserFriendlyError(dynamic error) {
           'The listing could not be submitted. Please retry this step.',
     };
     final message = stageMessages[error.code] ?? error.message;
-    final finalMessage = error.code == 'identity_provider_unavailable' 
+    final finalMessage = (error.code == 'identity_provider_unavailable' || error.code == 'utility_provider_unavailable')
         ? '$message DETAILS: ${error.message}' 
         : message;
         
