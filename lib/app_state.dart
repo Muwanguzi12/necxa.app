@@ -1494,16 +1494,20 @@ class AppState extends ChangeNotifier {
     try {
       final res = await SmoothAction.unlockProperty(id);
       if (res['success'] == true) {
-        // Find the property in the local list and mark it as unlocked
+        // Free trial used or already unlocked
         final idx = propertyContainers.indexWhere((p) => p.core.id == id);
         if (idx != -1) {
-          // Re-fetch listing data to get the now-decrypted contact fields
           final raw = await SmoothAction.getProperty(id);
           final refreshed = PropertyContainer.fromJson(raw);
           propertyContainers[idx] = refreshed;
         }
         await loadProperties(); // Full sync
         paid = true;
+      } else if (res['requires_payment'] == true) {
+        // Route to payment screen, free trial was already used
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Unknown error');
       }
     } catch (e) {
       debugPrint('Unlock Error: $e');

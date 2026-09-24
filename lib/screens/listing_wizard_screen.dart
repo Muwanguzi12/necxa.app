@@ -49,6 +49,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   final _descCtrl = TextEditingController();
   final _districtCtrl = TextEditingController();
   final _cityCtrl = TextEditingController();
+  final _agentPhoneCtrl = TextEditingController();
+  final _agentWhatsappCtrl = TextEditingController();
   String _propType = 'apartment';
   String _purpose = 'rent';
   String _role = 'owner'; // 'owner' or 'agent'
@@ -525,6 +527,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           locked: _gpsLocked,
           loading: _loading,
           onLock: _lockGps,
+          phoneCtrl: _agentPhoneCtrl,
+          whatsappCtrl: _agentWhatsappCtrl,
         );
       case 5:
         return _Step6Photos(
@@ -1074,6 +1078,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         bathrooms: _bathrooms,
         sqft: _sqft,
         amenities: _amenities.toList(),
+        agentPhone: _agentPhoneCtrl.text.trim(),
+        agentWhatsapp: _agentWhatsappCtrl.text.trim(),
         photos: _exteriorPhotos + _interiorPhotos,
         bathroomPhotos: _bathroomPhotos,
         livePingLat: widget.state.livePingGps?.latitude,
@@ -3252,11 +3258,16 @@ class _Step5GPS extends StatelessWidget {
   final bool locked;
   final bool loading;
   final VoidCallback onLock;
+  final TextEditingController? phoneCtrl;
+  final TextEditingController? whatsappCtrl;
+  
   const _Step5GPS({
     this.pos,
     required this.locked,
     required this.loading,
     required this.onLock,
+    this.phoneCtrl,
+    this.whatsappCtrl,
   });
 
   @override
@@ -3288,8 +3299,32 @@ class _Step5GPS extends StatelessWidget {
               child: Text(loading ? 'Scanning...' : 'Lock Now'),
             ),
           ),
-        if (locked)
+        if (locked) ...[
           Text('${pos?.latitude}, ${pos?.longitude}', style: dm(c: C.dim)),
+          const SizedBox(height: 40),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Contact Information', style: syne(sz: 16, w: FontWeight.bold)),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: phoneCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              labelText: 'Agent Phone Number',
+              prefixIcon: const Icon(Icons.phone, color: C.dim),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: whatsappCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              labelText: 'Agent WhatsApp Number',
+              prefixIcon: const Icon(Icons.chat, color: C.brand),
+            ),
+          ),
+        ]
       ],
     );
   }
@@ -3425,9 +3460,99 @@ class _Step6Photos extends StatelessWidget {
                 onTap: loading
                     ? null
                     : () async {
-                        final f = await ImagePicker().pickImage(
-                          source: ImageSource.gallery,
+                        // Show camera/gallery choice sheet
+                        final ctx = context;
+                        final choice = await showModalBottomSheet<String>(
+                          context: ctx,
+                          backgroundColor: C.card,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                          ),
+                          builder: (sheetCtx) => SafeArea(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 40, height: 4,
+                                    margin: const EdgeInsets.only(bottom: 20),
+                                    decoration: BoxDecoration(
+                                      color: C.border,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  Text('Add ${label} Photo',
+                                      style: syne(sz: 16, w: FontWeight.bold)),
+                                  const SizedBox(height: 20),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () => Navigator.pop(sheetCtx, 'camera'),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(vertical: 20),
+                                            decoration: BoxDecoration(
+                                              color: C.brand.withOpacity(.12),
+                                              borderRadius: BorderRadius.circular(16),
+                                              border: Border.all(color: C.brand.withOpacity(.4)),
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                Icon(Icons.camera_alt, color: C.brand, size: 36),
+                                                const SizedBox(height: 8),
+                                                Text('Necxa Camera',
+                                                    style: syne(sz: 12, w: FontWeight.bold, c: C.brand)),
+                                                Text('Shoot now', style: dm(sz: 10, c: C.dim)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () => Navigator.pop(sheetCtx, 'gallery'),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(vertical: 20),
+                                            decoration: BoxDecoration(
+                                              color: C.card,
+                                              borderRadius: BorderRadius.circular(16),
+                                              border: Border.all(color: C.border),
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                Icon(Icons.photo_library, color: C.text, size: 36),
+                                                const SizedBox(height: 8),
+                                                Text('Gallery',
+                                                    style: syne(sz: 12, w: FontWeight.bold, c: C.text)),
+                                                Text('From device', style: dm(sz: 10, c: C.dim)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         );
+                        if (choice == null) return;
+                        XFile? f;
+                        if (choice == 'camera') {
+                          f = await ImagePicker().pickImage(
+                            source: ImageSource.camera,
+                            preferredCameraDevice: CameraDevice.rear,
+                            imageQuality: 90,
+                          );
+                        } else {
+                          f = await ImagePicker().pickImage(
+                            source: ImageSource.gallery,
+                            imageQuality: 90,
+                          );
+                        }
                         if (f != null) await onAdd(cat, File(f.path));
                       },
                 child: Container(
@@ -3442,7 +3567,14 @@ class _Step6Photos extends StatelessWidget {
                           padding: EdgeInsets.all(34),
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Icon(Icons.add_a_photo, color: C.dim),
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_a_photo, color: C.dim),
+                            const SizedBox(height: 4),
+                            Text('+ Photo', style: dm(sz: 9, c: C.dim)),
+                          ],
+                        ),
                 ),
               ),
               ...files.asMap().entries.map((entry) {

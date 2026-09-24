@@ -217,7 +217,18 @@ async function handleUnlock(userId: string, payload: Record<string, unknown>) {
 
   const unlockAmount = Math.floor(property.price * 0.1)
 
-  // Create unlock record
+  // Check free trial
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("has_used_free_unlock")
+    .eq("id", userId)
+    .single()
+    
+  if (profile?.has_used_free_unlock) {
+    return json({ success: false, requires_payment: true, unlock_cost: unlockAmount })
+  }
+
+  // Use Free Trial: Create unlock record
   const { data: unlock, error: unlockErr } = await supabase
     .from("unlocks")
     .insert({
@@ -225,7 +236,8 @@ async function handleUnlock(userId: string, payload: Record<string, unknown>) {
       buyer_id: userId,
       seller_id: property.lister_id,
       agent_id: property.agent_id,
-      unlock_amount: unlockAmount,
+      unlock_amount: 0,
+      unlock_cost: unlockAmount,
       status: "completed",
       address_revealed_at: new Date().toISOString(),
       contact_revealed_at: new Date().toISOString(),
@@ -233,6 +245,9 @@ async function handleUnlock(userId: string, payload: Record<string, unknown>) {
     .select()
     .single()
   if (unlockErr) return err(`Unlock error: ${unlockErr.message}`)
+
+  // Mark trial as used
+  await supabase.from("profiles").update({ has_used_free_unlock: true }).eq("id", userId)
 
   // Increment unlocks count
   await supabase
