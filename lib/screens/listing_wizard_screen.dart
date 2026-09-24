@@ -3312,7 +3312,7 @@ class _Step5GPS extends StatelessWidget {
             keyboardType: TextInputType.phone,
             decoration: InputDecoration(
               labelText: 'Agent Phone Number',
-              prefixIcon: const Icon(Icons.phone, color: C.dim),
+              prefixIcon: Icon(Icons.phone, color: C.dim),
             ),
           ),
           const SizedBox(height: 16),
@@ -3321,7 +3321,7 @@ class _Step5GPS extends StatelessWidget {
             keyboardType: TextInputType.phone,
             decoration: InputDecoration(
               labelText: 'Agent WhatsApp Number',
-              prefixIcon: const Icon(Icons.chat, color: C.brand),
+              prefixIcon: Icon(Icons.chat, color: C.brand),
             ),
           ),
         ]
@@ -3356,11 +3356,11 @@ class _Step6Photos extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _photoRow('Exterior View', exterior, 'EXTERIOR'),
+        _photoRow(context, 'Exterior View', exterior, 'EXTERIOR'),
         const SizedBox(height: 24),
-        _photoRow('Interior & Rooms', interior, 'INTERIOR'),
+        _photoRow(context, 'Interior & Rooms', interior, 'INTERIOR'),
         const SizedBox(height: 24),
-        _photoRow('Bathrooms', bathrooms, 'BATHROOM'),
+        _photoRow(context, 'Bathrooms', bathrooms, 'BATHROOM'),
         const SizedBox(height: 32),
 
         // ── NVIDIA Vision Assistant Banner ──
@@ -3446,7 +3446,7 @@ class _Step6Photos extends StatelessWidget {
     );
   }
 
-  Widget _photoRow(String label, List<File> files, String cat) {
+  Widget _photoRow(BuildContext context, String label, List<File> files, String cat) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3461,9 +3461,8 @@ class _Step6Photos extends StatelessWidget {
                     ? null
                     : () async {
                         // Show camera/gallery choice sheet
-                        final ctx = context;
                         final choice = await showModalBottomSheet<String>(
-                          context: ctx,
+                          context: context,
                           backgroundColor: C.card,
                           shape: const RoundedRectangleBorder(
                             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
