@@ -506,6 +506,17 @@ Deno.serve(async (req) => {
       const aiLevel = "PENDING";
       const aiDescription = "AI verification queued on Necxa AI Engine.";
 
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
+      const fullPhotoPaths = photoPaths.map(p =>
+        p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+      )
+      const fullBathroomPaths = bathroomPaths.map(p =>
+        p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+      )
+      const fullVideoPaths = videoPaths.map(p =>
+        p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+      )
+
       // Create listing
       const { data: listing, error: listErr } = await supabaseAdmin
         .from("listings")
@@ -518,12 +529,13 @@ Deno.serve(async (req) => {
           price: priceUgx,
           price_ugx: priceUgx, // Standardized
           category: propertyType.toUpperCase(),
-          image_url: photoPaths.length > 0 ? photoPaths[0] : null,
-          media_url: videoPaths.length > 0 ? videoPaths[0] : (photoPaths.length > 0 ? photoPaths[0] : null), 
+          image_url: fullPhotoPaths.length > 0 ? fullPhotoPaths[0] : null,
+          media_url: fullVideoPaths.length > 0 ? fullVideoPaths[0] : (fullPhotoPaths.length > 0 ? fullPhotoPaths[0] : null), 
           media_type: videoPaths.length > 0 ? "video" : "image",
-          thumbnail_url: photoPaths.length > 0 ? photoPaths[0] : null, // Essential for fast feed loading
-          film_hub_content: videoPaths.length > 0 ? videoPaths[0] : null,
-          photos: photoPaths, // Store miniatures directly in the JSON column
+          thumbnail_url: fullPhotoPaths.length > 0 ? fullPhotoPaths[0] : null, // Essential for fast feed loading
+          film_hub_content: fullVideoPaths.length > 0 ? fullVideoPaths[0] : null,
+          is_property_listing: true,
+          photos: [...fullPhotoPaths, ...fullBathroomPaths], // Store all photos with full CDN paths
           ai_score: aiScore,
           ai_description: aiDescription,
           ai_verification: {
