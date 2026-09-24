@@ -14,7 +14,7 @@ class SmoothAction {
     Map<String, dynamic>? payload,
   }) async {
     final res = await _client.functions.invoke(
-      'quick-processor',
+      'smooth-action',
       body: {
         'name': name,
         'action': action,

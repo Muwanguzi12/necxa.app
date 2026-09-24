@@ -57,15 +57,16 @@ async function handleProfile(userId: string, action: string, _payload: Record<st
 }
 
 // ── PROPERTY ──
-async function handleProperty(userId: string, action: string, payload: Record<string, unknown>) {
+async function handleProperty(userId: string | null, action: string, payload: Record<string, unknown>) {
   if (action === "list") {
-    const limit = (payload.limit as number) || 20
+    const limit = (payload.limit as number) || 50
     const filter = (payload.filter as string) || "all"
     let query = supabase
       .from("properties")
       .select("*")
-      .eq("status", "active")
+      .eq("is_active", true)
       .eq("is_honeypot", false)
+      .or("is_sold.is.null,is_sold.eq.false")
       .order("created_at", { ascending: false })
       .limit(limit)
 
@@ -75,7 +76,39 @@ async function handleProperty(userId: string, action: string, payload: Record<st
 
     const { data, error } = await query
     if (error) return err(`Properties error: ${error.message}`)
-    return json({ success: true, data })
+
+    // Check unlocks for current user
+    let unlockedPropertyIds = new Set<string>()
+    if (userId) {
+      const { data: userUnlocks } = await supabase
+        .from("unlocks")
+        .select("property_id")
+        .eq("buyer_id", userId)
+        .eq("status", "completed")
+      unlockedPropertyIds = new Set((userUnlocks || []).map((u: any) => u.property_id))
+    }
+
+    const secureList = (data || []).map((prop: any) => {
+      const isOwner = Boolean(userId && prop.lister_id === userId)
+      const isUnlocked = isOwner || unlockedPropertyIds.has(prop.id)
+
+      return {
+        ...prop,
+        is_unlocked_by_current_user: isUnlocked,
+        // Privacy protection before unlock: user sees pictures & district, but cannot access exact location or contacts
+        address: isUnlocked ? prop.address : `Near ${prop.district || prop.city || 'Property Area'}`,
+        gps_latitude: isUnlocked ? prop.gps_latitude : null,
+        gps_longitude: isUnlocked ? prop.gps_longitude : null,
+        latitude: isUnlocked ? prop.latitude : 0.0,
+        longitude: isUnlocked ? prop.longitude : 0.0,
+        umeme_meter_number: isUnlocked ? prop.umeme_meter_number : null,
+        nwsc_customer_number: isUnlocked ? prop.nwsc_customer_number : null,
+        land_title_block: isUnlocked ? prop.land_title_block : null,
+        land_title_plot: isUnlocked ? prop.land_title_plot : null,
+      }
+    })
+
+    return json({ success: true, data: secureList })
   }
 
   if (action === "get") {
@@ -90,10 +123,64 @@ async function handleProperty(userId: string, action: string, payload: Record<st
 
     // Track view
     await supabase.from("properties").update({ views_count: (data.views_count || 0) + 1 }).eq("id", propertyId)
-    return json({ success: true, data })
+
+    // Check unlock
+    let isUnlocked = false
+    if (userId) {
+      if (data.lister_id === userId) {
+        isUnlocked = true
+      } else {
+        const { data: userUnlock } = await supabase
+          .from("unlocks")
+          .select("id")
+          .eq("property_id", propertyId)
+          .eq("buyer_id", userId)
+          .eq("status", "completed")
+          .maybeSingle()
+        if (userUnlock) isUnlocked = true
+      }
+    }
+
+    let agentPhone = null
+    let agentWhatsapp = null
+    let agentGoogleMeet = null
+
+    if (isUnlocked && (data.agent_id || data.lister_id)) {
+      const targetAgentId = data.agent_id || data.lister_id
+      const { data: contact } = await supabase
+        .from("agent_contact_methods")
+        .select("phone_number, whatsapp_number, google_meet_link")
+        .eq("agent_id", targetAgentId)
+        .maybeSingle()
+      if (contact) {
+        agentPhone = contact.phone_number
+        agentWhatsapp = contact.whatsapp_number
+        agentGoogleMeet = contact.google_meet_link
+      }
+    }
+
+    const secureData = {
+      ...data,
+      is_unlocked_by_current_user: isUnlocked,
+      address: isUnlocked ? data.address : `Near ${data.district || data.city || 'Property Area'}`,
+      gps_latitude: isUnlocked ? data.gps_latitude : null,
+      gps_longitude: isUnlocked ? data.gps_longitude : null,
+      latitude: isUnlocked ? data.latitude : 0.0,
+      longitude: isUnlocked ? data.longitude : 0.0,
+      umeme_meter_number: isUnlocked ? data.umeme_meter_number : null,
+      nwsc_customer_number: isUnlocked ? data.nwsc_customer_number : null,
+      land_title_block: isUnlocked ? data.land_title_block : null,
+      land_title_plot: isUnlocked ? data.land_title_plot : null,
+      agent_phone: agentPhone,
+      agent_whatsapp: agentWhatsapp,
+      agent_google_meet: agentGoogleMeet,
+    }
+
+    return json({ success: true, data: secureData })
   }
 
   if (action === "mylistings") {
+    if (!userId) return err("Unauthorized", 401)
     const { data, error } = await supabase
       .from("properties")
       .select("*")
@@ -482,7 +569,6 @@ Deno.serve(async (req: Request) => {
 
   try {
     const userId = await resolveUser(req)
-    if (!userId) return err("Unauthorized", 401)
 
     const body = await req.json() as {
       name: string
@@ -492,16 +578,21 @@ Deno.serve(async (req: Request) => {
 
     const { name, action = "get", payload = {} } = body
 
+    // Allow public browsing for properties
+    if (!userId && !(name === "property" && (action === "list" || action === "get"))) {
+      return err("Unauthorized", 401)
+    }
+
     switch (name) {
-      case "profile":      return handleProfile(userId, action, payload)
+      case "profile":      return userId ? handleProfile(userId, action, payload) : err("Unauthorized", 401)
       case "property":     return handleProperty(userId, action, payload)
-      case "unlock":       return handleUnlock(userId, payload)
-      case "escrow":       return handleEscrow(userId, payload)
-      case "wallet":       return handleWallet(userId, action, payload)
-      case "chat":         return handleChat(userId, action, payload)
-      case "utility":      return handleUtility(userId, payload)
-      case "notifications":return handleNotifications(userId, action)
-      case "push-token":   return handlePushToken(userId, action, payload)
+      case "unlock":       return userId ? handleUnlock(userId, payload) : err("Unauthorized", 401)
+      case "escrow":       return userId ? handleEscrow(userId, payload) : err("Unauthorized", 401)
+      case "wallet":       return userId ? handleWallet(userId, action, payload) : err("Unauthorized", 401)
+      case "chat":         return userId ? handleChat(userId, action, payload) : err("Unauthorized", 401)
+      case "utility":      return userId ? handleUtility(userId, payload) : err("Unauthorized", 401)
+      case "notifications":return userId ? handleNotifications(userId, action) : err("Unauthorized", 401)
+      case "push-token":   return userId ? handlePushToken(userId, action, payload) : err("Unauthorized", 401)
       default:             return err(`Unknown action name: "${name}". Valid: profile, property, unlock, escrow, wallet, chat, utility, notifications`)
     }
   } catch (e: unknown) {

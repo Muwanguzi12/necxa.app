@@ -574,27 +574,54 @@ Deno.serve(async (req) => {
         return err(`Listing creation failed: ${listErr.message}`, 500)
       }
 
-              // Sync to legacy properties table for home screen compatibility
-        await supabaseAdmin.from("properties").insert({
+        // Sync to properties table for Property Home Screen feed
+        const validPropTypes = ['apartment', 'house', 'villa', 'commercial', 'townhouse', 'travelersuite', 'campsite']
+        const safePropType = validPropTypes.includes(propertyType?.toLowerCase()) ? propertyType.toLowerCase() : 'apartment'
+
+        const validListingTypes = ['sale', 'rent', 'short_term']
+        const safeListingType = validListingTypes.includes(purpose?.toLowerCase()) ? purpose.toLowerCase() : 'rent'
+
+        const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
+        const fullPhotoUrls = [...photoPaths, ...bathroomPaths].map(p =>
+          p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+        )
+        const fullBathroomUrls = bathroomPaths.map(p =>
+          p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+        )
+
+        const { error: propSyncErr } = await supabaseAdmin.from("properties").upsert({
           id: deterministicId,
           lister_id: userId,
+          agent_id: userId,
           title,
-          description,
-          property_type: propertyType.toLowerCase(),
-          listing_type: purpose.toLowerCase(),
+          description: description || "",
+          property_type: safePropType,
+          listing_type: safeListingType,
           price: priceUgx,
           price_type: (pricePeriod === "nightly") ? "nightly" : "monthly",
-          bedrooms,
-          bathrooms,
-          size_sqft: sqft,
-          address,
-          district,
-          country,
-          images: [...photoPaths, ...bathroomPaths],
-          videos: videoPaths,
-          status: "active",
-          is_honeypot: false
-        })
+          bedrooms: bedrooms || 1,
+          bathrooms: bathrooms || 1,
+          size_sqft: sqft || 0,
+          address: address || district || "Uganda",
+          city: district || "Kampala",
+          district: district || "Kampala",
+          country: country || "Uganda",
+          images: fullPhotoUrls,
+          bathroom_image_urls: fullBathroomUrls,
+          latitude: gpsNode?.latitude || null,
+          longitude: gpsNode?.longitude || null,
+          gps_latitude: gpsNode?.latitude || null,
+          gps_longitude: gpsNode?.longitude || null,
+          is_verified: true,
+          is_active: true,
+          is_sold: false,
+          is_honeypot: false,
+          escrow_status: "available",
+        }, { onConflict: "id" })
+
+        if (propSyncErr) {
+          console.error("Property table sync error:", propSyncErr)
+        }
 
         // Add photos to listing_photos table
       if (photoPaths.length > 0) {
