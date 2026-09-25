@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+app/__init__.py
+app/contracts.py
+app/main.py
+app/models.py
+app/pipeline.py
+app/settings.py
+necxa_biometric_provider.egg-info/PKG-INFO
+necxa_biometric_provider.egg-info/SOURCES.txt
+necxa_biometric_provider.egg-info/dependency_links.txt
+necxa_biometric_provider.egg-info/requires.txt
+necxa_biometric_provider.egg-info/top_level.txt
+tests/test_pipeline.py

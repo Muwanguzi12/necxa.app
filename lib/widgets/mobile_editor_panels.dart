@@ -28,7 +28,7 @@ class TextEditingPanel extends StatefulWidget {
 class _TextEditingPanelState extends State<TextEditingPanel> {
   late TextEditingController _textController;
   double _fontSize = 24;
-  Color _textColor = Colors.white;
+  Color _textColor = C.text;
   String _fontFamily = 'Syne';
   TextAlign _alignment = TextAlign.center;
   
@@ -160,7 +160,7 @@ class _TextEditingPanelState extends State<TextEditingPanel> {
                     font,
                     style: TextStyle(
                       fontSize: 11,
-                      color: isSelected ? Colors.white : C.text,
+                      color: isSelected ? C.text : C.text,
                       fontFamily: font,
                       fontWeight: FontWeight.w600,
                     ),
@@ -206,7 +206,7 @@ class _TextEditingPanelState extends State<TextEditingPanel> {
           child: Icon(
             icon,
             size: 18,
-            color: isSelected ? Colors.white : C.dim,
+            color: isSelected ? C.text : C.dim,
           ),
         ),
       ),
@@ -402,7 +402,7 @@ class _AudioEditingPanelState extends State<AudioEditingPanel> {
             style: dm(
               sz: 12,
               w: FontWeight.w600,
-              c: value ? Colors.white : C.text,
+              c: value ? C.text : C.text,
             ),
           ),
         ),
@@ -574,3 +574,4 @@ class _TransitionsPanelState extends State<TransitionsPanel> {
     );
   }
 }
+

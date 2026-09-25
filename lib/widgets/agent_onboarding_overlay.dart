@@ -42,7 +42,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Agent verification submitted!')),
+        const SnackBar(content: Text('? Agent verification submitted!')),
       );
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -63,7 +63,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
       decoration: BoxDecoration(
         color: C.bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-        border: const Border(top: BorderSide(color: Colors.white10)),
+        border: Border(top: BorderSide(color: C.dim)),
       ),
       child: Stack(
         children: [
@@ -75,7 +75,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
                 Center(
                   child: Container(
                     width: 48, height: 4,
-                    decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                    decoration: BoxDecoration(color: C.dim, borderRadius: BorderRadius.circular(2)),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -97,7 +97,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
         children: [
           Row(
             children: [
-              const Text('🏢', style: TextStyle(fontSize: 32)),
+              const Text('??', style: TextStyle(fontSize: 32)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -129,8 +129,8 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
             child: Column(
               children: [
                 const _CommissionRow(label: 'Agent Commission', value: '5%', desc: 'Your earnings on final sale', color: C.green),
-                const Divider(color: Colors.white10, height: 24),
-                const _CommissionRow(label: 'Necxa Protocol Fee', value: '2%', desc: 'Platform service fee', color: C.brand),
+                Divider(color: C.dim, height: 24),
+                _CommissionRow(label: 'Necxa Protocol Fee', value: '2%', desc: 'Platform service fee', color: C.brand),
                 const SizedBox(height: 12),
                 Text(
                   'The 10% Escrow Unlock fee paid by buyers to view your property details is kept entirely by you as a pre-commission for serious leads.',
@@ -146,7 +146,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(gradient: brandGrad, borderRadius: BorderRadius.circular(16)),
-              child: Center(child: Text('Agree & Continue →', style: syne(sz: 15, c: C.bg))),
+              child: Center(child: Text('Agree & Continue ?', style: syne(sz: 15, c: C.bg))),
             ),
           ),
           const SizedBox(height: 16),
@@ -175,28 +175,28 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
             child: ListView(
               children: [
                 _DocTile(
-                  icon: '📜',
+                  icon: '??',
                   title: 'Business License',
                   sub: 'Certificate of Incorporation',
                   done: _docs['Business License']!,
                   onTap: () => _uploadDoc('Business License'),
                 ),
                 _DocTile(
-                  icon: '💳',
+                  icon: '??',
                   title: 'Tax ID / TIN',
                   sub: 'Govt-issued Tax Identification',
                   done: _docs['Tax ID / TIN']!,
                   onTap: () => _uploadDoc('Tax ID / TIN'),
                 ),
                 _DocTile(
-                  icon: '📋',
+                  icon: '??',
                   title: 'Agency Permit',
                   sub: 'Real Estate Regulatory License',
                   done: _docs['Agency Permit']!,
                   onTap: () => _uploadDoc('Agency Permit'),
                 ),
                 _DocTile(
-                  icon: '🪪',
+                  icon: '??',
                   title: 'Lead Agent ID',
                   sub: 'National ID or Passport (Live AI)',
                   done: _docs['Lead Agent ID']!,
@@ -287,9 +287,9 @@ class _DocTile extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: done ? C.green.withOpacity(.08) : Colors.white.withOpacity(.03),
+          color: done ? C.green.withOpacity(.08) : C.text.withOpacity(.03),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: done ? C.green.withOpacity(.4) : Colors.white10),
+          border: Border.all(color: done ? C.green.withOpacity(.4) : C.dim),
         ),
         child: Row(
           children: [
@@ -299,7 +299,7 @@ class _DocTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: syne(sz: 15, w: FontWeight.w700, c: done ? C.green : Colors.white)),
+                  Text(title, style: syne(sz: 15, w: FontWeight.w700, c: done ? C.green : C.text)),
                   Text(sub, style: dm(sz: 11, c: C.dim)),
                 ],
               ),
@@ -307,10 +307,12 @@ class _DocTile extends StatelessWidget {
             if (done)
               const Icon(Icons.check_circle, color: C.green)
             else
-              const Icon(Icons.upload_file, color: Colors.white38),
+              Icon(Icons.upload_file, color: C.dim),
           ],
         ),
       ),
     );
   }
 }
+
+

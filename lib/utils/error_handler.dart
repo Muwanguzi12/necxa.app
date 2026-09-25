@@ -1,7 +1,9 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
+import 'auth_retry.dart';
+import '../services/listing_sync_service.dart';
 
 /// Converts raw backend exceptions and network errors into clean, user-friendly messages.
 String getUserFriendlyError(dynamic error) {
@@ -9,8 +11,40 @@ String getUserFriendlyError(dynamic error) {
 
   final errorStr = error.toString().toLowerCase();
 
+  if (error is ListingSyncException) {
+    const stageMessages = <String, String>{
+      'identity_receipt_syncing':
+          'Verification is still syncing. Tap Retry without retaking your photos.',
+      'identity_receipt_missing':
+          'Verification receipts are missing. Please retry the identity step.',
+      'identity_receipt_mismatch':
+          'One identity capture was not approved. Please retry that capture.',
+      'identity_provider_unavailable':
+          'Identity verification is temporarily unavailable. Please retry.',
+      'utility_not_verified':
+          'The utility document was not approved. Capture a clearer document and retry.',
+      'utility_provider_unavailable':
+          'Utility verification is temporarily unavailable. Please retry.',
+      'gps_risk_detected':
+          'The location could not be trusted. Move outdoors and lock GPS again.',
+      'listing_submission_failed':
+          'The listing could not be submitted. Please retry this step.',
+    };
+    final message = stageMessages[error.code] ?? error.message;
+    final finalMessage = (error.code == 'identity_provider_unavailable' || error.code == 'utility_provider_unavailable')
+        ? '$message DETAILS: ${error.message}' 
+        : message;
+        
+    final requestId = error.requestId?.trim();
+    return requestId != null && requestId.isNotEmpty
+        ? '$finalMessage (Reference: ${requestId.substring(0, requestId.length > 12 ? 12 : requestId.length)})'
+        : finalMessage;
+  }
+
   // Network / Socket Exceptions
-  if (error is SocketException || errorStr.contains('socketexception') || errorStr.contains('failed host lookup')) {
+  if (error is SocketException ||
+      errorStr.contains('socketexception') ||
+      errorStr.contains('failed host lookup')) {
     return "No internet connection. Please check your network and try again.";
   }
 
@@ -18,18 +52,38 @@ String getUserFriendlyError(dynamic error) {
     return "Connection timed out. Please try again.";
   }
 
+  // Preserve safe identity-function outcomes instead of hiding them behind the
+  // generic loading message.
+  const identityMessages = <String, String>{
+    'verification results are still syncing':
+        'Verification is still syncing. Tap Verify again without retaking your photos.',
+    'verification receipts are missing':
+        'Verification receipts are missing. Please complete the identity capture again.',
+    'direct identity verification receipts':
+        'Identity verification could not save its results. Please try Verify again.',
+    'biometric receipt':
+        'The face verification result was not approved. Please retry the face capture.',
+    'document receipt':
+        'One of the document captures was not approved. Please retry that capture.',
+  };
+  for (final entry in identityMessages.entries) {
+    if (errorStr.contains(entry.key)) return entry.value;
+  }
+
   // Supabase Auth Exceptions
   if (error is AuthException) {
     if (error.message.toLowerCase().contains('invalid login credentials')) {
       return "Invalid email or verification code. Please check and try again.";
     }
-    if (error.message.toLowerCase().contains('rate limit')) {
-      return "Too many requests. Please wait a moment before trying again.";
+    if (isAuthRateLimitError(error)) {
+      final delay = magicLinkRetryDelay(error);
+      return "A sign-in email was requested recently. Try again in ${formatRetryCountdown(delay.inSeconds)} or use the link already in your inbox.";
     }
     if (error.message.toLowerCase().contains('expired')) {
       return "The magic link or code has expired. Please request a new one.";
     }
-    return error.message; // AuthException messages are usually somewhat clean, but fallback if needed.
+    return error
+        .message; // AuthException messages are usually somewhat clean, but fallback if needed.
   }
 
   // Platform Exceptions (e.g., Camera, Biometrics)
@@ -48,20 +102,40 @@ String getUserFriendlyError(dynamic error) {
     return "Camera or microphone access was denied. Please allow permissions and try again.";
   }
 
-  if (errorStr.contains('token') || errorStr.contains('authentication failed') || errorStr.contains('identity verification required')) {
+  if (errorStr.contains('token') ||
+      errorStr.contains('authentication failed') ||
+      errorStr.contains('identity verification required')) {
     return "Live streaming authentication failed. Please try again in a moment.";
   }
 
-  if (errorStr.contains('channel') || errorStr.contains('joinchannel') || errorStr.contains('join channel')) {
+  if (errorStr.contains('channel') ||
+      errorStr.contains('joinchannel') ||
+      errorStr.contains('join channel')) {
     return "Unable to connect to the live channel. Please try again.";
   }
 
   // Fallback Catch-All
   // If the error contains raw backend URLs or keys, we MUST mask it.
-  if (errorStr.contains('supabase.co') || errorStr.contains('apikey') || errorStr.contains('http')) {
+  if (errorStr.contains('supabase.co') ||
+      errorStr.contains('apikey') ||
+      errorStr.contains('http')) {
     return "Loading unsuccessful. Please check your connection and try again.";
+  }
+
+  // If it's a standard generic exception, it might be a developer string or a clean message.
+  // If it's explicitly marked as UserMessageException, return it.
+  if (error is UserMessageException) {
+    return error.message;
   }
 
   // Return a generic safe message for any other raw exceptions
   return "Loading unsuccessful. Please try again.";
+}
+
+/// Use this exception for messages that are already safe to show to the user.
+class UserMessageException implements Exception {
+  final String message;
+  UserMessageException(this.message);
+  @override
+  String toString() => message;
 }

@@ -1,9 +1,12 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
+import 'ffmpeg_stub.dart'
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
+import 'ffmpeg_stub.dart'
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
+import '../face_engine/models/face_preset.dart';
 
 class ClipData {
   final String path;
@@ -52,7 +55,7 @@ class RenderOverlay {
   final double backgroundOpacity;
   final bool shadow;
 
-  const RenderOverlay({
+  RenderOverlay({
     required this.type,
     this.text,
     this.imagePath,
@@ -64,7 +67,7 @@ class RenderOverlay {
     this.rotation = 0.0,
     this.opacity = 1.0,
     this.fontSize = 28.0,
-    this.color = Colors.white,
+    this.color = const Color(0xFFF0F4FF),
     this.background = Colors.black,
     this.backgroundOpacity = 0.0,
     this.shadow = true,
@@ -111,6 +114,9 @@ class RenderAudioTrack {
   final double volume;
   final double speed;
   final bool reverse;
+  final double timelineDuration;
+  final double fadeIn;
+  final double fadeOut;
 
   const RenderAudioTrack({
     required this.path,
@@ -120,6 +126,9 @@ class RenderAudioTrack {
     this.volume = 1,
     this.speed = 1,
     this.reverse = false,
+    this.timelineDuration = 0,
+    this.fadeIn = 0,
+    this.fadeOut = 0,
   });
 }
 
@@ -131,6 +140,7 @@ class VideoEnhancementService {
     void Function(double progress)? onProgress,
   }) async {
     if (!options.applyBeautyFilter &&
+        !(options.faceParameters?.isEnabled ?? false) &&
         !options.autoBalance &&
         !options.sharpen) {
       return inputVideo;
@@ -139,7 +149,35 @@ class VideoEnhancementService {
     final outputPath = await _getOutputPath();
     List<String> filters = [];
 
-    if (options.applyBeautyFilter) {
+    final face = options.faceParameters;
+    if (face?.isEnabled ?? false) {
+      // This export fallback applies the shared preset conservatively across the
+      // frame. The real-time renderer can use the same values with face masks.
+      final smoothingRadius = 0.5 + (face!.skinSmooth * 3.5);
+      if (face.skinSmooth > 0.01) {
+        filters.add(
+          "smartblur=lr=${smoothingRadius.toStringAsFixed(2)}:ls=-0.5:lt=0",
+        );
+      }
+
+      final brightness = (face.lighting * 0.055) + (face.complexion * 0.018);
+      final contrast =
+          1 + (face.jawDefinition * 0.05) + (face.skinTone * 0.025);
+      final saturation = 1 + (face.skinTone * 0.11) + (face.lipEnhance * 0.08);
+      filters.add(
+        "eq=brightness=${brightness.toStringAsFixed(3)}:"
+        "contrast=${contrast.toStringAsFixed(3)}:"
+        "saturation=${saturation.toStringAsFixed(3)}",
+      );
+
+      final detail =
+          (face.sharpening * 0.8) +
+          (face.eyeEnhance * 0.25) +
+          (face.beardDetail * 0.35);
+      if (detail > 0.04) {
+        filters.add("unsharp=5:5:${detail.toStringAsFixed(2)}");
+      }
+    } else if (options.applyBeautyFilter) {
       // Apply edge-preserving blur (skin smoothing) and basic color correction
       filters.add("smartblur=lr=3:ls=-0.5:lt=0");
       filters.add("eq=brightness=0.03:saturation=1.1");
@@ -442,8 +480,18 @@ class VideoEnhancementService {
       final reverse = track.reverse ? ',areverse' : '';
       final tempo = _atempoFilter(track.speed);
       final delay = (track.timelineStart * 1000).round().clamp(0, 1 << 31);
+      final fadeIn = track.fadeIn.clamp(0.0, track.timelineDuration / 2);
+      final fadeOut = track.fadeOut.clamp(0.0, track.timelineDuration / 2);
+      final fadeInFilter = fadeIn > 0 ? ',afade=t=in:st=0:d=$fadeIn' : '';
+      final fadeOutStart = (track.timelineDuration - fadeOut).clamp(
+        0.0,
+        track.timelineDuration,
+      );
+      final fadeOutFilter = fadeOut > 0
+          ? ',afade=t=out:st=$fadeOutStart:d=$fadeOut'
+          : '';
       filterComplex +=
-          "[$index:a]atrim=start=${track.sourceStart}$trimEnd,asetpts=PTS-STARTPTS,$tempo$reverse,volume=${track.volume},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
+          "[$index:a]atrim=start=${track.sourceStart}$trimEnd,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,volume=${track.volume},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
       audioSources += '[$label]';
       inputsCount++;
     }
@@ -648,6 +696,7 @@ class VideoEnhancementService {
 
 class VideoEnhancementOptions {
   final bool applyBeautyFilter;
+  final FaceRenderParameters? faceParameters;
   final bool autoBalance;
   final bool sharpen;
   final Size? upscaleTo;
@@ -656,6 +705,7 @@ class VideoEnhancementOptions {
 
   const VideoEnhancementOptions({
     this.applyBeautyFilter = false,
+    this.faceParameters,
     this.autoBalance = false,
     this.sharpen = false,
     this.upscaleTo,
@@ -663,3 +713,5 @@ class VideoEnhancementOptions {
     this.enhanceThumbnail = false,
   });
 }
+
+

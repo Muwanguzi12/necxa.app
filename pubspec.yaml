@@ -1,7 +1,7 @@
 name: necxa_flutter
 description: "Necxa Financial Mission Control"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.3+4
 
 environment:
   sdk: ^3.10.7
@@ -26,8 +26,9 @@ dependencies:
   url_launcher: ^6.3.2
   shared_preferences: ^2.5.5
   sqflite: ^2.4.1
+  sqflite_common_ffi_web: ^0.4.3+2
   share_plus: ^12.0.2
-  record: ^5.0.4
+  record: ^6.1.2
   just_audio: ^0.9.40
   flutter_contacts: ^1.1.9+1
   permission_handler: ^11.3.1
@@ -41,16 +42,23 @@ dependencies:
   audio_waveforms: ^1.1.2
   video_compress: ^3.1.4
   flutter_local_notifications: ^17.1.1
-  firebase_core: ^3.2.0
-  cloud_firestore: ^5.0.2
-  firebase_auth: ^5.1.1
-  cloud_functions: ^5.6.2
   flutter_cache_manager: ^3.4.1
   ffmpeg_kit_flutter_min_gpl: ^6.0.3-LTS
   livekit_client: ^2.8.1
-  mongo_dart: ^0.10.1
   cached_network_image: ^3.4.1
   google_maps_flutter: ^2.17.1
+  cloud_firestore: ^6.8.0
+  cloud_functions: ^6.3.6
+  firebase_auth: ^6.5.7
+  firebase_core: ^4.13.0
+  cloud_firestore_web: ^5.7.2
+  cloud_functions_web: ^5.1.12
+  firebase_auth_web: ^6.2.6
+  firebase_core_web: ^3.10.0
+  universal_io: ^2.3.1
+  flutter_riverpod: ^2.4.9
+  flutter_image_compress: ^2.5.1
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -62,13 +70,13 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/images/app_icon_padded.png"
-  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_background: "#000000"
   adaptive_icon_foreground: "assets/images/app_icon_padded.png"
   web:
     generate: true
     image_path: "assets/images/app_icon_padded.png"
-    background_color: "#FFFFFF"
-    theme_color: "#FFFFFF"
+    background_color: "#000000"
+    theme_color: "#000000"
   windows:
     generate: true
     image_path: "assets/images/app_icon_padded.png"
@@ -80,9 +88,14 @@ flutter:
   assets:
     - assets/
     - assets/images/
+    - assets/gifts/
     - assets/shaders/
+    - assets/fonts/
+  fonts:
+    - family: NotoColorEmoji
+      fonts:
+        - asset: assets/fonts/NotoColorEmoji.ttf
 
 dependency_overrides:
-  record_platform_interface: 1.1.0
   ffmpeg_kit_flutter_min_gpl:
     path: plugins/ffmpeg_kit_flutter_min_gpl

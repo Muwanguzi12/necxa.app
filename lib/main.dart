@@ -7,6 +7,7 @@ import 'screens/detail_screen.dart';
 import 'screens/upload_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/vendor_dashboard_screen.dart';
 import 'screens/public_profile_screen.dart';
 import 'screens/chat_detail_screen.dart';
 import 'screens/new_chat_screen.dart';
@@ -28,63 +29,71 @@ import 'services/telemetry_service.dart';
 import 'services/notification_service.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
 import 'package:camera/camera.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 List<CameraDescription> cameras = [];
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  try {
-    cameras = await availableCameras();
-  } catch (e) {
-    debugPrint('Camera error: $e');
+
+  // Initialize sqflite for web (no-op on mobile)
+  if (kIsWeb) {
+    databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
 
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('🔥 Firebase Initialized Successfully');
-
-    if (FirebaseAuth.instance.currentUser == null) {
-      final credential = await FirebaseAuth.instance.signInAnonymously();
-      debugPrint('🔥 Firebase anonymous auth user: ${credential.user?.uid}');
+  if (!kIsWeb) {
+    try {
+      cameras = await availableCameras();
+    } catch (e) {
+      debugPrint('Camera error: $e');
     }
-  } catch (e) {
-    debugPrint('🔥 Firebase Init Error (Likely missing config): $e');
   }
-
   await Supabase.initialize(
     url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
     anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
+    authOptions: const FlutterAuthClientOptions(
+      // Email clients frequently open web magic links in a fresh tab or
+      // browser context where a PKCE verifier is unavailable. The implicit
+      // web callback carries the one-time session in the URL fragment, while
+      // native apps retain PKCE and the custom deep link.
+      authFlowType: kIsWeb ? AuthFlowType.implicit : AuthFlowType.pkce,
+      detectSessionInUri: true,
+    ),
   );
 
-  // ── CUSTOM ERROR TELEMETRY ────────────────────────────────────────────────
+  // -- CUSTOM ERROR TELEMETRY ------------------------------------------------
   // Catch UI / Framework errors
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
-    TelemetryService().logCrash(details.exception, details.stack ?? StackTrace.empty, context: 'FlutterError');
+    TelemetryService().logCrash(
+      details.exception,
+      details.stack ?? StackTrace.empty,
+      context: 'FlutterError',
+    );
   };
 
   // Catch Background / Silent asynchronous errors (e.g., failed AI scans, unhandled Future errors)
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('Uncaught platform error: $error\n$stack');
     TelemetryService().logCrash(error, stack, context: 'PlatformDispatcher');
     return true;
   };
-  // ──────────────────────────────────────────────────────────────────────────
+  // --------------------------------------------------------------------------
 
-  final notifService = NotificationService();
-  await notifService.init();
-  await notifService.requestPermissions();
+  if (!kIsWeb) {
+    final notifService = NotificationService();
+    await notifService.init();
+    await notifService.requestPermissions();
+  }
 
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ),
+  );
   runApp(const NecxaApp());
 }
 
@@ -124,6 +133,7 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _state.checkInactivityLock();
+      _state.syncVault();
     } else if (state == AppLifecycleState.paused) {
       _state.updateActivity();
     }
@@ -131,14 +141,12 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // 📱 SMART ORIENTATION LOCK:
+    // ?? SMART ORIENTATION LOCK:
     // Only lock portrait for phones (shortest side < 600).
     // Tablets, Laptops, and Desktops maintain full rotation freedom.
     final double shortestSide = MediaQuery.of(context).size.shortestSide;
     if (shortestSide < 600) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     } else {
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
@@ -233,11 +241,17 @@ class _RootShellState extends State<RootShell> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.lock_person_outlined, color: C.brand, size: 80),
+            Icon(Icons.lock_person_outlined, color: C.brand, size: 80),
             const SizedBox(height: 32),
-            Text('Necxa Vault Locked', style: syne(sz: 24, w: FontWeight.w800, c: Colors.white)),
+            Text(
+              'Necxa Vault Locked',
+              style: syne(sz: 24, w: FontWeight.w800, c: C.text),
+            ),
             const SizedBox(height: 8),
-            Text('Biometric authentication required', style: dm(sz: 14, c: Colors.white54)),
+            Text(
+              'Biometric authentication required',
+              style: dm(sz: 14, c: C.dim),
+            ),
             const SizedBox(height: 48),
             if (_state.biometricError != null)
               Padding(
@@ -253,10 +267,18 @@ class _RootShellState extends State<RootShell> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: C.brand,
                 foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 40,
+                  vertical: 16,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
-              child: const Text('Unlock with Biometrics', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Unlock with Biometrics',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ),
@@ -278,7 +300,10 @@ class _RootShellState extends State<RootShell> {
       case 'property_listing':
         return ListingWizardScreen(state: _state);
       case 'upload':
-        return UploadScreen(state: _state, initialTrack: _state.initialMusicTrack);
+        return UploadScreen(
+          state: _state,
+          initialTrack: _state.initialMusicTrack,
+        );
       case 'chat':
       case 'chat-list':
       case 'new-chat':
@@ -287,6 +312,8 @@ class _RootShellState extends State<RootShell> {
         return ChatDetailScreen(state: _state);
       case 'profile':
         return ProfileScreen(state: _state);
+      case 'vendor-dashboard':
+        return VendorDashboardScreen(state: _state);
       case 'public_profile':
         return PublicProfileScreen(state: _state);
       case 'login':
@@ -314,3 +341,5 @@ class _RootShellState extends State<RootShell> {
     }
   }
 }
+
+

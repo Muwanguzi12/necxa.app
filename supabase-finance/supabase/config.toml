@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.finance-payment-webhook]
 verify_jwt = false
+
+[functions.share-offer]
+verify_jwt = false
+
+[functions.mtn-sandbox-provision]
+verify_jwt = false

@@ -25,7 +25,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
         backgroundColor: C.bg,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
+          icon: Icon(Icons.close, color: C.text),
           onPressed: () => _step == 0 ? widget.state.go('transport') : setState(() => _step--),
         ),
         title: Text('MISSION ENROLLMENT', style: syne(sz: 14, w: FontWeight.w700)),
@@ -125,7 +125,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
               ? Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.upload_file, color: C.brand, size: 40),
+                    Icon(Icons.upload_file, color: C.brand, size: 40),
                     const SizedBox(height: 12),
                     Text('Click to upload Permit', style: syne(sz: 13, c: C.brand)),
                   ],
@@ -203,7 +203,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(color: C.card, border: Border(top: BorderSide(color: C.border))),
       child: widget.state.isTransportLoading
-        ? const Center(child: CircularProgressIndicator(color: C.brand))
+        ? Center(child: CircularProgressIndicator(color: C.brand))
         : GestureDetector(
             onTap: _onNext,
             child: Container(
@@ -211,7 +211,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(color: C.brand, borderRadius: BorderRadius.circular(12)),
               child: Text(_step == 2 ? 'SUBMIT APPLICATION' : 'CONTINUE', textAlign: TextAlign.center, 
-                style: syne(sz: 14, c: Colors.white, w: FontWeight.w700)),
+                style: syne(sz: 14, c: C.text, w: FontWeight.w700)),
             ),
           ),
     );
@@ -229,3 +229,5 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
     }
   }
 }
+
+
