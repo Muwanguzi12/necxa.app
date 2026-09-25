@@ -1391,13 +1391,13 @@ class SocialService {
           .maybeSingle();
 
       if (res != null) {
-        final normalized = {
-          'display_name': res['full_name'],
-          'photo_url': res['avatar_url'],
-          'is_verified':
-              res['trust_score_tier'] == 'titan_trust' ||
-              res['trust_score_tier'] == 'verified',
-        };
+        final normalized = Map<String, dynamic>.from(res);
+        normalized['display_name'] = res['full_name'];
+        normalized['photo_url'] = res['avatar_url'];
+        normalized['is_verified'] =
+            res['trust_score_tier'] == 'titan_trust' ||
+            res['trust_score_tier'] == 'verified';
+        
         _profileCache[userId] = normalized;
         return normalized;
       }
