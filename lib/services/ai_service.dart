@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:universal_io/io.dart';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
@@ -617,6 +618,10 @@ class NecxaAI {
 
   // ── HELPERS ──
   static Future<String> fileToBase64(File file) async {
+    if (kIsWeb) {
+      final bytes = await XFile(file.path).readAsBytes();
+      return base64Encode(bytes);
+    }
     File target = file;
     try {
       target = await ListingSyncService.compressImage(file);

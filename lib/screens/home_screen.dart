@@ -23,25 +23,30 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filtered = state.filtered;
-    return Column(
-      children: [
-        _buildNav(context),
-        _buildAppTabs(),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHero(),
-                _buildStats(filtered.length),
-                _buildFilterRow(),
-                _buildListings(filtered),
-              ],
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 700),
+        child: Column(
+          children: [
+            _buildNav(context),
+            _buildAppTabs(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHero(),
+                    _buildStats(filtered.length),
+                    _buildFilterRow(),
+                    _buildListings(filtered),
+                  ],
+                ),
+              ),
             ),
-          ),
+            _buildBottomNav(),
+          ],
         ),
-        _buildBottomNav(),
-      ],
+      ),
     );
   }
 
