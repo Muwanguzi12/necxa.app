@@ -510,6 +510,12 @@ class AppState extends ChangeNotifier {
   String? utilityShardId;
   bool isVerifying = false;
   int verificationSubStep = 0; // TRACKS CURRENT CAPTURE STAGE (0-3)
+
+  void setVerificationSubStep(int step) {
+    verificationSubStep = step;
+    notifyListeners();
+  }
+
   IDResult? lastIDResult;
   IDResult? lastIDBackResult;
   SelfieResult? lastSelfieResult;
