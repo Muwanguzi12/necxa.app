@@ -390,6 +390,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildInteractionContent(PropertyContainer p, _InteractionState state) {
+    final hasUsedFree = s.myProfile?['has_used_free_unlock'] == true;
     switch (state) {
       case _InteractionState.locked:
         return Row(
