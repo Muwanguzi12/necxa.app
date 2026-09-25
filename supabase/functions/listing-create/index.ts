@@ -12,12 +12,16 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE",
 }
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
+const json = (data: unknown, status = 200) => new Response(JSON.stringify({
+  ...(data as Record<string, unknown>),
+  request_id: crypto.randomUUID(),
+}), {
   status,
   headers: { ...corsHeaders, "Content-Type": "application/json" },
 })
 
-const err = (message: string, status = 400) => json({ error: message }, status)
+const err = (message: string, status = 400, errorCode = "listing_submission_failed") =>
+  json({ error: message, error_code: errorCode }, status)
 
 const VERIFICATION_PROJECT_URL = Deno.env.get("VERIFICATION_PROJECT_URL") || "https://ayvescksetiuekoyfqar.supabase.co"
 const VERIFICATION_PROJECT_ANON_KEY = Deno.env.get("VERIFICATION_PROJECT_ANON_KEY") || "sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT"
@@ -318,15 +322,13 @@ Deno.serve(async (req) => {
         .select()
         .single()
 
-      if (gpsErr) {
-        console.error("GPS node error:", gpsErr)
-        return err(`GPS node error: ${gpsErr.message}`, 500)
-      }
+      if (gpsErr) { return err(`DB Error: ${gpsErr.message} - ${JSON.stringify(gpsErr)}`, 400, "unmapped_error"); }
 
       return json({
         gps_node_id: gpsNode.id,
         coordinates: { lat, lng, accuracy },
         risk_flag: accuracy > 500,
+        error_code: accuracy > 500 ? "gps_risk_detected" : null,
         stage: "gps_lock",
         message: accuracy > 500
           ? "GPS accuracy low. Listing will be flagged as High Risk."
@@ -391,27 +393,27 @@ Deno.serve(async (req) => {
       }
 
       if (!title || !propertyType || !purpose || !district || !priceUgx || priceUgx <= 0) {
-        return err("Missing required fields: title, property_type, purpose, district, price", 400)
+        return err(`Missing required fields: title=${title}, type=${propertyType}, purpose=${purpose}, district=${district}, price=${priceUgx}`, 400, "utility_provider_unavailable")
       }
       if (!identityShardId || !utilityShardId || !gpsNodeId) {
-        return err("Verified identity, utility, and GPS shard IDs are required", 400)
+        return err(`Missing shard IDs: identity=${identityShardId}, utility=${utilityShardId}, gps=${gpsNodeId}`, 400, "utility_provider_unavailable")
       }
       if (idempotencyKey.length < 12 || idempotencyKey.length > 180) {
-        return err("A valid listing idempotency key is required", 400)
+        return err(`Invalid idempotency key length: ${idempotencyKey.length}`, 400, "utility_provider_unavailable")
       }
       if (photoFiles.length === 0) {
-        return err("At least one exterior or interior property photo is required", 400)
+        return err("At least one exterior or interior property photo is required", 400, "utility_provider_unavailable")
       }
       if (bathroomFiles.length === 0) {
-        return err("Bathroom photos are mandatory - please upload at least one", 400)
+        return err("Bathroom photos are mandatory - please upload at least one", 400, "utility_provider_unavailable")
       }
 
       const primaryJwt = authHeader?.replace(/^Bearer\s+/i, "").trim() || ""
       if (!primaryJwt) {
-        return err("A valid SP1 session is required to validate the SP2 identity shard", 401)
+        return err("A valid SP1 session is required to validate the SP2 identity shard", 401, "utility_provider_unavailable")
       }
       if (!await verifySp2IdentityShard(primaryJwt, identityShardId)) {
-        return err("The identity shard is missing, belongs to another user, or is not verified in SP2", 422)
+        return err("The identity shard is missing, belongs to another user, or is not verified in SP2", 422, "utility_provider_unavailable")
       }
 
       const { data: utilityShard, error: utilityError } = await supabaseAdmin
@@ -422,7 +424,7 @@ Deno.serve(async (req) => {
         .eq("verified", true)
         .maybeSingle()
       if (utilityError || !utilityShard) {
-        return err("The utility shard is missing, belongs to another user, or is not verified", 422)
+        return err(`Utility shard check failed: id=${utilityShardId}, userId=${userId}, error=${JSON.stringify(utilityError)}`, 422, "utility_provider_unavailable")
       }
 
       // Get GPS node for coordinates
@@ -468,27 +470,30 @@ Deno.serve(async (req) => {
       const bathroomPaths: string[] = []
 
       for (let i = 0; i < photoFiles.length; i++) {
-        const path = `${userId}/${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, photoFiles[i], { upsert: false, contentType: photoFiles[i].type || 'image/jpeg' })
-        if (error) throw new Error(`Property photo upload failed: ${error.message}`)
-        photoPaths.push(path)
-      }
+          const path = `${userId}/${timestamp}_${i}.jpg`
+          const fileBuffer = await photoFiles[i].arrayBuffer()
+          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, { upsert: false, contentType: "image/jpeg" })
+          if (error) throw new Error(`Property photo upload failed: ${error.message}`)
+          photoPaths.push(path)
+        }
 
       const videoPaths: string[] = []
       for (let i = 0; i < videoFiles.length; i++) {
-        const ext = videoFiles[i].name.split('.').pop() || 'mp4'
-        const path = `${userId}/reel_${timestamp}_${i}.${ext}`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, videoFiles[i], { upsert: false, contentType: videoFiles[i].type || 'video/mp4' })
-        if (error) throw new Error(`Property video upload failed: ${error.message}`)
-        videoPaths.push(path)
-      }
+          const ext = videoFiles[i].name.split(".").pop() || "mp4"
+          const path = `${userId}/reel_${timestamp}_${i}.${ext}`
+          const fileBuffer = await videoFiles[i].arrayBuffer()
+          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, { upsert: false, contentType: "video/mp4" })
+          if (error) throw new Error(`Property video upload failed: ${error.message}`)
+          videoPaths.push(path)
+        }
 
       for (let i = 0; i < bathroomFiles.length; i++) {
-        const path = `${userId}/bath_${timestamp}_${i}.jpg`
-        const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, bathroomFiles[i], { upsert: false, contentType: bathroomFiles[i].type || 'image/jpeg' })
-        if (error) throw new Error(`Bathroom photo upload failed: ${error.message}`)
-        bathroomPaths.push(path)
-      }
+          const path = `${userId}/bath_${timestamp}_${i}.jpg`
+          const fileBuffer = await bathroomFiles[i].arrayBuffer()
+          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, { upsert: false, contentType: "image/jpeg" })
+          if (error) throw new Error(`Bathroom photo upload failed: ${error.message}`)
+          bathroomPaths.push(path)
+        }
 
       // Calculate broker fee (5% for agent, 2% for Necxa = 7% total)
       const brokerFee = Math.floor(priceUgx * 0.07)
@@ -500,6 +505,17 @@ Deno.serve(async (req) => {
       const aiScore = 0.5; // pending
       const aiLevel = "PENDING";
       const aiDescription = "AI verification queued on Necxa AI Engine.";
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
+      const fullPhotoPaths = photoPaths.map(p =>
+        p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+      )
+      const fullBathroomPaths = bathroomPaths.map(p =>
+        p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+      )
+      const fullVideoPaths = videoPaths.map(p =>
+        p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+      )
 
       // Create listing
       const { data: listing, error: listErr } = await supabaseAdmin
@@ -513,12 +529,13 @@ Deno.serve(async (req) => {
           price: priceUgx,
           price_ugx: priceUgx, // Standardized
           category: propertyType.toUpperCase(),
-          image_url: photoPaths.length > 0 ? photoPaths[0] : null,
-          media_url: videoPaths.length > 0 ? videoPaths[0] : (photoPaths.length > 0 ? photoPaths[0] : null), 
+          image_url: fullPhotoPaths.length > 0 ? fullPhotoPaths[0] : null,
+          media_url: fullVideoPaths.length > 0 ? fullVideoPaths[0] : (fullPhotoPaths.length > 0 ? fullPhotoPaths[0] : null), 
           media_type: videoPaths.length > 0 ? "video" : "image",
-          thumbnail_url: photoPaths.length > 0 ? photoPaths[0] : null, // Essential for fast feed loading
-          film_hub_content: videoPaths.length > 0 ? videoPaths[0] : null,
-          photos: photoPaths, // Store miniatures directly in the JSON column
+          thumbnail_url: fullPhotoPaths.length > 0 ? fullPhotoPaths[0] : null, // Essential for fast feed loading
+          film_hub_content: fullVideoPaths.length > 0 ? fullVideoPaths[0] : null,
+          is_property_listing: true,
+          photos: [...fullPhotoPaths, ...fullBathroomPaths], // Store all photos with full CDN paths
           ai_score: aiScore,
           ai_description: aiDescription,
           ai_verification: {
@@ -569,7 +586,56 @@ Deno.serve(async (req) => {
         return err(`Listing creation failed: ${listErr.message}`, 500)
       }
 
-      // Add photos to listing_photos table
+        // Sync to properties table for Property Home Screen feed
+        const validPropTypes = ['apartment', 'house', 'villa', 'commercial', 'townhouse', 'travelersuite', 'campsite']
+        const safePropType = validPropTypes.includes(propertyType?.toLowerCase()) ? propertyType.toLowerCase() : 'apartment'
+
+        const validListingTypes = ['sale', 'rent', 'short_term']
+        const safeListingType = validListingTypes.includes(purpose?.toLowerCase()) ? purpose.toLowerCase() : 'rent'
+
+        const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
+        const fullPhotoUrls = [...photoPaths, ...bathroomPaths].map(p =>
+          p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+        )
+        const fullBathroomUrls = bathroomPaths.map(p =>
+          p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
+        )
+
+        const { error: propSyncErr } = await supabaseAdmin.from("properties").upsert({
+          id: deterministicId,
+          lister_id: userId,
+          agent_id: userId,
+          title,
+          description: description || "",
+          property_type: safePropType,
+          listing_type: safeListingType,
+          price: priceUgx,
+          price_type: (pricePeriod === "nightly") ? "nightly" : "monthly",
+          bedrooms: bedrooms || 1,
+          bathrooms: bathrooms || 1,
+          size_sqft: sqft || 0,
+          address: address || district || "Uganda",
+          city: district || "Kampala",
+          district: district || "Kampala",
+          country: country || "Uganda",
+          images: fullPhotoUrls,
+          bathroom_image_urls: fullBathroomUrls,
+          latitude: gpsNode?.latitude || null,
+          longitude: gpsNode?.longitude || null,
+          gps_latitude: gpsNode?.latitude || null,
+          gps_longitude: gpsNode?.longitude || null,
+          is_verified: true,
+          is_active: true,
+          is_sold: false,
+          is_honeypot: false,
+          escrow_status: "available",
+        }, { onConflict: "id" })
+
+        if (propSyncErr) {
+          console.error("Property table sync error:", propSyncErr)
+        }
+
+        // Add photos to listing_photos table
       if (photoPaths.length > 0) {
         await supabaseAdmin.from("listing_photos").insert(
           photoPaths.map((p, i) => ({
@@ -593,74 +659,7 @@ Deno.serve(async (req) => {
         )
       }
 
-      // 🚀 NEURAL SYNC: Create a Shadow Post so the listing appears in the Community Feed
-      let shadowPostId = null;
-      if (videoPaths.length > 0 || photoPaths.length > 0) {
-        const { data: post, error: postErr } = await supabaseAdmin
-          .from('community_posts')
-          .insert({
-            author_id: userId,
-            title: title,
-            content: description,
-            media_url: videoPaths.length > 0 ? videoPaths[0] : photoPaths[0],
-            media_type: videoPaths.length > 0 ? 'video' : 'image',
-            thumbnail_url: photoPaths.length > 0 ? photoPaths[0] : null,
-            listing_id: listing.id,
-            music_track_id: musicTrackId || null,
-            audio_url: audioUrl || null,
-            status: 'verified',
-            visibility: 'public'
-          })
-          .select()
-          .single();
-        
-        
-        if (!postErr) {
-          shadowPostId = post.id;
-          
-          // 🚀 INSTANT SYNC: Push to Redis discovery feed immediately
-          const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-          const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-          const supabaseUrl = process.env.SUPABASE_URL;
-          
-          if (redisUrl && redisToken && supabaseUrl) {
-            try {
-              const score = Date.now();
-              const cdnBase = `${supabaseUrl}/storage/v1/object/public/listing-photos/`;
-              
-              const cdnPost = {
-                ...post,
-                media_url: videoPaths.length > 0 ? `${cdnBase}${videoPaths[0]}` : `${cdnBase}${photoPaths[0]}`,
-                thumbnail_url: photoPaths.length > 0 ? `${cdnBase}${photoPaths[0]}` : null,
-                profiles: {
-                  display_name: profile.full_name,
-                  photo_url: profile.avatar_url,
-                  trust_score: profile.trust_score,
-                  trust_score_tier: profile.trust_score_tier
-                },
-                listings: {
-                  ...listing,
-                  media_url: videoPaths.length > 0 ? `${cdnBase}${videoPaths[0]}` : null,
-                  film_hub_content: videoPaths.length > 0 ? `${cdnBase}${videoPaths[0]}` : null,
-                  miniature_photos: photoPaths.map(p => `${cdnBase}${p}`)
-                }
-              };
-
-              await fetch(`${redisUrl}/pipeline`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${redisToken}` },
-                body: JSON.stringify([
-                  ["ZADD", "feed:global", score.toString(), cdnPost.id],
-                  ["SET", `post:${cdnPost.id}`, JSON.stringify(cdnPost), "EX", "3600"]
-                ])
-              });
-              console.log(`🚀 NEURAL SYNC COMPLETE: New Container ${cdnPost.id} is LIVE.`);
-            } catch (re) {
-              console.error("Redis Sync Error in listing-create:", re);
-            }
-          }
-        }
-      }
+      // Property listings go to the Property home screen only (via properties table).
 
       // Update agent contact methods
       if (agentPhone || agentWhatsapp || agentMeet) {
@@ -737,10 +736,21 @@ Deno.serve(async (req) => {
       })
     }
 
-    return err("Invalid stage parameter. Valid stages: identity_shard, utility_shard, gps_lock, neural_synthesis", 400)
+    return err("Invalid stage parameter. Valid stages: identity_shard, utility_shard, gps_lock, neural_synthesis", 400, "listing_stage_invalid")
 
   } catch (e) {
     console.error("listing-create error:", e)
-    return err(`Server error: ${e.message}`, 500)
+    return err(`Server error: ${e.message} - ${JSON.stringify(e)}`, 500, "utility_provider_unavailable")
   }
 })
+
+
+
+
+
+
+
+
+
+
+

@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, fix/listing-wizard-liveness ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout source
+      uses: actions/checkout@v4
       with:
+        ref: ${{ github.sha }}
         submodules: false
         fetch-depth: 0
 
@@ -45,9 +47,20 @@ jobs:
       with:
         flutter-version: '3.38.6'
         channel: 'stable'
-        cache: true
+        cache: false
 
-    - name: Get dependencies
+    - name: Print build info
+      run: |
+        echo "==== BUILD INFO ===="
+        echo "Commit : $GITHUB_SHA"
+        echo "Branch : $GITHUB_REF_NAME"
+        echo "Run    : $GITHUB_RUN_NUMBER"
+        git log --oneline -5
+
+    - name: Clean previous build artefacts
+      run: flutter clean
+
+    - name: Get fresh dependencies
       run: flutter pub get
 
     - name: Build APK Release (split per ABI)

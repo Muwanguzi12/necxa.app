@@ -70,8 +70,8 @@ class FinanceGiftingService {
         .toList();
 
     // Finance owns the gift ID and price contract. Do not merge a local list
-    // ahead of it: a stale local ID (for example `money_bag` instead of
-    // `moneybag`) passes the UI but is rejected by the atomic transfer RPC.
+    // ahead of it: a stale local ID would pass the UI but be rejected by the
+    // atomic transfer RPC.
     if (remoteItems.isNotEmpty) {
       _catalogCache = remoteItems;
       return List<GiftItem>.of(_catalogCache!);
@@ -115,6 +115,23 @@ class FinanceGiftingService {
     bool isAnonymous = false,
     String? idempotencyKey,
   }) async {
+    if (senderId.trim().isEmpty ||
+        receiverId.trim().isEmpty ||
+        senderId.trim().toLowerCase() == receiverId.trim().toLowerCase()) {
+      return GiftResult(
+        success: false,
+        giftId: '',
+        giftEmoji: '\u{1F48E}',
+        giftName: '',
+        ncxAmount: ncxAmount,
+        receiverNcx: 0,
+        platformFeeNcx: 0,
+        ugxEquivalent: 0,
+        isHighlighted: false,
+        message: 'You cannot send a gift to yourself.',
+      );
+    }
+
     try {
       await FinanceInitializer.instance.ensureInitialized();
       final result = await FinanceBackend.instance.invoke(

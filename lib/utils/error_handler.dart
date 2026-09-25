@@ -3,12 +3,43 @@ import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
 import 'auth_retry.dart';
+import '../services/listing_sync_service.dart';
 
 /// Converts raw backend exceptions and network errors into clean, user-friendly messages.
 String getUserFriendlyError(dynamic error) {
   if (error == null) return "An unknown error occurred. Please try again.";
 
   final errorStr = error.toString().toLowerCase();
+
+  if (error is ListingSyncException) {
+    const stageMessages = <String, String>{
+      'identity_receipt_syncing':
+          'Verification is still syncing. Tap Retry without retaking your photos.',
+      'identity_receipt_missing':
+          'Verification receipts are missing. Please retry the identity step.',
+      'identity_receipt_mismatch':
+          'One identity capture was not approved. Please retry that capture.',
+      'identity_provider_unavailable':
+          'Identity verification is temporarily unavailable. Please retry.',
+      'utility_not_verified':
+          'The utility document was not approved. Capture a clearer document and retry.',
+      'utility_provider_unavailable':
+          'Utility verification is temporarily unavailable. Please retry.',
+      'gps_risk_detected':
+          'The location could not be trusted. Move outdoors and lock GPS again.',
+      'listing_submission_failed':
+          'The listing could not be submitted. Please retry this step.',
+    };
+    final message = stageMessages[error.code] ?? error.message;
+    final finalMessage = (error.code == 'identity_provider_unavailable' || error.code == 'utility_provider_unavailable')
+        ? '$message DETAILS: ${error.message}' 
+        : message;
+        
+    final requestId = error.requestId?.trim();
+    return requestId != null && requestId.isNotEmpty
+        ? '$finalMessage (Reference: ${requestId.substring(0, requestId.length > 12 ? 12 : requestId.length)})'
+        : finalMessage;
+  }
 
   // Network / Socket Exceptions
   if (error is SocketException ||
@@ -19,6 +50,24 @@ String getUserFriendlyError(dynamic error) {
 
   if (error is TimeoutException || errorStr.contains('timeout')) {
     return "Connection timed out. Please try again.";
+  }
+
+  // Preserve safe identity-function outcomes instead of hiding them behind the
+  // generic loading message.
+  const identityMessages = <String, String>{
+    'verification results are still syncing':
+        'Verification is still syncing. Tap Verify again without retaking your photos.',
+    'verification receipts are missing':
+        'Verification receipts are missing. Please complete the identity capture again.',
+    'direct identity verification receipts':
+        'Identity verification could not save its results. Please try Verify again.',
+    'biometric receipt':
+        'The face verification result was not approved. Please retry the face capture.',
+    'document receipt':
+        'One of the document captures was not approved. Please retry that capture.',
+  };
+  for (final entry in identityMessages.entries) {
+    if (errorStr.contains(entry.key)) return entry.value;
   }
 
   // Supabase Auth Exceptions

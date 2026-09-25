@@ -388,8 +388,18 @@ class AppState extends ChangeNotifier {
 
   String? _shieldError;
   String? get shieldFeedback => _shieldError;
-  void setShieldFeedback(String? message) {
-    _shieldError = message;
+  void setShieldFeedback(Object? message) {
+    if (message == null) {
+      _shieldError = null;
+    } else if (message is String) {
+      _shieldError = message;
+    } else if (message is Map) {
+      final value =
+          message['message'] ?? message['error'] ?? message['feedback'];
+      _shieldError = value is String ? value : message.toString();
+    } else {
+      _shieldError = message.toString();
+    }
     notifyListeners();
   }
 
@@ -1093,19 +1103,15 @@ class AppState extends ChangeNotifier {
   }) async {
     if (user == null) throw Exception('Sign in before buying coins');
 
-    // 🛡️ GATHER SECURITY METADATA
-    final securityData = await getFullSecurityMetadata();
-    if (contextType != null) securityData['purchase_context'] = contextType;
-    if (contextId != null) securityData['context_id'] = contextId;
-    if (targetGiftItemId != null) {
-      securityData['target_gift_item_id'] = targetGiftItemId;
-    }
-
     final result = await financeCoinPurchases.purchase(
       packId: packId,
       method: method,
       idempotencyKey: idempotencyKey,
-      securityMetadata: securityData,
+      securityMetadata: {
+        if (contextType != null) 'purchase_context': contextType,
+        if (contextId != null) 'context_id': contextId,
+        if (targetGiftItemId != null) 'target_gift_item_id': targetGiftItemId,
+      },
     );
 
     if (result['success'] == true) {
@@ -1488,16 +1494,20 @@ class AppState extends ChangeNotifier {
     try {
       final res = await SmoothAction.unlockProperty(id);
       if (res['success'] == true) {
-        // Find the property in the local list and mark it as unlocked
+        // Free trial used or already unlocked
         final idx = propertyContainers.indexWhere((p) => p.core.id == id);
         if (idx != -1) {
-          // Re-fetch listing data to get the now-decrypted contact fields
           final raw = await SmoothAction.getProperty(id);
           final refreshed = PropertyContainer.fromJson(raw);
           propertyContainers[idx] = refreshed;
         }
         await loadProperties(); // Full sync
         paid = true;
+      } else if (res['requires_payment'] == true) {
+        // Route to payment screen, free trial was already used
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Unknown error');
       }
     } catch (e) {
       debugPrint('Unlock Error: $e');
@@ -1559,6 +1569,7 @@ class AppState extends ChangeNotifier {
 
   // ── Global Methods ──
   void go(String s, {dynamic extra}) {
+    if (kIsWeb && _isChatRoute(s)) return;
     // Prevent push-loops
     if (screen != s) {
       _navigationStack.add(screen);
@@ -1593,6 +1604,16 @@ class AppState extends ChangeNotifier {
 
     notifyListeners();
   }
+
+  bool get chatAvailable => !kIsWeb;
+
+  bool _isChatRoute(String route) =>
+      route == 'chat' ||
+      route == 'chat-list' ||
+      route == 'new-chat' ||
+      route == 'chat-detail' ||
+      route == 'creator-chat-list' ||
+      route == 'creator-chat-detail';
 
   void goBack() {
     if (_navigationStack.isNotEmpty) {
@@ -2510,6 +2531,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> openOrCreateChat(PropertyContainer property) async {
+    if (!chatAvailable) return;
     if (user == null) return;
     final otherId = property.core.agentId ?? property.core.listerId;
     if (otherId == user!.id) return; // Avoid self-chat
@@ -2549,6 +2571,7 @@ class AppState extends ChangeNotifier {
     String? initialContextText,
     String context = 'social',
   }) async {
+    if (!chatAvailable) return;
     if (user == null) return;
     if (authorId == user!.id) return;
 

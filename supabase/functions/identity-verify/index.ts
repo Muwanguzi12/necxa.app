@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "npm:@supabase/supabase-js@2"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -6,7 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
+const json = (data: unknown, status = 200) => new Response(JSON.stringify({
+  ...(data as Record<string, unknown>),
+  request_id: crypto.randomUUID(),
+}), {
   status,
   headers: { ...corsHeaders, "Content-Type": "application/json" },
 })
@@ -33,8 +36,9 @@ async function fileToDataUrl(file: File): Promise<string> {
 
 async function runDirectAiVerification(
   primaryJwt: string,
-  action: "verify-id-front" | "verify-id-back" | "verify-id-holding" | "verify-face-only",
+  action: "verify-id-front" | "verify-id-back" | "verify-id-holding" | "verify-face-only" | "verify-face-panorama",
   imageBase64: string,
+  metadata?: Record<string, unknown>,
 ): Promise<Record<string, any>> {
   const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-identity-shard`, {
     method: "POST",
@@ -44,7 +48,7 @@ async function runDirectAiVerification(
       "x-primary-jwt": primaryJwt,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ action, payload: { imageBase64 } }),
+    body: JSON.stringify({ action, payload: { imageBase64, metadata } }),
   })
   const result = await response.json().catch(() => ({}))
   if (!response.ok || result?.verified !== true) {
@@ -72,6 +76,35 @@ function requiredFile(formData: FormData, name: string): File {
     throw new Error(`${name} must be a JPEG or PNG image no larger than 10 MB.`)
   }
   return value
+}
+
+class CaptureVerificationError extends Error {
+  constructor(
+    readonly captureStage: "front" | "back" | "holding" | "face",
+    message: string,
+  ) {
+    super(message)
+    this.name = "CaptureVerificationError"
+  }
+}
+
+function validPanoramaMetadata(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== 'object') return false
+  const value = metadata as Record<string, unknown>
+  const timestamps = value.captureTimestampsMs
+  const panelOrder = value.panelOrder
+  const ordered = Array.isArray(panelOrder) &&
+    panelOrder.join('|') === 'center|turn_left|center_return'
+  const orderedTimes = Array.isArray(timestamps) &&
+    timestamps.length === 3 &&
+    timestamps.every((item) => Number.isInteger(item) && Number(item) > 0) &&
+    Number(timestamps[0]) < Number(timestamps[1]) &&
+    Number(timestamps[1]) < Number(timestamps[2]) &&
+    Number(timestamps[2]) - Number(timestamps[0]) <= 15000
+  return value.format === 'three-panel-horizontal' &&
+    value.panelCount === 3 &&
+    ordered &&
+    orderedTimes
 }
 
 function stageResult(job: Record<string, any>, expectedStage: string): Record<string, any> | null {
@@ -103,25 +136,25 @@ async function loadVerificationJobs(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405)
+  if (req.method !== "POST") return json({ error: "Method not allowed", error_code: "method_not_allowed" }, 405)
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     const bearer = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim()
     const primaryJwt = (req.headers.get("x-primary-jwt") || bearer).trim()
-    if (!primaryJwt) return json({ error: "Unauthorized" }, 401)
+    if (!primaryJwt) return json({ error: "Unauthorized", error_code: "unauthorized" }, 401)
 
     const primaryClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: `Bearer ${primaryJwt}` } },
     })
     const { data: { user }, error: authError } = await primaryClient.auth.getUser()
-    if (authError || !user) return json({ error: "Unauthorized" }, 401)
+    if (authError || !user) return json({ error: "Unauthorized", error_code: "unauthorized" }, 401)
 
     const contentType = req.headers.get("content-type") || ""
     if (contentType.includes("application/json")) {
       const body = await req.json().catch(() => ({}))
       if (body?.action !== "status" || typeof body?.identity_shard_id !== "string") {
-        return json({ error: "Invalid identity status request." }, 400)
+        return json({ error: "Invalid identity status request.", error_code: "identity_status_invalid" }, 400)
       }
       const { data: shard, error } = await supabase
         .from("identity_shards")
@@ -142,11 +175,48 @@ Deno.serve(async (req) => {
     const idBack = requiredFile(formData, "id_back")
     const idHolding = requiredFile(formData, "id_holding")
     const facePhoto = requiredFile(formData, "face_photo")
+    const livenessEvidenceValue = formData.get("liveness_evidence")
+    const livenessEvidence = livenessEvidenceValue instanceof File && livenessEvidenceValue.size > 0
+      ? livenessEvidenceValue
+      : null
+    if (livenessEvidence && (livenessEvidence.size > 10 * 1024 * 1024 ||
+      !["image/jpeg", "image/png"].includes(livenessEvidence.type))) {
+      throw new Error("liveness_evidence must be a JPEG or PNG image no larger than 10 MB.")
+    }
+    const livenessMetadataText = String(formData.get("liveness_metadata") || "").trim()
+    let livenessMetadata: Record<string, unknown> | undefined
+    let livenessManifest: Record<string, any> | undefined
+    let livenessFrames: File[] = []
+    if (livenessEvidence) {
+      if (!livenessMetadataText) throw new Error("liveness_metadata is required with liveness_evidence.")
+      const parsed = JSON.parse(livenessMetadataText)
+      if (!validPanoramaMetadata(parsed)) throw new Error("Invalid liveness metadata.")
+      livenessMetadata = parsed
+      if (parsed.cryptographicCapture === "accepted") {
+        const manifest = parsed.cryptographicManifest
+        if (!manifest || typeof manifest !== "object" ||
+          typeof manifest.nonce !== "string" ||
+          typeof manifest.keyId !== "string" ||
+          typeof manifest.signature !== "string" ||
+          !Array.isArray(manifest.frames) ||
+          manifest.frames.length !== 3) {
+          throw new Error("Cryptographic liveness manifest is missing or invalid.")
+        }
+        livenessManifest = manifest as Record<string, any>
+        livenessFrames = [0, 1, 2].map((index) => {
+          const value = formData.get(`liveness_frame_${index}`)
+          if (!(value instanceof File) || value.size === 0) {
+            throw new Error(`Missing liveness_frame_${index} for cryptographic verification.`)
+          }
+          return value
+        })
+      }
+    }
     const docType = String(formData.get("doc_type") || "National ID")
     const docNumberInput = String(formData.get("doc_number") || "").trim()
     const idempotencyKey = String(req.headers.get("Idempotency-Key") || "").trim()
     if (idempotencyKey.length < 12 || idempotencyKey.length > 180) {
-      return json({ error: "A valid identity idempotency key is required." }, 400)
+      return json({ error: "A valid identity idempotency key is required.", error_code: "identity_idempotency_invalid" }, 400)
     }
 
     const receiptIds = {
@@ -157,17 +227,55 @@ Deno.serve(async (req) => {
     }
     const directAiMode = formData.get("verification_mode") === "direct-ai-engine"
     if (directAiMode) {
-      const [frontBase64, backBase64, holdingBase64, faceBase64] = await Promise.all([
+      if (livenessManifest) {
+        const canonical = JSON.stringify({
+          nonce: livenessManifest.nonce,
+          frames: livenessManifest.frames,
+          createdAt: livenessManifest.createdAt,
+        })
+        const manifestHash = await sha256Hex(canonical)
+        const { data: challenge, error: challengeError } = await supabase
+          .from("liveness_challenges")
+          .select("id,consumed_at,manifest_hash")
+          .eq("user_id", user.id)
+          .eq("nonce", livenessManifest.nonce)
+          .eq("key_id", livenessManifest.keyId)
+          .maybeSingle()
+        if (challengeError) throw challengeError
+        if (!challenge || !challenge.consumed_at || challenge.manifest_hash !== manifestHash) {
+          throw new Error("Cryptographic liveness challenge was not accepted by SP2.")
+        }
+        for (let index = 0; index < livenessFrames.length; index++) {
+          const expected = livenessManifest.frames[index]
+          const actual = await fileSha256(livenessFrames[index])
+          if (expected?.index !== index || expected?.sha256 !== actual) {
+            throw new Error(`Cryptographic liveness frame ${index + 1} does not match its signed hash.`)
+          }
+        }
+      }
+      const [frontBase64, backBase64, holdingBase64, faceBase64, livenessBase64] = await Promise.all([
         fileToDataUrl(idFront),
         fileToDataUrl(idBack),
         fileToDataUrl(idHolding),
         fileToDataUrl(facePhoto),
+        livenessEvidence ? fileToDataUrl(livenessEvidence) : Promise.resolve(null),
       ])
-      const [frontResult, backResult, holdingResult, faceResult] = await Promise.all([
-        runDirectAiVerification(primaryJwt, "verify-id-front", frontBase64),
-        runDirectAiVerification(primaryJwt, "verify-id-back", backBase64),
-        runDirectAiVerification(primaryJwt, "verify-id-holding", holdingBase64),
-        runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64),
+      const verifyCapture = <T>(
+        stage: CaptureVerificationError["captureStage"],
+        verification: Promise<T>,
+      ) => verification.catch((error) => {
+        throw new CaptureVerificationError(
+          stage,
+          error instanceof Error ? error.message : String(error),
+        )
+      })
+      const [frontResult, backResult, holdingResult, faceResult, livenessResult] = await Promise.all([
+        verifyCapture("front", runDirectAiVerification(primaryJwt, "verify-id-front", frontBase64)),
+        verifyCapture("back", runDirectAiVerification(primaryJwt, "verify-id-back", backBase64)),
+        verifyCapture("holding", runDirectAiVerification(primaryJwt, "verify-id-holding", holdingBase64)),
+        livenessBase64
+          ? verifyCapture("face", runDirectAiVerification(primaryJwt, "verify-face-panorama", livenessBase64, livenessMetadata))
+          : verifyCapture("face", runDirectAiVerification(primaryJwt, "verify-face-only", faceBase64)),
       ])
       const directJobs = await supabase
         .from("ai_verification_jobs")
@@ -214,12 +322,28 @@ Deno.serve(async (req) => {
               capture_stage: "biometric",
               selfie_sha256: await fileSha256(facePhoto),
               reference_sha256: await fileSha256(idFront),
+              ...(livenessEvidence && livenessResult
+                ? {
+                    liveness_evidence_sha256: await fileSha256(livenessEvidence),
+                    liveness_metadata: livenessMetadata,
+                    liveness_result: livenessResult,
+                  }
+                : {}),
             },
           },
         ], { onConflict: "subject_user_id,idempotency_key" })
         .select("id,result_summary")
       if (directJobs.error || !directJobs.data || directJobs.data.length !== 4) {
         throw directJobs.error || new Error("Unable to create direct verification receipts.")
+      }
+      const biometricResult = livenessResult || faceResult
+      if (biometricResult.verified !== true ||
+        biometricResult.livenessPassed !== true ||
+        biometricResult.verificationSessionId == null ||
+        String(biometricResult.verificationSessionId).trim() === "") {
+        throw new Error(
+          String(biometricResult.feedback || "Biometric liveness was not approved."),
+        )
       }
       const directJobsByStage = new Map(
         (directJobs.data as Record<string, any>[]).map((job) => [
@@ -238,7 +362,7 @@ Deno.serve(async (req) => {
         { job_id: frontJob.id, stage: "front_document_assessment", provider: frontResult.engine || "ai-engine", decision: "pass", metadata: frontResult },
         { job_id: backJob.id, stage: "back_document_assessment", provider: backResult.engine || "ai-engine", decision: "pass", metadata: backResult },
         { job_id: holdingJob.id, stage: "holding_document_assessment", provider: holdingResult.engine || "ai-engine", decision: "pass", metadata: holdingResult },
-        { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: faceResult.engine || "ai-engine", decision: "pass", metadata: { liveness_score: faceResult.livenessScore, similarity_score: faceResult.score, ...faceResult } },
+        { job_id: biometricJob.id, stage: "face_match_and_liveness", provider: biometricResult.engine || "ai-engine", decision: biometricResult.verified === true ? "pass" : "fail", metadata: { liveness_score: biometricResult.livenessScore, similarity_score: biometricResult.score, ...biometricResult } },
       ], { onConflict: "job_id,stage,attempt" })
       if (stageRows.error) throw stageRows.error
       receiptIds.front = frontJob.id
@@ -248,6 +372,7 @@ Deno.serve(async (req) => {
     }
     if (Object.values(receiptIds).some((value) => !/^[0-9a-f-]{36}$/i.test(value))) {
       return json({
+        error_code: "identity_receipt_missing",
         error: "One or more verification receipts are missing. Restart the identity capture once.",
         reasonCode: "verification_receipt_missing",
       }, 409)
@@ -259,6 +384,7 @@ Deno.serve(async (req) => {
     const jobs = await loadVerificationJobs(supabase, Object.values(receiptIds), user.id)
     if (jobs.length !== 4) {
       return json({
+        error_code: "identity_receipt_syncing",
         error: "Verification results are still syncing. Tap Verify once more; do not retake the ID photos.",
         reasonCode: "verification_receipts_syncing",
         retryable: true,
@@ -284,6 +410,7 @@ Deno.serve(async (req) => {
       ) {
         return json({
           verified: false,
+          error_code: "identity_receipt_mismatch",
           error: `The ${check.key} capture does not match an approved Llama Vision result.`,
           reasonCode: "document_receipt_mismatch",
         }, 422)
@@ -302,6 +429,7 @@ Deno.serve(async (req) => {
     ) {
       return json({
         verified: false,
+        error_code: "identity_receipt_mismatch",
         error: "The biometric receipt does not contain a passed face-match and liveness decision.",
         reasonCode: "biometric_receipt_not_approved",
       }, 422)
@@ -335,6 +463,9 @@ Deno.serve(async (req) => {
       store(idHolding, "id_holding.jpg"),
       store(facePhoto, "face_photo.jpg"),
     ])
+    const livenessPath = livenessEvidence
+      ? await store(livenessEvidence, "liveness_evidence.jpg")
+      : null
 
     const aiMetadata = {
       policy_version: "identity-receipts-v1",
@@ -345,7 +476,17 @@ Deno.serve(async (req) => {
       biometric_provider: biometricStage.provider,
       biometric_result: biometricStage.metadata,
     }
+    let shardId = crypto.randomUUID()
+    const { data: existingShard } = await supabase
+      .from("identity_shards")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle()
+    if (existingShard?.id) shardId = existingShard.id
+
     const row = {
+      id: shardId,
       user_id: user.id,
       idempotency_key: idempotencyKey,
       doc_type: docType,
@@ -354,6 +495,7 @@ Deno.serve(async (req) => {
       id_back_url: backPath,
       id_holding_url: holdingPath,
       face_scan_url: facePath,
+      liveness_evidence_url: livenessPath,
       verified: true,
       verification_confidence: similarityPercent,
       extracted_name: null,
@@ -392,7 +534,22 @@ Deno.serve(async (req) => {
       },
     })
   } catch (error) {
+    if (error instanceof CaptureVerificationError) {
+      return json({
+        verified: false,
+        error_code: "identity_capture_rejected",
+        capture_stage: error.captureStage,
+        error: error.message,
+        reasonCode: error.captureStage === "face"
+          ? "biometric_not_approved"
+          : "document_capture_rejected",
+        retryable: true,
+      }, 422)
+    }
     console.error("Identity verification error:", error)
-    return json({ error: error instanceof Error ? error.message : "Identity verification failed." }, 500)
+    return json({
+      error_code: "identity_provider_unavailable",
+      error: error instanceof Error ? error.message : (typeof error === "object" ? JSON.stringify(error) : "Identity verification failed."),
+    }, 503)
   }
 })

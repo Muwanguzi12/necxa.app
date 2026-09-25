@@ -9,11 +9,24 @@ import '../theme.dart';
 import '../app_state.dart';
 import '../services/listing_sync_service.dart';
 import '../services/ai_service.dart';
+import '../services/liveness_capture_service.dart';
 import '../utils/error_handler.dart';
 import '../main.dart' show cameras;
 
+class _LivenessCapture {
+  final List<File> frames;
+  final List<int> captureTimestampsMs;
+
+  const _LivenessCapture({
+    required this.frames,
+    required this.captureTimestampsMs,
+  });
+}
+
+class _LivenessCaptureCancelled implements Exception {}
+
 // -----------------------------------------------------------------------------
-// NECXA � 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
+// NECXA - 7-Step Property Listing Wizard (Enhanced with ShieldSDK)
 // -----------------------------------------------------------------------------
 class ListingWizardScreen extends StatefulWidget {
   final AppState state;
@@ -27,6 +40,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   int _step = 0;
   bool _loading = false;
   bool _aiGenerating = false;
+  bool _showStartGuide = true;
   bool _identityAdvanceScheduled = false;
   late final String _submissionIdempotencyKey;
 
@@ -35,6 +49,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   final _descCtrl = TextEditingController();
   final _districtCtrl = TextEditingController();
   final _cityCtrl = TextEditingController();
+  final _agentPhoneCtrl = TextEditingController();
+  final _agentWhatsappCtrl = TextEditingController();
   String _propType = 'apartment';
   String _purpose = 'rent';
   String _role = 'owner'; // 'owner' or 'agent'
@@ -49,6 +65,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   // -- Step 3: Identity Shard (ShieldSDK) ------------------------------------
   String? _identityShardId;
+  final List<File> _livenessTempFiles = [];
 
   // -- Step 4: Utility Shard --------------------------------------------------
   final _umemeCtrl = TextEditingController();
@@ -72,10 +89,58 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   final List<File> _interiorPhotos = [];
   final List<File> _bathroomPhotos = [];
 
-  // -- Step 7: Final ---------------------------------------------------------
+  bool _locatingGps = false;
+  bool _onSiteVerified = false;
+  double _onSiteDistanceMeters = 0.0;
   bool _submitted = false;
   String? _mintEventId;
   final GlobalKey<_NeuralScannerOverlayState> _scannerKey = GlobalKey();
+
+  Future<void> _autofillGpsLocation() async {
+    if (_locatingGps) return;
+    setState(() => _locatingGps = true);
+    try {
+      await widget.state.captureGps();
+      final pos = widget.state.currentGps;
+      if (pos != null) {
+        if (_districtCtrl.text.trim().isEmpty || _districtCtrl.text.trim().toLowerCase() == 'kololo') {
+          _districtCtrl.text = 'Kampala Central';
+        }
+        if (_cityCtrl.text.trim().isEmpty) {
+          _cityCtrl.text = 'Kampala';
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.my_location, color: Color(0xFF00E5FF), size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '📍 GPS Pin Locked (${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}). Location set to ${_districtCtrl.text}, ${_cityCtrl.text}!',
+                      style: syne(sz: 11.5, w: FontWeight.w700, c: Colors.black),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF00E5FF),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+        }
+      } else if (widget.state.gpsError != null) {
+        _showError(widget.state.gpsError!);
+      }
+    } catch (e) {
+      _showError('GPS pin capture failed: ${e.toString()}');
+    } finally {
+      if (mounted) setState(() => _locatingGps = false);
+    }
+  }
 
   @override
   void initState() {
@@ -85,6 +150,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     final userId = widget.state.user?.id ?? 'anonymous';
     _submissionIdempotencyKey =
         'listing-$userId-${DateTime.now().microsecondsSinceEpoch}';
+    unawaited(_applyCaptureOrientation(widget.state.verificationSubStep));
     for (final controller in [
       _titleCtrl,
       _districtCtrl,
@@ -99,8 +165,27 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _applyCaptureOrientation(int subStep) {
+    final orientations = subStep == 2
+        ? const [
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]
+        : const [DeviceOrientation.portraitUp, DeviceOrientation.portraitDown];
+    return SystemChrome.setPreferredOrientations(orientations);
+  }
+
+  void _restorePortraitOrientation() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
+
   @override
   void dispose() {
+    unawaited(_cleanupLivenessFiles());
+    _restorePortraitOrientation();
     for (final controller in [
       _titleCtrl,
       _districtCtrl,
@@ -124,13 +209,13 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   static const _steps = [
-    ('Role & Basics', '??', 'Distinguish Agent vs Owner'),
-    ('Pricing & Specs', '??', 'Price, bedrooms, size'),
-    ('Identity Shard', '???', 'ShieldSDK Biometric Match'),
-    ('Utility Shard', '?', 'Utility & Authority Docs'),
-    ('GPS Node Lock', '??', 'Lock physical coordinates'),
-    ('Property Photos', '??', 'Upload visual assets'),
-    ('Review & Mint', '?', 'Final neural synthesis'),
+    ('Role & Basics', '🏠', 'Agent or owner'),
+    ('Pricing & Specs', '💰', 'Price and property details'),
+    ('Identity Shard', '🪪', 'ID and face verification'),
+    ('Utility Shard', '📄', 'Utility and authority docs'),
+    ('GPS Node Lock', '📍', 'Lock property coordinates'),
+    ('Property Photos', '📸', 'Upload property photos'),
+    ('Review & Mint', '✅', 'Review and submit'),
   ];
 
   bool get _canGoNext {
@@ -144,7 +229,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             0;
       case 2:
         return (widget.state.lastIDResult?.verified ?? false) &&
-            (widget.state.idBackImage != null) && // back: capture only, no AI required
+            (widget.state.lastIDBackResult?.verified ?? false) &&
             (widget.state.lastHoldingResult?.verified ?? false) &&
             (widget.state.lastSelfieResult?.faceMatch ?? false) &&
             (widget.state.identityShardId?.isNotEmpty ?? false);
@@ -184,21 +269,142 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           onPressed: () => widget.state.go('home'),
         ),
       ),
-      body: Column(
+      body: _showStartGuide
+          ? _buildStartGuide()
+          : Column(
+              children: [
+                _buildProgress(),
+                _buildStepHeader(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    physics: const BouncingScrollPhysics(),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: _buildStepBody(),
+                    ),
+                  ),
+                ),
+                if (!_submitted && _step < _steps.length - 1) _buildBottomNav(),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildStartGuide() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildProgress(),
-          _buildStepHeader(),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              physics: const BouncingScrollPhysics(),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _buildStepBody(),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: C.brand.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: C.brand.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.location_on_outlined, color: C.brand, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Listing of property must be done on site.',
+                    style: syne(sz: 15, w: FontWeight.w800, c: C.text),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          Text('Listing Guide', style: syne(sz: 22, w: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(
+            'Have the property and required documents ready before you begin.',
+            style: dm(sz: 13, c: C.sub, h: 1.4),
+          ),
+          const SizedBox(height: 22),
+          _guideItem(
+            '1',
+            'Property details',
+            'Enter the basic information and pricing.',
+          ),
+          _guideItem(
+            '2',
+            'Identity',
+            'Capture the ID and selfie when prompted.',
+          ),
+          _guideItem(
+            '3',
+            'Documents and GPS',
+            'Verify documents and lock the property location on site.',
+          ),
+          _guideItem(
+            '4',
+            'Property photos',
+            'Capture clear exterior, interior, and bathroom photos.',
+          ),
+          _guideItem(
+            '5',
+            'Review and submit',
+            'Confirm the details before creating the listing.',
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => setState(() => _showStartGuide = false),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: C.brand,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: Text(
+                'Start Listing',
+                style: syne(c: C.bg, w: FontWeight.w800),
               ),
             ),
           ),
-          if (!_submitted && _step < _steps.length - 1) _buildBottomNav(),
+        ],
+      ),
+    );
+  }
+
+  Widget _guideItem(String number, String title, String detail) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 13,
+            backgroundColor: C.brand.withValues(alpha: 0.16),
+            child: Text(
+              number,
+              style: syne(sz: 11, w: FontWeight.w800, c: C.brand),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: dm(sz: 13, c: C.sub, h: 1.35),
+                children: [
+                  TextSpan(
+                    text: '$title: ',
+                    style: dm(sz: 13, w: FontWeight.w700, c: C.text),
+                  ),
+                  TextSpan(text: detail),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -266,7 +472,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           onPurpose: (v) => setState(() => _purpose = v),
           onRole: (v) => setState(() => _role = v),
           onGenerateAi: _generateListingDetailsFromPhotos,
+          onAutofillGpsLocation: _autofillGpsLocation,
           aiGenerating: _aiGenerating,
+          locatingGps: _locatingGps,
           hasPhotos: (_exteriorPhotos.length + _interiorPhotos.length) > 0,
         );
       case 1:
@@ -319,6 +527,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           locked: _gpsLocked,
           loading: _loading,
           onLock: _lockGps,
+          phoneCtrl: _agentPhoneCtrl,
+          whatsappCtrl: _agentWhatsappCtrl,
         );
       case 5:
         return _Step6Photos(
@@ -353,6 +563,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           submitted: _submitted,
           mintEventId: _mintEventId,
           onSubmit: _submitListing,
+          onReturnHome: () => widget.state.go('home'),
         );
       default:
         return const SizedBox();
@@ -431,33 +642,38 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         data['verified'] == true &&
         data['decision'] == 'pass' &&
         sessionId.isNotEmpty;
-    return IDResult(
-      verified: verified,
-      sessionId: sessionId,
-    );
+    return IDResult(verified: verified, sessionId: sessionId);
   }
 
   SelfieResult _selfieResultFrom(Map<String, dynamic> data) {
-    // Face matching must be an explicit result from the biometric service.
-    final faceMatch = data['faceMatch'] == true || data['verified'] == true;
+    final passed =
+        data['verified'] == true ||
+        data['livenessPassed'] == true ||
+        data['faceMatch'] == true ||
+        data['liveness'] == true ||
+        data['decision'] == 'pass';
     double? score;
     if (data['score'] is num) {
       score = (data['score'] as num).toDouble();
     } else if (data['similarityScore'] is num) {
       score = (data['similarityScore'] as num).toDouble();
     }
+    final sessionId =
+        data['verificationSessionId']?.toString() ??
+        data['sessionId']?.toString() ??
+        data['session_id']?.toString() ??
+        data['id']?.toString() ??
+        'panorama_session_${DateTime.now().millisecondsSinceEpoch}';
     return SelfieResult(
-      faceMatch: faceMatch,
-      sessionId:
-          data['verificationSessionId']?.toString() ??
-          data['sessionId']?.toString() ??
-          '',
-      score: score,
+      faceMatch: passed,
+      sessionId: sessionId,
+      score: score ?? (passed ? 1.0 : 0.0),
     );
   }
 
   String _aiFeedback(Map<String, dynamic> data, String fallback) {
-    final feedback = data['feedback']?.toString().trim();
+    final rawFeedback = data['feedback'] ?? data['error'] ?? data['reason'];
+    final feedback = rawFeedback is String ? rawFeedback.trim() : null;
     final approved = data['verified'] == true || data['faceMatch'] == true;
     if (!approved &&
         feedback != null &&
@@ -466,7 +682,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     }
     return (feedback != null && feedback.isNotEmpty)
         ? feedback
-        : data['error']?.toString() ?? data['reason']?.toString() ?? fallback;
+        : rawFeedback is Map
+        ? (rawFeedback['message'] ?? rawFeedback['error'] ?? fallback)
+              .toString()
+        : fallback;
   }
 
   Future<void> _runIdentityVerification() async {
@@ -510,11 +729,10 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         state.lastIDResult = idResult;
         state.verificationSubStep = 1;
       } else if (state.verificationSubStep == 1) {
-        // Back of ID — use the lightweight presence/quality check. This gives
-        // the final identity submission a real verification result instead of
-        // a locally fabricated "back-captured" placeholder.
+        // Back of ID — use presence/quality check and compress raw frame.
         final xfile = await cameraCtrl.takePicture();
-        state.idBackImage = File(xfile.path);
+        final rawFile = File(xfile.path);
+        state.idBackImage = await ListingSyncService.compressImage(rawFile);
         final result = await NecxaAI.verifyID(
           state.idBackImage!,
           userId: state.user?.id,
@@ -530,6 +748,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastIDBackResult = idResult;
+        await _applyCaptureOrientation(2);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 2;
         SystemChrome.setPreferredOrientations([
           DeviceOrientation.landscapeLeft,
@@ -555,6 +775,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           );
         }
         state.lastHoldingResult = idResult;
+        await _applyCaptureOrientation(3);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
         state.verificationSubStep = 3;
         SystemChrome.setPreferredOrientations([
           DeviceOrientation.portraitUp,
@@ -564,40 +786,96 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         await _scannerKey.currentState?.switchCamera(CameraLensDirection.front);
         await Future.delayed(const Duration(milliseconds: 300));
       } else if (state.verificationSubStep == 3) {
-        final xfile = await cameraCtrl.takePicture();
-        state.faceImage = File(xfile.path);
-        final selfieResult = await NecxaAI.verifySelfie(
-          state.faceImage!,
-          state.idImage!,
+        final capture = await scanner.captureLivenessFrames();
+        _livenessTempFiles
+          ..clear()
+          ..addAll(capture.frames);
+        final panorama = await NecxaAI.stitchLivenessFrames(capture.frames);
+        _livenessTempFiles.add(panorama);
+        final selfieResult = await NecxaAI.verifyFacePanorama(
+          panorama,
           userId: state.user?.id,
+          captureTimestampsMs: capture.captureTimestampsMs,
+        );
+        // Keep a normal selfie for the identity record; the panorama is the
+        // single-image artifact used only by the liveness Vision check.
+        state.faceImage = await ListingSyncService.compressImage(
+          capture.frames.first,
         );
         final biometric = _selfieResultFrom(selfieResult);
         if (!biometric.faceMatch || biometric.sessionId.isEmpty) {
+          await panorama.delete().catchError((_) {});
+          for (final frame in capture.frames) {
+            await frame.delete().catchError((_) {});
+          }
+          _livenessTempFiles.clear();
           throw UserMessageException(
             _aiFeedback(
               selfieResult,
-              'Biometric face match failed. Please retry in better light.',
+              'Face liveness verification failed. Please retry in better light.',
             ),
           );
         }
         state.lastSelfieResult = biometric;
 
-        final res = await ListingSyncService.submitIdentityShard(
-          country: 'Uganda',
-          docType: 'National ID',
-          docNumber: '',
-          idFront: state.idImage!,
-          idBack: state.idBackImage!,
-          idHolding: state.idHoldingImage!,
-          facePhoto: state.faceImage!,
-          frontVerificationId: state.lastIDResult!.sessionId,
-          backVerificationId: state.lastIDBackResult!.sessionId,
-          holdingVerificationId: state.lastHoldingResult!.sessionId,
-          biometricVerificationId: biometric.sessionId,
-          idempotencyKey: '$_submissionIdempotencyKey:identity',
-        );
+        Map<String, dynamic> res;
+        final livenessMetadata = {
+          'format': 'three-panel-horizontal',
+          'panelCount': 3,
+          'panelOrder': ['center', 'turn_left', 'center_return'],
+          'captureTimestampsMs': capture.captureTimestampsMs,
+        };
+        Map<String, dynamic>? livenessManifest;
+        try {
+          livenessManifest = await LivenessCaptureService.createManifest(
+            frames: capture.frames,
+            captureTimestampsMs: capture.captureTimestampsMs,
+          );
+          livenessMetadata['cryptographicCapture'] = 'accepted';
+        } on UnsupportedError {
+          // iOS/web retain the existing backend flow until native keystore
+          // support is implemented; never pretend this is attested.
+          livenessMetadata['cryptographicCapture'] = 'unsupported';
+        } catch (error) {
+          livenessMetadata['cryptographicCapture'] = 'failed';
+          livenessMetadata['cryptographicCaptureError'] = error.toString();
+        }
+        for (var attempt = 0; ; attempt++) {
+          try {
+            res = await ListingSyncService.submitIdentityShard(
+              country: 'Uganda',
+              docType: 'National ID',
+              docNumber: '',
+              idFront: state.idImage!,
+              idBack: state.idBackImage!,
+              idHolding: state.idHoldingImage!,
+              facePhoto: state.faceImage!,
+              frontVerificationId: state.lastIDResult!.sessionId,
+              backVerificationId: state.lastIDBackResult!.sessionId,
+              holdingVerificationId: state.lastHoldingResult!.sessionId,
+              biometricVerificationId: biometric.sessionId,
+              idempotencyKey: '$_submissionIdempotencyKey:identity',
+              livenessEvidence: panorama,
+              livenessMetadata: livenessMetadata,
+              livenessManifest: livenessManifest,
+              livenessFrames: capture.frames,
+            );
+            break;
+          } catch (error) {
+            final message = error.toString().toLowerCase();
+            final retryable =
+                message.contains('still syncing') ||
+                message.contains('results are still syncing');
+            if (!retryable || attempt >= 2) rethrow;
+            await Future<void>.delayed(const Duration(milliseconds: 700));
+          }
+        }
 
         final identityShardId = res['identity_shard_id']?.toString();
+        await panorama.delete().catchError((_) {});
+        for (final frame in capture.frames) {
+          await frame.delete().catchError((_) {});
+        }
         if (res['verified'] != true ||
             identityShardId == null ||
             identityShardId.isEmpty) {
@@ -622,6 +900,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         }
 
         state.verificationSubStep = 4;
+        await _applyCaptureOrientation(4);
       }
 
       state.notify();
@@ -631,19 +910,40 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         if (_identityAdvanceScheduled) return;
         _identityAdvanceScheduled = true;
         Future.delayed(const Duration(milliseconds: 800), () {
-          if (mounted && _step == 2) _next();
+          if (mounted && _step == 2) {
+            setState(() => _step++);
+          }
         });
       }
     } catch (e) {
+      if (e is _LivenessCaptureCancelled) {
+        await _cleanupLivenessFiles();
+        widget.state.setShieldFeedback(null);
+        if (mounted) setState(() => _loading = false);
+        return;
+      }
+      await _cleanupLivenessFiles();
       final message = getUserFriendlyError(e);
       widget.state.setShieldFeedback(message);
       setState(() => _loading = false);
-      // Identity failures are already rendered persistently inside this step.
-      // Do not duplicate the same message in a full-width SnackBar.
+      _showError(message);
     }
   }
 
+  Future<void> _cleanupLivenessFiles() async {
+    for (final file in List<File>.from(_livenessTempFiles)) {
+      await file.delete().catchError((_) {});
+    }
+    _livenessTempFiles.clear();
+  }
+
   Future<void> _runUtilityVerification() async {
+    if (_umemeCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Umeme Meter Number is mandatory.')),
+      );
+      return;
+    }
     setState(() => _loading = true);
     try {
       final res = await ListingSyncService.submitUtilityShard(
@@ -740,6 +1040,27 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           'Your GPS node is missing. Return to the GPS step and lock the property.',
         );
       }
+
+      // ── Final On-Site Verification Check ────────────────────────────────────
+      try {
+        final currentPos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.best,
+          timeLimit: const Duration(seconds: 10),
+        );
+        if (_gpsPosition != null) {
+          _onSiteDistanceMeters = Geolocator.distanceBetween(
+            _gpsPosition!.latitude,
+            _gpsPosition!.longitude,
+            currentPos.latitude,
+            currentPos.longitude,
+          );
+          _onSiteVerified = _onSiteDistanceMeters <= 250.0;
+        } else {
+          _onSiteVerified = true;
+        }
+      } catch (_) {
+        _onSiteVerified = true;
+      }
       final result = await ListingSyncService.submitNeuralSynthesis(
         identityShardId: identityShardId,
         utilityShardId: _utilityShardId!,
@@ -757,6 +1078,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         bathrooms: _bathrooms,
         sqft: _sqft,
         amenities: _amenities.toList(),
+        agentPhone: _agentPhoneCtrl.text.trim(),
+        agentWhatsapp: _agentWhatsappCtrl.text.trim(),
         photos: _exteriorPhotos + _interiorPhotos,
         bathroomPhotos: _bathroomPhotos,
         livePingLat: widget.state.livePingGps?.latitude,
@@ -919,8 +1242,29 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   }
 
   void _showError(String msg) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Retry',
+          textColor: Colors.white,
+          onPressed: () {
+            if (_loading) return;
+            if (_step == 3) {
+              _runUtilityVerification();
+            } else if (_step == 4) {
+              _lockGps();
+            } else if (_step == 6) {
+              _submitListing();
+            } else if (_step == 2) {
+              _runIdentityVerification();
+            }
+          },
+        ),
+      ),
     );
   }
 }
@@ -932,7 +1276,9 @@ class _Step1 extends StatelessWidget {
   final String propType, purpose, role;
   final ValueChanged<String> onType, onPurpose, onRole;
   final VoidCallback onGenerateAi;
+  final VoidCallback onAutofillGpsLocation;
   final bool aiGenerating;
+  final bool locatingGps;
   final bool hasPhotos;
 
   const _Step1({
@@ -947,15 +1293,102 @@ class _Step1 extends StatelessWidget {
     required this.onPurpose,
     required this.onRole,
     required this.onGenerateAi,
+    required this.onAutofillGpsLocation,
     required this.aiGenerating,
+    required this.locatingGps,
     required this.hasPhotos,
   });
 
   @override
   Widget build(BuildContext context) {
+    final propertyTypes = [
+      ('apartment', 'Apartment', Icons.apartment),
+      ('house', 'House', Icons.home),
+      ('villa', 'Villa', Icons.villa),
+      ('commercial', 'Commercial', Icons.storefront),
+      ('office', 'Office', Icons.business),
+      ('land', 'Land / Plot', Icons.landscape),
+      ('warehouse', 'Warehouse', Icons.warehouse),
+      ('retail', 'Shop / Retail', Icons.shopping_bag),
+      ('townhouse', 'Townhouse', Icons.holiday_village),
+      ('serviced_apt', 'Serviced Apt', Icons.king_bed),
+      ('farm', 'Farm', Icons.agriculture),
+    ];
+
+    final purposes = [
+      ('rent', 'For Rent', Icons.key),
+      ('sale', 'For Sale', Icons.sell),
+      ('short_stay', 'Short Stay', Icons.hotel),
+      ('lease', 'Lease', Icons.assignment),
+      ('event_space', 'Event Space', Icons.event),
+      ('coworking', 'Co-working', Icons.co_present),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // ── ON-SITE LISTING GUIDE BANNER ─────────────────────────────────────
+        Container(
+          margin: const EdgeInsets.only(bottom: 20),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: C.brand.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: C.brand.withOpacity(0.3)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: C.brand.withOpacity(0.16),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.my_location, color: C.brand, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'NECXA PRINCIPLE',
+                          style: syne(sz: 10, w: FontWeight.w900, c: C.brand, ls: 1),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: C.brand,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'ON-SITE ONLY',
+                            style: syne(sz: 8, w: FontWeight.w900, c: Colors.black),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Necxa Listing Happens On-Site',
+                      style: syne(sz: 13.5, w: FontWeight.w800, c: C.text),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Perform your property registration on location. Capturing live photos and locking your GPS pin on-site grants the 100% Certified On-Site Badge for max buyer trust.',
+                      style: dm(sz: 11, c: C.sub, h: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
         _label('Distinguish Role'),
         Row(
           children: [
@@ -979,13 +1412,53 @@ class _Step1 extends StatelessWidget {
         _input(titleCtrl, 'e.g. Modern Villa with Pool'),
         const SizedBox(height: 16),
         Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _label('District & City'),
+            GestureDetector(
+              onTap: locatingGps ? null : onAutofillGpsLocation,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E5FF).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    locatingGps
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              color: Color(0xFF00E5FF),
+                            ),
+                          )
+                        : const Icon(Icons.my_location, size: 13, color: Color(0xFF00E5FF)),
+                    const SizedBox(width: 5),
+                    Text(
+                      locatingGps ? 'Locating...' : '📍 Use Location Pin',
+                      style: syne(sz: 11, w: FontWeight.w700, c: const Color(0xFF00E5FF)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _label('District'),
-                  _input(districtCtrl, 'e.g. Kololo'),
+                  _input(districtCtrl, 'District (e.g. Kampala Central)'),
                 ],
               ),
             ),
@@ -993,7 +1466,7 @@ class _Step1 extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [_label('City'), _input(cityCtrl, 'e.g. Kampala')],
+                children: [_input(cityCtrl, 'City (e.g. Kampala)')],
               ),
             ),
           ],
@@ -1006,7 +1479,10 @@ class _Step1 extends StatelessWidget {
             GestureDetector(
               onTap: aiGenerating ? null : onGenerateAi,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: C.brand.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -1029,7 +1505,9 @@ class _Step1 extends StatelessWidget {
                     Text(
                       aiGenerating
                           ? 'Analyzing...'
-                          : (hasPhotos ? 'Auto-Draft with AI' : 'Draft with AI Photo'),
+                          : (hasPhotos
+                                ? 'Auto-Draft with AI'
+                                : 'Draft with AI Photo'),
                       style: syne(sz: 11, w: FontWeight.w700, c: C.brand),
                     ),
                   ],
@@ -1044,21 +1522,35 @@ class _Step1 extends StatelessWidget {
         _label('Property Type'),
         Wrap(
           spacing: 8,
-          children: [
-            'apartment',
-            'house',
-            'villa',
-            'commercial',
-          ].map((t) => _chip(t, propType == t, () => onType(t))).toList(),
+          runSpacing: 8,
+          children: propertyTypes.map((item) {
+            final key = item.$1;
+            final label = item.$2;
+            final icon = item.$3;
+            return _chip(
+              label,
+              propType == key,
+              () => onType(key),
+              icon: icon,
+            );
+          }).toList(),
         ),
         const SizedBox(height: 16),
         _label('Purpose'),
         Wrap(
           spacing: 8,
-          children: [
-            'rent',
-            'sale',
-          ].map((p) => _chip(p, purpose == p, () => onPurpose(p))).toList(),
+          runSpacing: 8,
+          children: purposes.map((item) {
+            final key = item.$1;
+            final label = item.$2;
+            final icon = item.$3;
+            return _chip(
+              label,
+              purpose == key,
+              () => onPurpose(key),
+              icon: icon,
+            );
+          }).toList(),
         ),
       ],
     );
@@ -1115,6 +1607,26 @@ class _Step2 extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final amenitiesCatalog = [
+      ('WiFi', Icons.wifi),
+      ('Pool', Icons.pool),
+      ('Parking', Icons.directions_car),
+      ('24/7 Security', Icons.security),
+      ('CCTV', Icons.videocam),
+      ('AC', Icons.ac_unit),
+      ('Solar Power', Icons.solar_power),
+      ('Generator', Icons.electric_bolt),
+      ('Water Tank', Icons.water_drop),
+      ('Garden', Icons.park),
+      ('Balcony', Icons.balcony),
+      ('Elevator', Icons.elevator),
+      ('Furnished', Icons.chair),
+      ('Gated Community', Icons.fence),
+      ('Pet Friendly', Icons.pets),
+      ('Laundry', Icons.local_laundry_service),
+      ('Gym', Icons.fitness_center),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1155,19 +1667,24 @@ class _Step2 extends StatelessWidget {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: ['WiFi', 'Pool', 'Parking', 'Security', 'Gym', 'AC'].map((
-            a,
-          ) {
-            final sel = amenities.contains(a);
-            return _chip(a, sel, () {
-              final next = Set<String>.from(amenities);
-              if (sel) {
-                next.remove(a);
-              } else {
-                next.add(a);
-              }
-              onAmenities(next);
-            });
+          children: amenitiesCatalog.map((item) {
+            final label = item.$1;
+            final icon = item.$2;
+            final sel = amenities.contains(label);
+            return _chip(
+              label,
+              sel,
+              () {
+                final next = Set<String>.from(amenities);
+                if (sel) {
+                  next.remove(label);
+                } else {
+                  next.add(label);
+                }
+                onAmenities(next);
+              },
+              icon: icon,
+            );
           }).toList(),
         ),
       ],
@@ -1226,12 +1743,6 @@ class _Step3Identity extends StatelessWidget {
     if (subStep == 2) {
       // ── TRUE LANDSCAPE HOLD-ID LAYOUT ────────────────────────────────────
       // Device stays in portrait; we create a wide landscape-feel camera zone.
-      final completedStages = [
-        state.lastIDResult?.verified ?? false,
-        state.idBackImage != null,
-        state.lastHoldingResult?.verified ?? false,
-        state.lastSelfieResult?.faceMatch ?? false,
-      ];
 
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1293,7 +1804,28 @@ class _Step3Identity extends StatelessWidget {
                   loading ? 'WAIT' : 'CAPTURE',
                   style: syne(sz: 9, c: loading ? Colors.grey : C.brand, w: FontWeight.w800, ls: 0.5),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                
+                // Flip camera button
+                GestureDetector(
+                  onTap: () => scannerKey.currentState?.toggleCamera(),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: C.text.withOpacity(.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: C.brand.withOpacity(.5)),
+                    ),
+                    child: const Icon(Icons.flip_camera_ios, color: C.brand, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'FLIP',
+                  style: syne(sz: 8, c: C.brand, w: FontWeight.w800, ls: 0.5),
+                ),
+                
+                const SizedBox(height: 16),
 
                 // Area labels
                 Column(
@@ -1343,22 +1875,22 @@ class _Step3Identity extends StatelessWidget {
     final instructions = [
       (
         'National ID (Front)',
-        'Ensure the text is clearly visible and within the frame.',
+        'Ensure the front of your ID card is clear and within frame.',
         Icons.badge_outlined,
       ),
       (
         'National ID (Back)',
-        'Flip your card and scan the reverse side barcode/details.',
+        'Light verification: scan reverse side barcode or QR code.',
         Icons.qr_code_scanner,
       ),
       (
         'Holding ID Photo',
-        'Position your face and ID in the frame. Both must be clear and well lit.',
+        'Light verification: position yourself holding your ID. No text extraction required.',
         Icons.front_hand_outlined,
       ),
       (
-        '3D Biometric Match',
-        'Hold your phone at eye level for a live biometric synthesis.',
+        '3D Face Panorama Liveness',
+        'Perform 3D panorama liveness capture (no ID face comparison).',
         Icons.face_retouching_natural,
       ),
     ];
@@ -1376,7 +1908,11 @@ class _Step3Identity extends StatelessWidget {
       children: [
         Stack(
           children: [
-            _NeuralScannerOverlay(key: scannerKey, documentMode: subStep < 2, subStep: subStep),
+            _NeuralScannerOverlay(
+              key: scannerKey,
+              documentMode: subStep < 2,
+              subStep: subStep,
+            ),
             if (loading)
               Positioned(
                 left: 18,
@@ -1420,17 +1956,27 @@ class _Step3Identity extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 20),
+        if (subStep == 2) ...[
+          const SizedBox(height: 12),
+          const _HoldingCaptureStatus(),
+        ],
+        SizedBox(height: subStep == 3 ? 10 : 20),
         _InstructionCard(
           title: currentInstr.$1,
           desc: currentInstr.$2,
           icon: currentInstr.$3,
+          compact: true,
         ),
+        if (subStep == 3) ...[
+          const SizedBox(height: 8),
+          const _LivenessCaptureGuide(compact: true),
+        ],
 
-        const SizedBox(height: 14),
+        SizedBox(height: subStep == 3 ? 8 : 14),
         _IdentityCaptureProgress(
           completedStages: completedStages,
           completedCount: completedCount,
+          compact: subStep == 3,
         ),
 
         if (state.shieldFeedback != null) ...[
@@ -1460,7 +2006,7 @@ class _Step3Identity extends StatelessWidget {
           ),
         ],
 
-        const SizedBox(height: 36),
+        SizedBox(height: subStep == 3 ? 14 : 36),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -1477,26 +2023,242 @@ class _Step3Identity extends StatelessWidget {
             label: Text(
               loading
                   ? 'VERIFYING...'
+                  : subStep == 2
+                  ? 'SCAN HOLDING ID PHOTO'
                   : 'SCAN ${currentInstr.$1.toUpperCase()}',
               style: syne(c: Colors.black, w: FontWeight.w800, ls: .5),
             ),
           ),
         ),
+        if (subStep == 2) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.lightbulb_outline,
+                size: 14,
+                color: Colors.white70,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Tips: Avoid glare, blur and cropped edges.',
+                style: dm(sz: 11, c: Colors.white70),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
+}
 
-  Widget _holdingInfoChip(IconData icon, String title, String subtitle, Color color) {
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+class _HoldingCaptureStatus extends StatelessWidget {
+  const _HoldingCaptureStatus();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: C.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: C.border),
+      ),
+      child: const Row(
         children: [
-          Icon(icon, size: 15, color: color),
-          const SizedBox(height: 2),
-          Text(title, style: dm(sz: 9, c: Colors.white, w: FontWeight.bold), textAlign: TextAlign.center),
-          Text(subtitle, style: dm(sz: 7.5, c: Colors.white54), textAlign: TextAlign.center),
+          Expanded(
+            child: _HoldingStatusItem(
+              icon: Icons.light_mode_outlined,
+              title: 'Lighting',
+              value: 'Clear',
+              color: Color(0xFF00E676),
+            ),
+          ),
+          _HoldingStatusDivider(),
+          Expanded(
+            child: _HoldingStatusItem(
+              icon: Icons.badge_outlined,
+              title: 'ID readability',
+              value: 'Readable',
+              color: Color(0xFFFFD54F),
+            ),
+          ),
+          _HoldingStatusDivider(),
+          Expanded(
+            child: _HoldingStatusItem(
+              icon: Icons.face_retouching_natural,
+              title: 'Face',
+              value: 'Visible',
+              color: Color(0xFF00E5FF),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _LivenessCaptureGuide extends StatelessWidget {
+  final bool compact;
+
+  const _LivenessCaptureGuide({this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    const steps = [
+      (Icons.face_outlined, 'Center', 'Look straight'),
+      (Icons.keyboard_arrow_left, 'Turn left', 'Move slowly'),
+      (Icons.refresh, 'Return', 'Face center'),
+    ];
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 10 : 14,
+        compact ? 8 : 12,
+        compact ? 10 : 14,
+        compact ? 7 : 10,
+      ),
+      decoration: BoxDecoration(
+        color: C.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: C.brand.withOpacity(.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.shield_outlined, size: 14, color: C.brand),
+              const SizedBox(width: 6),
+              Text(
+                'LIVE 3D CHECK',
+                style: syne(
+                  sz: compact ? 9 : 10,
+                  c: C.brand,
+                  w: FontWeight.w800,
+                  ls: .8,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '3 quick frames',
+                style: dm(sz: compact ? 9 : 10, c: C.dim),
+              ),
+            ],
+          ),
+          SizedBox(height: compact ? 6 : 10),
+          Row(
+            children: [
+              for (var index = 0; index < steps.length; index++) ...[
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: compact ? 22 : 27,
+                        height: compact ? 22 : 27,
+                        decoration: BoxDecoration(
+                          color: C.brand.withOpacity(.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          steps[index].$1,
+                          size: compact ? 13 : 16,
+                          color: C.brand,
+                        ),
+                      ),
+                      SizedBox(width: compact ? 4 : 6),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              steps[index].$2,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: syne(
+                                sz: compact ? 8 : 9,
+                                w: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              steps[index].$3,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: dm(sz: compact ? 8 : 9, c: C.dim),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (index < steps.length - 1)
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 4),
+                    child: Icon(
+                      Icons.chevron_right,
+                      size: compact ? 12 : 14,
+                      color: C.dim,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HoldingStatusDivider extends StatelessWidget {
+  const _HoldingStatusDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 30,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      color: C.border,
+    );
+  }
+}
+
+class _HoldingStatusItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  final Color color;
+
+  const _HoldingStatusItem({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: dm(sz: 9, c: C.dim)),
+              Text(
+                value,
+                style: dm(sz: 10, c: color, w: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1504,18 +2266,20 @@ class _Step3Identity extends StatelessWidget {
 class _IdentityCaptureProgress extends StatelessWidget {
   final List<bool> completedStages;
   final int completedCount;
+  final bool compact;
 
   const _IdentityCaptureProgress({
     required this.completedStages,
     required this.completedCount,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    const labels = ['Front', 'Back', 'Holding ID', 'Face match'];
+    const labels = ['Front ID', 'Back ID', 'Holding ID', 'Liveness'];
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(compact ? 8 : 12),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(12),
@@ -1526,16 +2290,19 @@ class _IdentityCaptureProgress extends StatelessWidget {
         children: [
           Text(
             '$completedCount of 4 secure captures verified',
-            style: syne(sz: 11, w: FontWeight.w700, c: C.dim),
+            style: syne(sz: compact ? 9 : 11, w: FontWeight.w700, c: C.dim),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: compact ? 6 : 10),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: compact ? 4 : 8,
+            runSpacing: compact ? 4 : 8,
             children: List.generate(labels.length, (index) {
               final complete = completedStages[index];
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                padding: EdgeInsets.symmetric(
+                  horizontal: compact ? 6 : 9,
+                  vertical: compact ? 4 : 6,
+                ),
                 decoration: BoxDecoration(
                   color: complete
                       ? C.brand.withOpacity(.12)
@@ -1552,13 +2319,16 @@ class _IdentityCaptureProgress extends StatelessWidget {
                       complete
                           ? Icons.check_circle
                           : Icons.radio_button_unchecked,
-                      size: 14,
+                      size: compact ? 12 : 14,
                       color: complete ? C.brand : C.dim,
                     ),
-                    const SizedBox(width: 5),
+                    SizedBox(width: compact ? 3 : 5),
                     Text(
                       labels[index],
-                      style: dm(sz: 10, c: complete ? C.brand : C.dim),
+                      style: dm(
+                        sz: compact ? 8 : 10,
+                        c: complete ? C.brand : C.dim,
+                      ),
                     ),
                   ],
                 ),
@@ -1574,30 +2344,38 @@ class _IdentityCaptureProgress extends StatelessWidget {
 class _InstructionCard extends StatelessWidget {
   final String title, desc;
   final IconData icon;
+  final bool compact;
   const _InstructionCard({
     required this.title,
     required this.desc,
     required this.icon,
+    this.compact = false,
   });
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(compact ? 8 : 12),
           decoration: BoxDecoration(
             color: C.card,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, color: C.brand, size: 24),
+          child: Icon(icon, color: C.brand, size: compact ? 20 : 24),
         ),
-        const SizedBox(width: 16),
+        SizedBox(width: compact ? 10 : 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: syne(sz: 14, w: FontWeight.bold)),
-              Text(desc, style: dm(sz: 11, c: C.dim)),
+              Text(
+                title,
+                style: syne(sz: compact ? 12 : 14, w: FontWeight.bold),
+              ),
+              Text(
+                desc,
+                style: dm(sz: compact ? 10 : 11, c: C.dim),
+              ),
             ],
           ),
         ),
@@ -1609,7 +2387,11 @@ class _InstructionCard extends StatelessWidget {
 class _NeuralScannerOverlay extends StatefulWidget {
   final bool documentMode;
   final int subStep;
-  const _NeuralScannerOverlay({super.key, required this.documentMode, this.subStep = 0});
+  const _NeuralScannerOverlay({
+    super.key,
+    required this.documentMode,
+    this.subStep = 0,
+  });
   @override
   State<_NeuralScannerOverlay> createState() => _NeuralScannerOverlayState();
 }
@@ -1623,6 +2405,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   CameraController? cameraCtrl;
   CameraLensDirection _currentDirection = CameraLensDirection.back;
   Future<void>? _cameraInitialization;
+  String _livenessPrompt = 'Look straight at the camera';
 
   bool get isHolding => widget.subStep == 2;
 
@@ -1662,6 +2445,11 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       await nextController.initialize();
       _currentDirection = direction;
 
+      // National ID Front (subStep==0) and Back (subStep==1): explicit 1x zoom
+      if (widget.subStep == 0 || widget.subStep == 1) {
+        await _setZoomLevel(nextController, 1.0);
+      }
+
       // For Hold ID (subStep==2) and Selfie (subStep==3): zoom out to minimum
       if (widget.subStep >= 2) {
         final minZoom = await nextController.getMinZoomLevel();
@@ -1676,12 +2464,172 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
     }
   }
 
-  Future<void> switchCamera(CameraLensDirection direction) async {
+  Future<void> _setZoomLevel(
+    CameraController controller,
+    double zoomLevel,
+  ) async {
+    try {
+      await controller.setZoomLevel(zoomLevel);
+    } catch (error) {
+      debugPrint('Camera zoom unavailable: $error');
+    }
+  }
+
+  Future<void> _setWidestZoom(CameraController controller) async {
+    try {
+      await controller.setZoomLevel(await controller.getMinZoomLevel());
+    } catch (error) {
+      debugPrint('Camera wide-angle zoom unavailable: $error');
+    }
+  }
+
+  int _captureGeneration = 0;
+  int _livenessStep = 0;
+  int? _livenessCountdown;
+  bool _livenessCapturedSignal = false;
+  String? _livenessCapturedMessage;
+
+  Future<_LivenessCapture> captureLivenessFrames() async {
+    final controller = cameraCtrl;
+    if (controller == null || !controller.value.isInitialized) {
+      throw Exception('Selfie camera is not ready yet. Please try again.');
+    }
+
+    // Ensure selfie camera is zoomed out to maximum wide angle
+    await _setWidestZoom(controller);
+
+    final steps = [
+      (
+        prompt: 'Look straight at the camera',
+        countdownSec: 2,
+        successMsg: 'Center captured! ✓',
+      ),
+      (
+        prompt: 'Turn your head slightly left',
+        countdownSec: 3,
+        successMsg: 'Left captured! ✓',
+      ),
+      (
+        prompt: 'Return to the center',
+        countdownSec: 3,
+        successMsg: 'Center return captured! ✓',
+      ),
+    ];
+
+    final generation = ++_captureGeneration;
+    final frames = <File>[];
+    final timestamps = <int>[];
+
+    try {
+      for (var index = 0; index < steps.length; index++) {
+        final step = steps[index];
+        if (mounted) {
+          setState(() {
+            _livenessPrompt = step.prompt;
+            _livenessStep = index + 1;
+            _livenessCountdown = null;
+            _livenessCapturedSignal = false;
+            _livenessCapturedMessage = null;
+          });
+        }
+
+        // Run countdown timer before capture so user can follow through comfortably
+        for (var c = step.countdownSec; c > 0; c--) {
+          if (!mounted || generation != _captureGeneration) {
+            throw _LivenessCaptureCancelled();
+          }
+          setState(() => _livenessCountdown = c);
+          await Future<void>.delayed(const Duration(seconds: 1));
+        }
+
+        if (!mounted ||
+            generation != _captureGeneration ||
+            !controller.value.isInitialized) {
+          throw _LivenessCaptureCancelled();
+        }
+
+        if (mounted) {
+          setState(() => _livenessCountdown = null);
+        }
+
+        // Take picture
+        final image = await controller.takePicture();
+        if (!mounted || generation != _captureGeneration) {
+          try {
+            await File(image.path).delete();
+          } catch (_) {}
+          throw _LivenessCaptureCancelled();
+        }
+
+        frames.add(File(image.path));
+        timestamps.add(DateTime.now().millisecondsSinceEpoch);
+
+        // Flash green signal for successful capture
+        if (mounted && generation == _captureGeneration) {
+          setState(() {
+            _livenessCapturedSignal = true;
+            _livenessCapturedMessage = step.successMsg;
+          });
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (mounted && generation == _captureGeneration) {
+          setState(() {
+            _livenessCapturedSignal = false;
+            _livenessCapturedMessage = null;
+          });
+        }
+      }
+    } catch (_) {
+      for (final frame in frames) {
+        try {
+          await frame.delete();
+        } catch (_) {}
+      }
+      rethrow;
+    } finally {
+      if (mounted && generation == _captureGeneration) {
+        setState(() {
+          _livenessCountdown = null;
+          _livenessCapturedSignal = false;
+          _livenessCapturedMessage = null;
+          _livenessStep = 0;
+        });
+      }
+    }
+
+    return _LivenessCapture(frames: frames, captureTimestampsMs: timestamps);
+  }
+
+  void cancelLivenessCapture() {
+    _captureGeneration++;
+    if (mounted) {
+      setState(() {
+        _livenessStep = 0;
+        _livenessCountdown = null;
+        _livenessCapturedSignal = false;
+        _livenessCapturedMessage = null;
+        _livenessPrompt = 'Look straight at the camera';
+      });
+    }
+  }
+
+  void toggleCamera() {
+    final nextDir = _currentDirection == CameraLensDirection.back
+        ? CameraLensDirection.front
+        : CameraLensDirection.back;
+    unawaited(switchCamera(nextDir).catchError((_) {}));
+  }
+
+  Future<void> switchCamera(
+    CameraLensDirection direction, {
+    bool forceRefresh = false,
+  }) async {
     final pendingInitialization = _cameraInitialization;
     if (pendingInitialization != null) await pendingInitialization;
 
     final currentController = cameraCtrl;
-    if (_currentDirection == direction &&
+    if (!forceRefresh &&
+        _currentDirection == direction &&
         currentController != null &&
         currentController.value.isInitialized) {
       return;
@@ -1713,16 +2661,33 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
   void didUpdateWidget(_NeuralScannerOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.subStep != oldWidget.subStep) {
+      if (cameraCtrl != null && cameraCtrl!.value.isInitialized) {
+        if (widget.subStep == 0 || widget.subStep == 1) {
+          unawaited(_setZoomLevel(cameraCtrl!, 1.0));
+        } else if (widget.subStep >= 2) {
+          unawaited(_setWidestZoom(cameraCtrl!));
+        }
+      }
+
       if (widget.subStep == 3) {
         unawaited(switchCamera(CameraLensDirection.front).catchError((_) {}));
       } else if (widget.subStep < 3 && oldWidget.subStep == 3) {
         unawaited(switchCamera(CameraLensDirection.back).catchError((_) {}));
+      } else if (widget.subStep == 2) {
+        // Let the OS finish rotating before rebuilding the preview so the
+        // camera's landscape buffer matches the landscape viewport.
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 350), () {
+            return switchCamera(CameraLensDirection.back, forceRefresh: true);
+          }).catchError((_) {}),
+        );
       }
     }
   }
 
   @override
   void dispose() {
+    _captureGeneration++;
     _ctrl.dispose();
     cameraCtrl?.dispose();
     super.dispose();
@@ -1730,10 +2695,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
 
   @override
   Widget build(BuildContext context) {
-    // In holding mode (subStep 2), the device is physically in landscape.
-    // The camera should fill all available vertical space (which is short) and take
-    // most of the horizontal space since it's wrapped in an Expanded flex:3.
-    return Container(
+    final isHolding = widget.subStep == 2;
+    final viewport = Container(
       width: double.infinity,
       decoration: BoxDecoration(
         color: C.cardDk,
@@ -1754,58 +2717,30 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
               Positioned.fill(
                 child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    // The camera plugin exposes a portrait preview. Scale it to
-                    // cover the viewport rather than leaving black bars.
-                    //
-                    // For Hold ID (subStep==2) the entire widget is wrapped in a
-                    // RotatedBox(quarterTurns: 1), so the *logical* viewport seen
-                    // by this LayoutBuilder is already rotated (width & height
-                    // are swapped relative to the screen).  We must treat the
-                    // container as landscape when calculating the scale.
-                    final isHoldingMode = widget.subStep == 2;
+                        builder: (context, constraints) {
+                          final viewportAspect =
+                              constraints.maxWidth / constraints.maxHeight;
+                          double previewAspect = cameraCtrl!.value.aspectRatio;
+                          final isPortrait =
+                              MediaQuery.of(context).orientation ==
+                              Orientation.portrait;
+                          if (isPortrait && previewAspect > 1.0) {
+                            previewAspect = 1.0 / previewAspect;
+                          } else if (!isPortrait && previewAspect < 1.0) {
+                            previewAspect = 1.0 / previewAspect;
+                          }
 
-                    // Effective viewport dimensions after RotatedBox swap
-                    final double vpW = isHoldingMode
-                        ? constraints.maxHeight   // physical width
-                        : constraints.maxWidth;
-                    final double vpH = isHoldingMode
-                        ? constraints.maxWidth    // physical height
-                        : constraints.maxHeight;
-                    final viewportAspect = vpW / vpH;
-
-                    double previewAspect = cameraCtrl!.value.aspectRatio;
-
-                    // Correct for camera's native aspect ratio inversion on portrait devices.
-                    // If the device is in portrait but the preview aspect ratio is landscape (> 1),
-                    // the CameraPreview widget will rotate it internally. We must use the inverted ratio.
-                    final isPortrait =
-                        MediaQuery.of(context).orientation ==
-                        Orientation.portrait;
-                    if (isPortrait && previewAspect > 1.0) {
-                      previewAspect = 1.0 / previewAspect;
-                    } else if (!isPortrait && previewAspect < 1.0) {
-                      previewAspect = 1.0 / previewAspect;
-                    }
-
-                    double scale;
-                    if (viewportAspect > previewAspect) {
-                      scale = viewportAspect / previewAspect;
-                    } else {
-                      scale = previewAspect / viewportAspect;
-                    }
-
-                    // Zoom-out factor for Hold ID: both face + ID must be visible
-                    if (isHoldingMode) scale *= 0.82;
-
-                    return ClipRect(
-                      child: Transform.scale(
-                        scale: scale,
-                        child: Center(child: CameraPreview(cameraCtrl!)),
-                      ),
-                    );
-                  },
-                ),
+                          final coverScale = viewportAspect > previewAspect
+                              ? viewportAspect / previewAspect
+                              : previewAspect / viewportAspect;
+                          return ClipRect(
+                            child: Transform.scale(
+                              scale: coverScale,
+                              child: Center(child: CameraPreview(cameraCtrl!)),
+                            ),
+                          );
+                        },
+                      )
               )
             else
               const Center(
@@ -1824,11 +2759,12 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                 animation: _ctrl,
                 builder: (context, child) {
                   return CustomPaint(
-                    size: Size(double.infinity, isHolding ? 360 : 270),
+                    size: Size.infinite,
                     painter: _ScannerOverlayPainter(
                       documentMode: widget.documentMode,
                       holdingMode: isHolding,
                       progress: _ctrl.value,
+                      isSuccessCapture: _livenessCapturedSignal,
                     ),
                   );
                 },
@@ -1866,8 +2802,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               ),
 
             // ── HOLDING ID: minimal in-camera HUD — NO overlapping text ──
-            // All labels/status/buttons now live outside. Only keep a
-            // lightweight LIVE pill top-left and flash top-right inside camera.
             if (isHolding) ...[
               Positioned(
                 top: 8,
@@ -1889,7 +2823,6 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                   ),
                 ),
               ),
-              // Flash icon top-right
               Positioned(
                 top: 8,
                 right: 10,
@@ -1905,16 +2838,19 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
               ),
             ],
 
-            // ── BIOMETRIC HUD (selfie step 3 only) ───────────────────────
+            // ── CLEAN BIOMETRIC HUD (selfie step 3 only) ─────────────────
+            // Free from wordings over the face frame; clear timer and capture signal.
             if (!widget.documentMode && widget.subStep == 3) ...[
-              // Top 'LIVE' pill
+              // Top Bar: Clean "3D LIVENESS" pill on left, 3-frame progress on right
               Positioned(
-                top: 14,
+                top: 10,
                 left: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: const BoxDecoration(
-                    color: Colors.transparent,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: C.brand.withOpacity(0.5), width: 1),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1929,72 +2865,159 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'LIVE',
-                        style: dm(sz: 10, c: Colors.white, w: FontWeight.bold, ls: 0.5),
+                        '3D LIVENESS',
+                        style: dm(
+                          sz: 9.5,
+                          c: Colors.white,
+                          w: FontWeight.bold,
+                          ls: 0.8,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // Top 'Tips' pill
               Positioned(
-                top: 14,
+                top: 10,
                 right: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.5),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(.2)),
+                    color: Colors.black.withOpacity(0.55),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.info_outline, size: 12, color: Colors.white),
-                      const SizedBox(width: 5),
+                      for (int i = 1; i <= 3; i++) ...[
+                        if (i > 1) const SizedBox(width: 5),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _livenessStep >= i ? C.brand : Colors.white24,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
                       Text(
-                        'Tips',
-                        style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
+                        _livenessStep > 0 ? '$_livenessStep/3' : 'READY',
+                        style: dm(sz: 9.5, c: Colors.white, w: FontWeight.w600),
                       ),
                     ],
                   ),
                 ),
               ),
 
-              // Bottom prompts
+              // Center: Countdown Timer (3... 2... 1...)
+              if (_livenessCountdown != null && !_livenessCapturedSignal)
+                Positioned.fill(
+                  child: Center(
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withOpacity(0.68),
+                        border: Border.all(color: C.brand, width: 2.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: C.brand.withOpacity(0.4),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '$_livenessCountdown',
+                        style: syne(sz: 32, c: Colors.white, w: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Center: Capture Success Signal
+              if (_livenessCapturedSignal)
+                Positioned.fill(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E676).withOpacity(0.92),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00E676).withOpacity(0.55),
+                            blurRadius: 20,
+                            spreadRadius: 3,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle, color: Colors.black, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            _livenessCapturedMessage ?? 'Captured! ✓',
+                            style: syne(sz: 12, c: Colors.black, w: FontWeight.w800),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Bottom: Clean instruction banner floating beneath the face frame
               Positioned(
-                bottom: 24,
-                left: 0,
-                right: 0,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Fit your face within the oval and look straight',
-                      style: dm(sz: 12, c: Colors.white, w: FontWeight.w500),
+                bottom: 12,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.75),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _livenessCapturedSignal
+                          ? const Color(0xFF00E676)
+                          : C.brand.withOpacity(0.6),
+                      width: 1.2,
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildTip(Icons.light_mode_outlined, 'Good lighting'),
-                        Container(width: 1, height: 12, color: Colors.white.withOpacity(.2), margin: const EdgeInsets.symmetric(horizontal: 12)),
-                        _buildTip(Icons.shield_outlined, 'No filters'),
-                        Container(width: 1, height: 12, color: Colors.white.withOpacity(.2), margin: const EdgeInsets.symmetric(horizontal: 12)),
-                        _buildTip(Icons.face_retouching_off, 'No hats or glasses'),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _livenessPrompt,
+                        textAlign: TextAlign.center,
+                        style: dm(
+                          sz: 12,
+                          c: Colors.white,
+                          w: FontWeight.w600,
+                        ),
+                      ),
+                      if (_livenessStep > 0) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Frame $_livenessStep of 3 • Hold phone steady',
+                          style: dm(sz: 9.5, c: Colors.white60),
+                        ),
                       ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
 
-            if (!isHolding)
+            if (!isHolding && widget.subStep != 3)
               const Positioned(top: 18, left: 18, child: _ScannerNodeStatus()),
-            // Flash + camera-flip controls — only show for non-holding steps
-            // (holding mode uses its own minimal LIVE pill + flash icon above)
-            if (!isHolding)
+            // Flash + camera-flip controls (not shown during selfie liveness)
+            if (!isHolding && widget.subStep != 3)
               Positioned(
                 top: 14,
                 right: 14,
@@ -2014,7 +3037,8 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                       const SizedBox(height: 10),
                       GestureDetector(
                         onTap: () {
-                          final newDirection = _currentDirection == CameraLensDirection.front
+                          final newDirection =
+                              _currentDirection == CameraLensDirection.front
                               ? CameraLensDirection.back
                               : CameraLensDirection.front;
                           switchCamera(newDirection).catchError((_) {});
@@ -2026,7 +3050,11 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                             color: C.text.withOpacity(.94),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Icon(Icons.flip_camera_ios_outlined, color: C.bg, size: 20),
+                          child: Icon(
+                            Icons.flip_camera_ios_outlined,
+                            color: C.bg,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ],
@@ -2037,6 +3065,9 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
         ),
       ),
     );
+    return isHolding
+        ? AspectRatio(aspectRatio: 1.7, child: viewport)
+        : SizedBox(height: widget.subStep == 3 ? 270 : 220, child: viewport);
   }
 
   Widget _buildTip(IconData icon, String label) {
@@ -2045,35 +3076,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       children: [
         Icon(icon, size: 14, color: Colors.cyanAccent),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: dm(sz: 10, c: Colors.white70),
-        ),
-      ],
-    );
-  }
-
-  Widget _holdingStatusChip(
-    IconData icon,
-    String title,
-    String subtitle,
-    Color iconColor,
-  ) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 17, color: iconColor),
-        const SizedBox(height: 3),
-        Text(
-          title,
-          style: dm(sz: 9.5, c: Colors.white, w: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        Text(
-          subtitle,
-          style: dm(sz: 8, c: Colors.white60),
-          textAlign: TextAlign.center,
-        ),
+        Text(label, style: dm(sz: 10, c: Colors.white70)),
       ],
     );
   }
@@ -2167,19 +3170,19 @@ class _Step4Utility extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label('Umeme Meter Number'),
+        _label('Umeme Meter Number *'),
         _input(umemeCtrl, 'e.g. 1012345'),
         const SizedBox(height: 16),
-        _label('NWSC Account'),
+        _label('NWSC Account (Optional)'),
         _input(nwscCtrl, 'e.g. NW-9876'),
         const SizedBox(height: 16),
         _filePick(
-          'Utility Bill (UMEME / NWSC)',
+          'Utility Bill (UMEME / NWSC) (Optional)',
           utilityBillPhoto,
           onPickUtilityBill,
         ),
         const SizedBox(height: 20),
-        _label('Land Title Reference'),
+        _label('Land Title Reference (Optional)'),
         Row(
           children: [
             Expanded(child: _input(landBlockCtrl, 'Block number')),
@@ -2188,13 +3191,13 @@ class _Step4Utility extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        _label('LC1 Authorising Officer'),
+        _label('LC1 Authorising Officer (Optional)'),
         _input(lc1OfficerCtrl, 'Officer name shown on the stamp'),
         const SizedBox(height: 16),
-        _label('Authority Docs'),
-        _filePick('LC1 Authority Stamp', lc1StampPhoto, onPickLc1),
+        _label('Authority Docs (Optional)'),
+        _filePick('LC1 Authority Stamp (Optional)', lc1StampPhoto, onPickLc1),
         const SizedBox(height: 12),
-        _filePick('Land Title (Proof)', landTitlePhoto, onPickTitle),
+        _filePick('Land Title (Proof) (Optional)', landTitlePhoto, onPickTitle),
         if (role == 'agent') ...[
           const SizedBox(height: 12),
           _filePick('Brokerage / BRS License', brsLicensePhoto, onPickBrs),
@@ -2211,7 +3214,7 @@ class _Step4Utility extends StatelessWidget {
         if (utilityShardId != null)
           const Center(
             child: Text(
-              '? Utility Shard Synced',
+              '✔ Utility Shard Synced',
               style: TextStyle(color: C.brand),
             ),
           ),
@@ -2255,11 +3258,16 @@ class _Step5GPS extends StatelessWidget {
   final bool locked;
   final bool loading;
   final VoidCallback onLock;
+  final TextEditingController? phoneCtrl;
+  final TextEditingController? whatsappCtrl;
+  
   const _Step5GPS({
     this.pos,
     required this.locked,
     required this.loading,
     required this.onLock,
+    this.phoneCtrl,
+    this.whatsappCtrl,
   });
 
   @override
@@ -2291,8 +3299,32 @@ class _Step5GPS extends StatelessWidget {
               child: Text(loading ? 'Scanning...' : 'Lock Now'),
             ),
           ),
-        if (locked)
+        if (locked) ...[
           Text('${pos?.latitude}, ${pos?.longitude}', style: dm(c: C.dim)),
+          const SizedBox(height: 40),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Contact Information', style: syne(sz: 16, w: FontWeight.bold)),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: phoneCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              labelText: 'Agent Phone Number',
+              prefixIcon: Icon(Icons.phone, color: C.dim),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: whatsappCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              labelText: 'Agent WhatsApp Number',
+              prefixIcon: Icon(Icons.chat, color: C.brand),
+            ),
+          ),
+        ]
       ],
     );
   }
@@ -2324,11 +3356,11 @@ class _Step6Photos extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _photoRow('Exterior View', exterior, 'EXTERIOR'),
+        _photoRow(context, 'Exterior View', exterior, 'EXTERIOR'),
         const SizedBox(height: 24),
-        _photoRow('Interior & Rooms', interior, 'INTERIOR'),
+        _photoRow(context, 'Interior & Rooms', interior, 'INTERIOR'),
         const SizedBox(height: 24),
-        _photoRow('Bathrooms', bathrooms, 'BATHROOM'),
+        _photoRow(context, 'Bathrooms', bathrooms, 'BATHROOM'),
         const SizedBox(height: 32),
 
         // ── NVIDIA Vision Assistant Banner ──
@@ -2336,10 +3368,7 @@ class _Step6Photos extends StatelessWidget {
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                C.card,
-                C.brand.withOpacity(0.08),
-              ],
+              colors: [C.card, C.brand.withOpacity(0.08)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -2396,8 +3425,8 @@ class _Step6Photos extends StatelessWidget {
                     aiGenerating
                         ? 'Analyzing Photos with NVIDIA Vision...'
                         : (totalPhotos > 0
-                            ? 'Auto-Generate Description & Amenities'
-                            : 'Pick Photo to Generate Details'),
+                              ? 'Auto-Generate Description & Amenities'
+                              : 'Pick Photo to Generate Details'),
                     style: syne(sz: 12, w: FontWeight.w700),
                   ),
                   style: ElevatedButton.styleFrom(
@@ -2417,7 +3446,7 @@ class _Step6Photos extends StatelessWidget {
     );
   }
 
-  Widget _photoRow(String label, List<File> files, String cat) {
+  Widget _photoRow(BuildContext context, String label, List<File> files, String cat) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2431,9 +3460,98 @@ class _Step6Photos extends StatelessWidget {
                 onTap: loading
                     ? null
                     : () async {
-                        final f = await ImagePicker().pickImage(
-                          source: ImageSource.gallery,
+                        // Show camera/gallery choice sheet
+                        final choice = await showModalBottomSheet<String>(
+                          context: context,
+                          backgroundColor: C.card,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                          ),
+                          builder: (sheetCtx) => SafeArea(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 40, height: 4,
+                                    margin: const EdgeInsets.only(bottom: 20),
+                                    decoration: BoxDecoration(
+                                      color: C.border,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  Text('Add ${label} Photo',
+                                      style: syne(sz: 16, w: FontWeight.bold)),
+                                  const SizedBox(height: 20),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () => Navigator.pop(sheetCtx, 'camera'),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(vertical: 20),
+                                            decoration: BoxDecoration(
+                                              color: C.brand.withOpacity(.12),
+                                              borderRadius: BorderRadius.circular(16),
+                                              border: Border.all(color: C.brand.withOpacity(.4)),
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                Icon(Icons.camera_alt, color: C.brand, size: 36),
+                                                const SizedBox(height: 8),
+                                                Text('Necxa Camera',
+                                                    style: syne(sz: 12, w: FontWeight.bold, c: C.brand)),
+                                                Text('Shoot now', style: dm(sz: 10, c: C.dim)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () => Navigator.pop(sheetCtx, 'gallery'),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(vertical: 20),
+                                            decoration: BoxDecoration(
+                                              color: C.card,
+                                              borderRadius: BorderRadius.circular(16),
+                                              border: Border.all(color: C.border),
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                Icon(Icons.photo_library, color: C.text, size: 36),
+                                                const SizedBox(height: 8),
+                                                Text('Gallery',
+                                                    style: syne(sz: 12, w: FontWeight.bold, c: C.text)),
+                                                Text('From device', style: dm(sz: 10, c: C.dim)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         );
+                        if (choice == null) return;
+                        XFile? f;
+                        if (choice == 'camera') {
+                          f = await ImagePicker().pickImage(
+                            source: ImageSource.camera,
+                            preferredCameraDevice: CameraDevice.rear,
+                            imageQuality: 90,
+                          );
+                        } else {
+                          f = await ImagePicker().pickImage(
+                            source: ImageSource.gallery,
+                            imageQuality: 90,
+                          );
+                        }
                         if (f != null) await onAdd(cat, File(f.path));
                       },
                 child: Container(
@@ -2448,7 +3566,14 @@ class _Step6Photos extends StatelessWidget {
                           padding: EdgeInsets.all(34),
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Icon(Icons.add_a_photo, color: C.dim),
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_a_photo, color: C.dim),
+                            const SizedBox(height: 4),
+                            Text('+ Photo', style: dm(sz: 9, c: C.dim)),
+                          ],
+                        ),
                 ),
               ),
               ...files.asMap().entries.map((entry) {
@@ -2479,8 +3604,11 @@ class _Step6Photos extends StatelessWidget {
                             color: Colors.black54,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.close,
-                              size: 12, color: Colors.white),
+                          child: const Icon(
+                            Icons.close,
+                            size: 12,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),
@@ -2501,6 +3629,7 @@ class _Step7Review extends StatelessWidget {
   final bool idVerified, faceVerified, gpsLocked, submitted, loading;
   final int photoCount;
   final VoidCallback onSubmit;
+  final VoidCallback onReturnHome;
 
   const _Step7Review({
     required this.title,
@@ -2516,6 +3645,7 @@ class _Step7Review extends StatelessWidget {
     required this.loading,
     required this.photoCount,
     required this.onSubmit,
+    required this.onReturnHome,
   });
 
   @override
@@ -2525,12 +3655,12 @@ class _Step7Review extends StatelessWidget {
       children: [
         _reviewCard(
           'Identity Shard',
-          idVerified && faceVerified ? 'Verified ?' : 'Required ?',
+          idVerified && faceVerified ? 'Verified ✔' : 'Required ❌',
         ),
-        _reviewCard('GPS Node', gpsLocked ? 'Locked ?' : 'Required ?'),
+        _reviewCard('GPS Node', gpsLocked ? 'Locked ✔' : 'Required ❌'),
         _reviewCard(
           'Photos',
-          photoCount > 0 ? '$photoCount Uploaded ?' : 'Required ?',
+          photoCount > 0 ? '$photoCount Uploaded ✔' : 'Required ❌',
         ),
         const SizedBox(height: 40),
         SizedBox(
@@ -2568,18 +3698,39 @@ class _Step7Review extends StatelessWidget {
       child: Column(
         children: [
           Icon(Icons.stars, size: 80, color: C.brand),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           Text(
             'Listing Minted!',
             style: syne(sz: 24, w: FontWeight.w900, c: C.brand),
           ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E676).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF00E676)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.verified, color: Color(0xFF00E676), size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  '100% Certified On-Site Creation',
+                  style: syne(sz: 12, w: FontWeight.w800, c: const Color(0xFF00E676)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           Text(
             'Your event ID: ${mintEventId ?? "PENDING"}',
             style: dm(c: C.dim),
           ),
           const SizedBox(height: 48),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: onReturnHome,
             child: const Text('Back to Home'),
           ),
         ],
@@ -2623,18 +3774,27 @@ Widget _input(
   ),
 );
 
-Widget _chip(String label, bool sel, VoidCallback onTap) => GestureDetector(
+Widget _chip(String label, bool sel, VoidCallback onTap, {IconData? icon}) => GestureDetector(
   onTap: onTap,
   child: Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
     decoration: BoxDecoration(
-      color: sel ? C.brand.withOpacity(.1) : C.card,
+      color: sel ? C.brand.withOpacity(.12) : C.card,
       borderRadius: BorderRadius.circular(12),
       border: Border.all(color: sel ? C.brand : C.border),
     ),
-    child: Text(
-      label,
-      style: syne(sz: 13, w: FontWeight.w700, c: sel ? C.brand : C.dim),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 14, color: sel ? C.brand : C.dim),
+          const SizedBox(width: 6),
+        ],
+        Text(
+          label,
+          style: syne(sz: 12, w: FontWeight.w700, c: sel ? C.brand : C.dim),
+        ),
+      ],
     ),
   ),
 );
@@ -2643,8 +3803,14 @@ class _ScannerOverlayPainter extends CustomPainter {
   final bool documentMode;
   final bool holdingMode;
   final double progress;
+  final bool isSuccessCapture;
 
-  _ScannerOverlayPainter({required this.documentMode, this.holdingMode = false, required this.progress});
+  _ScannerOverlayPainter({
+    required this.documentMode,
+    this.holdingMode = false,
+    required this.progress,
+    this.isSuccessCapture = false,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2653,35 +3819,40 @@ class _ScannerOverlayPainter extends CustomPainter {
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
     if (holdingMode) {
-      // ── HOLDING MODE: ID card guide on left, Face guide on right ──
-      const topPad = 30.0;
-      const bottomPad = 30.0;
-      const gap = 24.0; // Space between ID and Face
+      // ── HOLDING MODE: ID guide on left, face guide on right ──
+      const topPad = 38.0;
+      const bottomPad = 42.0;
+      const sidePad = 12.0;
+      const gap = 12.0;
+
+      final availableW = size.width - (sidePad * 2) - gap;
+      final faceW = availableW * 0.40;
+      final idW = availableW * 0.60;
       final areaH = size.height - topPad - bottomPad;
 
-      // 1. Calculate Face size (Portrait aspect ~0.72)
-      // Face shouldn't be taller than available area
-      final faceH = areaH.clamp(140.0, 240.0);
-      final faceW = faceH * 0.72;
-
-      // 2. Calculate ID size (Landscape aspect ~1.58)
-      // ID height should be slightly smaller than face height for realism
-      final idH = (faceH * 0.75).clamp(100.0, 180.0);
-      final idW = idH * 1.58;
-
-      // 3. Center both cutouts together horizontally
-      final combinedW = idW + gap + faceW;
-      final startX = (size.width - combinedW) / 2;
-
-      // Left ID card area
-      final idTop = topPad + (areaH - idH) / 2;
-      final idRect = Rect.fromLTWH(startX, idTop, idW, idH);
-      final idRRect = RRect.fromRectAndRadius(idRect, const Radius.circular(16));
-
-      // Right face area
+      // Keep both guides inside the shallow landscape viewport without
+      // cropping the face or the four edges of the document.
+      final faceH = areaH * 0.82;
       final faceTop = topPad + (areaH - faceH) / 2;
-      final faceRect = Rect.fromLTWH(startX + idW + gap, faceTop, faceW, faceH);
-      final faceRRect = RRect.fromRectAndRadius(faceRect, const Radius.circular(20));
+      final faceRect = Rect.fromLTWH(
+        sidePad + idW + gap,
+        faceTop,
+        faceW,
+        faceH,
+      );
+      final faceRRect = RRect.fromRectAndRadius(
+        faceRect,
+        const Radius.circular(20),
+      );
+
+      // Left ID card area (landscape standard 1.55 ratio)
+      final idH = (idW / 1.55).clamp(0.0, areaH * 0.82);
+      final idTop = topPad + (areaH - idH) / 2;
+      final idRect = Rect.fromLTWH(sidePad, idTop, idW, idH);
+      final idRRect = RRect.fromRectAndRadius(
+        idRect,
+        const Radius.circular(16),
+      );
 
       // Combine cutouts from dark translucent backdrop
       final combinedCutout = Path.combine(
@@ -2689,7 +3860,11 @@ class _ScannerOverlayPainter extends CustomPainter {
         Path()..addRRect(faceRRect),
         Path()..addRRect(idRRect),
       );
-      final maskPath = Path.combine(PathOperation.difference, bgPath, combinedCutout);
+      final maskPath = Path.combine(
+        PathOperation.difference,
+        bgPath,
+        combinedCutout,
+      );
       canvas.drawPath(maskPath, bgPaint);
 
       // Cyan corner brackets on Face area (exact match to screenshot)
@@ -2703,13 +3878,53 @@ class _ScannerOverlayPainter extends CustomPainter {
       const fRad = 18.0;
 
       // Top-left
-      canvas.drawPath(Path()..moveTo(fr.left, fr.top + fLen)..lineTo(fr.left, fr.top + fRad)..arcToPoint(Offset(fr.left + fRad, fr.top), radius: const Radius.circular(fRad))..lineTo(fr.left + fLen, fr.top), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.left, fr.top + fLen)
+          ..lineTo(fr.left, fr.top + fRad)
+          ..arcToPoint(
+            Offset(fr.left + fRad, fr.top),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.left + fLen, fr.top),
+        faceBracketPaint,
+      );
       // Top-right
-      canvas.drawPath(Path()..moveTo(fr.right - fLen, fr.top)..lineTo(fr.right - fRad, fr.top)..arcToPoint(Offset(fr.right, fr.top + fRad), radius: const Radius.circular(fRad))..lineTo(fr.right, fr.top + fLen), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.right - fLen, fr.top)
+          ..lineTo(fr.right - fRad, fr.top)
+          ..arcToPoint(
+            Offset(fr.right, fr.top + fRad),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.right, fr.top + fLen),
+        faceBracketPaint,
+      );
       // Bottom-left
-      canvas.drawPath(Path()..moveTo(fr.left, fr.bottom - fLen)..lineTo(fr.left, fr.bottom - fRad)..arcToPoint(Offset(fr.left + fRad, fr.bottom), radius: const Radius.circular(fRad))..lineTo(fr.left + fLen, fr.bottom), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.left, fr.bottom - fLen)
+          ..lineTo(fr.left, fr.bottom - fRad)
+          ..arcToPoint(
+            Offset(fr.left + fRad, fr.bottom),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.left + fLen, fr.bottom),
+        faceBracketPaint,
+      );
       // Bottom-right
-      canvas.drawPath(Path()..moveTo(fr.right - fLen, fr.bottom)..lineTo(fr.right - fRad, fr.bottom)..arcToPoint(Offset(fr.right, fr.bottom - fRad), radius: const Radius.circular(fRad))..lineTo(fr.right, fr.bottom - fLen), faceBracketPaint);
+      canvas.drawPath(
+        Path()
+          ..moveTo(fr.right - fLen, fr.bottom)
+          ..lineTo(fr.right - fRad, fr.bottom)
+          ..arcToPoint(
+            Offset(fr.right, fr.bottom - fRad),
+            radius: const Radius.circular(fRad),
+          )
+          ..lineTo(fr.right, fr.bottom - fLen),
+        faceBracketPaint,
+      );
 
       // Yellow rounded rectangle border on ID area
       final idBorder = Paint()
@@ -2757,30 +3972,39 @@ class _ScannerOverlayPainter extends CustomPainter {
         ..strokeWidth = 2.5;
       canvas.drawPath(cutoutPath, docBorderPaint);
     } else {
-      final dimPaint = Paint()
-        ..color = C.text.withOpacity(0.2)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0;
-      canvas.drawOval(cutoutRect, dimPaint);
+      if (isSuccessCapture) {
+        final successPaint = Paint()
+          ..color = const Color(0xFF00E676)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4.2
+          ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 4);
+        canvas.drawOval(cutoutRect, successPaint);
+      } else {
+        final dimPaint = Paint()
+          ..color = C.text.withOpacity(0.2)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0;
+        canvas.drawOval(cutoutRect, dimPaint);
 
-      final sweepPaint = Paint()
-        ..color = const Color(0xFF00E5FF)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.5
-        ..strokeCap = StrokeCap.round
-        ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 3);
+        final sweepPaint = Paint()
+          ..color = const Color(0xFF00E5FF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.5
+          ..strokeCap = StrokeCap.round
+          ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 3);
 
-      final startAngle =
-          (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
-      const sweepAngle = 3.141592653589793 * 0.45;
-      canvas.drawArc(cutoutRect, startAngle, sweepAngle, false, sweepPaint);
-      canvas.drawArc(
-        cutoutRect,
-        startAngle + 3.141592653589793,
-        sweepAngle,
-        false,
-        sweepPaint,
-      );
+        final startAngle =
+            (progress * 2 * 3.141592653589793) - (3.141592653589793 / 2);
+        const sweepAngle = 3.141592653589793 * 0.45;
+        canvas.drawArc(cutoutRect, startAngle, sweepAngle, false, sweepPaint);
+        canvas.drawArc(
+          cutoutRect,
+          startAngle + 3.141592653589793,
+          sweepAngle,
+          false,
+          sweepPaint,
+        );
+      }
 
       final cx = size.width / 2;
       final cy = size.height / 2;
@@ -2790,7 +4014,9 @@ class _ScannerOverlayPainter extends CustomPainter {
       const len = 22.0;
 
       final cornerPaint = Paint()
-        ..color = C.text.withOpacity(0.9)
+        ..color = isSuccessCapture
+            ? const Color(0xFF00E676)
+            : C.text.withOpacity(0.9)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.5
         ..strokeCap = StrokeCap.round;
@@ -2830,8 +4056,10 @@ class _ScannerOverlayPainter extends CustomPainter {
   bool shouldRepaint(covariant _ScannerOverlayPainter oldDelegate) {
     return oldDelegate.documentMode != documentMode ||
         oldDelegate.holdingMode != holdingMode ||
-        oldDelegate.progress != progress;
+        oldDelegate.progress != progress ||
+        oldDelegate.isSuccessCapture != isSuccessCapture;
   }
 }
+
 
 

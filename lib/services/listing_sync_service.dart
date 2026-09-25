@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'package:universal_io/io.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+
 class ListingSyncService {
   static const _verificationTimeout = Duration(seconds: 90);
   static const _listingTimeout = Duration(minutes: 2);
@@ -40,6 +42,27 @@ class ListingSyncService {
     }
     return file; // Fallback to original
   }
+
+  static Future<http.MultipartFile> _identityImage(
+    String field,
+    File file,
+  ) async {
+    final compressed = await compressImage(file);
+    return http.MultipartFile.fromPath(
+      field,
+      compressed.path,
+      contentType: MediaType('image', 'jpeg'),
+    );
+  }
+
+  static Future<http.MultipartFile> _identityRawImage(String field, File file) {
+    return http.MultipartFile.fromPath(
+      field,
+      file.path,
+      contentType: MediaType('image', 'jpeg'),
+    );
+  }
+
   static String get _edgeFuncUrl {
     final restUrl = Supabase.instance.client.rest.url;
     final baseUrl = restUrl.split('/rest/v1')[0];
@@ -91,12 +114,18 @@ class ListingSyncService {
     }
     final message = decoded?['message']?.toString().trim();
     final error = decoded?['error']?.toString().trim();
-    throw Exception(
-      (message?.isNotEmpty ?? false)
-          ? message
-          : (error?.isNotEmpty ?? false)
-          ? error
-          : '$operation failed (${statusCode == 0 ? 'network error' : statusCode}). Please try again.',
+      final details = decoded?['details']?.toString().trim();
+    final safeMessage = (message?.isNotEmpty ?? false)
+        ? message!
+        : (error?.isNotEmpty ?? false)
+        ? error!
+        : '$operation failed (${statusCode == 0 ? 'network error' : statusCode}). Please try again.';
+    throw ListingSyncException(
+      safeMessage,
+      operation: operation,
+      statusCode: statusCode,
+      code: decoded?['error_code']?.toString(),
+      requestId: decoded?['request_id']?.toString(),
     );
   }
 
@@ -116,6 +145,10 @@ class ListingSyncService {
     required String holdingVerificationId,
     required String biometricVerificationId,
     String? idempotencyKey,
+    File? livenessEvidence,
+    Map<String, dynamic>? livenessMetadata,
+    Map<String, dynamic>? livenessManifest,
+    List<File>? livenessFrames,
   }) async {
     final req = http.MultipartRequest('POST', Uri.parse(_identityFuncUrl));
     final headers = await _getHeaders();
@@ -132,19 +165,34 @@ class ListingSyncService {
     req.fields['back_verification_id'] = backVerificationId;
     req.fields['holding_verification_id'] = holdingVerificationId;
     req.fields['biometric_verification_id'] = biometricVerificationId;
-    // The four captures above are immediate UI checks. Ask the authoritative
-    // verification project to create and validate its signed receipts before
-    // it stores the completed identity shard.
     req.fields['verification_mode'] = 'direct-ai-engine';
 
-    req.files.add(await http.MultipartFile.fromPath('id_front', (await compressImage(idFront)).path));
-    req.files.add(await http.MultipartFile.fromPath('id_back', (await compressImage(idBack)).path));
-    req.files.add(
-      await http.MultipartFile.fromPath('id_holding', (await compressImage(idHolding)).path),
-    );
-    req.files.add(
-      await http.MultipartFile.fromPath('face_photo', (await compressImage(facePhoto)).path),
-    );
+    req.files.add(await _identityImage('id_front', idFront));
+    req.files.add(await _identityImage('id_back', idBack));
+    req.files.add(await _identityImage('id_holding', idHolding));
+    req.files.add(await _identityImage('face_photo', facePhoto));
+    if (livenessEvidence != null) {
+      req.files.add(
+        await _identityImage('liveness_evidence', livenessEvidence),
+      );
+      if (livenessMetadata != null) {
+        req.fields['liveness_metadata'] = jsonEncode({
+          ...livenessMetadata,
+          if (livenessManifest != null)
+            'cryptographicManifest': livenessManifest,
+        });
+      }
+      if (livenessFrames != null) {
+        for (var index = 0; index < livenessFrames.length; index++) {
+          req.files.add(
+            await _identityRawImage(
+              'liveness_frame_$index',
+              livenessFrames[index],
+            ),
+          );
+        }
+      }
+    }
 
     final res = await req.send().timeout(_verificationTimeout);
     final resBody = await res.stream.bytesToString();
@@ -185,7 +233,12 @@ class ListingSyncService {
       Uri.parse('$_faceCacheFuncUrl/compare?sessionId=$sessionId'),
     );
     req.headers.addAll(await _getHeaders());
-    req.files.add(await http.MultipartFile.fromPath('selfie', (await compressImage(selfie)).path));
+    req.files.add(
+      await http.MultipartFile.fromPath(
+        'selfie',
+        (await compressImage(selfie)).path,
+      ),
+    );
 
     final res = await req.send();
     final resBody = await res.stream.bytesToString();
@@ -386,10 +439,7 @@ class ListingSyncService {
     for (int i = 0; i < bathroomPhotos.length; i++) {
       final compressedBath = await compressImage(bathroomPhotos[i]);
       req.files.add(
-        await http.MultipartFile.fromPath(
-          'bathroom_$i',
-          compressedBath.path,
-        ),
+        await http.MultipartFile.fromPath('bathroom_$i', compressedBath.path),
       );
     }
 
@@ -398,3 +448,25 @@ class ListingSyncService {
     return _decodeResponse(resBody, res.statusCode, 'Listing submission');
   }
 }
+
+class ListingSyncException implements Exception {
+  final String message;
+  final String operation;
+  final int statusCode;
+  final String? code;
+  final String? requestId;
+
+  ListingSyncException(
+    this.message, {
+    required this.operation,
+    required this.statusCode,
+    this.code,
+    this.requestId,
+  });
+
+  @override
+  String toString() => message;
+}
+
+
+
