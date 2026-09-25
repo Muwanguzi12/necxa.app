@@ -521,6 +521,7 @@ class _PaymentScreenState extends State<PaymentScreen>
   }
 
   Future<void> _processPayment(PropertyContainer p) async {
+    final isEscrowMode = widget.state.currentEscrowInitiation != null;
     final requiresPhone = _method == 'MTN_MOMO' || _method == 'AIRTEL_MONEY';
     if (requiresPhone && _phoneCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -536,21 +537,23 @@ class _PaymentScreenState extends State<PaymentScreen>
       final user = widget.state.user;
       if (user == null) throw Exception('User not authenticated');
 
-      final initiateRes = await _paymentService.initiateUnlock(
-        listingId: p.core.id,
-        method: _method,
-        amount: p.financial.unlockCost.toDouble(),
-        buyerId: user.id,
-        buyerEmail: user.email ?? '',
-        phone: _method != 'NCX_COINS' ? _phoneCtrl.text : null,
-      );
+      if (isEscrowMode) {
+        // ── ESCROW FCFS FLOW ──────────────────────────────────────────────
+        final escrow = widget.state.currentEscrowInitiation!;
+        final escrowResId = escrow['escrow_id']?.toString() ?? '';
+        final depositAmount = (escrow['deposit_amount'] as num?)?.toDouble()
+            ?? p.financial.escrowDeposit.toDouble();
 
-      bool success = false;
-      if (_method == 'NCX_COINS') {
-        success = initiateRes['success'] == true;
-      } else {
-        // Launch Pesapal redirect URL externally
-        final redirectUrl = initiateRes['redirect_url'];
+        final initiateRes = await _paymentService.initiateEscrowPayment(
+          listingId: p.core.id,
+          escrowReservationId: escrowResId,
+          depositAmount: depositAmount,
+          buyerId: user.id,
+          buyerEmail: user.email ?? '',
+        );
+
+        // Open Pesapal redirect
+        final redirectUrl = initiateRes['redirectUrl'];
         if (redirectUrl != null) {
           final uri = Uri.parse(redirectUrl);
           if (await canLaunchUrl(uri)) {
@@ -558,20 +561,58 @@ class _PaymentScreenState extends State<PaymentScreen>
           } else {
             throw Exception('Could not open checkout page.');
           }
-        } else {
-          throw Exception('No payment link received.');
         }
 
-        success = await _paymentService.pollForPaymentCompletion(
-          initiateRes['payment_id'],
+        final won = await _paymentService.pollForEscrowCompletion(
+          initiateRes['paymentId'],
         );
-      }
 
-      if (success) {
-        widget.state.unlockProperty(p.core.id);
-        setState(() => _stage = PaymentStage.success);
+        if (won) {
+          widget.state.currentEscrowInitiation = null;
+          await widget.state.loadProperties(); // property is now delisted
+          setState(() => _stage = PaymentStage.success);
+        } else {
+          throw Exception('Payment timed out. Please check your wallet.');
+        }
       } else {
-        throw Exception('Payment verification timed out');
+        // ── REGULAR UNLOCK FLOW ───────────────────────────────────────────
+        final initiateRes = await _paymentService.initiateUnlock(
+          listingId: p.core.id,
+          method: _method,
+          amount: p.financial.unlockCost.toDouble(),
+          buyerId: user.id,
+          buyerEmail: user.email ?? '',
+          phone: _method != 'NCX_COINS' ? _phoneCtrl.text : null,
+        );
+
+        bool success = false;
+        if (_method == 'NCX_COINS') {
+          success = initiateRes['success'] == true;
+        } else {
+          final redirectUrl = initiateRes['redirectUrl'];
+          if (redirectUrl != null) {
+            final uri = Uri.parse(redirectUrl);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            } else {
+              throw Exception('Could not open checkout page.');
+            }
+          } else {
+            if (initiateRes['paymentId'] == null) {
+              throw Exception('No payment tracking ID received.');
+            }
+          }
+          success = await _paymentService.pollForPaymentCompletion(
+            initiateRes['paymentId'],
+          );
+        }
+
+        if (success) {
+          widget.state.unlockProperty(p.core.id);
+          setState(() => _stage = PaymentStage.success);
+        } else {
+          throw Exception('Payment verification timed out');
+        }
       }
     } catch (e) {
       setState(() {

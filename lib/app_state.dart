@@ -829,6 +829,9 @@ class AppState extends ChangeNotifier {
   String payMethod = 'momo';
   bool paying = false;
   bool paid = false;
+  /// Set when reserveProperty() creates a pending escrow. PaymentScreen reads this.
+  Map<String, dynamic>? currentEscrowInitiation;
+  String? escrowError;
 
   // ── Gift Engine ──
   String? giftEmoji;
@@ -1516,18 +1519,26 @@ class AppState extends ChangeNotifier {
     notify();
   }
 
+  /// Step 1: Creates a pending escrow reservation on the Primary DB.
+  /// Step 2: Hands off to the payment screen to process the fiat payment.
   Future<void> reserveProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
     try {
+      // Create the pending escrow record on smooth-action (Primary DB)
       final res = await SmoothAction.createEscrow(id);
       if (res['success'] == true) {
-        await loadProperties();
-        paid = true;
+        // Store the escrow initiation data so PaymentScreen can pick it up
+        currentEscrowInitiation = res;
+        // Navigate to payment screen — PaymentScreen detects escrow mode via currentEscrowInitiation
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Could not create escrow reservation.');
       }
     } catch (e) {
       debugPrint('Reservation Error: $e');
+      escrowError = e.toString();
     }
     paying = false;
     notify();
