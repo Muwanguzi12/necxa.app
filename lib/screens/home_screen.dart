@@ -437,204 +437,148 @@ class _PropertyCard extends StatelessWidget {
       onTap: () => state.openDetail(p.core.id),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
+        height: 250,
         margin: const EdgeInsets.only(bottom: 14),
         decoration: BoxDecoration(
-          color: C.card,
+          color: C.cardDk,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isReserved ? C.red.withOpacity(.3) : C.border,
           ),
+          image: p.core.images.isNotEmpty
+              ? DecorationImage(
+                  image: NetworkImage(p.core.images.first),
+                  fit: BoxFit.cover,
+                )
+              : null,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            // Image
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(20),
+            if (p.core.images.isEmpty)
+              Center(
+                child: Text(
+                  p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
+                  style: const TextStyle(fontSize: 50),
+                ),
               ),
-              child: Container(
-                height: 145,
-                decoration: BoxDecoration(
-                  color: C.cardDk,
-                  image: p.core.images.isNotEmpty
-                      ? DecorationImage(
-                          image: NetworkImage(p.core.images.first),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
-                ),
-                child: Stack(
-                  children: [
-                    if (p.core.images.isEmpty)
-                      Center(
-                        child: Text(
-                          p.core.propertyType == PropertyType.apartment
-                              ? '🏢'
-                              : '🏡',
-                          style: const TextStyle(fontSize: 50),
-                        ),
-                      ),
 
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: _TrustBadge(status: p.financial.trustStatus),
-                    ),
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: _PurposeBadge(
-                        p.core.listingType.name.toUpperCase(),
-                        C.brand,
-                      ),
-                    ),
-                    if (p.shadow.isUnlockedByCurrentUser)
-                      Positioned(
-                        bottom: 10,
-                        right: 10,
-                        child: _Badge('🔓 Unlocked', C.green, C.text),
-                      ),
-                    if (isReserved)
-                      Positioned.fill(
-                        child: Container(
-                          color: Colors.black45,
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: C.red,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                'RESERVED',
-                                style: syne(
-                                  sz: 10,
-                                  c: C.text,
-                                  w: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+            Positioned(
+              top: 10,
+              left: 10,
+              child: _TrustBadge(status: p.financial.trustStatus),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: _PurposeBadge(
+                p.core.listingType.name.toUpperCase(),
+                C.brand,
               ),
             ),
-            // Body
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: Text(p.core.title, style: syne(sz: 15))),
-                      GestureDetector(
-                        onTap: () => state.toggleSave(p.core.id),
-                        child: Text(
-                          saved ? '❤️' : '🤍',
-                          style: const TextStyle(fontSize: 18),
+            if (p.shadow.isUnlockedByCurrentUser)
+              Positioned(
+                top: 10,
+                right: 70,
+                child: _Badge('🔓 Unlocked', C.green, C.text),
+              ),
+            if (isReserved)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black45,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
+                      child: Text('RESERVED', style: syne(sz: 10, c: C.text, w: FontWeight.w800)),
+                    ),
+                  ),
+                ),
+              ),
+
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
+                decoration: BoxDecoration(
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.6),
+                      Colors.black.withOpacity(0.9),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: Text(p.core.title, style: syne(sz: 15, w: FontWeight.bold))),
+                        GestureDetector(
+                          onTap: () => state.toggleSave(p.core.id),
+                          child: Text(saved ? '❤️' : '🤍', style: const TextStyle(fontSize: 18)),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '📍 ${p.core.district}, ${p.core.city}',
-                    style: dm(sz: 11, c: C.dim),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Text(
-                        '🛏 ${p.core.bedrooms} Bed',
-                        style: dm(sz: 11, c: C.sub),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '🚿 ${p.core.bathrooms} Bath',
-                        style: dm(sz: 11, c: C.sub),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '📐 ${p.core.sizeSqft}m²',
-                        style: dm(sz: 11, c: C.sub),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '⭐ 4.8',
-                        style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            ugx(p.financial.price),
-                            style: syne(sz: 18, c: C.brand),
-                          ),
-                          Row(
-                            children: [
-                              Text(
-                                p.financial.priceType == PriceType.monthly
-                                    ? '/mo'
-                                    : '/night',
-                                style: dm(sz: 10, c: C.dim),
-                              ),
-                              const SizedBox(width: 8),
-                              if (!p.shadow.isUnlockedByCurrentUser)
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('📍 ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: Colors.white70)),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Text('🛏 ${p.core.bedrooms} Bed', style: dm(sz: 11, c: Colors.white70)),
+                        const SizedBox(width: 12),
+                        Text('🚿 ${p.core.bathrooms} Bath', style: dm(sz: 11, c: Colors.white70)),
+                        const SizedBox(width: 12),
+                        Text('📐 ${p.core.sizeSqft}m²', style: dm(sz: 11, c: Colors.white70)),
+                        const SizedBox(width: 12),
+                        Text('⭐ 4.8', style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Divider(color: Colors.white24, height: 1),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(ugx(p.financial.price), style: syne(sz: 18, c: C.brand, w: FontWeight.bold)),
+                            Row(
+                              children: [
                                 Text(
-                                  '�  Unlock: ${ugx(p.financial.unlockCost)}',
-                                  style: dm(
-                                    sz: 10,
-                                    c: C.gold,
-                                    w: FontWeight.w700,
-                                  ),
+                                  p.financial.priceType == PriceType.monthly ? '/mo' : '/night',
+                                  style: dm(sz: 10, c: Colors.white70),
                                 ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 6,
+                                const SizedBox(width: 8),
+                                if (!p.shadow.isUnlockedByCurrentUser)
+                                  Text('  Unlock: ${ugx(p.financial.unlockCost)}', style: dm(sz: 10, c: C.gold, w: FontWeight.w700)),
+                              ],
+                            ),
+                          ],
                         ),
-                        decoration: BoxDecoration(
-                          color: isReserved
-                              ? C.red.withOpacity(.1)
-                              : C.brand.withOpacity(.09),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isReserved
-                                ? C.red
-                                : C.brand.withOpacity(.22),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isReserved ? C.red.withOpacity(.1) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: isReserved ? C.red : C.brand),
                           ),
+                          child: Text(isReserved ? 'Reserved' : 'View ➜', style: dm(sz: 12, w: FontWeight.w700, c: isReserved ? C.red : C.brand)),
                         ),
-                        child: Text(
-                          isReserved ? 'Reserved' : 'View ➜',
-                          style: dm(
-                            sz: 11,
-                            w: FontWeight.w700,
-                            c: isReserved ? C.red : C.brand,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
