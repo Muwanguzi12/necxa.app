@@ -82,12 +82,13 @@ class CreatorScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          ('home', '🏠', 'Property'),
-          ('creator', '🎥', 'Creator'),
-          ('list', '📋', 'List'),
-          ('profile', '👤', 'Profile'),
+          ('home', 'assets/images/property_icon.png', 'Property'),
+          ('creator', null, 'Creator'),
+          ('list', 'assets/images/listing_icon.png', 'List'),
+          ('profile', null, 'Profile'),
         ].map((t) {
           final active = t.$1 == 'creator';
+          final iconAsset = t.$2;
           return Expanded(
             child: GestureDetector(
               onTap: () {
@@ -104,12 +105,31 @@ class CreatorScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                child: Text('${t.$2} ${t.$3}',
-                    textAlign: TextAlign.center,
-                    style: dm(
-                        sz: 10,
-                        w: active ? FontWeight.w800 : FontWeight.w600,
-                        c: active ? C.gold : C.dim)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (iconAsset != null)
+                      Opacity(
+                        opacity: active ? 1.0 : 0.6,
+                        child: Image.asset(iconAsset, width: 12, height: 12),
+                      )
+                    else
+                      Icon(
+                        t.$1 == 'creator' ? Icons.videocam_outlined : Icons.person,
+                        size: 12,
+                        color: active ? C.gold : C.dim,
+                      ),
+                    const SizedBox(width: 4),
+                    Text(
+                      t.$3,
+                      textAlign: TextAlign.center,
+                      style: dm(
+                          sz: 10,
+                          w: active ? FontWeight.w800 : FontWeight.w600,
+                          c: active ? C.gold : C.dim),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -186,7 +206,7 @@ class CreatorScreen extends StatelessWidget {
   }
 
   Widget _buildCatFilter() {
-    cats = ['All','Music','Afrobeats','RnB','HipHop','Dance','Art'];
+    final cats = ['All', 'Music', 'Afrobeats', 'RnB', 'HipHop', 'Dance', 'Art'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -439,10 +459,20 @@ class CreatorScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', false, () => state.go('home')),
+          _BotBtn(
+            Opacity(
+              opacity: 0.5,
+              child: Image.asset('assets/images/property_icon.png', width: 24, height: 24),
+            ),
+            'Property', false, () => state.go('home')),
           _BotBtn('🎬', 'Creator', true, () {}),
           _BotBtn('🔖', 'Saved', false, () {}),
-          _BotBtn('👤', 'Profile', false, () {}),
+          _BotBtn(
+            Opacity(
+              opacity: 0.5,
+              child: Image.asset('assets/images/property_icon.png', width: 24, height: 24),
+            ),
+            'Profile', false, () {}),
         ],
       ),
     );

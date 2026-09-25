@@ -324,7 +324,8 @@ async function handleFetchShopFeed(userId: string, payload: any = {}) {
       profiles:user_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier),
       lister:lister_id(display_name:full_name, photo_url:avatar_url)
     `)
-    .eq('status', 'active');
+    .eq('status', 'active')
+    .or('is_property_listing.is.null,is_property_listing.eq.false');
 
   if (category) query = query.eq('category', category);
   if (sinceTime) query = query.gt('created_at', sinceTime);

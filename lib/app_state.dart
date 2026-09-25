@@ -388,8 +388,18 @@ class AppState extends ChangeNotifier {
 
   String? _shieldError;
   String? get shieldFeedback => _shieldError;
-  void setShieldFeedback(String? message) {
-    _shieldError = message;
+  void setShieldFeedback(Object? message) {
+    if (message == null) {
+      _shieldError = null;
+    } else if (message is String) {
+      _shieldError = message;
+    } else if (message is Map) {
+      final value =
+          message['message'] ?? message['error'] ?? message['feedback'];
+      _shieldError = value is String ? value : message.toString();
+    } else {
+      _shieldError = message.toString();
+    }
     notifyListeners();
   }
 
@@ -500,6 +510,12 @@ class AppState extends ChangeNotifier {
   String? utilityShardId;
   bool isVerifying = false;
   int verificationSubStep = 0; // TRACKS CURRENT CAPTURE STAGE (0-3)
+
+  void setVerificationSubStep(int step) {
+    verificationSubStep = step;
+    notifyListeners();
+  }
+
   IDResult? lastIDResult;
   IDResult? lastIDBackResult;
   SelfieResult? lastSelfieResult;
@@ -1484,16 +1500,20 @@ class AppState extends ChangeNotifier {
     try {
       final res = await SmoothAction.unlockProperty(id);
       if (res['success'] == true) {
-        // Find the property in the local list and mark it as unlocked
+        // Free trial used or already unlocked
         final idx = propertyContainers.indexWhere((p) => p.core.id == id);
         if (idx != -1) {
-          // Re-fetch listing data to get the now-decrypted contact fields
           final raw = await SmoothAction.getProperty(id);
           final refreshed = PropertyContainer.fromJson(raw);
           propertyContainers[idx] = refreshed;
         }
         await loadProperties(); // Full sync
         paid = true;
+      } else if (res['requires_payment'] == true) {
+        // Route to payment screen, free trial was already used
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Unknown error');
       }
     } catch (e) {
       debugPrint('Unlock Error: $e');

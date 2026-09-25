@@ -103,11 +103,19 @@ class _PaymentScreenState extends State<PaymentScreen>
                   ),
                   _MethodTile(
                     id: 'AIRTEL_MONEY',
-                    label: 'Money',
-                    icon: '??',
+                    label: 'Airtel Money',
+                    icon: '❤️',
                     sub: '256 70x / 75x',
                     selected: _method == 'AIRTEL_MONEY',
                     onTap: () => setState(() => _method = 'AIRTEL_MONEY'),
+                  ),
+                  _MethodTile(
+                    id: 'CARD',
+                    label: 'Visa / Mastercard',
+                    icon: '💳',
+                    sub: 'Pay securely via Pesapal',
+                    selected: _method == 'CARD',
+                    onTap: () => setState(() => _method = 'CARD'),
                   ),
                   _MethodTile(
                     id: 'NCX_COINS',
@@ -118,7 +126,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                     onTap: () => setState(() => _method = 'NCX_COINS'),
                   ),
 
-                  if (_method != 'NCX_COINS') ...[
+                  if (_method == 'MTN_MOMO' || _method == 'AIRTEL_MONEY') ...[
                     SizedBox(height: 24),
                     Text(
                       'PHONE NUMBER',
@@ -513,7 +521,8 @@ class _PaymentScreenState extends State<PaymentScreen>
   }
 
   Future<void> _processPayment(PropertyContainer p) async {
-    if (_method != 'NCX_COINS' && _phoneCtrl.text.isEmpty) {
+    final requiresPhone = _method == 'MTN_MOMO' || _method == 'AIRTEL_MONEY';
+    if (requiresPhone && _phoneCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Please enter your phone number')),
       );

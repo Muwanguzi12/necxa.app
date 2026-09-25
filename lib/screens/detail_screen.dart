@@ -295,7 +295,15 @@ class _DetailScreenState extends State<DetailScreen> {
             color: C.brand.withOpacity(.1),
             textColor: C.brand,
             border: true,
-            onTap: () => s.openOrCreateChat(p),
+            onTap: () {
+              if (!p.shadow.isUnlockedByCurrentUser) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('You must unlock the property first to start a direct chat with the agent.')),
+                );
+              } else {
+                s.openOrCreateChat(p);
+              }
+            },
           ),
         ],
       ),
@@ -382,6 +390,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildInteractionContent(PropertyContainer p, _InteractionState state) {
+    final hasUsedFree = s.myProfile?['has_used_free_unlock'] == true;
     switch (state) {
       case _InteractionState.locked:
         return Row(
@@ -396,7 +405,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 ],
               ),
             ),
-            _Btn(label: 'Unlock Details ?', color: C.brand, textColor: C.bg, onTap: () => s.go('payment')),
+            _Btn(label: 'Unlock Details ?', color: C.brand, textColor: C.bg, onTap: () => s.unlockProperty(p.core.id)),
           ],
         );
       case _InteractionState.unlocked:

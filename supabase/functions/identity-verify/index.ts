@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "npm:@supabase/supabase-js@2"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,6 +88,25 @@ class CaptureVerificationError extends Error {
   }
 }
 
+function validPanoramaMetadata(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== 'object') return false
+  const value = metadata as Record<string, unknown>
+  const timestamps = value.captureTimestampsMs
+  const panelOrder = value.panelOrder
+  const ordered = Array.isArray(panelOrder) &&
+    panelOrder.join('|') === 'center|turn_left|center_return'
+  const orderedTimes = Array.isArray(timestamps) &&
+    timestamps.length === 3 &&
+    timestamps.every((item) => Number.isInteger(item) && Number(item) > 0) &&
+    Number(timestamps[0]) < Number(timestamps[1]) &&
+    Number(timestamps[1]) < Number(timestamps[2]) &&
+    Number(timestamps[2]) - Number(timestamps[0]) <= 15000
+  return value.format === 'three-panel-horizontal' &&
+    value.panelCount === 3 &&
+    ordered &&
+    orderedTimes
+}
+
 function stageResult(job: Record<string, any>, expectedStage: string): Record<string, any> | null {
   const stages = Array.isArray(job.ai_verification_stage_results)
     ? job.ai_verification_stage_results
@@ -166,11 +185,32 @@ Deno.serve(async (req) => {
     }
     const livenessMetadataText = String(formData.get("liveness_metadata") || "").trim()
     let livenessMetadata: Record<string, unknown> | undefined
+    let livenessManifest: Record<string, any> | undefined
+    let livenessFrames: File[] = []
     if (livenessEvidence) {
       if (!livenessMetadataText) throw new Error("liveness_metadata is required with liveness_evidence.")
       const parsed = JSON.parse(livenessMetadataText)
       if (!validPanoramaMetadata(parsed)) throw new Error("Invalid liveness metadata.")
       livenessMetadata = parsed
+      if (parsed.cryptographicCapture === "accepted") {
+        const manifest = parsed.cryptographicManifest
+        if (!manifest || typeof manifest !== "object" ||
+          typeof manifest.nonce !== "string" ||
+          typeof manifest.keyId !== "string" ||
+          typeof manifest.signature !== "string" ||
+          !Array.isArray(manifest.frames) ||
+          manifest.frames.length !== 3) {
+          throw new Error("Cryptographic liveness manifest is missing or invalid.")
+        }
+        livenessManifest = manifest as Record<string, any>
+        livenessFrames = [0, 1, 2].map((index) => {
+          const value = formData.get(`liveness_frame_${index}`)
+          if (!(value instanceof File) || value.size === 0) {
+            throw new Error(`Missing liveness_frame_${index} for cryptographic verification.`)
+          }
+          return value
+        })
+      }
     }
     const docType = String(formData.get("doc_type") || "National ID")
     const docNumberInput = String(formData.get("doc_number") || "").trim()
@@ -187,6 +227,32 @@ Deno.serve(async (req) => {
     }
     const directAiMode = formData.get("verification_mode") === "direct-ai-engine"
     if (directAiMode) {
+      if (livenessManifest) {
+        const canonical = JSON.stringify({
+          nonce: livenessManifest.nonce,
+          frames: livenessManifest.frames,
+          createdAt: livenessManifest.createdAt,
+        })
+        const manifestHash = await sha256Hex(canonical)
+        const { data: challenge, error: challengeError } = await supabase
+          .from("liveness_challenges")
+          .select("id,consumed_at,manifest_hash")
+          .eq("user_id", user.id)
+          .eq("nonce", livenessManifest.nonce)
+          .eq("key_id", livenessManifest.keyId)
+          .maybeSingle()
+        if (challengeError) throw challengeError
+        if (!challenge || !challenge.consumed_at || challenge.manifest_hash !== manifestHash) {
+          throw new Error("Cryptographic liveness challenge was not accepted by SP2.")
+        }
+        for (let index = 0; index < livenessFrames.length; index++) {
+          const expected = livenessManifest.frames[index]
+          const actual = await fileSha256(livenessFrames[index])
+          if (expected?.index !== index || expected?.sha256 !== actual) {
+            throw new Error(`Cryptographic liveness frame ${index + 1} does not match its signed hash.`)
+          }
+        }
+      }
       const [frontBase64, backBase64, holdingBase64, faceBase64, livenessBase64] = await Promise.all([
         fileToDataUrl(idFront),
         fileToDataUrl(idBack),
@@ -410,7 +476,17 @@ Deno.serve(async (req) => {
       biometric_provider: biometricStage.provider,
       biometric_result: biometricStage.metadata,
     }
+    let shardId = crypto.randomUUID()
+    const { data: existingShard } = await supabase
+      .from("identity_shards")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle()
+    if (existingShard?.id) shardId = existingShard.id
+
     const row = {
+      id: shardId,
       user_id: user.id,
       idempotency_key: idempotencyKey,
       doc_type: docType,
@@ -473,7 +549,7 @@ Deno.serve(async (req) => {
     console.error("Identity verification error:", error)
     return json({
       error_code: "identity_provider_unavailable",
-      error: error instanceof Error ? error.message : "Identity verification failed.",
+      error: error instanceof Error ? error.message : (typeof error === "object" ? JSON.stringify(error) : "Identity verification failed."),
     }, 503)
   }
 })
