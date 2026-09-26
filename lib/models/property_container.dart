@@ -28,6 +28,9 @@ class PropertyCore {
   final String? agentPhone;
   final String? agentWhatsapp;
   final String? agentGoogleMeet;
+  final String? agentName;
+  final String? agentAvatar;
+  final int? agentTrustScore;
 
   PropertyCore({
     required this.id,
@@ -53,9 +56,14 @@ class PropertyCore {
     this.agentPhone,
     this.agentWhatsapp,
     this.agentGoogleMeet,
+    this.agentName,
+    this.agentAvatar,
+    this.agentTrustScore,
   });
 
   factory PropertyCore.fromJson(Map<String, dynamic> json) {
+    // Agent profile may be embedded as a nested map by smooth-action join
+    final agentProfile = json['agent_profile'] as Map<String, dynamic>?;
     return PropertyCore(
       id: json['id'],
       listerId: json['lister_id'],
@@ -84,6 +92,13 @@ class PropertyCore {
       agentPhone: json['agent_phone'],
       agentWhatsapp: json['agent_whatsapp'],
       agentGoogleMeet: json['agent_google_meet'],
+      agentName: agentProfile?['full_name']?.toString()
+          ?? agentProfile?['display_name']?.toString()
+          ?? json['agent_name']?.toString(),
+      agentAvatar: agentProfile?['avatar_url']?.toString()
+          ?? json['agent_avatar']?.toString(),
+      agentTrustScore: (agentProfile?['trust_score'] as num?)?.toInt()
+          ?? (json['agent_trust_score'] as num?)?.toInt(),
     );
   }
 }

@@ -272,12 +272,12 @@ class _ProfileScreenState extends State<ProfileScreen>
           ListenableBuilder(
             listenable: widget.state,
             builder: (context, _) {
-              final name =
-                  widget.state.myProfile?['display_name'] ??
-                  widget.state.user?.email?.split('@')[0].toUpperCase() ??
-                  'USER';
+              final name = widget.state.myDisplayName
+                  ?? widget.state.myUsername
+                  ?? widget.state.user?.email?.split('@').first.toUpperCase()
+                  ?? 'NECXA USER';
               return Text(
-                name,
+                name.toUpperCase(),
                 style: syne(
                   sz: 32,
                   w: FontWeight.w900,
