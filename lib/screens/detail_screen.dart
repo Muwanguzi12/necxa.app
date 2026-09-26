@@ -413,7 +413,14 @@ class _DetailScreenState extends State<DetailScreen> {
                 ],
               ),
             ),
-            _Btn(label: 'Unlock Details ?', color: C.brand, textColor: C.bg, onTap: () => s.unlockProperty(p.core.id)),
+            _Btn(
+              label: s.paying ? 'Processing...' : 'Unlock Details ?', 
+              color: s.paying ? C.dim : C.brand, 
+              textColor: C.bg, 
+              onTap: () {
+                if (!s.paying) s.unlockProperty(p.core.id);
+              }
+            ),
           ],
         );
       case _InteractionState.unlocked:

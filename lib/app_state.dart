@@ -1495,7 +1495,7 @@ class AppState extends ChangeNotifier {
 
   // ── Property Actions ──
 
-  Future<void> unlockProperty(String id) async {
+    Future<void> unlockProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
@@ -1519,6 +1519,11 @@ class AppState extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Unlock Error: $e');
+      if (navigatorKey.currentContext != null) {
+        ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+          SnackBar(content: Text('Failed to unlock: $e')),
+        );
+      }
     }
     paying = false;
     notify();
@@ -3435,3 +3440,4 @@ class IPResult {
   final String sessionId;
   IPResult({required this.verified, required this.sessionId});
 }
+
