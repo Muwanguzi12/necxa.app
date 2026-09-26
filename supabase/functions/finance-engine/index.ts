@@ -17,6 +17,12 @@ const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE
 const GIFT_PROJECTION_RECONCILIATION_SECRET =
   Deno.env.get("GIFT_PROJECTION_RECONCILIATION_SECRET")?.trim() || "";
 
+// necxa-chat (MongoDB/Redis) bridge — used to notify both parties of a community gift
+const NECXA_CHAT_URL = Deno.env.get("NECXA_CHAT_URL")?.trim() ||
+  "https://ayvescksetiuekoyfqar.supabase.co/functions/v1/necxa-chat";
+const NECXA_CHAT_ANON_KEY = Deno.env.get("NECXA_CHAT_ANON_KEY")?.trim() || "";
+const FINANCE_ENGINE_SHARED_SECRET = Deno.env.get("FINANCE_ENGINE_SHARED_SECRET")?.trim() || "";
+
 const PESAPAL_BASE = PESAPAL_ENV === "production"
   ? "https://pay.pesapal.com/v3"
   : "https://cybqa.pesapal.com/pesapalv3";
@@ -985,6 +991,81 @@ async function syncCommunityGiftToPrimary(
   if (error) throw new Error(`Primary community gift sync failed: ${error.message}`);
   return { synced: true, result: data };
 }
+
+/**
+ * Notifies BOTH sender and receiver via necxa-chat (MongoDB/Redis) after a
+ * community gift is successfully settled and synced to SP1.
+ * - Opens or reuses a DM room between sender & receiver.
+ * - Posts a system-flavoured gift message so both parties see it in chat.
+ * - Fires-and-forgets: any failure is logged but does NOT fail the gift itself.
+ */
+async function notifyChatOfGift({
+  senderId,
+  receiverId,
+  senderName,
+  giftEmoji,
+  giftName,
+  ncxAmount,
+  postId,
+  contextType,
+}: {
+  senderId: string;
+  receiverId: string;
+  senderName: string;
+  giftEmoji: string;
+  giftName: string;
+  ncxAmount: number;
+  postId: string;
+  contextType: string;
+}): Promise<void> {
+  if (!NECXA_CHAT_ANON_KEY && !FINANCE_ENGINE_SHARED_SECRET) return; // not configured
+
+  const authHeader = FINANCE_ENGINE_SHARED_SECRET
+    ? { "x-finance-engine-secret": FINANCE_ENGINE_SHARED_SECRET }
+    : {};
+
+  const contextLabel = contextType === "listing" ? "property listing" : "post";
+  const giftMessage = `${giftEmoji} ${senderName} sent a **${giftName}** (${ncxAmount} NCX) on your ${contextLabel}.`;
+
+  try {
+    const res = await fetch(NECXA_CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: NECXA_CHAT_ANON_KEY,
+        Authorization: `Bearer ${NECXA_CHAT_ANON_KEY}`,
+        ...authHeader,
+      },
+      body: JSON.stringify({
+        action: "SEND_MESSAGE",
+        payload: {
+          to_user_id: receiverId,
+          from_user_id: senderId,
+          content: giftMessage,
+          metadata: {
+            interaction_context: "gift",
+            conversation_label: "Gift",
+            gift_item: giftName,
+            gift_emoji: giftEmoji,
+            ncx_amount: ncxAmount,
+            post_id: postId,
+            context_type: contextType,
+          },
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "(unreadable)");
+      console.error(`[notifyChatOfGift] necxa-chat ${res.status}: ${body}`);
+    }
+  } catch (chatError) {
+    // Purely informational — gift is already settled; chat delivery is best-effort.
+    console.error("[notifyChatOfGift] fetch failed:", chatError);
+  }
+}
+
+
 
 async function completeGiftProjection(
   financeClient: ReturnType<typeof createClient>,
@@ -2989,6 +3070,20 @@ serve(async (req) => {
           if (!communitySync.synced) {
             throw new Error(String(communitySync.reason ?? "Community sync is not configured."));
           }
+          // ── MongoDB/Redis Chat Bridge ─────────────────────────────────────
+          // Fire-and-forget: drops a gift system message into the DM room
+          // between sender & receiver so both are notified in chat instantly.
+          notifyChatOfGift({
+            senderId: user.id,
+            receiverId,
+            senderName: String(metadata.sender_name || user.email || "Someone"),
+            giftEmoji: giftDef?.emoji || "🎁",
+            giftName: giftDef?.name || "Gift",
+            ncxAmount,
+            postId: contextId,
+            contextType,
+          }); // intentionally not awaited — chat delivery is best-effort
+          // ─────────────────────────────────────────────────────────────────
           try {
             await completeGiftProjection(supabase, financeGiftId, true);
           } catch (statusError) {
@@ -2996,6 +3091,7 @@ serve(async (req) => {
             // finance-side status migration is rolling out.
             console.error("Unable to persist community sync success:", statusError);
           }
+
         } catch (syncError) {
           // Finance remains authoritative; a failed social projection must be
           // observable without turning a completed debit into a false failure.
@@ -3027,6 +3123,7 @@ serve(async (req) => {
         ugxEquivalent: Number(giftDef.ugx_value),
         isHighlighted: ncxAmount >= 50,
         communitySynced: communitySync.synced,
+        chatNotified: communitySync.synced, // true when gift message was dispatched to necxa-chat
         message: "Gift sent successfully.",
       });
     }
