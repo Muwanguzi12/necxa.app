@@ -1529,6 +1529,25 @@ class AppState extends ChangeNotifier {
     notify();
   }
 
+  /// Called by PaymentScreen after finance-engine confirms payment succeeded.
+  /// Refreshes the property from SP1 so unlocked credentials are shown
+  /// without re-triggering the unlock gate / free-trial check.
+  Future<void> markPropertyUnlockedAfterPayment(String id) async {
+    try {
+      final idx = propertyContainers.indexWhere((p) => p.core.id == id);
+      if (idx != -1) {
+        final raw = await SmoothAction.getProperty(id);
+        final refreshed = PropertyContainer.fromJson(raw);
+        propertyContainers[idx] = refreshed;
+      }
+      await loadProperties(); // full sync so is_unlocked_by_current_user flips
+      paid = true;
+    } catch (e) {
+      debugPrint('markPropertyUnlockedAfterPayment Error: $e');
+    }
+    notify();
+  }
+
   /// Step 1: Creates a pending escrow reservation on the Primary DB.
   /// Step 2: Hands off to the payment screen to process the fiat payment.
   Future<void> reserveProperty(String id) async {

@@ -2723,7 +2723,7 @@ serve(async (req) => {
       }
 
       // If pesapal (momo/card)
-      if (method === "pesapal" || method === "momo" || method === "card" || method === "mtn" || method === "airtel") {
+      if (method === "pesapal" || method === "momo" || method === "card" || method === "mtn" || method === "airtel" || method === "mtn_momo" || method === "airtel_money") {
         const { data: profile } = await supabase
           .from("profiles")
           .select("full_name, email, phone")
@@ -2780,17 +2780,22 @@ serve(async (req) => {
     if (action === "initiate_property_unlock") {
       const listingId = String(body.listingId ?? "");
       const method = String(body.method ?? "momo").toLowerCase();
-      const amountUgx = Math.trunc(Number(body.amountUgx));
+      // Flutter sends:
+      //   NCX path  → rawAmount = NCX coins (unlock_cost_ugx / 100)
+      //   Fiat path → rawAmount = UGX amount (= unlock_cost_ugx directly)
+      const rawAmount = Math.trunc(Number(body.amountUgx));
       const idempotencyKey = String(body.idempotencyKey ?? crypto.randomUUID());
 
-      if (!listingId || !Number.isFinite(amountUgx) || amountUgx <= 0) {
+      if (!listingId || !Number.isFinite(rawAmount) || rawAmount <= 0) {
         return json({ success: false, message: "Invalid property unlock request." }, 400);
       }
 
       if (method === "ncx_coins") {
-        const { data: ncxResult, error: ncxError } = await supabase.rpc("charge_ncx_purpose", {
+        // rawAmount is NCX coins; deduct from SP2 wallet
+        const amountNcx = rawAmount;
+        const { error: ncxError } = await supabase.rpc("charge_ncx_purpose", {
           p_user_id: user.id,
-          p_amount_ncx: amountUgx,
+          p_amount_ncx: amountNcx,
           p_purpose: "feature_unlock",
           p_reference: `unlock_${listingId}`,
           p_idempotency_key: idempotencyKey,
@@ -2798,33 +2803,38 @@ serve(async (req) => {
 
         if (ncxError) return json({ success: false, message: ncxError.message }, 409);
 
+        // Write unlock record to SP1 (Primary DB)
         const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
-        const { data: prop } = await primaryAdmin.from("properties").select("lister_id, agent_id").eq("id", listingId).single();
+        const { data: prop } = await primaryAdmin.from("properties").select("lister_id, agent_id, unlock_cost").eq("id", listingId).single();
+        const unlockCostUgx = prop?.unlock_cost ?? amountNcx * 100;
         
         const { error: unlockError } = await primaryAdmin.from("unlocks").upsert({
           property_id: listingId,
           buyer_id: user.id,
           seller_id: prop?.lister_id || null,
           agent_id: prop?.agent_id || null,
-          unlock_amount: amountUgx,
-          unlock_cost: amountUgx,
+          unlock_amount: unlockCostUgx,
+          unlock_cost: unlockCostUgx,
           status: "completed",
           address_revealed_at: new Date().toISOString(),
           contact_revealed_at: new Date().toISOString(),
         }, { onConflict: "property_id, buyer_id" });
 
-        if (unlockError) console.error("Unlock sync failed:", unlockError);
+        if (unlockError) console.error("SP1 Unlock sync failed:", unlockError);
 
         return json({ success: true, paymentId: idempotencyKey });
       }
 
-      if (method === "pesapal" || method === "momo" || method === "card" || method === "mtn" || method === "airtel") {
+      if (method === "pesapal" || method === "momo" || method === "card" || method === "mtn" || method === "airtel" || method === "mtn_momo" || method === "airtel_money") {
+        // rawAmount is UGX amount — pass directly to Pesapal
+        const amountUgx = rawAmount;
         const { data: profile } = await supabase.from("profiles").select("full_name, email, phone").eq("id", user.id).maybeSingle();
         const fullName = profile?.full_name || user.user_metadata?.full_name || "Guest";
         const [firstName, ...rest] = fullName.split(" ");
         const lastName = rest.join(" ") || "—";
         const email = profile?.email || user.email || "no-reply@necxa.app";
-        const userPhone = profile?.phone || user.phone || "";
+        // Prefer buyer phone from request (MoMo flow), fall back to profile
+        const userPhone = String(body.buyerPhone || profile?.phone || user.phone || "");
 
         const pesapalToken = await getPesapalToken();
         const orderResult = await submitPesapalOrder(pesapalToken, {

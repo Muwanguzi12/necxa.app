@@ -483,7 +483,9 @@ class _PaymentScreenState extends State<PaymentScreen>
                 ),
                 SizedBox(height: 8),
                 Text(
-                  ugx(p.financial.unlockCost),
+                  _method == 'NCX_COINS'
+                      ? '${p.financial.unlockCost ~/ 100} NCX COINS'
+                      : 'UGX ${ugx(p.financial.unlockCost)}',
                   style: syne(sz: 18, c: C.brand, w: FontWeight.bold),
                 ),
               ],
@@ -579,10 +581,15 @@ class _PaymentScreenState extends State<PaymentScreen>
         final initiateRes = await _paymentService.initiateUnlock(
           listingId: p.core.id,
           method: _method,
-          amount: p.financial.unlockCost.toDouble(),
+          // unlock_cost is stored as UGX in the DB.
+          // NCX path: convert to NCX coins (1 NCX = 100 UGX).
+          // Fiat path: pass UGX directly to Pesapal.
+          amount: _method == 'NCX_COINS'
+              ? (p.financial.unlockCost / 100).roundToDouble()
+              : p.financial.unlockCost.toDouble(),
           buyerId: user.id,
           buyerEmail: user.email ?? '',
-          phone: _method != 'NCX_COINS' ? _phoneCtrl.text : null,
+          phone: _method != 'NCX_COINS' && _method != 'CARD' ? _phoneCtrl.text : null,
         );
 
         bool success = false;
@@ -608,7 +615,7 @@ class _PaymentScreenState extends State<PaymentScreen>
         }
 
         if (success) {
-          widget.state.unlockProperty(p.core.id);
+          await widget.state.markPropertyUnlockedAfterPayment(p.core.id);
           setState(() => _stage = PaymentStage.success);
         } else {
           throw Exception('Payment verification timed out');

@@ -409,7 +409,10 @@ class _DetailScreenState extends State<DetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Unlock Identity Shard', style: dm(sz: 14, w: FontWeight.bold)),
-                  Text('${p.financial.unlockCost} NCX COINS (10%)', style: dm(sz: 10, c: C.brand, w: FontWeight.bold)),
+                  Text(
+                    'UGX ${ugx(p.financial.unlockCost)} · ${(p.financial.unlockCost ~/ 100)} NCX COINS',
+                    style: dm(sz: 10, c: C.brand, w: FontWeight.bold),
+                  ),
                 ],
               ),
             ),
