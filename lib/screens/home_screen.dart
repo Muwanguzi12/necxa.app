@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
@@ -10,37 +11,46 @@ class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, required this.state});
 
   static final _filters = [
-    ('all', 'All'), ('rent', 'For Rent'), ('shortStay', 'Short Stay'),
-    ('lease', 'Lease'), ('sale', 'For Sale'), ('villa', 'Villas'),
+    ('all', 'All'),
+    ('rent', 'For Rent'),
+    ('shortStay', 'Short Stay'),
+    ('lease', 'Lease'),
+    ('sale', 'For Sale'),
+    ('villa', 'Villas'),
     ('commercial', 'Office'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final filtered = state.filtered;
-    return Column(
-      children: [
-        _buildNav(context),
-        _buildAppTabs(),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHero(),
-                _buildStats(filtered.length),
-                _buildFilterRow(),
-                _buildListings(filtered),
-              ],
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 700),
+        child: Column(
+          children: [
+            _buildNav(context),
+            _buildAppTabs(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHero(),
+                    _buildStats(filtered.length),
+                    _buildFilterRow(),
+                    _buildListings(filtered),
+                  ],
+                ),
+              ),
             ),
-          ),
+            _buildBottomNav(),
+          ],
         ),
-        _buildBottomNav(),
-      ],
+      ),
     );
   }
 
-  // ── Nav ──
+  // -- Nav --
   Widget _buildNav(BuildContext context) {
     return Container(
       color: C.card,
@@ -56,36 +66,51 @@ class HomeScreen extends StatelessWidget {
                 Text('NECXA', style: syne(sz: 20, ls: -.5)),
                 const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: C.green.withOpacity(.1),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: C.green.withOpacity(.25)),
                   ),
-                  child: Text('🇺🇬 UGX', style: dm(sz: 9, w: FontWeight.w700, c: C.green)),
+                  child: Text(
+                    '🇺🇬 UGX',
+                    style: dm(sz: 9, w: FontWeight.w700, c: C.green),
+                  ),
                 ),
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () => _showAiChat(context, state),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E2631),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blue.withOpacity(.3)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                   Image.asset('assets/images/logo.png', width: 14, height: 14),
-                   const SizedBox(width: 6),
-                   Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
-                ],
+          if (!kIsWeb)
+            GestureDetector(
+              onTap: () => _showAiChat(context, state),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E2631),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.withOpacity(.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset(
+                      'assets/images/logo.png',
+                      width: 14,
+                      height: 14,
+                      color: C.text,
+                    ),
+                    const SizedBox(width: 6),
+                    Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
+                  ],
+                ),
               ),
             ),
-          ),
           const SizedBox(width: 8),
           GestureDetector(
             onTap: () => state.go('profile'),
@@ -94,15 +119,23 @@ class HomeScreen extends StatelessWidget {
               builder: (context, _) {
                 final url = state.myProfile?['photo_url'];
                 return Container(
-                  width: 36, height: 36,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(color: C.brand, width: 1.5),
-                    image: url != null ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover) : null,
+                    image: url != null
+                        ? DecorationImage(
+                            image: NetworkImage(url),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
                   ),
-                  child: url == null ? const Icon(Icons.person, color: C.brand, size: 20) : null,
+                  child: url == null
+                      ? Icon(Icons.person, color: C.brand, size: 20)
+                      : null,
                 );
-              }
+              },
             ),
           ),
         ],
@@ -119,16 +152,20 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── App Tabs ──
+  // -- App Tabs --
   Widget _buildAppTabs() {
-    return _AppTabs(current: 'home', state: state, onTap: (t) {
-      if (t == 'transport') state.go('transport');
-      if (t == 'upload') state.go('upload');
-      if (t == 'profile') state.go('profile');
-    });
+    return _AppTabs(
+      current: 'home',
+      state: state,
+      onTap: (t) {
+        if (t == 'transport') state.go('transport');
+        if (t == 'upload') state.go('upload');
+        if (t == 'profile') state.go('profile');
+      },
+    );
   }
 
-  // ── Hero ──
+  // -- Hero --
   Widget _buildHero() {
     return Container(
       decoration: BoxDecoration(
@@ -155,8 +192,10 @@ class HomeScreen extends StatelessWidget {
               children: [
                 _PulsingDot(),
                 const SizedBox(width: 6),
-                Text("Uganda's Only Biometric-Verified Platform",
-                    style: dm(sz: 10, w: FontWeight.w700, c: C.brand)),
+                Text(
+                  "Uganda's Only Biometric-Verified Platform",
+                  style: dm(sz: 10, w: FontWeight.w700, c: C.brand),
+                ),
               ],
             ),
           ),
@@ -166,14 +205,18 @@ class HomeScreen extends StatelessWidget {
               style: syne(sz: 27, h: 1.15),
               children: const [
                 TextSpan(text: 'Find Your Perfect\n'),
-                TextSpan(text: 'Property in Uganda',
-                    style: TextStyle(color: C.brand)),
+                TextSpan(
+                  text: 'Property in Uganda',
+                  style: TextStyle(color: C.brand),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          Text('Every listing verified with National ID + Face ID + GPS',
-              style: dm(sz: 12, c: C.dim, h: 1.6)),
+          Text(
+            'Every listing verified with National ID + Face ID + GPS',
+            style: dm(sz: 12, c: C.dim, h: 1.6),
+          ),
           const SizedBox(height: 18),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -181,9 +224,16 @@ class HomeScreen extends StatelessWidget {
               color: C.cardDk,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: state.zoneMetadata != null 
-                  ? Color(int.parse(state.zoneMetadata!['color_hex'].replaceFirst('#', '0xFF')))
-                  : C.border,
+                color: state.zoneMetadata != null
+                    ? Color(
+                        int.parse(
+                          state.zoneMetadata!['color_hex'].replaceFirst(
+                            '#',
+                            '0xFF',
+                          ),
+                        ),
+                      )
+                    : C.border,
                 width: state.zoneMetadata != null ? 2 : 1,
               ),
             ),
@@ -216,18 +266,54 @@ class HomeScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: Color(int.parse(state.zoneMetadata!['color_hex'].replaceFirst('#', '0xFF'))).withOpacity(.15),
+                color: Color(
+                  int.parse(
+                    state.zoneMetadata!['color_hex'].replaceFirst('#', '0xFF'),
+                  ),
+                ).withOpacity(.15),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Color(int.parse(state.zoneMetadata!['color_hex'].replaceFirst('#', '0xFF'))).withOpacity(.4)),
+                border: Border.all(
+                  color: Color(
+                    int.parse(
+                      state.zoneMetadata!['color_hex'].replaceFirst(
+                        '#',
+                        '0xFF',
+                      ),
+                    ),
+                  ).withOpacity(.4),
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                   Icon(Icons.map_outlined, size: 12, color: Color(int.parse(state.zoneMetadata!['color_hex'].replaceFirst('#', '0xFF')))),
-                   const SizedBox(width: 6),
-                   Text(state.zoneMetadata!['zone_label'].toString().toUpperCase(), 
-                     style: dm(sz: 9, w: FontWeight.w800, 
-                       c: Color(int.parse(state.zoneMetadata!['color_hex'].replaceFirst('#', '0xFF'))))),
+                  Icon(
+                    Icons.map_outlined,
+                    size: 12,
+                    color: Color(
+                      int.parse(
+                        state.zoneMetadata!['color_hex'].replaceFirst(
+                          '#',
+                          '0xFF',
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    state.zoneMetadata!['zone_label'].toString().toUpperCase(),
+                    style: dm(
+                      sz: 9,
+                      w: FontWeight.w800,
+                      c: Color(
+                        int.parse(
+                          state.zoneMetadata!['color_hex'].replaceFirst(
+                            '#',
+                            '0xFF',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -237,7 +323,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Stats row ──
+  // -- Stats row --
   Widget _buildStats(int count) {
     return Container(
       decoration: BoxDecoration(
@@ -247,7 +333,7 @@ class HomeScreen extends StatelessWidget {
         children: [
           _StatCell(icon: '🏠', val: '$count+', lab: 'Listings'),
           Container(width: 1, height: 60, color: C.border),
-          const _StatCell(icon: '✅', val: '100%', lab: 'AI Verified'),
+          const _StatCell(icon: '🛡️', val: '100%', lab: 'AI Verified'),
           Container(width: 1, height: 60, color: C.border),
           const _StatCell(icon: '🔐', val: '5%', lab: 'Broker Fee'),
         ],
@@ -255,7 +341,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Filters ──
+  // -- Filters --
   Widget _buildFilterRow() {
     return Container(
       decoration: BoxDecoration(
@@ -272,17 +358,23 @@ class HomeScreen extends StatelessWidget {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
                 margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
                   color: active ? C.brand.withOpacity(.09) : C.card,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: active ? C.brand : C.border,
+                  border: Border.all(color: active ? C.brand : C.border),
+                ),
+                child: Text(
+                  f.$2,
+                  style: dm(
+                    sz: 11,
+                    w: FontWeight.w600,
+                    c: active ? C.brand : C.dim,
                   ),
                 ),
-                child: Text(f.$2,
-                    style: dm(sz: 11, w: FontWeight.w600,
-                        c: active ? C.brand : C.dim)),
               ),
             );
           }).toList(),
@@ -291,7 +383,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Listings ──
+  // -- Listings --
   Widget _buildListings(List<PropertyContainer> filtered) {
     if (state.isLoadingProperties) {
       return const Padding(
@@ -312,8 +404,7 @@ class HomeScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${filtered.length} Properties Found',
-              style: syne(sz: 16)),
+          Text('${filtered.length} Properties Found', style: syne(sz: 16)),
           const SizedBox(height: 14),
           ...filtered.map((p) => _PropertyCard(p: p, state: state)),
         ],
@@ -321,7 +412,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // ── Bottom Nav ──
+  // -- Bottom Nav --
   Widget _buildBottomNav() {
     return _BottomNav(
       current: 'home',
@@ -336,7 +427,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-// ── Property Card ─────────────────────────────────────────────
+// -- Property Card ---------------------------------------------
 class _PropertyCard extends StatelessWidget {
   final PropertyContainer p;
   final AppState state;
@@ -346,137 +437,153 @@ class _PropertyCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final saved = state.saved.contains(p.core.id);
     final isReserved = p.escrow.status == EscrowStatus.pending_escrow;
-    
+
     return GestureDetector(
       onTap: () => state.openDetail(p.core.id),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
+        height: 250,
         margin: const EdgeInsets.only(bottom: 14),
         decoration: BoxDecoration(
-          color: C.card,
+          color: C.cardDk,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: isReserved ? C.red.withOpacity(.3) : C.border),
+          border: Border.all(
+            color: isReserved ? C.red.withOpacity(.3) : C.border,
+          ),
+          image: p.core.images.isNotEmpty
+              ? DecorationImage(
+                  image: NetworkImage(p.core.images.first),
+                  fit: BoxFit.cover,
+                )
+              : null,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            // Image
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              child: Container(
-                height: 145,
-                decoration: BoxDecoration(
-                  color: C.cardDk,
-                  image: p.core.images.isNotEmpty 
-                    ? DecorationImage(image: NetworkImage(p.core.images.first), fit: BoxFit.cover)
-                    : null,
-                ),
-                child: Stack(
-                  children: [
-                    if (p.core.images.isEmpty)
-                      Center(child: Text(p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡', style: const TextStyle(fontSize: 50))),
-                    
-                    Positioned(
-                      top: 10, left: 10,
-                      child: _TrustBadge(status: p.financial.trustStatus),
-                    ),
-                    Positioned(
-                      top: 10, right: 10,
-                      child: _PurposeBadge(p.core.listingType.name.toUpperCase(), C.brand),
-                    ),
-                    if (p.shadow.isUnlockedByCurrentUser)
-                      const Positioned(
-                        bottom: 10, right: 10,
-                        child: _Badge('🔓 Unlocked', C.green, Colors.white),
-                      ),
-                    if (isReserved)
-                       Positioned.fill(
-                         child: Container(
-                           color: Colors.black45,
-                           child: Center(
-                             child: Container(
-                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                               decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
-                               child: Text('RESERVED', style: syne(sz: 10, c: Colors.white, w: FontWeight.w800)),
-                             ),
-                           ),
-                         ),
-                       ),
-                  ],
+            if (p.core.images.isEmpty)
+              Center(
+                child: Text(
+                  p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
+                  style: const TextStyle(fontSize: 50),
                 ),
               ),
+
+            Positioned(
+              top: 10,
+              left: 10,
+              child: _TrustBadge(status: p.financial.trustStatus),
             ),
-            // Body
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(p.core.title, style: syne(sz: 15)),
-                      ),
-                      GestureDetector(
-                        onTap: () => state.toggleSave(p.core.id),
-                        child: Text(saved ? '❤️' : '🤍',
-                            style: const TextStyle(fontSize: 18)),
-                      ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: _PurposeBadge(
+                p.core.listingType.name.toUpperCase(),
+                C.brand,
+              ),
+            ),
+            if (p.shadow.isUnlockedByCurrentUser)
+              Positioned(
+                top: 10,
+                right: 70,
+                child: _Badge('🔓 Unlocked', C.green, C.text),
+              ),
+            if (isReserved)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black45,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
+                      child: Text('RESERVED', style: syne(sz: 10, c: C.text, w: FontWeight.w800)),
+                    ),
+                  ),
+                ),
+              ),
+
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
+                decoration: BoxDecoration(
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.6),
+                      Colors.black.withOpacity(0.9),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text('📍 ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: C.dim)),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Text('🛏 ${p.core.bedrooms} Bed', style: dm(sz: 11, c: C.sub)),
-                      const SizedBox(width: 12),
-                      Text('🚿 ${p.core.bathrooms} Bath', style: dm(sz: 11, c: C.sub)),
-                      const SizedBox(width: 12),
-                      Text('📐 ${p.core.sizeSqft}m²', style: dm(sz: 11, c: C.sub)),
-                      const SizedBox(width: 12),
-                      Text('⭐ 4.8',
-                          style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(ugx(p.financial.price),
-                              style: syne(sz: 18, c: C.brand)),
-                          Row(
-                            children: [
-                              Text(p.financial.priceType == PriceType.monthly ? '/mo' : '/night', style: dm(sz: 10, c: C.dim)),
-                              const SizedBox(width: 8),
-                              if (!p.shadow.isUnlockedByCurrentUser)
-                                Text('•  Unlock: ${ugx(p.financial.unlockCost)}', 
-                                  style: dm(sz: 10, c: C.gold, w: FontWeight.w700)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: isReserved ? C.red.withOpacity(.1) : C.brand.withOpacity(.09),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: isReserved ? C.red : C.brand.withOpacity(.22)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: Text(p.core.title, style: syne(sz: 15, w: FontWeight.bold))),
+                        GestureDetector(
+                          onTap: () => state.toggleSave(p.core.id),
+                          child: Text(saved ? '❤️' : '🤍', style: const TextStyle(fontSize: 18)),
                         ),
-                        child: Text(isReserved ? 'Reserved' : 'View →',
-                            style: dm(sz: 11, w: FontWeight.w700,
-                                c: isReserved ? C.red : C.brand)),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('📍 ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: Colors.white70)),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Text('🛏 ${p.core.bedrooms} Bed', style: dm(sz: 11, c: Colors.white70)),
+                        const SizedBox(width: 12),
+                        Text('🚿 ${p.core.bathrooms} Bath', style: dm(sz: 11, c: Colors.white70)),
+                        const SizedBox(width: 12),
+                        Text('📐 ${p.core.sizeSqft}m²', style: dm(sz: 11, c: Colors.white70)),
+                        const SizedBox(width: 12),
+                        Text('⭐ 4.8', style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Divider(color: Colors.white24, height: 1),
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(ugx(p.financial.price), style: syne(sz: 18, c: C.brand, w: FontWeight.bold)),
+                            Row(
+                              children: [
+                                Text(
+                                  p.financial.priceType == PriceType.monthly ? '/mo' : '/night',
+                                  style: dm(sz: 10, c: Colors.white70),
+                                ),
+                                const SizedBox(width: 8),
+                                if (!p.shadow.isUnlockedByCurrentUser)
+                                  Text('  Unlock: ${ugx(p.financial.unlockCost)}', style: dm(sz: 10, c: C.gold, w: FontWeight.w700)),
+                              ],
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isReserved ? C.red.withOpacity(.1) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: isReserved ? C.red : C.brand),
+                          ),
+                          child: Text(isReserved ? 'Reserved' : 'View ➜', style: dm(sz: 12, w: FontWeight.w700, c: isReserved ? C.red : C.brand)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -486,7 +593,7 @@ class _PropertyCard extends StatelessWidget {
   }
 }
 
-// ── Shared Widgets ────────────────────────────────────────────
+// -- Shared Widgets --------------------------------------------
 class _TrustBadge extends StatelessWidget {
   final TrustStatus status;
   const _TrustBadge({required this.status});
@@ -497,26 +604,45 @@ class _TrustBadge extends StatelessWidget {
     String label;
     switch (status) {
       case TrustStatus.titan_trust:
-        bg = const Color(0xFFB8860B); label = '💎 TITAN TRUST'; break;
+        bg = const Color(0xFFB8860B);
+        label = '💎 TITAN TRUST';
+        break;
       case TrustStatus.verified:
-        bg = C.green; label = '✓ VERIFIED'; break;
+        bg = C.green;
+        label = '✅ VERIFIED';
+        break;
       case TrustStatus.limited:
-        bg = Colors.orange; label = '⚠️ LIMITED'; break;
+        bg = Colors.orange;
+        label = '⚠️ LIMITED';
+        break;
       default:
-        bg = Colors.blueGrey; label = 'STANDARD';
+        bg = Colors.blueGrey;
+        label = 'STANDARD';
     }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: bg, borderRadius: BorderRadius.circular(20),
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           if (status == TrustStatus.titan_trust)
-            BoxShadow(color: bg.withOpacity(.4), blurRadius: 8, spreadRadius: 1),
+            BoxShadow(
+              color: bg.withOpacity(.4),
+              blurRadius: 8,
+              spreadRadius: 1,
+            ),
         ],
       ),
-      child: Text(label, style: const TextStyle(
-        fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          color: C.text,
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 }
@@ -531,10 +657,17 @@ class _Badge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: bg, borderRadius: BorderRadius.circular(20),
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(text, style: TextStyle(
-        fontSize: 9, fontWeight: FontWeight.w700, color: textColor)),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: textColor,
+        ),
+      ),
     );
   }
 }
@@ -553,8 +686,14 @@ class _PurposeBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withOpacity(.27)),
       ),
-      child: Text(label, style: TextStyle(
-          fontSize: 9, fontWeight: FontWeight.w700, color: color)),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
     );
   }
 }
@@ -585,38 +724,49 @@ class _PulsingDot extends StatefulWidget {
   @override
   State<_PulsingDot> createState() => _PulsingDotState();
 }
+
 class _PulsingDotState extends State<_PulsingDot>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl =
-      AnimationController(vsync: this, duration: const Duration(seconds: 2))
-        ..repeat(reverse: true);
-  late final Animation<double> _anim =
-      Tween(begin: 1.0, end: 0.4).animate(_ctrl);
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 2),
+  )..repeat(reverse: true);
+  late final Animation<double> _anim = Tween(
+    begin: 1.0,
+    end: 0.4,
+  ).animate(_ctrl);
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _anim,
-      child: const Text('●', style: TextStyle(color: C.brand, fontSize: 10)),
+      child: Text('•', style: TextStyle(color: C.brand, fontSize: 10)),
     );
   }
 }
 
-// ── App Tabs (shared) ─────────────────────────────────────────
+// -- App Tabs (shared) -----------------------------------------
 class _AppTabs extends StatelessWidget {
   final String current;
   final void Function(String) onTap;
   final AppState state;
-  const _AppTabs({required this.current, required this.onTap, required this.state});
+  const _AppTabs({
+    required this.current,
+    required this.onTap,
+    required this.state,
+  });
 
-  static final _tabs = [
-    ('home', '🏠', 'Property'),
-    ('transport', '🚚', 'Transport'),
-    ('upload', '➕', 'Upload'),
-    ('profile', '👤', 'Profile'),
+  static const _tabRoutes = [
+    ('home', 'assets/images/property_icon.png', 'Property'),
+    ('transport', 'assets/images/transport_icon.png', 'Transport'),
+    ('upload', 'assets/images/upload_icon.png', 'Upload'),
+    ('profile', null, 'Profile'),
   ];
 
   @override
@@ -627,10 +777,11 @@ class _AppTabs extends StatelessWidget {
         border: Border(bottom: BorderSide(color: C.border)),
       ),
       child: Row(
-        children: _tabs.map((t) {
+        children: _tabRoutes.map((t) {
           final active = t.$1 == current;
           final isProfile = t.$1 == 'profile';
-          
+          final iconAsset = t.$2;
+
           return Expanded(
             child: GestureDetector(
               onTap: () => onTap(t.$1),
@@ -648,35 +799,48 @@ class _AppTabs extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (isProfile) 
+                    if (isProfile)
                       ListenableBuilder(
                         listenable: state,
                         builder: (context, _) {
                           final url = state.myProfile?['photo_url'];
                           return Container(
-                            width: 14, height: 14,
+                            width: 14,
+                            height: 14,
                             margin: const EdgeInsets.only(right: 4),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: C.dim.withOpacity(.2),
-                              image: url != null ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover) : null,
+                              image: url != null
+                                  ? DecorationImage(
+                                      image: NetworkImage(url),
+                                      fit: BoxFit.cover,
+                                    )
+                                  : null,
                             ),
-                            child: url == null ? Icon(Icons.person, size: 8, color: C.dim) : null,
+                            child: url == null
+                                ? Icon(Icons.person, size: 8, color: C.dim)
+                                : null,
                           );
-                        }
+                        },
                       )
-                    else 
-                      Text(t.$2, style: const TextStyle(fontSize: 10)),
-                    
+                    else if (iconAsset != null)
+                      Opacity(
+                        opacity: active ? 1.0 : 0.6,
+                        child: Image.asset(iconAsset, width: 14, height: 14),
+                      ),
+
                     if (!isProfile) const SizedBox(width: 4),
-                    
-                    Text(t.$3,
-                        textAlign: TextAlign.center,
-                        style: dm(
-                          sz: 10,
-                          w: active ? FontWeight.w800 : FontWeight.w600,
-                          c: active ? C.brand : C.dim,
-                        )),
+
+                    Text(
+                      t.$3,
+                      textAlign: TextAlign.center,
+                      style: dm(
+                        sz: 10,
+                        w: active ? FontWeight.w800 : FontWeight.w600,
+                        c: active ? C.brand : C.dim,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -688,13 +852,16 @@ class _AppTabs extends StatelessWidget {
   }
 }
 
-// ── Bottom Nav (shared) ───────────────────────────────────────
+// -- Bottom Nav (shared) ---------------------------------------
 class _BottomNav extends StatelessWidget {
   final String current;
   final int savedCount;
   final void Function(String) onTap;
-  const _BottomNav(
-      {required this.current, required this.savedCount, required this.onTap});
+  const _BottomNav({
+    required this.current,
+    required this.savedCount,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -707,10 +874,59 @@ class _BottomNav extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', current == 'home', () => onTap('home')),
-          _BotBtn('⚡', 'Community', current == 'community', () => onTap('community')),
-          _BotBtn('📋', 'Listings', current == 'list', () => onTap('list')),
-          _BotBtn('💬', 'Chat', current == 'chat', () => onTap('chat')),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'home' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/property_icon.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
+            'Property', 
+            current == 'home', 
+            () => onTap('home')
+          ),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'community' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/community_icon_colored.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
+            'Community',
+            current == 'community',
+            () => onTap('community'),
+          ),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'list' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/listing_icon.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
+            'Listings', 
+            current == 'list', 
+            () => onTap('list')
+          ),
+          if (!kIsWeb)
+            _BotBtn(
+              Opacity(
+                opacity: current == 'chat' ? 1.0 : 0.5,
+                child: Image.asset(
+                  'assets/images/chat_icon.png',
+                  width: 24,
+                  height: 24,
+                ),
+              ),
+              'Chat',
+              current == 'chat',
+              () => onTap('chat'),
+            ),
         ],
       ),
     );
@@ -718,22 +934,29 @@ class _BottomNav extends StatelessWidget {
 }
 
 class _BotBtn extends StatelessWidget {
-  final String icon, label;
+  final Object icon;
+  final String label;
   final bool active;
   final VoidCallback onTap;
   const _BotBtn(this.icon, this.label, this.active, this.onTap);
   @override
   Widget build(BuildContext context) {
+    final Widget iconWidget = icon is Widget 
+        ? (icon as Widget) 
+        : Text(icon.toString(), style: const TextStyle(fontSize: 22));
+
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: const TextStyle(fontSize: 22)),
+          iconWidget,
           const SizedBox(height: 3),
-          Text(label,
-              style: dm(sz: 9, w: FontWeight.w600,
-                  c: active ? C.brand : C.dim)),
+          Text(
+            label,
+            style: dm(sz: 9, w: FontWeight.w600, c: active ? C.brand : C.dim),
+          ),
         ],
       ),
     );

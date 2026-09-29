@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
+import 'dart:async';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/logistics_engine.dart';
 import '../models/transport_models.dart';
 import '../services/wallet_service.dart';
+import '../services/commerce_service.dart';
 
 class CheckoutContainer extends StatefulWidget {
   final AppState state;
   final Map<String, dynamic> listing;
   final VoidCallback onDismiss;
 
-  const CheckoutContainer({
+  CheckoutContainer({
     super.key,
     required this.state,
     required this.listing,
@@ -38,6 +38,21 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   VehicleType _selectedVehicle = VehicleType.bike;
   double _deliveryFare = 0;
   int _quantity = 1;
+  final CommerceService _commerce = CommerceService();
+  Timer? _trackingTimer;
+  CommerceOrder? _trackedOrder;
+  bool _trackingLoading = false;
+  String? _trackingError;
+  late final String _checkoutIdempotencyKey;
+  final List<String> stages = [
+    'confirmed',
+    'ready_for_pickup',
+    'driver_assigned',
+    'picked_up',
+    'out_for_delivery',
+    'delivered',
+    'completed',
+  ];
 
   double _listingNumber(String key) =>
       double.tryParse(widget.listing[key]?.toString() ?? '') ?? 0;
@@ -131,7 +146,17 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   @override
   void initState() {
     super.initState();
+    _checkoutIdempotencyKey =
+        'checkout-${widget.listing['id']}-${DateTime.now().microsecondsSinceEpoch}';
     _deliveryFare = _calculateDeliveryFare(_selectedTier);
+  }
+
+  @override
+  void dispose() {
+    _trackingTimer?.cancel();
+    _addressController.dispose();
+    _contactController.dispose();
+    super.dispose();
   }
 
   // Order Details
@@ -143,8 +168,42 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   );
   String? _coordinates;
 
-  void _next() => setState(() => _step++);
-  void _back() => setState(() => _step--);
+  void _next() {
+    setState(() => _step++);
+    if (_step == 5) _startTracking();
+  }
+
+  void _back() {
+    if (_step == 5) _trackingTimer?.cancel();
+    setState(() => _step--);
+  }
+
+  void _startTracking() {
+    _trackingTimer?.cancel();
+    _refreshTracking();
+    _trackingTimer = Timer.periodic(
+      Duration(seconds: 8),
+      (_) => _refreshTracking(silent: true),
+    );
+  }
+
+  Future<void> _refreshTracking({bool silent = false}) async {
+    final orderId = _currentOrderId;
+    if (orderId == null || _trackingLoading) return;
+    if (!silent && mounted) setState(() => _trackingLoading = true);
+    try {
+      final order = await _commerce.fetchOrder(orderId);
+      if (!mounted) return;
+      setState(() {
+        _trackedOrder = order;
+        _trackingError = null;
+      });
+    } catch (error) {
+      if (mounted && !silent) setState(() => _trackingError = error.toString());
+    } finally {
+      if (mounted) setState(() => _trackingLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -154,9 +213,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
       decoration: BoxDecoration(
-        color: const Color(0xFF0D121B),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
+        color: Color(0xFF0D121B),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        border: Border.all(color: C.text.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.5),
@@ -166,7 +225,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         ],
       ),
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Column(
@@ -176,16 +235,16 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               Container(
                 width: 40,
                 height: 4,
-                margin: const EdgeInsets.symmetric(vertical: 12),
+                margin: EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: C.dim,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
 
               Flexible(
                 child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
+                  duration: Duration(milliseconds: 300),
                   child: SizedBox(
                     key: ValueKey(_step),
                     child: _buildStepContent(),
@@ -226,16 +285,16 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     final sku = widget.listing['sku'] ?? 'SKU-PENDING';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'PRODUCT DETAILS',
-            style: syne(sz: 12, w: FontWeight.w900, c: Colors.white38, ls: 2),
+            style: syne(sz: 12, w: FontWeight.w900, c: C.dim, ls: 2),
           ),
-          const SizedBox(height: 20),
+          SizedBox(height: 20),
 
           // Images Grid/Pictures Down
           SizedBox(
@@ -243,7 +302,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: photos.isEmpty ? 1 : photos.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              separatorBuilder: (_, __) => SizedBox(width: 12),
               itemBuilder: (context, i) {
                 final url = photos.isNotEmpty
                     ? photos[i]
@@ -252,7 +311,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                   width: 120,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white10),
+                    border: Border.all(color: C.dim),
                     image: url != null
                         ? DecorationImage(
                             image: NetworkImage(url),
@@ -265,35 +324,35 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             ),
           ),
 
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Text(
             title,
-            style: syne(sz: 24, w: FontWeight.w900, c: Colors.white),
+            style: syne(sz: 24, w: FontWeight.w900, c: C.text),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text(
             widget.listing['description'] ??
                 'Exclusive digital asset from Necxa Film Hub.',
-            style: dm(sz: 14, c: Colors.white70, h: 1.5),
+            style: dm(sz: 14, c: C.sub, h: 1.5),
           ),
 
-          const SizedBox(height: 32),
+          SizedBox(height: 32),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('QUANTITY', style: dm(sz: 10, c: Colors.white38)),
+              Text('QUANTITY', style: dm(sz: 10, c: C.dim)),
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  color: C.text.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(color: C.dim),
                 ),
                 child: Row(
                   children: [
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.remove,
-                        color: Colors.white70,
+                        color: C.sub,
                         size: 16,
                       ),
                       onPressed: () {
@@ -308,12 +367,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     ),
                     Text(
                       '$_quantity',
-                      style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+                      style: syne(sz: 16, w: FontWeight.bold, c: C.text),
                     ),
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.add,
-                        color: Colors.white70,
+                        color: C.sub,
                         size: 16,
                       ),
                       onPressed: () {
@@ -333,26 +392,26 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('TOTAL PRICE', style: dm(sz: 10, c: Colors.white38)),
+                  Text('TOTAL PRICE', style: dm(sz: 10, c: C.dim)),
                   Text(
                     ugx(price.toDouble() * _quantity),
                     style: syne(sz: 20, w: FontWeight.w900, c: C.brand),
                   ),
-                  const SizedBox(height: 4),
-                  Text('SKU: $sku', style: dm(sz: 9, c: Colors.white38)),
+                  SizedBox(height: 4),
+                  Text('SKU: $sku', style: dm(sz: 9, c: C.dim)),
                 ],
               ),
               GestureDetector(
                 onTap: _next,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
+                  padding: EdgeInsets.symmetric(
                     horizontal: 32,
                     vertical: 16,
                   ),
@@ -382,23 +441,23 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   // --- STEP 1: PLACE ORDER ---
   Widget _buildPlaceOrder() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _stepHeader('3', 'DELIVERY INFO', onBack: _back),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
 
           // Product Summary Card
           _summaryCard(),
 
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Text(
             'DELIVERY ADDRESS',
-            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38, ls: 1),
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _checkoutInput(
             controller: _addressController,
             hint: 'Street, House Number, City',
@@ -415,19 +474,19 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           ),
           if (_coordinates != null)
             Padding(
-              padding: const EdgeInsets.only(top: 8, left: 12),
+              padding: EdgeInsets.only(top: 8, left: 12),
               child: Text(
                 'GPS: $_coordinates',
                 style: dm(sz: 10, c: Colors.greenAccent.withOpacity(0.7)),
               ),
             ),
 
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Text(
             'CONTACT NUMBER',
-            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38, ls: 1),
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _checkoutInput(
             controller: _contactController,
             hint: 'Phone number for delivery',
@@ -435,12 +494,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             keyboardType: TextInputType.phone,
           ),
 
-          const SizedBox(height: 32),
+          SizedBox(height: 32),
           _actionButton('Select Delivery Type', () {
             if (_addressController.text.isEmpty ||
                 _contactController.text.isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
+                SnackBar(
                   content: Text('Please fill all delivery details'),
                 ),
               );
@@ -460,7 +519,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   // --- STEP 4: DELIVERY TIER ---
   Widget _buildDeliveryTier() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -469,14 +528,14 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
           Text(
             'HOW FAST DO YOU NEED IT?',
-            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38),
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           Text(
             'DELIVERY METHOD',
-            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38),
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: 10),
           Wrap(
             spacing: 8,
             children: VehicleType.values.map((vehicle) {
@@ -491,22 +550,22 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               );
             }).toList(),
           ),
-          const SizedBox(height: 20),
+          SizedBox(height: 20),
           _deliveryOption(
             'Express Delivery',
             'Within 30-60 mins',
             DeliveryTier.express,
             Icons.bolt_rounded,
-            color: const Color(0xFF00E5FF),
+            color: Color(0xFF00E5FF),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _deliveryOption(
             'Standard Delivery',
             'Same day (3-6 hours)',
             DeliveryTier.standard,
             Icons.local_shipping_outlined,
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _deliveryOption(
             'Batch Delivery',
             'Next available route (Best Value)',
@@ -515,7 +574,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             color: Colors.greenAccent,
           ),
 
-          const SizedBox(height: 32),
+          SizedBox(height: 32),
           _actionButton('Confirm Delivery & Pay', _next),
         ],
       ),
@@ -538,27 +597,27 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         _deliveryFare = fare;
       }),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(16),
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: active
               ? (color ?? C.brand).withOpacity(0.1)
-              : Colors.white.withOpacity(0.05),
+              : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: active
                 ? (color ?? C.brand).withOpacity(0.5)
-                : Colors.white10,
+                : C.dim,
           ),
         ),
         child: Row(
           children: [
             Icon(
               icon,
-              color: active ? (color ?? C.brand) : Colors.white38,
+              color: active ? (color ?? C.brand) : C.dim,
               size: 24,
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -568,10 +627,10 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     style: syne(
                       sz: 14,
                       w: FontWeight.bold,
-                      c: active ? Colors.white : Colors.white70,
+                      c: active ? C.text : C.sub,
                     ),
                   ),
-                  Text(subtitle, style: dm(sz: 11, c: Colors.white38)),
+                  Text(subtitle, style: dm(sz: 11, c: C.dim)),
                 ],
               ),
             ),
@@ -580,7 +639,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               style: syne(
                 sz: 14,
                 w: FontWeight.w900,
-                c: active ? (color ?? C.brand) : Colors.white38,
+                c: active ? (color ?? C.brand) : C.dim,
               ),
             ),
           ],
@@ -628,21 +687,21 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: C.text.withOpacity(0.05),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: TextField(
         controller: controller,
         keyboardType: keyboardType,
-        style: dm(sz: 14, c: Colors.white),
+        style: dm(sz: 14, c: C.text),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: dm(sz: 14, c: Colors.white24),
+          hintStyle: dm(sz: 14, c: C.dim),
           prefixIcon: Icon(icon, color: C.brand, size: 20),
           suffixIcon: suffix,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.all(16),
+          contentPadding: EdgeInsets.all(16),
         ),
       ),
     );
@@ -651,7 +710,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   // --- STEP 2: PAYMENT METHOD ---
   Widget _buildPayment() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -660,9 +719,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
           Text(
             'PAY WITH NECXA',
-            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38),
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _payOption(
             'Necxa Balance',
             'UGX ${kNum(widget.state.cashBalance.toInt())}',
@@ -670,26 +729,26 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             Icons.account_balance_wallet_outlined,
           ),
 
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Text(
             'OTHER METHODS',
-            style: syne(sz: 11, w: FontWeight.w900, c: Colors.white38),
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _payOption(
             'Mobile Money',
             'MTN / Airtel',
             'momo',
             Icons.phone_android_outlined,
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _payOption(
             'Visa / Mastercard',
             'Debit or Credit Card',
             'card',
             Icons.credit_card_outlined,
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           _payOption(
             'USDT (Crypto)',
             'Pay with USDT',
@@ -697,16 +756,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             Icons.currency_bitcoin_outlined,
           ),
 
-          const SizedBox(height: 32),
+          SizedBox(height: 32),
           _actionButton(
             'Pay ${ugx(((widget.listing['price'] ?? 0).toDouble() * _quantity) + _deliveryFare)}',
             () async {
               setState(() => _loading = true);
               try {
-                final itemsUgx =
-                    (widget.listing['price'] ?? 0).toDouble() * _quantity;
-                final totalUgx = itemsUgx + _deliveryFare;
-
                 if (_selectedPaymentMethod == 'balance') {
                   final coordinates = _dropoffCoordinates;
                   if (coordinates == null) {
@@ -726,6 +781,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     deliveryAddress: _addressController.text,
                     customerNumber: _contactController.text,
                     deliveryFeeUgx: _deliveryFare.toInt(),
+                    idempotencyKey: '$_checkoutIdempotencyKey-wallet',
                   );
 
                   if (res.isSuccess && res.orderId != null) {
@@ -737,7 +793,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     await widget.state.syncVault();
                     _next();
                   } else if (res.needsTopUp) {
-                    throw Exception('Insufficient balance. Please deposit funds first.');
+                    throw Exception(
+                      'Insufficient balance. Please deposit funds first.',
+                    );
                   } else {
                     throw Exception(res.message);
                   }
@@ -745,7 +803,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     _selectedPaymentMethod == 'card') {
                   final coordinates = _dropoffCoordinates;
                   if (coordinates == null) {
-                    throw Exception('Pin your delivery location before paying.');
+                    throw Exception(
+                      'Pin your delivery location before paying.',
+                    );
                   }
 
                   // Initiate Pesapal order via finance-engine
@@ -761,6 +821,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     deliveryAddress: _addressController.text,
                     customerNumber: _contactController.text,
                     deliveryFeeUgx: _deliveryFare.toInt(),
+                    idempotencyKey: '$_checkoutIdempotencyKey-pesapal',
                   );
 
                   if (res.isSuccess && res.redirectUrl != null) {
@@ -778,17 +839,31 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
                     // Poll for confirmation in background
                     if (res.paymentId != null) {
-                      WalletService().pollShopPaymentStatus(res.paymentId!).then((paid) {
+                      WalletService().pollShopPaymentStatus(res.paymentId!).then((
+                        paid,
+                      ) {
                         if (paid && mounted) {
                           widget.state.syncVault();
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('✅ Payment confirmed! Your order is being processed.')),
+                            SnackBar(
+                              content: Text(
+                                '? Payment confirmed! Your order is being processed.',
+                              ),
+                            ),
                           );
                         }
                       });
                     }
+                  } else if (res.isSuccess && res.orderId != null) {
+                    setState(() {
+                      _currentOrderId = res.orderId;
+                      _loading = false;
+                    });
+                    _next();
                   } else if (res.needsTopUp) {
-                    throw Exception('Insufficient balance. Please top up your wallet first.');
+                    throw Exception(
+                      'Insufficient balance. Please top up your wallet first.',
+                    );
                   } else {
                     throw Exception(res.message);
                   }
@@ -812,35 +887,35 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   // --- STEP 3: SUCCESS ---
   Widget _buildSuccess() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           _stepHeader('5', 'ORDER CONFIRMATION'),
 
-          const SizedBox(height: 20),
-          const Icon(
+          SizedBox(height: 20),
+          Icon(
             Icons.check_circle_outline,
             color: Colors.greenAccent,
             size: 80,
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Text(
             'Order Placed Successfully!',
-            style: syne(sz: 20, w: FontWeight.w900, c: Colors.white),
+            style: syne(sz: 20, w: FontWeight.w900, c: C.text),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12),
           Text(
             'Your order has been received and is being processed.',
             textAlign: TextAlign.center,
-            style: dm(sz: 14, c: Colors.white70),
+            style: dm(sz: 14, c: C.sub),
           ),
 
-          const SizedBox(height: 32),
+          SizedBox(height: 32),
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Column(
@@ -849,12 +924,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                   'Product Price (x$_quantity)',
                   ugx((widget.listing['price'] ?? 0).toDouble() * _quantity),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 _row(
                   'Delivery (${_selectedTier.name.toUpperCase()})',
                   ugx(_deliveryFare),
                 ),
-                const Divider(color: Colors.white10, height: 24),
+                Divider(color: C.dim, height: 24),
                 _row(
                   'Total Paid',
                   ugx(
@@ -862,13 +937,13 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                         _deliveryFare,
                   ),
                 ),
-                const Divider(color: Colors.white10, height: 24),
+                Divider(color: C.dim, height: 24),
                 _row('Payment Method', _selectedPaymentMethod.toUpperCase()),
               ],
             ),
           ),
 
-          const SizedBox(height: 32),
+          SizedBox(height: 32),
           _actionButton('Track Order', _next),
         ],
       ),
@@ -877,116 +952,179 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
   // --- STEP 4: TRACKING ---
   Widget _buildTracking() {
+    final order = _trackedOrder;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _stepHeader('7', 'TRACK ORDER', onBack: _back),
-
           Text(
-            _currentOrderId ?? 'ORD-PENDING',
-            style: syne(sz: 16, w: FontWeight.w900, c: Colors.white),
+            order?.orderNumber ?? _currentOrderId ?? 'ORD-PENDING',
+            style: syne(sz: 16, w: FontWeight.w900, c: C.text),
           ),
           Text(
-            'Real-time tracking enabled via Firebase',
-            style: dm(sz: 11, c: Colors.white38),
+            'Protected delivery and escrow tracking',
+            style: dm(sz: 11, c: C.dim),
           ),
-
-          const SizedBox(height: 24),
-          StreamBuilder<DocumentSnapshot>(
-            stream: _currentOrderId != null
-                ? widget.state.orders.streamOrder(_currentOrderId!)
-                : const Stream.empty(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (!snapshot.hasData || snapshot.data?.data() == null) {
-                return const Text('Waiting for order confirmation...');
-              }
-
-              final data = snapshot.data!.data() as Map<String, dynamic>;
-              final history = data['tracking_history'] as List? ?? [];
-              final status = data['status'] ?? 'pending';
-              final driverName = data['driver_name'] as String?;
-              final driverPhone = data['driver_phone'] as String?;
-              final driverLat = (data['driver_lat'] as num?)?.toDouble();
-              final driverLng = (data['driver_lng'] as num?)?.toDouble();
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 🗺️ Live Map Tracking
-                  if (driverLat != null && driverLng != null) ...[
-                    Container(
-                      height: 200,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: C.brand.withOpacity(0.3)),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: LatLng(driverLat, driverLng),
-                          zoom: 15.0,
-                        ),
-                        markers: {
-                          Marker(
-                            markerId: const MarkerId('driver'),
-                            position: LatLng(driverLat, driverLng),
-                            infoWindow: InfoWindow(
-                              title: driverName ?? 'Courier',
-                            ),
-                            icon: BitmapDescriptor.defaultMarkerWithHue(
-                              BitmapDescriptor.hueOrange,
-                            ),
-                          ),
-                        },
-                        myLocationButtonEnabled: false,
-                        zoomControlsEnabled: false,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // 🚚 Driver Identity & Coordination HUD
-                  if (driverName != null) ...[
-                    _buildDriverHud(driverName, driverPhone, data['driver_id']),
-                    const SizedBox(height: 24),
-                  ],
-
-                  for (int i = 0; i < history.length; i++) ...[
-                    _trackNode(
-                      history[i]['status'],
-                      history[i]['message'],
-                      true,
-                      active: i == history.length - 1,
-                    ),
-                    if (i < history.length - 1) _trackLine(true),
-                  ],
-                  if (status != 'delivered' && status != 'completed') ...[
-                    _trackLine(false),
-                    _trackNode('Next Step', 'Finalizing fulfillment...', false),
-                  ],
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(height: 40),
+          SizedBox(height: 24),
+          if (_trackingLoading && order == null)
+            Center(child: CircularProgressIndicator(color: C.brand))
+          else if (_trackingError != null && order == null)
+            Column(
+              children: [
+                Text(_trackingError!, style: dm(c: Colors.redAccent)),
+                TextButton(
+                  onPressed: _refreshTracking,
+                  child: Text('Retry'),
+                ),
+              ],
+            )
+          else if (order == null)
+            Text(
+              'Waiting for order confirmation...',
+              style: dm(c: C.sub),
+            )
+          else
+            _buildCommerceTracking(order),
+          SizedBox(height: 40),
           _actionButton('Done', widget.onDismiss),
         ],
       ),
     );
   }
 
+  Widget _buildCommerceTracking(CommerceOrder order) {
+    final currentIndex = stages.indexOf(order.status);
+    final driverId = order.delivery?['driver_id']?.toString();
+    final driverName = order.driver == null
+        ? null
+        : order.participantName('driver');
+    final driverPhone = order.driver?['phone']?.toString();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (driverName != null) ...[
+          _buildDriverHud(driverName, driverPhone, driverId),
+          SizedBox(height: 24),
+        ],
+        if (order.deliveryCode != null &&
+            [
+              'driver_assigned',
+              'picked_up',
+              'out_for_delivery',
+            ].contains(order.status)) ...[
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: C.brand.withOpacity(.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: C.brand.withOpacity(.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'DELIVERY CODE',
+                  style: syne(sz: 10, w: FontWeight.w800, c: C.brand, ls: 1),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  order.deliveryCode!,
+                  style: syne(sz: 26, w: FontWeight.w900, c: C.text),
+                ),
+                Text(
+                  'Share it only when the package reaches you.',
+                  style: dm(sz: 11, c: C.dim),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 24),
+        ],
+        for (var index = 0; index < stages.length; index++) ...[
+          _trackNode(
+            _commerceStatusLabel(stages[index]),
+            _commerceStatusMessage(stages[index]),
+            index <= currentIndex,
+            active: index == currentIndex,
+          ),
+          if (index < stages.length - 1) _trackLine(index < currentIndex),
+        ],
+        if (order.status == 'delivered') ...[
+          SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _buyerOrderAction(order, 'buyer_confirm'),
+              icon: Icon(Icons.verified_outlined),
+              label: Text('Confirm package received'),
+            ),
+          ),
+        ],
+        if (![
+          'completed',
+          'cancelled',
+          'refunded',
+          'disputed',
+        ].contains(order.status)) ...[
+          SizedBox(height: 8),
+          Center(
+            child: TextButton.icon(
+              onPressed: () => _buyerOrderAction(order, 'open_dispute'),
+              icon: Icon(Icons.report_problem_outlined),
+              label: Text('Report an order problem'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _buyerOrderAction(CommerceOrder order, String transition) async {
+    setState(() => _trackingLoading = true);
+    try {
+      await _commerce.transitionOrder(order.id, transition);
+      await _refreshTracking();
+      if (transition == 'buyer_confirm') await widget.state.syncVault();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString()),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _trackingLoading = false);
+    }
+  }
+
+  String _commerceStatusLabel(String status) => status
+      .split('_')
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+
+  String _commerceStatusMessage(String status) => switch (status) {
+    'confirmed' => 'Payment is protected in escrow.',
+    'ready_for_pickup' => 'The seller has packed your order.',
+    'driver_assigned' => 'A verified courier accepted the delivery.',
+    'picked_up' => 'The pickup code was verified.',
+    'out_for_delivery' => 'Your package is on the way.',
+    'delivered' => 'The delivery code was verified.',
+    'completed' => 'Escrow was released to the seller and courier.',
+    _ => 'Order update received.',
+  };
+
   Widget _buildDriverHud(String name, String? phone, String? driverId) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: C.text.withOpacity(0.05),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: C.brand.withOpacity(0.3)),
       ),
@@ -996,9 +1134,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             children: [
               CircleAvatar(
                 backgroundColor: C.brand.withOpacity(0.2),
-                child: const Icon(Icons.delivery_dining, color: C.brand),
+                child: Icon(Icons.delivery_dining, color: C.brand),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1009,37 +1147,48 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     ),
                     Text(
                       name,
-                      style: syne(sz: 16, w: FontWeight.w900, c: Colors.white),
+                      style: syne(sz: 16, w: FontWeight.w900, c: C.text),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16),
           Row(
             children: [
-              _hudBtn(Icons.phone, 'CALL', () {
-                if (phone != null) {
-                  // In a real app: launch('tel:$phone');
-                  debugPrint('📞 Calling Driver: $phone');
-                }
+              _hudBtn(Icons.phone, 'CALL', () async {
+                final number = phone?.trim();
+                if (number == null || number.isEmpty) return;
+                await launchUrlString('tel:${Uri.encodeComponent(number)}');
               }),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               _hudBtn(Icons.chat_bubble_outline, 'CHAT', () {
                 if (driverId != null) {
                   widget.state.openCreatorChat(
                     driverId,
                     name,
                     null,
-                    context: 'vendor', // Treat driver as a service vendor
+                    initialContextText:
+                        'Regarding commerce order ${_trackedOrder?.orderNumber ?? ''}',
+                    context: 'commerce_order',
                   );
                   widget.onDismiss(); // Close checkout to enter chat
                 }
               }),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               _hudBtn(Icons.mic_none, 'VOICE', () {
-                // Coordination voice note logic
+                if (driverId != null) {
+                  widget.state.openCreatorChat(
+                    driverId,
+                    name,
+                    null,
+                    initialContextText:
+                        'Voice update for commerce order ${_trackedOrder?.orderNumber ?? ''}',
+                    context: 'commerce_order',
+                  );
+                  widget.onDismiss();
+                }
               }, color: Colors.redAccent),
             ],
           ),
@@ -1058,7 +1207,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: (color ?? C.brand).withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
@@ -1068,7 +1217,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon, size: 14, color: color ?? C.brand),
-              const SizedBox(width: 6),
+              SizedBox(width: 6),
               Text(
                 label,
                 style: syne(sz: 10, w: FontWeight.w900, c: color ?? C.brand),
@@ -1088,31 +1237,31 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         if (onBack != null)
           GestureDetector(
             onTap: onBack,
-            child: const Icon(
+            child: Icon(
               Icons.arrow_back_ios,
-              color: Colors.white,
+              color: C.text,
               size: 18,
             ),
           ),
-        const Spacer(),
+        Spacer(),
         Container(
-          padding: const EdgeInsets.all(10),
-          decoration: const BoxDecoration(
+          padding: EdgeInsets.all(10),
+          decoration: BoxDecoration(
             color: Color(0xFF6C63FF),
             shape: BoxShape.circle,
           ),
           child: Text(
             num,
-            style: syne(sz: 12, w: FontWeight.w900, c: Colors.white),
+            style: syne(sz: 12, w: FontWeight.w900, c: C.text),
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: 12),
         Text(
           title,
-          style: syne(sz: 14, w: FontWeight.w900, c: Colors.white, ls: 1),
+          style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 1),
         ),
-        const Spacer(),
-        if (onBack != null) const SizedBox(width: 24),
+        Spacer(),
+        if (onBack != null) SizedBox(width: 24),
       ],
     );
   }
@@ -1120,12 +1269,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   Widget _summaryCard() {
     final url = _primaryListingImageUrl();
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 24),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.symmetric(vertical: 24),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: C.text.withOpacity(0.05),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: Row(
         children: [
@@ -1139,25 +1288,25 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                   : null,
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   widget.listing['title'] ?? 'Luxury Shard',
-                  style: syne(sz: 14, w: FontWeight.bold, c: Colors.white),
+                  style: syne(sz: 14, w: FontWeight.bold, c: C.text),
                 ),
                 Text(
                   'by ${widget.listing['lister_name'] ?? 'Vendor'}',
-                  style: dm(sz: 11, c: Colors.white38),
+                  style: dm(sz: 11, c: C.dim),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text(
                   'SKU: ${widget.listing['sku'] ?? 'SKU-PENDING'}',
-                  style: dm(sz: 9, c: Colors.white24),
+                  style: dm(sz: 9, c: C.dim),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: 4),
                 Text(
                   ugx((widget.listing['price'] ?? 0).toDouble()),
                   style: syne(sz: 16, w: FontWeight.w900, c: C.brand),
@@ -1175,46 +1324,46 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     return GestureDetector(
       onTap: () => setState(() => _selectedPaymentMethod = val),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(16),
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: active
-              ? const Color(0xFF6C63FF).withOpacity(0.15)
-              : Colors.white.withOpacity(0.05),
+              ? Color(0xFF6C63FF).withOpacity(0.15)
+              : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: active ? const Color(0xFF6C63FF) : Colors.white10,
+            color: active ? Color(0xFF6C63FF) : C.dim,
           ),
         ),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: C.text.withOpacity(0.05),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 icon,
-                color: active ? const Color(0xFF6C63FF) : Colors.white38,
+                color: active ? Color(0xFF6C63FF) : C.dim,
                 size: 20,
               ),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
-                  style: syne(sz: 14, w: FontWeight.bold, c: Colors.white),
+                  style: syne(sz: 14, w: FontWeight.bold, c: C.text),
                 ),
-                Text(sub, style: dm(sz: 11, c: Colors.white38)),
+                Text(sub, style: dm(sz: 11, c: C.dim)),
               ],
             ),
-            const Spacer(),
+            Spacer(),
             Icon(
               active ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: active ? const Color(0xFF6C63FF) : Colors.white10,
+              color: active ? Color(0xFF6C63FF) : C.dim,
             ),
           ],
         ),
@@ -1231,24 +1380,24 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
       onTap: loading ? null : onTap,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 18),
+        padding: EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: const Color(0xFF6C63FF),
+          color: Color(0xFF6C63FF),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF6C63FF).withOpacity(0.3),
+              color: Color(0xFF6C63FF).withOpacity(0.3),
               blurRadius: 15,
             ),
           ],
         ),
         child: Center(
           child: loading
-              ? const SizedBox(
+              ? SizedBox(
                   width: 20,
                   height: 20,
                   child: CircularProgressIndicator(
-                    color: Colors.white,
+                    color: C.text,
                     strokeWidth: 2,
                   ),
                 )
@@ -1257,7 +1406,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                   style: syne(
                     sz: 14,
                     w: FontWeight.w900,
-                    c: Colors.white,
+                    c: C.text,
                     ls: 1.5,
                   ),
                 ),
@@ -1270,27 +1419,11 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: dm(sz: 13, c: Colors.white38)),
+        Text(label, style: dm(sz: 13, c: C.dim)),
         Text(
           val,
-          style: syne(sz: 14, w: FontWeight.w900, c: Colors.white),
+          style: syne(sz: 14, w: FontWeight.w900, c: C.text),
         ),
-      ],
-    );
-  }
-
-  Widget _trackingStepper() {
-    return Column(
-      children: [
-        _trackNode('Order Confirmed', 'May 24, 10:15 AM', true),
-        _trackLine(true),
-        _trackNode('Picked Up by Jumia', 'May 24, 02:30 PM', true),
-        _trackLine(true),
-        _trackNode('In Transit', 'May 24, 08:45 PM', true, active: true),
-        _trackLine(false),
-        _trackNode('Out for Delivery', 'May 25, 09:00 AM', false),
-        _trackLine(false),
-        _trackNode('Delivered', 'May 25, Before 6 PM', false),
       ],
     );
   }
@@ -1309,20 +1442,20 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           decoration: BoxDecoration(
             color: done
                 ? Colors.green
-                : (active ? const Color(0xFF6C63FF) : Colors.transparent),
+                : (active ? Color(0xFF6C63FF) : Colors.transparent),
             shape: BoxShape.circle,
             border: Border.all(
               color: done
                   ? Colors.green
-                  : (active ? const Color(0xFF6C63FF) : Colors.white24),
+                  : (active ? Color(0xFF6C63FF) : C.dim),
               width: 2,
             ),
           ),
           child: done
-              ? const Icon(Icons.check, color: Colors.white, size: 14)
+              ? Icon(Icons.check, color: C.text, size: 14)
               : null,
         ),
-        const SizedBox(width: 16),
+        SizedBox(width: 16),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1331,10 +1464,10 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               style: syne(
                 sz: 13,
                 w: FontWeight.bold,
-                c: done || active ? Colors.white : Colors.white38,
+                c: done || active ? C.text : C.dim,
               ),
             ),
-            Text(sub, style: dm(sz: 11, c: Colors.white24)),
+            Text(sub, style: dm(sz: 11, c: C.dim)),
           ],
         ),
       ],
@@ -1343,10 +1476,13 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
   Widget _trackLine(bool done) {
     return Container(
-      margin: const EdgeInsets.only(left: 11),
+      margin: EdgeInsets.only(left: 11),
       width: 2,
       height: 30,
-      color: done ? Colors.green : Colors.white10,
+      color: done ? Colors.green : C.dim,
     );
   }
 }
+
+
+

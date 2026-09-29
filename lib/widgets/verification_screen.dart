@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import '../services/ai_service.dart';
 import '../theme.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // Necxa Shield Verification Demo Screen
 // Uses the real NecxaSDK composite flow (pk_live_wbwi7kdp4k / 14wCfO1ZaMhCdoRDnFPs)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 class VerificationDemoScreen extends StatefulWidget {
   const VerificationDemoScreen({super.key});
@@ -27,7 +27,7 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
         setState(() {
           _isProcessing = false;
           _sessionId = 'SES-${DateTime.now().millisecondsSinceEpoch}';
-          _status = '✅ Verified — Session: $_sessionId';
+          _status = '? Verified � Session: $_sessionId';
         });
       }
     } catch (e) {
@@ -44,7 +44,7 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
       if (mounted) {
         setState(() {
           _isProcessing = false;
-          _status = '✅ Face Verified';
+          _status = '? Face Verified';
         });
       }
     } catch (e) {
@@ -76,7 +76,7 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
               ),
               child: Column(
                 children: [
-                  const Text('🛡️', style: TextStyle(fontSize: 48)),
+                  const Text('???', style: TextStyle(fontSize: 48)),
                   const SizedBox(height: 12),
                   Text(_status, style: syne(sz: 14), textAlign: TextAlign.center),
                   if (_sessionId != null) ...[
@@ -88,7 +88,7 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
             ),
             const SizedBox(height: 40),
             if (_isProcessing)
-              const CircularProgressIndicator(color: C.brand)
+              CircularProgressIndicator(color: C.brand)
             else ...[
               SizedBox(
                 width: double.infinity,
@@ -109,11 +109,11 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _runFaceOnly,
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: C.brand),
+                    side: BorderSide(color: C.brand),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
-                  icon: const Icon(Icons.face, color: C.brand),
+                  icon: Icon(Icons.face, color: C.brand),
                   label: Text('Face ID Only', style: syne(c: C.brand, w: FontWeight.w700)),
                 ),
               ),
@@ -124,3 +124,4 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
     );
   }
 }
+

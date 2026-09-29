@@ -1,0 +1,36 @@
+name: Build Web App
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  web-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.8'
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build web release
+        run: flutter build web --release --no-wasm-dry-run
+
+      - name: Upload web build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: necxa-web-${{ github.run_number }}-${{ github.sha }}
+          path: build/web
+          retention-days: 30

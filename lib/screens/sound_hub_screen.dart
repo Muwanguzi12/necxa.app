@@ -70,7 +70,7 @@ class _SoundHubScreenState extends State<SoundHubScreen> {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: const BoxDecoration(color: Colors.black38, shape: BoxShape.circle),
-          child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16),
+          child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 16),
         ),
       ),
     );
@@ -96,7 +96,7 @@ class _SoundHubScreenState extends State<SoundHubScreen> {
                       : null,
                 ),
                 child: widget.track.albumArtUrl == null
-                    ? const Icon(Icons.music_note, color: Colors.white24, size: 48)
+                    ? Icon(Icons.music_note, color: C.dim, size: 48)
                     : null,
               ),
             ),
@@ -106,15 +106,15 @@ class _SoundHubScreenState extends State<SoundHubScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(widget.track.title, style: syne(sz: 24, w: FontWeight.w900, c: Colors.white)),
+                  Text(widget.track.title, style: syne(sz: 24, w: FontWeight.w900, c: C.text)),
                   const SizedBox(height: 6),
                   Text(widget.track.artistName, style: dm(sz: 16, c: C.brand, w: FontWeight.bold)),
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      const Icon(Icons.video_library, color: Colors.white54, size: 14),
+                      Icon(Icons.video_library, color: C.dim, size: 14),
                       const SizedBox(width: 6),
-                      Text('${widget.track.usageCount} videos', style: dm(sz: 13, c: Colors.white54)),
+                      Text('${widget.track.usageCount} videos', style: dm(sz: 13, c: C.dim)),
                     ],
                   ),
                 ],
@@ -150,15 +150,15 @@ class _SoundHubScreenState extends State<SoundHubScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(.05),
+            color: C.text.withOpacity(.05),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(.1)),
+            border: Border.all(color: C.text.withOpacity(.1)),
           ),
           child: Column(
             children: [
-              Icon(icon, color: Colors.white, size: 20),
+              Icon(icon, color: C.text, size: 20),
               const SizedBox(height: 4),
-              Text(label, style: dm(sz: 9, c: Colors.white54, w: FontWeight.bold)),
+              Text(label, style: dm(sz: 9, c: C.dim, w: FontWeight.bold)),
             ],
           ),
         ),
@@ -171,12 +171,12 @@ class _SoundHubScreenState extends State<SoundHubScreen> {
       stream: widget.state.social.streamPostsByMusic(widget.track.id),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return const SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: C.brand)));
+          return SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: C.brand)));
         }
         final posts = snapshot.data!;
         if (posts.isEmpty) {
           return SliverFillRemaining(
-            child: Center(child: Text('Be the first to use this sound!', style: syne(sz: 14, c: Colors.white24))),
+            child: Center(child: Text('Be the first to use this sound!', style: syne(sz: 14, c: C.dim))),
           );
         }
 
@@ -214,9 +214,9 @@ class _SoundHubScreenState extends State<SoundHubScreen> {
         child: Container(
           height: 60,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [C.brand, C.purple]),
+            gradient: LinearGradient(colors: [C.brand, C.purple]),
             borderRadius: BorderRadius.circular(30),
-            boxShadow: [BoxShadow(color: C.brand.withOpacity(.4), blurRadius: 20, offset: const Offset(0, 8))],
+            boxShadow: [BoxShadow(color: C.brand.withOpacity(.4), blurRadius: 20, offset: Offset(0, 8))],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -241,10 +241,12 @@ class _GridItem extends StatelessWidget {
     final mediaUrl = post['media_url'];
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white10,
+        color: C.dim,
         image: mediaUrl != null ? DecorationImage(image: NetworkImage(mediaUrl), fit: BoxFit.cover) : null,
       ),
-      child: const Center(child: Icon(Icons.play_arrow_outlined, color: Colors.white38, size: 32)),
+      child: Center(child: Icon(Icons.play_arrow_outlined, color: C.dim, size: 32)),
     );
   }
 }
+
+

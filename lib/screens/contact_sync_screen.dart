@@ -63,7 +63,7 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
             slivers: [
               _buildHeader(),
               if (_isLoading)
-                const SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: C.brand))),
+                SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: C.brand))),
               if (!_isLoading && _matches.isEmpty)
                 _buildEmptyState(),
               if (!_isLoading && _matches.isNotEmpty)
@@ -79,9 +79,9 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  color: C.text.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(color: C.dim),
                 ),
                 child: Center(child: Text('RETURN TO PROFILE', style: syne(sz: 13, w: FontWeight.w900, ls: 1.5))),
               ),
@@ -121,9 +121,9 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.03),
+                color: C.text.withOpacity(0.03),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(0.05)),
+                border: Border.all(color: C.text.withOpacity(0.05)),
               ),
               child: Row(
                 children: [
@@ -155,6 +155,7 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
 
   Widget _followBtn(String userId) {
     bool isFollowing = widget.state.isFollowingSync(userId);
+    bool isFriend = widget.state.isFriendSync(userId);
     return GestureDetector(
       onTap: () => widget.state.toggleFollow(userId),
       child: Container(
@@ -162,11 +163,11 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
         decoration: BoxDecoration(
           color: isFollowing ? Colors.transparent : C.brand,
           borderRadius: BorderRadius.circular(20),
-          border: isFollowing ? Border.all(color: Colors.white24) : null,
+          border: isFollowing ? Border.all(color: C.dim) : null,
         ),
         child: Text(
-          isFollowing ? 'FOLLOWING' : 'FOLLOW',
-          style: syne(sz: 10, w: FontWeight.w900, c: isFollowing ? Colors.white70 : Colors.black),
+          isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
+          style: syne(sz: 10, w: FontWeight.w900, c: isFollowing ? C.sub : Colors.black),
         ),
       ),
     );
@@ -180,7 +181,7 @@ class _ContactSyncScreenState extends State<ContactSyncScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.person_search_outlined, color: Colors.white10, size: 80),
+            Icon(Icons.person_search_outlined, color: C.dim, size: 80),
             const SizedBox(height: 24),
             Text('No friends found yet', style: syne(sz: 18, w: FontWeight.w800)),
             const SizedBox(height: 8),
@@ -229,3 +230,5 @@ class _ActionTile extends StatelessWidget {
     );
   }
 }
+
+

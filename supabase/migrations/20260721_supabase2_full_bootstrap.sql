@@ -416,6 +416,7 @@ end;
 $$;
 
 -- 13. Process gift NCX (may already exist)
+drop function if exists public.process_gift_ncx(uuid, uuid, uuid, bigint, double precision, jsonb) cascade;
 create or replace function public.process_gift_ncx(
   p_sender_auth_id uuid,
   p_receiver_auth_id uuid,
