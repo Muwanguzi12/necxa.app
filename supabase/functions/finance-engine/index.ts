@@ -17,6 +17,12 @@ const PRIMARY_SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("PRIMARY_SUPABASE_SERVICE
 const GIFT_PROJECTION_RECONCILIATION_SECRET =
   Deno.env.get("GIFT_PROJECTION_RECONCILIATION_SECRET")?.trim() || "";
 
+// necxa-chat (MongoDB/Redis) bridge — used to notify both parties of a community gift
+const NECXA_CHAT_URL = Deno.env.get("NECXA_CHAT_URL")?.trim() ||
+  "https://ayvescksetiuekoyfqar.supabase.co/functions/v1/necxa-chat";
+const NECXA_CHAT_ANON_KEY = Deno.env.get("NECXA_CHAT_ANON_KEY")?.trim() || "";
+const FINANCE_ENGINE_SHARED_SECRET = Deno.env.get("FINANCE_ENGINE_SHARED_SECRET")?.trim() || "";
+
 const PESAPAL_BASE = PESAPAL_ENV === "production"
   ? "https://pay.pesapal.com/v3"
   : "https://cybqa.pesapal.com/pesapalv3";
@@ -432,6 +438,121 @@ async function settleVerifiedPesapalPayment(
     if (completedPaymentError) {
       throw new Error(`Completed payment update failed: ${completedPaymentError.message}`);
     }
+    return mappedStatus;
+  }
+
+
+  // ── property_unlock settlement ─────────────────────────────────────────
+  if (paymentType === "property_unlock") {
+    const listingId = String((payment.request as any)?.listingId ?? "");
+    if (listingId && PRIMARY_SUPABASE_URL && PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+      const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+      const { data: prop } = await primaryAdmin.from("properties").select("lister_id, agent_id").eq("id", listingId).maybeSingle();
+      await primaryAdmin.from("unlocks").upsert({
+        property_id: listingId,
+        buyer_id: payment.user_id,
+        seller_id: prop?.lister_id ?? null,
+        agent_id: prop?.agent_id ?? null,
+        unlock_amount: payment.amount,
+        unlock_cost: payment.amount,
+        status: "completed",
+        address_revealed_at: new Date().toISOString(),
+        contact_revealed_at: new Date().toISOString(),
+      }, { onConflict: "property_id, buyer_id" });
+    }
+    await financeClient.from("payments").update({
+      status: "completed", provider_status: providerStatus,
+      provider_response: statusData, last_checked_at: new Date().toISOString(),
+      settled_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("id", payment.id);
+    return mappedStatus;
+  }
+
+  // ── escrow_deposit settlement — FCFS + agent wallet credit + delist ────
+  if (paymentType === "escrow_deposit") {
+    const listingId      = String((payment.request as any)?.listingId ?? "");
+    const escrowResId    = String((payment.request as any)?.escrowReservationId ?? "");
+    const agentId        = String((payment.request as any)?.agentId ?? "");
+    const sellerId       = String((payment.request as any)?.sellerId ?? "");
+    const depositAmount  = Number(payment.amount ?? 0);
+
+    if (!listingId || !PRIMARY_SUPABASE_URL || !PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error("Escrow settlement: missing listingId or primary DB config.");
+    }
+
+    const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+
+    // FCFS check: did another buyer win already?
+    const { data: propStatus } = await primaryAdmin
+      .from("properties").select("is_sold, lister_id, agent_id").eq("id", listingId).single();
+
+    if (propStatus?.is_sold === true) {
+      await financeClient.from("payments").update({
+        status: "refunded", provider_status: providerStatus, provider_response: statusData,
+        last_checked_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }).eq("id", payment.id);
+      await financeClient.from("finance_ledger_entries").insert({
+        user_id: payment.user_id, type: "escrow_refund", amount: depositAmount, currency: "UGX",
+        reference_id: payment.idempotency_key,
+        description: "Escrow refund: another buyer paid first (FCFS).",
+        created_at: new Date().toISOString(),
+      }).then(() => {}).catch((e: any) => console.error("Refund ledger failed:", e));
+      await primaryAdmin.from("notifications").insert({
+        user_id: payment.user_id, type: "escrow_outbid",
+        title: "Another buyer was faster!",
+        body: "Someone completed their escrow deposit before you. Your payment will be refunded to your Necxa wallet.",
+        data: { listing_id: listingId }, created_at: new Date().toISOString(),
+      }).then(() => {}).catch(() => {});
+      return "REFUNDED" as any;
+    }
+
+    // This buyer WINS — execute full settlement
+    const resolvedAgentId  = agentId  || propStatus?.agent_id  || null;
+    const resolvedSellerId = sellerId || propStatus?.lister_id  || null;
+
+    if (escrowResId) {
+      await primaryAdmin.from("escrow_reservations").update({
+        status: "completed", paid_at: new Date().toISOString(),
+      }).eq("id", escrowResId).then(() => {}).catch(() => {});
+    }
+
+    await primaryAdmin.from("properties").update({
+      is_sold: true, is_active: false,
+      sold_at: new Date().toISOString(), winning_buyer_id: payment.user_id,
+    }).eq("id", listingId);
+
+    if (resolvedAgentId && depositAmount > 0) {
+      const { data: agentWallet } = await financeClient
+        .from("wallets").select("id, escrow_balance, total_earned")
+        .eq("user_id", resolvedAgentId).maybeSingle();
+      if (agentWallet) {
+        await financeClient.from("wallets").update({
+          escrow_balance: (Number(agentWallet.escrow_balance) || 0) + depositAmount,
+          total_earned:   (Number(agentWallet.total_earned)   || 0) + depositAmount,
+          updated_at: new Date().toISOString(),
+        }).eq("id", agentWallet.id);
+      }
+      await financeClient.from("finance_ledger_entries").insert({
+        user_id: resolvedAgentId, type: "escrow_credit", amount: depositAmount, currency: "UGX",
+        reference_id: payment.idempotency_key,
+        description: `Escrow deposit received for property ${listingId}`,
+        created_at: new Date().toISOString(),
+      }).then(() => {}).catch((e: any) => console.error("Agent ledger failed:", e));
+      try { await mirrorUserWalletSnapshotToPrimary(financeClient, resolvedAgentId); } catch (_) {}
+    }
+
+    const notifs: object[] = [
+      { user_id: payment.user_id, type: "escrow_won", title: "You secured the property!", body: "Your escrow deposit was accepted first. The agent will contact you.", data: { listing_id: listingId }, created_at: new Date().toISOString() },
+    ];
+    if (resolvedAgentId) notifs.push({ user_id: resolvedAgentId, type: "escrow_received", title: "Escrow deposit received!", body: "A buyer has secured your property. Funds are held in your Necxa wallet.", data: { listing_id: listingId, buyer_id: payment.user_id }, created_at: new Date().toISOString() });
+    if (resolvedSellerId && resolvedSellerId !== resolvedAgentId) notifs.push({ user_id: resolvedSellerId, type: "property_sold", title: "Your property has a buyer!", body: "An escrow deposit has been placed on your listing.", data: { listing_id: listingId, buyer_id: payment.user_id }, created_at: new Date().toISOString() });
+    await primaryAdmin.from("notifications").insert(notifs).then(() => {}).catch(() => {});
+
+    await financeClient.from("payments").update({
+      status: "completed", provider_status: providerStatus, provider_response: statusData,
+      last_checked_at: new Date().toISOString(), settled_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("id", payment.id);
+
     return mappedStatus;
   }
 
@@ -870,6 +991,81 @@ async function syncCommunityGiftToPrimary(
   if (error) throw new Error(`Primary community gift sync failed: ${error.message}`);
   return { synced: true, result: data };
 }
+
+/**
+ * Notifies BOTH sender and receiver via necxa-chat (MongoDB/Redis) after a
+ * community gift is successfully settled and synced to SP1.
+ * - Opens or reuses a DM room between sender & receiver.
+ * - Posts a system-flavoured gift message so both parties see it in chat.
+ * - Fires-and-forgets: any failure is logged but does NOT fail the gift itself.
+ */
+async function notifyChatOfGift({
+  senderId,
+  receiverId,
+  senderName,
+  giftEmoji,
+  giftName,
+  ncxAmount,
+  postId,
+  contextType,
+}: {
+  senderId: string;
+  receiverId: string;
+  senderName: string;
+  giftEmoji: string;
+  giftName: string;
+  ncxAmount: number;
+  postId: string;
+  contextType: string;
+}): Promise<void> {
+  if (!NECXA_CHAT_ANON_KEY && !FINANCE_ENGINE_SHARED_SECRET) return; // not configured
+
+  const authHeader = FINANCE_ENGINE_SHARED_SECRET
+    ? { "x-finance-engine-secret": FINANCE_ENGINE_SHARED_SECRET }
+    : {};
+
+  const contextLabel = contextType === "listing" ? "property listing" : "post";
+  const giftMessage = `${giftEmoji} ${senderName} sent a **${giftName}** (${ncxAmount} NCX) on your ${contextLabel}.`;
+
+  try {
+    const res = await fetch(NECXA_CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: NECXA_CHAT_ANON_KEY,
+        Authorization: `Bearer ${NECXA_CHAT_ANON_KEY}`,
+        ...authHeader,
+      },
+      body: JSON.stringify({
+        action: "SEND_MESSAGE",
+        payload: {
+          to_user_id: receiverId,
+          from_user_id: senderId,
+          content: giftMessage,
+          metadata: {
+            interaction_context: "gift",
+            conversation_label: "Gift",
+            gift_item: giftName,
+            gift_emoji: giftEmoji,
+            ncx_amount: ncxAmount,
+            post_id: postId,
+            context_type: contextType,
+          },
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "(unreadable)");
+      console.error(`[notifyChatOfGift] necxa-chat ${res.status}: ${body}`);
+    }
+  } catch (chatError) {
+    // Purely informational — gift is already settled; chat delivery is best-effort.
+    console.error("[notifyChatOfGift] fetch failed:", chatError);
+  }
+}
+
+
 
 async function completeGiftProjection(
   financeClient: ReturnType<typeof createClient>,
@@ -2527,7 +2723,7 @@ serve(async (req) => {
       }
 
       // If pesapal (momo/card)
-      if (method === "pesapal" || method === "momo" || method === "card" || method === "mtn" || method === "airtel") {
+      if (method === "pesapal" || method === "momo" || method === "card" || method === "mtn" || method === "airtel" || method === "mtn_momo" || method === "airtel_money") {
         const { data: profile } = await supabase
           .from("profiles")
           .select("full_name, email, phone")
@@ -2577,6 +2773,140 @@ serve(async (req) => {
       }
 
       return json({ success: false, message: "Unsupported payment method." }, 400);
+    }
+
+    // ── Action: coin_purchase_status ──────────────────────────────────────────
+    // ── Action: initiate_property_unlock ─────────────────────────────────────
+    if (action === "initiate_property_unlock") {
+      const listingId = String(body.listingId ?? "");
+      const method = String(body.method ?? "momo").toLowerCase();
+      // Flutter sends:
+      //   NCX path  → rawAmount = NCX coins (unlock_cost_ugx / 100)
+      //   Fiat path → rawAmount = UGX amount (= unlock_cost_ugx directly)
+      const rawAmount = Math.trunc(Number(body.amountUgx));
+      const idempotencyKey = String(body.idempotencyKey ?? crypto.randomUUID());
+
+      if (!listingId || !Number.isFinite(rawAmount) || rawAmount <= 0) {
+        return json({ success: false, message: "Invalid property unlock request." }, 400);
+      }
+
+      if (method === "ncx_coins") {
+        // rawAmount is NCX coins; deduct from SP2 wallet
+        const amountNcx = rawAmount;
+        const { error: ncxError } = await supabase.rpc("charge_ncx_purpose", {
+          p_user_id: user.id,
+          p_amount_ncx: amountNcx,
+          p_purpose: "feature_unlock",
+          p_reference: `unlock_${listingId}`,
+          p_idempotency_key: idempotencyKey,
+        });
+
+        if (ncxError) return json({ success: false, message: ncxError.message }, 409);
+
+        // Write unlock record to SP1 (Primary DB)
+        const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+        const { data: prop } = await primaryAdmin.from("properties").select("lister_id, agent_id, unlock_cost").eq("id", listingId).single();
+        const unlockCostUgx = prop?.unlock_cost ?? amountNcx * 100;
+        
+        const { error: unlockError } = await primaryAdmin.from("unlocks").upsert({
+          property_id: listingId,
+          buyer_id: user.id,
+          seller_id: prop?.lister_id || null,
+          agent_id: prop?.agent_id || null,
+          unlock_amount: unlockCostUgx,
+          unlock_cost: unlockCostUgx,
+          status: "completed",
+          address_revealed_at: new Date().toISOString(),
+          contact_revealed_at: new Date().toISOString(),
+        }, { onConflict: "property_id, buyer_id" });
+
+        if (unlockError) console.error("SP1 Unlock sync failed:", unlockError);
+
+        return json({ success: true, paymentId: idempotencyKey });
+      }
+
+      if (method === "pesapal" || method === "momo" || method === "card" || method === "mtn" || method === "airtel" || method === "mtn_momo" || method === "airtel_money") {
+        // rawAmount is UGX amount — pass directly to Pesapal
+        const amountUgx = rawAmount;
+        const { data: profile } = await supabase.from("profiles").select("full_name, email, phone").eq("id", user.id).maybeSingle();
+        const fullName = profile?.full_name || user.user_metadata?.full_name || "Guest";
+        const [firstName, ...rest] = fullName.split(" ");
+        const lastName = rest.join(" ") || "—";
+        const email = profile?.email || user.email || "no-reply@necxa.app";
+        // Prefer buyer phone from request (MoMo flow), fall back to profile
+        const userPhone = String(body.buyerPhone || profile?.phone || user.phone || "");
+
+        const pesapalToken = await getPesapalToken();
+        const orderResult = await submitPesapalOrder(pesapalToken, {
+          id: idempotencyKey,
+          amount: amountUgx,
+          currency: "UGX",
+          description: `Necxa Unlock Property ${listingId}`,
+          firstName,
+          lastName,
+          email,
+          phone: userPhone,
+          branch: "Necxa - Property Unlock",
+        });
+
+        const { error: paymentRecordError } = await supabase.from("payments").upsert({
+          user_id: user.id,
+          provider: "pesapal",
+          provider_reference: orderResult.order_tracking_id,
+          idempotency_key: idempotencyKey,
+          purpose: "property_unlock",
+          amount: amountUgx,
+          currency: "UGX",
+          status: "pending",
+          request: { type: "property_unlock", listingId, method },
+          response: orderResult,
+        }, { onConflict: "idempotency_key" });
+
+        if (paymentRecordError) throw new Error(`PesaPal property unlock record failed: ${paymentRecordError.message}`);
+
+        return json({ success: true, redirectUrl: orderResult.redirect_url, paymentId: idempotencyKey });
+      }
+
+      return json({ success: false, message: "Unsupported payment method." }, 400);
+    }
+
+    // ── Action: property_unlock_status ───────────────────────────────────────
+    if (action === "property_unlock_status") {
+      const paymentId = String(body.paymentId ?? "");
+      if (!paymentId) return json({ success: false, message: "paymentId required." }, 400);
+
+      const { data: payment } = await supabase.from("payments").select("*").eq("idempotency_key", paymentId).eq("user_id", user.id).single();
+      if (!payment) return json({ success: false, message: "Payment not found." }, 404);
+
+      let currentStatus = String(payment.status).toLowerCase();
+
+      if (currentStatus === "pending") {
+        const token = await getPesapalToken();
+        const statusData = await getPesapalTransactionStatus(token, payment.provider_reference) as Record<string, unknown>;
+        currentStatus = await settleVerifiedPesapalPayment(supabase, payment, statusData);
+        currentStatus = currentStatus.toLowerCase();
+      }
+
+      if (currentStatus === "completed") {
+        const listingId = payment.request?.listingId;
+        if (listingId) {
+          const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+          const { data: prop } = await primaryAdmin.from("properties").select("lister_id, agent_id").eq("id", listingId).maybeSingle();
+          await primaryAdmin.from("unlocks").upsert({
+            property_id: listingId,
+            buyer_id: user.id,
+            seller_id: prop?.lister_id || null,
+            agent_id: prop?.agent_id || null,
+            unlock_amount: payment.amount,
+            unlock_cost: payment.amount,
+            status: "completed",
+            address_revealed_at: new Date().toISOString(),
+            contact_revealed_at: new Date().toISOString(),
+          }, { onConflict: "property_id, buyer_id" });
+        }
+      }
+
+      return json({ success: true, status: currentStatus });
     }
 
     // ── Action: coin_purchase_status ──────────────────────────────────────────
@@ -2750,6 +3080,20 @@ serve(async (req) => {
           if (!communitySync.synced) {
             throw new Error(String(communitySync.reason ?? "Community sync is not configured."));
           }
+          // ── MongoDB/Redis Chat Bridge ─────────────────────────────────────
+          // Fire-and-forget: drops a gift system message into the DM room
+          // between sender & receiver so both are notified in chat instantly.
+          notifyChatOfGift({
+            senderId: user.id,
+            receiverId,
+            senderName: String(metadata.sender_name || user.email || "Someone"),
+            giftEmoji: giftDef?.emoji || "🎁",
+            giftName: giftDef?.name || "Gift",
+            ncxAmount,
+            postId: contextId,
+            contextType,
+          }); // intentionally not awaited — chat delivery is best-effort
+          // ─────────────────────────────────────────────────────────────────
           try {
             await completeGiftProjection(supabase, financeGiftId, true);
           } catch (statusError) {
@@ -2757,6 +3101,7 @@ serve(async (req) => {
             // finance-side status migration is rolling out.
             console.error("Unable to persist community sync success:", statusError);
           }
+
         } catch (syncError) {
           // Finance remains authoritative; a failed social projection must be
           // observable without turning a completed debit into a false failure.
@@ -2788,6 +3133,7 @@ serve(async (req) => {
         ugxEquivalent: Number(giftDef.ugx_value),
         isHighlighted: ncxAmount >= 50,
         communitySynced: communitySync.synced,
+        chatNotified: communitySync.synced, // true when gift message was dispatched to necxa-chat
         message: "Gift sent successfully.",
       });
     }
@@ -3249,6 +3595,103 @@ serve(async (req) => {
       });
     }
 
+
+    // ── Action: initiate_escrow_payment ──────────────────────────────────────
+    if (action === "initiate_escrow_payment") {
+      const listingId        = String(body.listingId ?? "");
+      const escrowResId      = String(body.escrowReservationId ?? "");
+      const depositAmount    = Math.trunc(Number(body.depositAmount));
+      const idempotencyKey   = String(body.idempotencyKey ?? crypto.randomUUID());
+
+      if (!listingId || !Number.isFinite(depositAmount) || depositAmount <= 0) {
+        return json({ success: false, message: "listingId and depositAmount are required." }, 400);
+      }
+
+      // FCFS pre-check: reject immediately if already sold
+      if (PRIMARY_SUPABASE_URL && PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+        const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+        const { data: prop } = await primaryAdmin.from("properties")
+          .select("is_sold, agent_id, lister_id").eq("id", listingId).single();
+        if (prop?.is_sold === true) {
+          return json({ success: false, message: "This property has already been secured by another buyer.", already_sold: true }, 409);
+        }
+
+        // Fetch profile to build Pesapal order
+        const { data: profile } = await supabase.from("profiles")
+          .select("full_name, email, phone").eq("id", user.id).maybeSingle();
+        const fullName = profile?.full_name || user.user_metadata?.full_name || "Guest";
+        const [firstName, ...rest] = fullName.split(" ");
+        const lastName = rest.join(" ") || "—";
+        const email = profile?.email || user.email || "no-reply@necxa.app";
+        const userPhone = profile?.phone || user.phone || "";
+
+        const pesapalToken = await getPesapalToken();
+        const orderResult = await submitPesapalOrder(pesapalToken, {
+          id: idempotencyKey,
+          amount: depositAmount,
+          currency: "UGX",
+          description: `Necxa Escrow Deposit - Property ${listingId}`,
+          firstName, lastName, email, phone: userPhone,
+          branch: "Necxa - Escrow Deposit",
+        });
+
+        const { error: paymentRecordError } = await supabase.from("payments").upsert({
+          user_id: user.id,
+          provider: "pesapal",
+          provider_reference: orderResult.order_tracking_id,
+          idempotency_key: idempotencyKey,
+          purpose: "escrow_deposit",
+          amount: depositAmount,
+          currency: "UGX",
+          status: "pending",
+          request: {
+            type: "escrow_deposit",
+            listingId,
+            escrowReservationId: escrowResId,
+            agentId: prop?.agent_id ?? null,
+            sellerId: prop?.lister_id ?? null,
+          },
+          response: orderResult,
+        }, { onConflict: "idempotency_key" });
+
+        if (paymentRecordError) throw new Error(`Escrow payment record failed: ${paymentRecordError.message}`);
+
+        return json({ success: true, redirectUrl: orderResult.redirect_url, paymentId: idempotencyKey });
+      }
+
+      return json({ success: false, message: "Primary DB not configured for escrow." }, 500);
+    }
+
+    // ── Action: escrow_payment_status ─────────────────────────────────────────
+    if (action === "escrow_payment_status") {
+      const paymentId = String(body.paymentId ?? "");
+      if (!paymentId) return json({ success: false, message: "paymentId required." }, 400);
+
+      const { data: payment } = await supabase.from("payments").select("*")
+        .eq("idempotency_key", paymentId).eq("user_id", user.id).single();
+      if (!payment) return json({ success: false, message: "Payment not found." }, 404);
+
+      let currentStatus = String(payment.status).toLowerCase();
+
+      if (currentStatus === "pending") {
+        const token = await getPesapalToken();
+        const statusData = await getPesapalTransactionStatus(token, payment.provider_reference) as Record<string, unknown>;
+        const settled = await settleVerifiedPesapalPayment(supabase, payment, statusData);
+        currentStatus = String(settled).toLowerCase();
+      }
+
+      const won = currentStatus === "completed";
+      const refunded = currentStatus === "refunded";
+
+      return json({
+        success: true,
+        status: currentStatus,
+        won,
+        refunded,
+        message: won ? "Congratulations! You secured the property." : refunded ? "Another buyer was faster. Your funds will be refunded." : "Payment is being processed.",
+      });
+    }
+
     return json({ success: false, message: `Unknown action: ${action}` }, 400);
   } catch (err) {
     console.error("finance-engine error:", err);
@@ -3262,3 +3705,4 @@ function json(data: unknown, status = 200) {
     headers: { ...cors, "Content-Type": "application/json" },
   });
 }
+

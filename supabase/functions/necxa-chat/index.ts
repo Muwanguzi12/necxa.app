@@ -227,7 +227,7 @@ async function handleAI(_userId: string, payload: any) {
   const message = payload.message || [...messages].reverse().find((item: any) => item.role === "user")?.content
   if (!message) return err("Missing message for AI")
 
-  const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
+  const NECXA_AI_URL = 'https://necxa-ai-engine.knestars.workers.dev'
 
   // Try Cloudflare Workers AI (Llama 3.1 — real multilingual AI)
   try {
@@ -500,11 +500,30 @@ Deno.serve(async (req) => {
   try {
     initializeClients()
 
-    // Federated users remain the default. Goobox gets one narrowly scoped,
-    // server-to-server path that can only send as the dedicated support account.
+    // Auth paths (priority order):
+    // 1. Finance Engine secret  → server-to-server gift notifications (SEND_MESSAGE only)
+    // 2. Goobox secret          → support messages (SEND_MESSAGE only)
+    // 3. x-primary-jwt          → regular authenticated users (all actions)
+    const financeSecret = req.headers.get("x-finance-engine-secret") || ""
+    const FINANCE_ENGINE_SHARED_SECRET = Deno.env.get("FINANCE_ENGINE_SHARED_SECRET") || ""
+    const isFinanceEngine = financeSecret.length > 0 && FINANCE_ENGINE_SHARED_SECRET.length >= 16
     const gooboxSecret = req.headers.get("x-goobox-secret") || ""
-    const isGoobox = gooboxSecret.length > 0
+    const isGoobox = !isFinanceEngine && gooboxSecret.length > 0
     let userId: string
+
+    if (isFinanceEngine) {
+      if (!(await secretsMatch(financeSecret, FINANCE_ENGINE_SHARED_SECRET))) {
+        return err("Unauthorized: invalid Finance Engine credentials", 401)
+      }
+      // Finance engine sends on behalf of the actual sender passed in the payload
+      const rawBody = await req.json()
+      const senderIdFromPayload = rawBody?.payload?.from_user_id as string | undefined
+      if (!senderIdFromPayload) return err("Finance engine requests require payload.from_user_id", 400)
+      userId = senderIdFromPayload
+      const { action, payload = {} } = rawBody
+      if (action !== "SEND_MESSAGE") return err("Finance Engine may only send gift messages", 403)
+      return handleSendMessage(userId, payload, { isSupport: false })
+    }
 
     if (isGoobox) {
       if (!SUPPORT_ACCOUNT_ID || !(await secretsMatch(gooboxSecret, GOOBOX_SHARED_SECRET))) {

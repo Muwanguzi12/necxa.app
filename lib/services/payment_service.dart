@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import 'finance_backend.dart';
 
 class PaymentService {
@@ -20,27 +18,20 @@ class PaymentService {
     required String buyerEmail,
     String? phone,
   }) async {
-    final response = await Supabase.instance.client.functions.invoke(
-      'necxa-payment-gateway',
+    final result = await FinanceBackend.instance.invoke(
+      'initiate_property_unlock',
       body: {
-        'listing_id': listingId,
-        'method': method,
-        'amount': amount.round(),
-        'buyer_id': buyerId,
-        'buyer_email': buyerEmail,
-        'buyer_phone': phone == null ? null : normalizePhone(phone),
+        'listingId': listingId,
+        'method': method.toLowerCase(),
+        'amountUgx': amount.round(),
+        'buyerEmail': buyerEmail,
+        'buyerPhone': phone == null ? null : normalizePhone(phone),
       },
     );
-    if (response.status < 200 || response.status >= 300) {
-      throw Exception('Payment initiation failed.');
+    if (result['success'] != true) {
+      throw Exception(result['message'] ?? 'Payment initiation failed.');
     }
-    final data = Map<String, dynamic>.from(response.data as Map? ?? const {});
-    if (data['success'] != true) {
-      throw Exception(
-        data['message'] ?? data['error'] ?? 'Payment initiation failed.',
-      );
-    }
-    return data;
+    return result;
   }
 
   Future<Map<String, dynamic>> initiatePesapalUnlock({
@@ -51,7 +42,7 @@ class PaymentService {
     String? phone,
   }) => initiateUnlock(
     listingId: listingId,
-    method: 'MTN_MOMO',
+    method: 'pesapal',
     amount: amount,
     buyerId: buyerId,
     buyerEmail: buyerEmail,
@@ -61,17 +52,21 @@ class PaymentService {
   Future<bool> pollForPaymentCompletion(String paymentId) async {
     for (var attempt = 0; attempt < 20; attempt++) {
       await Future<void>.delayed(const Duration(seconds: 3));
-      final unlock = await Supabase.instance.client
-          .from('listing_unlocks')
-          .select('payment_status')
-          .eq('id', paymentId)
-          .maybeSingle();
-      final status = unlock?['payment_status']?.toString().toUpperCase();
-      if (status == 'COMPLETED') return true;
-      if (status == 'FAILED' || status == 'CANCELLED') {
-        throw Exception(
-          'Payment was declined. Please check your balance and try again.',
+      try {
+        final result = await FinanceBackend.instance.invoke(
+          'property_unlock_status',
+          body: {'paymentId': paymentId},
         );
+        final status = result['status']?.toString().toUpperCase();
+        if (status == 'COMPLETED') return true;
+        if (status == 'FAILED' || status == 'CANCELLED') {
+          throw Exception(
+            'Payment was declined. Please check your balance and try again.',
+          );
+        }
+      } catch (e) {
+        // If it throws an exception that isn't the final fail, maybe log it and keep polling
+        if (e.toString().contains('declined')) rethrow;
       }
     }
     return false;
@@ -89,5 +84,67 @@ class PaymentService {
     if (result['success'] != true) {
       throw Exception(result['message'] ?? 'Distribution fee failed.');
     }
+  }
+
+  /// Initiates the FCFS escrow deposit payment via the Finance Engine.
+  /// Returns the Pesapal redirectUrl and a paymentId for polling.
+  Future<Map<String, dynamic>> initiateEscrowPayment({
+    required String listingId,
+    required String escrowReservationId,
+    required double depositAmount,
+    required String buyerId,
+    required String buyerEmail,
+  }) async {
+    final idempotencyKey =
+        'escrow-$listingId-$buyerId-${DateTime.now().millisecondsSinceEpoch}';
+    final result = await FinanceBackend.instance.invoke(
+      'initiate_escrow_payment',
+      body: {
+        'listingId': listingId,
+        'escrowReservationId': escrowReservationId,
+        'depositAmount': depositAmount.round(),
+        'buyerEmail': buyerEmail,
+        'idempotencyKey': idempotencyKey,
+      },
+    );
+    if (result['already_sold'] == true) {
+      throw Exception(
+        'This property was just secured by another buyer. You were this close!',
+      );
+    }
+    if (result['success'] != true) {
+      throw Exception(result['message'] ?? 'Escrow initiation failed.');
+    }
+    return result;
+  }
+
+  /// Polls Finance Engine for escrow payment completion.
+  /// Returns true if this buyer WON the FCFS race.
+  /// Throws if the payment failed or the buyer was outbid.
+  Future<bool> pollForEscrowCompletion(String paymentId) async {
+    for (var attempt = 0; attempt < 20; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 3));
+      try {
+        final result = await FinanceBackend.instance.invoke(
+          'escrow_payment_status',
+          body: {'paymentId': paymentId},
+        );
+        final status = result['status']?.toString().toUpperCase();
+        if (status == 'COMPLETED') return true;
+        if (result['refunded'] == true) {
+          throw Exception(
+            'Another buyer completed their payment first. Your funds will be refunded.',
+          );
+        }
+        if (status == 'FAILED' || status == 'CANCELLED') {
+          throw Exception('Payment was declined. Please try again.');
+        }
+      } catch (e) {
+        if (e.toString().contains('faster') || e.toString().contains('declined')) {
+          rethrow;
+        }
+      }
+    }
+    return false;
   }
 }

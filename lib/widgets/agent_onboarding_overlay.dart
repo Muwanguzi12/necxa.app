@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 
@@ -97,7 +97,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
         children: [
           Row(
             children: [
-              const Text('??', style: TextStyle(fontSize: 32)),
+              const Text('🏅', style: TextStyle(fontSize: 32)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -175,28 +175,28 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
             child: ListView(
               children: [
                 _DocTile(
-                  icon: '??',
+                  icon: '📋',
                   title: 'Business License',
                   sub: 'Certificate of Incorporation',
                   done: _docs['Business License']!,
                   onTap: () => _uploadDoc('Business License'),
                 ),
                 _DocTile(
-                  icon: '??',
+                  icon: '🧾',
                   title: 'Tax ID / TIN',
                   sub: 'Govt-issued Tax Identification',
                   done: _docs['Tax ID / TIN']!,
                   onTap: () => _uploadDoc('Tax ID / TIN'),
                 ),
                 _DocTile(
-                  icon: '??',
+                  icon: '📜',
                   title: 'Agency Permit',
                   sub: 'Real Estate Regulatory License',
                   done: _docs['Agency Permit']!,
                   onTap: () => _uploadDoc('Agency Permit'),
                 ),
                 _DocTile(
-                  icon: '??',
+                  icon: '🪪',
                   title: 'Lead Agent ID',
                   sub: 'National ID or Passport (Live AI)',
                   done: _docs['Lead Agent ID']!,

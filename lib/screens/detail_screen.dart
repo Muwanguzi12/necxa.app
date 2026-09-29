@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
@@ -256,6 +256,9 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildAgentCard(PropertyContainer p) {
+    final agentName = p.core.agentName?.isNotEmpty == true ? p.core.agentName! : 'Necxa Agent';
+    final agentAvatar = p.core.agentAvatar;
+    final trustScore = p.core.agentTrustScore;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: C.card, borderRadius: BorderRadius.circular(20), border: Border.all(color: C.border)),
@@ -266,27 +269,32 @@ class _DetailScreenState extends State<DetailScreen> {
               Container(
                 width: 50, height: 50,
                 decoration: BoxDecoration(shape: BoxShape.circle, color: C.border),
-                child: const Center(child: Text('👤', style: TextStyle(fontSize: 24))),
+                clipBehavior: Clip.antiAlias,
+                child: agentAvatar != null && agentAvatar.isNotEmpty
+                    ? Image.network(agentAvatar, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Center(child: Text(agentName[0].toUpperCase(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))))
+                    : Center(child: Text(agentName[0].toUpperCase(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('John Doe', style: dm(sz: 14, w: FontWeight.bold)),
+                    Text(agentName, style: dm(sz: 14, w: FontWeight.bold)),
                     Text('Verified Necxa Agent', style: dm(sz: 11, c: C.dim)),
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: C.brand.withOpacity(.15), borderRadius: BorderRadius.circular(10)),
-                child: Row(children: [
-                  Icon(Icons.star, color: C.brand, size: 14),
-                  const SizedBox(width: 4),
-                  Text('98 TRUST', style: dm(sz: 10, c: C.brand, w: FontWeight.bold)),
-                ]),
-              ),
+              if (trustScore != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(color: C.brand.withValues(alpha: .15), borderRadius: BorderRadius.circular(10)),
+                  child: Row(children: [
+                    Icon(Icons.star, color: C.brand, size: 14),
+                    const SizedBox(width: 4),
+                    Text('$trustScore TRUST', style: dm(sz: 10, c: C.brand, w: FontWeight.bold)),
+                  ]),
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -295,7 +303,15 @@ class _DetailScreenState extends State<DetailScreen> {
             color: C.brand.withOpacity(.1),
             textColor: C.brand,
             border: true,
-            onTap: () => s.openOrCreateChat(p),
+            onTap: () {
+              if (!p.shadow.isUnlockedByCurrentUser) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('You must unlock the property first to start a direct chat with the agent.')),
+                );
+              } else {
+                s.openOrCreateChat(p);
+              }
+            },
           ),
         ],
       ),
@@ -316,10 +332,10 @@ class _DetailScreenState extends State<DetailScreen> {
           crossAxisSpacing: 10,
           childAspectRatio: 2.2,
           children: const [
-            _VerifyTile(icon: '??', label: 'Identity Sync', verified: true),
-            _VerifyTile(icon: '?', label: 'Utility Proof', verified: true),
-            _VerifyTile(icon: '???', label: 'Authority Stamp', verified: true),
-            _VerifyTile(icon: '??', label: 'GPS Physical Lock', verified: true),
+            _VerifyTile(icon: '🧬', label: 'Identity Sync', verified: true),
+            _VerifyTile(icon: '⚡', label: 'Utility Proof', verified: true),
+            _VerifyTile(icon: '🛡️', label: 'Authority Stamp', verified: true),
+            _VerifyTile(icon: '📍', label: 'GPS Physical Lock', verified: true),
           ],
         ),
       ],
@@ -382,6 +398,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Widget _buildInteractionContent(PropertyContainer p, _InteractionState state) {
+    final hasUsedFree = s.myProfile?['has_used_free_unlock'] == true;
     switch (state) {
       case _InteractionState.locked:
         return Row(
@@ -392,11 +409,21 @@ class _DetailScreenState extends State<DetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Unlock Identity Shard', style: dm(sz: 14, w: FontWeight.bold)),
-                  Text('${p.financial.unlockCost} NCX COINS (10%)', style: dm(sz: 10, c: C.brand, w: FontWeight.bold)),
+                  Text(
+                    'UGX ${ugx(p.financial.unlockCost)} · ${(p.financial.unlockCost ~/ 100)} NCX COINS',
+                    style: dm(sz: 10, c: C.brand, w: FontWeight.bold),
+                  ),
                 ],
               ),
             ),
-            _Btn(label: 'Unlock Details ?', color: C.brand, textColor: C.bg, onTap: () => s.go('payment')),
+            _Btn(
+              label: s.paying ? 'Processing...' : 'Unlock Details ?', 
+              color: s.paying ? C.dim : C.brand, 
+              textColor: C.bg, 
+              onTap: () {
+                if (!s.paying) s.unlockProperty(p.core.id);
+              }
+            ),
           ],
         );
       case _InteractionState.unlocked:

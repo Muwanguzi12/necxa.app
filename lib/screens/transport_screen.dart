@@ -337,10 +337,10 @@ class _TransportScreenState extends State<TransportScreen> {
   // -- Shared App Tabs --
   Widget _buildAppTabs() {
     final tabs = [
-      ('home', '🏠', 'Property'),
-      ('transport', '🚚', 'Transport'),
-      ('upload', '?', 'Upload'),
-      ('profile', '👤', 'Profile'),
+      ('home', 'assets/images/property_icon.png', 'Property'),
+      ('transport', 'assets/images/transport_icon.png', 'Transport'),
+      ('upload', 'assets/images/upload_icon.png', 'Upload'),
+      ('profile', null, 'Profile'),
     ];
     return Container(
       decoration: BoxDecoration(
@@ -350,6 +350,7 @@ class _TransportScreenState extends State<TransportScreen> {
       child: Row(
         children: tabs.map((t) {
           final active = t.$1 == 'transport';
+          final iconAsset = t.$2;
           return Expanded(
             child: GestureDetector(
               onTap: () => widget.state.go(t.$1),
@@ -367,14 +368,27 @@ class _TransportScreenState extends State<TransportScreen> {
                   alignment: Alignment.center,
                   clipBehavior: Clip.none,
                   children: [
-                    Text(
-                      '${t.$2} ${t.$3}',
-                      textAlign: TextAlign.center,
-                      style: dm(
-                        sz: 10,
-                        w: active ? FontWeight.w800 : FontWeight.w500,
-                        c: active ? C.brand : C.dim,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (iconAsset != null)
+                          Opacity(
+                            opacity: active ? 1.0 : 0.6,
+                            child: Image.asset(iconAsset, width: 12, height: 12),
+                          )
+                        else
+                          Icon(Icons.person, size: 12, color: active ? C.brand : C.dim),
+                        const SizedBox(width: 4),
+                        Text(
+                          t.$3,
+                          textAlign: TextAlign.center,
+                          style: dm(
+                            sz: 10,
+                            w: active ? FontWeight.w800 : FontWeight.w500,
+                            c: active ? C.brand : C.dim,
+                          ),
+                        ),
+                      ],
                     ),
                     if (t.$1 == 'transport' &&
                         (widget.state.pendingVendorOrders > 0 ||
@@ -909,15 +923,10 @@ class _TransportScreenState extends State<TransportScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _navItem(Icons.home_outlined, 'Property', false, 'home'),
-                _navItem(
-                  Icons.flash_on_outlined,
-                  'Community',
-                  false,
-                  'community',
-                ),
-                _navItem(Icons.assignment_outlined, 'Listings', false, 'list'),
-                _navItem(Icons.chat_bubble_outline, 'Chat', false, 'chat'),
+                _navItem('assets/images/property_icon.png', 'Property', false, 'home'),
+                _navItem('assets/images/community_icon_colored.png', 'Community', false, 'community'),
+                _navItem('assets/images/listing_icon.png', 'Listings', false, 'list'),
+                _navItem('assets/images/chat_icon.png', 'Chat', false, 'chat'),
               ],
             ),
           ),
@@ -926,13 +935,16 @@ class _TransportScreenState extends State<TransportScreen> {
     );
   }
 
-  Widget _navItem(IconData icon, String label, bool active, String route) {
+  Widget _navItem(String assetPath, String label, bool active, String route) {
     return GestureDetector(
       onTap: () => widget.state.go(route),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: active ? C.brand : C.dim, size: 20),
+          Opacity(
+            opacity: active ? 1.0 : 0.5,
+            child: Image.asset(assetPath, width: 20, height: 20),
+          ),
           const SizedBox(height: 4),
           Text(
             label,

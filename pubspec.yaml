@@ -58,6 +58,7 @@ dependencies:
   universal_io: ^2.3.1
   flutter_riverpod: ^2.4.9
   flutter_image_compress: ^2.5.1
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -69,13 +70,13 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/images/app_icon_padded.png"
-  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_background: "#000000"
   adaptive_icon_foreground: "assets/images/app_icon_padded.png"
   web:
     generate: true
     image_path: "assets/images/app_icon_padded.png"
-    background_color: "#FFFFFF"
-    theme_color: "#FFFFFF"
+    background_color: "#000000"
+    theme_color: "#000000"
   windows:
     generate: true
     image_path: "assets/images/app_icon_padded.png"
