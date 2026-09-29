@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+﻿import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts"
 // Necxa Listing Engine — Edge AI integration
 
@@ -593,7 +593,6 @@ Deno.serve(async (req) => {
         const validListingTypes = ['sale', 'rent', 'short_term']
         const safeListingType = validListingTypes.includes(purpose?.toLowerCase()) ? purpose.toLowerCase() : 'rent'
 
-        const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://lzdtrmjcwzalckszdzpt.supabase.co"
         const fullPhotoUrls = [...photoPaths, ...bathroomPaths].map(p =>
           p.startsWith("http") ? p : `${supabaseUrl}/storage/v1/object/public/listing-photos/${p}`
         )
