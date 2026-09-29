@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
@@ -556,7 +556,7 @@ class _PostCard extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          Text('??', style: dm(sz: 11)),
+                          Text('👁️', style: dm(sz: 11)),
                           SizedBox(width: 4),
                           Text(p.views,
                               style: dm(sz: 10, c: C.text)),
@@ -629,7 +629,7 @@ class _PostCard extends StatelessWidget {
                                   style: dm(sz: 14, w: FontWeight.w800)),
                               if (p.verified) ...[
                                 SizedBox(width: 4),
-                                Text('?',
+                                Text('✅',
                                     style: dm(sz: 11, c: C.gold,
                                         w: FontWeight.w700)),
                               ],
@@ -655,7 +655,7 @@ class _PostCard extends StatelessWidget {
                               color: C.gold.withOpacity(.31)),
                         ),
                         child: Text(
-                          isFriend ? 'Friends' : following ? '? Following' : '+ Follow',
+                          isFriend ? 'Friends' : following ? '✓ Following' : '+ Follow',
                           style: dm(sz: 11, w: FontWeight.w700,
                               c: C.gold),
                         ),
@@ -711,7 +711,7 @@ class _PostCard extends StatelessWidget {
                           ),
                           child: Row(
                             children: [
-                              Text('??',
+                              Text('🎁',
                                   style: TextStyle(fontSize: 14)),
                               SizedBox(width: 4),
                               Text(kNum(p.gifts),
@@ -875,7 +875,7 @@ class _CreatorCard extends StatelessWidget {
                     Border.all(color: C.gold.withOpacity(.31)),
               ),
               child: Text(
-                isFriend ? 'Friends' : following ? '? Following' : '+ Follow',
+                isFriend ? 'Friends' : following ? '✓ Following' : '+ Follow',
                 style: dm(sz: 12, w: FontWeight.w700, c: C.gold),
               ),
             ),

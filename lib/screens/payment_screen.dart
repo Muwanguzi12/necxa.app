@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
@@ -96,7 +96,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                   _MethodTile(
                     id: 'MTN_MOMO',
                     label: 'MTN MoMo',
-                    icon: '??',
+                    icon: '📱',
                     sub: '256 77x / 78x / 39x',
                     selected: _method == 'MTN_MOMO',
                     onTap: () => setState(() => _method = 'MTN_MOMO'),
@@ -120,7 +120,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                   _MethodTile(
                     id: 'NCX_COINS',
                     label: 'NCX Coins',
-                    icon: '??',
+                    icon: '🪙',
                     sub: 'From your Necxa wallet',
                     selected: _method == 'NCX_COINS',
                     onTap: () => setState(() => _method = 'NCX_COINS'),
@@ -204,10 +204,10 @@ class _PaymentScreenState extends State<PaymentScreen>
             style: syne(sz: 12, w: FontWeight.bold, c: C.brand),
           ),
           SizedBox(height: 12),
-          const _UnlockRow(icon: '??', label: 'Agent direct phone number'),
-          const _UnlockRow(icon: '??', label: 'WhatsApp click-to-chat link'),
-          const _UnlockRow(icon: '??', label: 'Exact GPS coordinates & Pin'),
-          const _UnlockRow(icon: '??', label: 'Full street & Plot address'),
+          const _UnlockRow(icon: '📞', label: 'Agent direct phone number'),
+          const _UnlockRow(icon: '💬', label: 'WhatsApp click-to-chat link'),
+          const _UnlockRow(icon: '📍', label: 'Exact GPS coordinates & Pin'),
+          const _UnlockRow(icon: '🗺️', label: 'Full street & Plot address'),
         ],
       ),
     );

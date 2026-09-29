@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
@@ -332,10 +332,10 @@ class _DetailScreenState extends State<DetailScreen> {
           crossAxisSpacing: 10,
           childAspectRatio: 2.2,
           children: const [
-            _VerifyTile(icon: '??', label: 'Identity Sync', verified: true),
-            _VerifyTile(icon: '?', label: 'Utility Proof', verified: true),
-            _VerifyTile(icon: '???', label: 'Authority Stamp', verified: true),
-            _VerifyTile(icon: '??', label: 'GPS Physical Lock', verified: true),
+            _VerifyTile(icon: '🧬', label: 'Identity Sync', verified: true),
+            _VerifyTile(icon: '⚡', label: 'Utility Proof', verified: true),
+            _VerifyTile(icon: '🛡️', label: 'Authority Stamp', verified: true),
+            _VerifyTile(icon: '📍', label: 'GPS Physical Lock', verified: true),
           ],
         ),
       ],
