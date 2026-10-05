@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
@@ -150,7 +150,7 @@ class _DetailScreenState extends State<DetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _Badge(label: p.financial.isVerified ? '? AI VERIFIED' : 'PENDING AUDIT', color: p.financial.isVerified ? C.green : C.brand),
+                  _Badge(label: p.financial.isVerified ? '✓ AI VERIFIED' : 'PENDING AUDIT', color: p.financial.isVerified ? C.green : C.brand),
                   const SizedBox(height: 8),
                   if (p.escrow.status == EscrowStatus.pending_escrow)
                      const _Badge(label: '⚠️ RESERVED • 72H WINDOW', color: C.red),
@@ -417,7 +417,7 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
             _Btn(
-              label: s.paying ? 'Processing...' : 'Unlock Details ?', 
+              label: s.paying ? 'Processing...' : 'Unlock Details ⚡', 
               color: s.paying ? C.dim : C.brand, 
               textColor: C.bg, 
               onTap: () {
@@ -698,5 +698,6 @@ class _VirtualTourWidget extends StatelessWidget {
     state.scheduleVirtualTour(property, fullDate);
   }
 }
+
 
 

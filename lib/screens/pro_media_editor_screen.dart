@@ -379,7 +379,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
       if (!mediaFile.existsSync() || mediaFile.lengthSync() == 0) {
         debugPrint(
-          '? MediaEditor: Clip file is empty or missing! ${mediaFile.path}',
+          '❌ MediaEditor: Clip file is empty or missing! ${mediaFile.path}',
         );
         _feedback("Error: Footage is empty or corrupt");
         return;
@@ -830,7 +830,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             ),
             SizedBox(height: 24),
             _exportOption(
-              'FAST SYNC ?',
+              'FAST SYNC ⚡',
               'Instant posting. Music is synced on-the-fly.',
               Icons.bolt,
               () {
@@ -875,7 +875,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         if (combinedFile == null) {
           _feedback("Failed to generate master file.");
         } else {
-          _feedback("Master File Ready! ?");
+          _feedback("Master File Ready! 🎉");
         }
       } catch (e) {
         _feedback("Error combining video: $e");
@@ -3922,6 +3922,8 @@ class GrainPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant GrainPainter oldDelegate) => false;
 }
+
+
 
 
 

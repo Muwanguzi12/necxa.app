@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
@@ -252,7 +252,7 @@ class CreatorScreen extends StatelessWidget {
                 ],
               ),
             ),
-            Text('JOIN ?',
+            Text('JOIN 🚀',
                 style: dm(sz: 12, w: FontWeight.w800, c: C.gold)),
           ],
         ),
@@ -830,7 +830,7 @@ class _CreatorCard extends StatelessWidget {
                           border: Border.all(
                               color: C.gold.withOpacity(.25)),
                         ),
-                        child: Text('? PRO',
+                        child: Text('💎 PRO',
                             style: dm(sz: 9, w: FontWeight.w800,
                                 c: C.gold)),
                       ),
@@ -1026,5 +1026,7 @@ class _BotBtn extends StatelessWidget {
     );
   }
 }
+
+
 
 
