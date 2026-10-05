@@ -352,7 +352,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                   ),
                   child: Center(
                     child: Text(
-                      'VIEW CREDENTIALS ?',
+                      'VIEW CREDENTIALS 🔓',
                       style: syne(sz: 15, w: FontWeight.bold, c: C.bg),
                     ),
                   ),
@@ -514,7 +514,7 @@ class _PaymentScreenState extends State<PaymentScreen>
         ),
         child: Center(
           child: Text(
-            'AUTHORIZE PAYMENT ?',
+            'AUTHORIZE PAYMENT 💳',
             style: syne(sz: 15, w: FontWeight.bold, c: C.bg),
           ),
         ),

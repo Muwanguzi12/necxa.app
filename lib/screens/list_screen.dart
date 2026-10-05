@@ -161,7 +161,7 @@ class ListScreen extends StatelessWidget {
                 : () => state.doIdScan('Uganda', 'National ID'),
           )
         else
-          _SuccessBtn(label: 'Next: Face ID ?', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Face ID 👤', onTap: state.nextStep),
       ],
     );
   }
@@ -298,7 +298,7 @@ class ListScreen extends StatelessWidget {
             onTap: state.faceScanning ? null : () => state.doFaceScan(),
           )
         else
-          _SuccessBtn(label: 'Next: Property Details ?', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Property Details 🏠', onTap: state.nextStep),
       ],
     );
   }
@@ -398,7 +398,7 @@ class ListScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        _PrimaryBtn(label: 'Next: Photos & Docs ?', onTap: state.nextStep),
+        _PrimaryBtn(label: 'Next: Photos & Docs 📸', onTap: state.nextStep),
       ],
     );
   }
@@ -473,7 +473,7 @@ class ListScreen extends StatelessWidget {
           onTap: state.pickMedia,
         ),
         const SizedBox(height: 6),
-        _PrimaryBtn(label: 'Next: GPS Location ?', onTap: state.nextStep),
+        _PrimaryBtn(label: 'Next: GPS Location 📍', onTap: state.nextStep),
       ],
     );
   }
@@ -532,7 +532,7 @@ class ListScreen extends StatelessWidget {
         if (!state.gpsDone)
           _PrimaryBtn(label: '?? Capture GPS Now', onTap: state.captureGps)
         else
-          _SuccessBtn(label: 'Next: Review & Submit ?', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Review & Submit 🚀', onTap: state.nextStep),
       ],
     );
   }
@@ -659,7 +659,7 @@ class ListScreen extends StatelessWidget {
                     color: C.gold,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text('? Back to Home', style: syne(sz: 14, c: C.bg)),
+                  child: Text('🏠 Back to Home', style: syne(sz: 14, c: C.bg)),
                 ),
               ),
             ],

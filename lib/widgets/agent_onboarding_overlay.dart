@@ -42,7 +42,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('? Agent verification submitted!')),
+        const SnackBar(content: Text('✅ Agent verification submitted!')),
       );
       if (!mounted) return;
       setState(() => _submitting = false);
@@ -146,7 +146,7 @@ class _AgentOnboardingOverlayState extends State<AgentOnboardingOverlay> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(gradient: brandGrad, borderRadius: BorderRadius.circular(16)),
-              child: Center(child: Text('Agree & Continue ?', style: syne(sz: 15, c: C.bg))),
+              child: Center(child: Text('Agree & Continue 🚀', style: syne(sz: 15, c: C.bg))),
             ),
           ),
           const SizedBox(height: 16),
