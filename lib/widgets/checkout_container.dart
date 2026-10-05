@@ -32,17 +32,17 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   int _step =
       0; // 0: Product, 1: Place Order, 2: Delivery, 3: Payment, 4: Success, 5: Tracking
   String _selectedPaymentMethod = 'balance';
-  String  _currentOrderId;
+  String? _currentOrderId;
   bool _loading = false;
   DeliveryTier _selectedTier = DeliveryTier.standard;
   VehicleType _selectedVehicle = VehicleType.bike;
   double _deliveryFare = 0;
   int _quantity = 1;
   final CommerceService _commerce = CommerceService();
-  Timer  _trackingTimer;
-  CommerceOrder  _trackedOrder;
+  Timer? _trackingTimer;
+  CommerceOrder? _trackedOrder;
   bool _trackingLoading = false;
-  String  _trackingError;
+  String? _trackingError;
   late final String _checkoutIdempotencyKey;
   final List<String> stages = [
     'confirmed',
@@ -55,22 +55,22 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   ];
 
   double _listingNumber(String key) =>
-      double.tryParse(widget.listing[key] .toString()    '')    0;
+      double.tryParse(widget.listing[key]?.toString() ?? '') ?? 0;
 
-  List<double>  get _dropoffCoordinates {
-    final parts = _coordinates .split(',');
+  List<double>? get _dropoffCoordinates {
+    final parts = _coordinates?.split(',');
     if (parts == null || parts.length != 2) return null;
     final latitude = double.tryParse(parts[0].trim());
     final longitude = double.tryParse(parts[1].trim());
-    return latitude == null || longitude == null   null : [latitude, longitude];
+    return latitude == null || longitude == null ? null : [latitude, longitude];
   }
 
   double _calculateDeliveryFare(DeliveryTier tier) =>
       LogisticsEngine.calculateFare(
         pickup:
-            widget.listing['pickup_address'] .toString()    'Kampala Central',
+            widget.listing['pickup_address']?.toString() ?? 'Kampala Central',
         dropoff: _addressController.text.isEmpty
-              'Nakawa'
+            ? 'Nakawa'
             : _addressController.text,
         vehicleType: _selectedVehicle,
         tier: tier,
@@ -80,19 +80,19 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         widthCm: _listingNumber('width_cm'),
         heightCm: _listingNumber('height_cm'),
         pickupLatitude: double.tryParse(
-          widget.listing['latitude'] .toString()    '',
+          widget.listing['latitude']?.toString() ?? '',
         ),
         pickupLongitude: double.tryParse(
-          widget.listing['longitude'] .toString()    '',
+          widget.listing['longitude']?.toString() ?? '',
         ),
-        dropoffLatitude: _dropoffCoordinates .first,
-        dropoffLongitude: _dropoffCoordinates .last,
+        dropoffLatitude: _dropoffCoordinates?.first,
+        dropoffLongitude: _dropoffCoordinates?.last,
       );
 
   List<String> _getProductPhotos() {
     final rawPhotos =
-        widget.listing['miniature_photos']   
-        widget.listing['photos']   
+        widget.listing['miniature_photos'] ??
+        widget.listing['photos'] ??
         widget.listing['listing_photos'];
     if (rawPhotos == null) return [];
     if (rawPhotos is List) {
@@ -116,9 +116,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     return [];
   }
 
-  String  _extractImageUrl(dynamic value) {
+  String? _extractImageUrl(dynamic value) {
     if (value == null) return null;
-    if (value is String) return value.trim().isEmpty   null : value.trim();
+    if (value is String) return value.trim().isEmpty ? null : value.trim();
     if (value is Map) {
       for (final key in [
         'url',
@@ -134,12 +134,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     return null;
   }
 
-  String  _primaryListingImageUrl() {
+  String? _primaryListingImageUrl() {
     final photos = _getProductPhotos();
     if (photos.isNotEmpty) return photos.first;
-    return _extractImageUrl(widget.listing['thumbnail_url'])   
-        _extractImageUrl(widget.listing['image_url'])   
-        _extractImageUrl(widget.listing['media_url'])   
+    return _extractImageUrl(widget.listing['thumbnail_url']) ??
+        _extractImageUrl(widget.listing['image_url']) ??
+        _extractImageUrl(widget.listing['media_url']) ??
         _extractImageUrl(widget.listing['film_hub_content']);
   }
 
@@ -153,7 +153,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
   @override
   void dispose() {
-    _trackingTimer .cancel();
+    _trackingTimer?.cancel();
     _addressController.dispose();
     _contactController.dispose();
     super.dispose();
@@ -166,7 +166,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   final TextEditingController _contactController = TextEditingController(
     text: '+256 700 123456',
   );
-  String  _coordinates;
+  String? _coordinates;
 
   void _next() {
     setState(() => _step++);
@@ -174,12 +174,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   }
 
   void _back() {
-    if (_step == 5) _trackingTimer .cancel();
+    if (_step == 5) _trackingTimer?.cancel();
     setState(() => _step--);
   }
 
   void _startTracking() {
-    _trackingTimer .cancel();
+    _trackingTimer?.cancel();
     _refreshTracking();
     _trackingTimer = Timer.periodic(
       Duration(seconds: 8),
@@ -280,9 +280,9 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
   // --- STEP 0: PRODUCT OVERVIEW ---
   Widget _buildProductOverview() {
     final photos = _getProductPhotos();
-    final price = widget.listing['price']    0;
-    final title = widget.listing['title']    'Luxury Shard';
-    final sku = widget.listing['sku']    'SKU-PENDING';
+    final price = widget.listing['price'] ?? 0;
+    final title = widget.listing['title'] ?? 'Luxury Shard';
+    final sku = widget.listing['sku'] ?? 'SKU-PENDING';
 
     return Padding(
       padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
@@ -301,11 +301,11 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             height: 120,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: photos.isEmpty   1 : photos.length,
+              itemCount: photos.isEmpty ? 1 : photos.length,
               separatorBuilder: (_, __) => SizedBox(width: 12),
               itemBuilder: (context, i) {
                 final url = photos.isNotEmpty
-                      photos[i]
+                    ? photos[i]
                     : _primaryListingImageUrl();
                 return Container(
                   width: 120,
@@ -313,7 +313,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: C.dim),
                     image: url != null
-                          DecorationImage(
+                        ? DecorationImage(
                             image: NetworkImage(url),
                             fit: BoxFit.cover,
                           )
@@ -331,7 +331,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           ),
           SizedBox(height: 8),
           Text(
-            widget.listing['description']   
+            widget.listing['description'] ??
                 'Exclusive digital asset from Necxa Film Hub.',
             style: dm(sz: 14, c: C.sub, h: 1.5),
           ),
@@ -377,7 +377,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                       ),
                       onPressed: () {
                         // Max out at stock_count if available
-                        final stock = widget.listing['stock_count']    999;
+                        final stock = widget.listing['stock_count'] ?? 999;
                         if (_quantity < stock)
                           setState(() {
                             _quantity++;
@@ -465,7 +465,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             suffix: IconButton(
               icon: Icon(
                 Icons.my_location,
-                color: _coordinates != null   Colors.greenAccent : C.brand,
+                color: _coordinates != null ? Colors.greenAccent : C.brand,
                 size: 20,
               ),
               onPressed: _captureLocation,
@@ -527,7 +527,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           _stepHeader('4', 'DELIVERY SPEED', onBack: _back),
 
           Text(
-            'HOW FAST DO YOU NEED IT ',
+            'HOW FAST DO YOU NEED IT?',
             style: syne(sz: 11, w: FontWeight.w900, c: C.dim),
           ),
           SizedBox(height: 12),
@@ -586,7 +586,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     String subtitle,
     DeliveryTier tier,
     IconData icon, {
-    Color  color,
+    Color? color,
   }) {
     final active = _selectedTier == tier;
     final fare = _calculateDeliveryFare(tier);
@@ -601,12 +601,12 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: active
-                (color    C.brand).withOpacity(0.1)
+              ? (color ?? C.brand).withOpacity(0.1)
               : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: active
-                  (color    C.brand).withOpacity(0.5)
+                ? (color ?? C.brand).withOpacity(0.5)
                 : C.dim,
           ),
         ),
@@ -614,7 +614,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           children: [
             Icon(
               icon,
-              color: active   (color    C.brand) : C.dim,
+              color: active ? (color ?? C.brand) : C.dim,
               size: 24,
             ),
             SizedBox(width: 16),
@@ -627,7 +627,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     style: syne(
                       sz: 14,
                       w: FontWeight.bold,
-                      c: active   C.text : C.sub,
+                      c: active ? C.text : C.sub,
                     ),
                   ),
                   Text(subtitle, style: dm(sz: 11, c: C.dim)),
@@ -639,7 +639,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               style: syne(
                 sz: 14,
                 w: FontWeight.w900,
-                c: active   (color    C.brand) : C.dim,
+                c: active ? (color ?? C.brand) : C.dim,
               ),
             ),
           ],
@@ -682,8 +682,8 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     required TextEditingController controller,
     required String hint,
     required IconData icon,
-    Widget  suffix,
-    TextInputType  keyboardType,
+    Widget? suffix,
+    TextInputType? keyboardType,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -758,7 +758,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
           SizedBox(height: 32),
           _actionButton(
-            'Pay ${ugx(((widget.listing['price']    0).toDouble() * _quantity) + _deliveryFare)}',
+            'Pay ${ugx(((widget.listing['price'] ?? 0).toDouble() * _quantity) + _deliveryFare)}',
             () async {
               setState(() => _loading = true);
               try {
@@ -787,7 +787,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                   if (res.isSuccess && res.orderId != null) {
                     setState(() {
                       _currentOrderId = res.orderId;
-                      _deliveryFare = res.deliveryFeeUgx    _deliveryFare;
+                      _deliveryFare = res.deliveryFeeUgx ?? _deliveryFare;
                       _loading = false;
                     });
                     await widget.state.syncVault();
@@ -847,7 +847,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
-                                '  Payment confirmed! Your order is being processed.',
+                                '? Payment confirmed! Your order is being processed.',
                               ),
                             ),
                           );
@@ -922,7 +922,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               children: [
                 _row(
                   'Product Price (x$_quantity)',
-                  ugx((widget.listing['price']    0).toDouble() * _quantity),
+                  ugx((widget.listing['price'] ?? 0).toDouble() * _quantity),
                 ),
                 SizedBox(height: 8),
                 _row(
@@ -933,7 +933,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                 _row(
                   'Total Paid',
                   ugx(
-                    ((widget.listing['price']    0).toDouble() * _quantity) +
+                    ((widget.listing['price'] ?? 0).toDouble() * _quantity) +
                         _deliveryFare,
                   ),
                 ),
@@ -961,7 +961,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         children: [
           _stepHeader('7', 'TRACK ORDER', onBack: _back),
           Text(
-            order .orderNumber    _currentOrderId    'ORD-PENDING',
+            order?.orderNumber ?? _currentOrderId ?? 'ORD-PENDING',
             style: syne(sz: 16, w: FontWeight.w900, c: C.text),
           ),
           Text(
@@ -997,11 +997,11 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
   Widget _buildCommerceTracking(CommerceOrder order) {
     final currentIndex = stages.indexOf(order.status);
-    final driverId = order.delivery ['driver_id'] .toString();
+    final driverId = order.delivery?['driver_id']?.toString();
     final driverName = order.driver == null
-          null
+        ? null
         : order.participantName('driver');
-    final driverPhone = order.driver ['phone'] .toString();
+    final driverPhone = order.driver?['phone']?.toString();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1120,7 +1120,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     _ => 'Order update received.',
   };
 
-  Widget _buildDriverHud(String name, String  phone, String  driverId) {
+  Widget _buildDriverHud(String name, String? phone, String? driverId) {
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1158,7 +1158,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           Row(
             children: [
               _hudBtn(Icons.phone, 'CALL', () async {
-                final number = phone .trim();
+                final number = phone?.trim();
                 if (number == null || number.isEmpty) return;
                 await launchUrlString('tel:${Uri.encodeComponent(number)}');
               }),
@@ -1170,7 +1170,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     name,
                     null,
                     initialContextText:
-                        'Regarding commerce order ${_trackedOrder .orderNumber    ''}',
+                        'Regarding commerce order ${_trackedOrder?.orderNumber ?? ''}',
                     context: 'commerce_order',
                   );
                   widget.onDismiss(); // Close checkout to enter chat
@@ -1184,7 +1184,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                     name,
                     null,
                     initialContextText:
-                        'Voice update for commerce order ${_trackedOrder .orderNumber    ''}',
+                        'Voice update for commerce order ${_trackedOrder?.orderNumber ?? ''}',
                     context: 'commerce_order',
                   );
                   widget.onDismiss();
@@ -1201,7 +1201,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     IconData icon,
     String label,
     VoidCallback onTap, {
-    Color  color,
+    Color? color,
   }) {
     return Expanded(
       child: GestureDetector(
@@ -1209,18 +1209,18 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         child: Container(
           padding: EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: (color    C.brand).withOpacity(0.1),
+            color: (color ?? C.brand).withOpacity(0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: (color    C.brand).withOpacity(0.2)),
+            border: Border.all(color: (color ?? C.brand).withOpacity(0.2)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 14, color: color    C.brand),
+              Icon(icon, size: 14, color: color ?? C.brand),
               SizedBox(width: 6),
               Text(
                 label,
-                style: syne(sz: 10, w: FontWeight.w900, c: color    C.brand),
+                style: syne(sz: 10, w: FontWeight.w900, c: color ?? C.brand),
               ),
             ],
           ),
@@ -1231,7 +1231,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
 
   // --- HELPERS ---
 
-  Widget _stepHeader(String num, String title, {VoidCallback  onBack}) {
+  Widget _stepHeader(String num, String title, {VoidCallback? onBack}) {
     return Row(
       children: [
         if (onBack != null)
@@ -1284,7 +1284,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               image: url != null
-                    DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
+                  ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
                   : null,
             ),
           ),
@@ -1294,21 +1294,21 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.listing['title']    'Luxury Shard',
+                  widget.listing['title'] ?? 'Luxury Shard',
                   style: syne(sz: 14, w: FontWeight.bold, c: C.text),
                 ),
                 Text(
-                  'by ${widget.listing['lister_name']    'Vendor'}',
+                  'by ${widget.listing['lister_name'] ?? 'Vendor'}',
                   style: dm(sz: 11, c: C.dim),
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'SKU: ${widget.listing['sku']    'SKU-PENDING'}',
+                  'SKU: ${widget.listing['sku'] ?? 'SKU-PENDING'}',
                   style: dm(sz: 9, c: C.dim),
                 ),
                 SizedBox(height: 4),
                 Text(
-                  ugx((widget.listing['price']    0).toDouble()),
+                  ugx((widget.listing['price'] ?? 0).toDouble()),
                   style: syne(sz: 16, w: FontWeight.w900, c: C.brand),
                 ),
               ],
@@ -1328,11 +1328,11 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: active
-                Color(0xFF6C63FF).withOpacity(0.15)
+              ? Color(0xFF6C63FF).withOpacity(0.15)
               : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: active   Color(0xFF6C63FF) : C.dim,
+            color: active ? Color(0xFF6C63FF) : C.dim,
           ),
         ),
         child: Row(
@@ -1345,7 +1345,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               ),
               child: Icon(
                 icon,
-                color: active   Color(0xFF6C63FF) : C.dim,
+                color: active ? Color(0xFF6C63FF) : C.dim,
                 size: 20,
               ),
             ),
@@ -1362,8 +1362,8 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
             ),
             Spacer(),
             Icon(
-              active   Icons.radio_button_checked : Icons.radio_button_off,
-              color: active   Color(0xFF6C63FF) : C.dim,
+              active ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: active ? Color(0xFF6C63FF) : C.dim,
             ),
           ],
         ),
@@ -1377,7 +1377,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
     bool loading = false,
   }) {
     return GestureDetector(
-      onTap: loading   null : onTap,
+      onTap: loading ? null : onTap,
       child: Container(
         width: double.infinity,
         padding: EdgeInsets.symmetric(vertical: 18),
@@ -1393,7 +1393,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         ),
         child: Center(
           child: loading
-                SizedBox(
+              ? SizedBox(
                   width: 20,
                   height: 20,
                   child: CircularProgressIndicator(
@@ -1441,18 +1441,18 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
           height: 24,
           decoration: BoxDecoration(
             color: done
-                  Colors.green
-                : (active   Color(0xFF6C63FF) : Colors.transparent),
+                ? Colors.green
+                : (active ? Color(0xFF6C63FF) : Colors.transparent),
             shape: BoxShape.circle,
             border: Border.all(
               color: done
-                    Colors.green
-                  : (active   Color(0xFF6C63FF) : C.dim),
+                  ? Colors.green
+                  : (active ? Color(0xFF6C63FF) : C.dim),
               width: 2,
             ),
           ),
           child: done
-                Icon(Icons.check, color: C.text, size: 14)
+              ? Icon(Icons.check, color: C.text, size: 14)
               : null,
         ),
         SizedBox(width: 16),
@@ -1464,7 +1464,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
               style: syne(
                 sz: 13,
                 w: FontWeight.bold,
-                c: done || active   C.text : C.dim,
+                c: done || active ? C.text : C.dim,
               ),
             ),
             Text(sub, style: dm(sz: 11, c: C.dim)),
@@ -1479,12 +1479,10 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
       margin: EdgeInsets.only(left: 11),
       width: 2,
       height: 30,
-      color: done   Colors.green : C.dim,
+      color: done ? Colors.green : C.dim,
     );
   }
 }
-
-
 
 
 
