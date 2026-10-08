@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
@@ -428,13 +430,43 @@ class HomeScreen extends StatelessWidget {
 }
 
 // -- Property Card ---------------------------------------------
-class _PropertyCard extends StatelessWidget {
+class _PropertyCard extends StatefulWidget {
   final PropertyContainer p;
   final AppState state;
   const _PropertyCard({required this.p, required this.state});
 
   @override
+  State<_PropertyCard> createState() => _PropertyCardState();
+}
+
+class _PropertyCardState extends State<_PropertyCard> {
+  int _currentIndex = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.p.core.images.length > 1) {
+      _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+        if (mounted) {
+          setState(() {
+            _currentIndex = (_currentIndex + 1) % widget.p.core.images.length;
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final p = widget.p;
+    final state = widget.state;
     final saved = state.saved.contains(p.core.id);
     final isReserved = p.escrow.status == EscrowStatus.pending_escrow;
 
@@ -450,23 +482,32 @@ class _PropertyCard extends StatelessWidget {
           border: Border.all(
             color: isReserved ? C.red.withOpacity(.3) : C.border,
           ),
-          image: p.core.images.isNotEmpty
-              ? DecorationImage(
-                  image: NetworkImage(p.core.images.first),
-                  fit: BoxFit.cover,
-                )
-              : null,
         ),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (p.core.images.isEmpty)
-              Center(
-                child: Text(
-                  p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
-                  style: const TextStyle(fontSize: 50),
-                ),
-              ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: p.core.images.isNotEmpty
+                  ? AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 800),
+                      child: CachedNetworkImage(
+                        key: ValueKey<String>(p.core.images[_currentIndex]),
+                        imageUrl: p.core.images[_currentIndex],
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        placeholder: (context, url) => Container(color: C.dim.withOpacity(0.1)),
+                        errorWidget: (context, url, error) => Icon(Icons.error, color: C.dim),
+                      ),
+                    )
+                  : Center(
+                      child: Text(
+                        p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
+                        style: const TextStyle(fontSize: 50),
+                      ),
+                    ),
+            ),
 
             Positioned(
               top: 10,
