@@ -1,0 +1,55 @@
+name: Deploy Edge Functions
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'supabase/functions/**'
+  workflow_dispatch:
+
+jobs:
+  deploy-sp1:
+    name: SP1 – smooth-action (Primary)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy smooth-action → SP1
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_SP1 }}
+        run: |
+          supabase functions deploy smooth-action \
+            --project-ref lzdtrmjcwzalckszdzpt \
+            --no-verify-jwt
+
+      - name: Deploy listing-create → SP1
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_SP1 }}
+        run: |
+          supabase functions deploy listing-create \
+            --project-ref lzdtrmjcwzalckszdzpt \
+            --no-verify-jwt
+
+  deploy-sp2:
+    name: SP2 – finance-engine (Finance)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy finance-engine → SP2
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_SP2 }}
+        run: |
+          supabase functions deploy finance-engine \
+            --project-ref ayvescksetiuekoyfqar \
+            --no-verify-jwt
