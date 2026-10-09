@@ -426,7 +426,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 children: [
                   Text('Reveal Contact Info', style: dm(sz: 14, w: FontWeight.bold)),
                   Text(
-                    'UGX ${ugx(p.financial.unlockCost)} · ${(p.financial.unlockCost ~/ 100)} NCX COINS',
+                    '${ugx(p.financial.unlockCost)} · ${(p.financial.unlockCost ~/ 100)} NCX COINS',
                     style: dm(sz: 10, c: C.brand, w: FontWeight.bold),
                   ),
                 ],
@@ -451,7 +451,7 @@ class _DetailScreenState extends State<DetailScreen> {
                  crossAxisAlignment: CrossAxisAlignment.start,
                  children: [
                    Text('Reserve for 72 Hours', style: dm(sz: 14, w: FontWeight.bold)),
-                   Text('UGX ${ugx(p.financial.escrowDeposit.toInt())} (10%)', style: dm(sz: 11, c: C.blue, w: FontWeight.bold)),
+                   Text('${ugx(p.financial.escrowDeposit.toInt())} (10%)', style: dm(sz: 11, c: C.blue, w: FontWeight.bold)),
                  ],
                ),
              ),
@@ -714,6 +714,7 @@ class _VirtualTourWidget extends StatelessWidget {
     state.scheduleVirtualTour(property, fullDate);
   }
 }
+
 
 
 
