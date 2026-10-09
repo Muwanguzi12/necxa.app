@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1517,11 +1517,21 @@ class AppState extends ChangeNotifier {
       } else {
         throw Exception(res['error'] ?? 'Unknown error');
       }
-    } catch (e) {
+} catch (e) {
       debugPrint('Unlock Error: $e');
       if (navigatorKey.currentContext != null) {
-        ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
-          SnackBar(content: Text('Failed to unlock: $e')),
+        showDialog(
+          context: navigatorKey.currentContext!,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Unlock Error 🚨', style: TextStyle(color: Colors.red)),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              )
+            ],
+          )
         );
       }
     }
@@ -3459,4 +3469,6 @@ class IPResult {
   final String sessionId;
   IPResult({required this.verified, required this.sessionId});
 }
+
+
 
