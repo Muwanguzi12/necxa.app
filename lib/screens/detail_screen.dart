@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
@@ -21,6 +21,7 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   Timer? _timer;
+  Timer? _carouselTimer;
   Duration _timeLeft = Duration.zero;
   final PageController _pageController = PageController();
   int _currentPath = 0;
@@ -29,11 +30,26 @@ class _DetailScreenState extends State<DetailScreen> {
   void initState() {
     super.initState();
     _startTimer();
+    
+    // Auto-scroll images every 4 seconds
+    _carouselTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      if (!mounted) return;
+      final p = widget.state.currentProperty;
+      if (p != null && p.core.images.length > 1) {
+        int next = (_currentPath + 1) % p.core.images.length;
+        _pageController.animateToPage(
+          next,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _carouselTimer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -408,7 +424,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Unlock Identity Shard', style: dm(sz: 14, w: FontWeight.bold)),
+                  Text('Reveal Contact Info', style: dm(sz: 14, w: FontWeight.bold)),
                   Text(
                     'UGX ${ugx(p.financial.unlockCost)} · ${(p.financial.unlockCost ~/ 100)} NCX COINS',
                     style: dm(sz: 10, c: C.brand, w: FontWeight.bold),
@@ -417,7 +433,7 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
             _Btn(
-              label: s.paying ? 'Processing...' : 'Unlock Details ⚡', 
+              label: s.paying ? 'Processing...' : 'Reveal Info ⚡', 
               color: s.paying ? C.dim : C.brand, 
               textColor: C.bg, 
               onTap: () {
@@ -698,5 +714,6 @@ class _VirtualTourWidget extends StatelessWidget {
     state.scheduleVirtualTour(property, fullDate);
   }
 }
+
 
 
