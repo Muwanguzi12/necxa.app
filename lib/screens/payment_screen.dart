@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
@@ -96,29 +96,37 @@ class _PaymentScreenState extends State<PaymentScreen>
                   _MethodTile(
                     id: 'MTN_MOMO',
                     label: 'MTN MoMo',
-                    icon: '??',
+                    icon: '📱',
                     sub: '256 77x / 78x / 39x',
                     selected: _method == 'MTN_MOMO',
                     onTap: () => setState(() => _method = 'MTN_MOMO'),
                   ),
                   _MethodTile(
                     id: 'AIRTEL_MONEY',
-                    label: 'Money',
-                    icon: '??',
+                    label: 'Airtel Money',
+                    icon: '❤️',
                     sub: '256 70x / 75x',
                     selected: _method == 'AIRTEL_MONEY',
                     onTap: () => setState(() => _method = 'AIRTEL_MONEY'),
                   ),
                   _MethodTile(
+                    id: 'CARD',
+                    label: 'Visa / Mastercard',
+                    icon: '💳',
+                    sub: 'Pay securely via Pesapal',
+                    selected: _method == 'CARD',
+                    onTap: () => setState(() => _method = 'CARD'),
+                  ),
+                  _MethodTile(
                     id: 'NCX_COINS',
                     label: 'NCX Coins',
-                    icon: '??',
+                    icon: '🪙',
                     sub: 'From your Necxa wallet',
                     selected: _method == 'NCX_COINS',
                     onTap: () => setState(() => _method = 'NCX_COINS'),
                   ),
 
-                  if (_method != 'NCX_COINS') ...[
+                  if (_method == 'MTN_MOMO' || _method == 'AIRTEL_MONEY') ...[
                     SizedBox(height: 24),
                     Text(
                       'PHONE NUMBER',
@@ -196,10 +204,10 @@ class _PaymentScreenState extends State<PaymentScreen>
             style: syne(sz: 12, w: FontWeight.bold, c: C.brand),
           ),
           SizedBox(height: 12),
-          const _UnlockRow(icon: '??', label: 'Agent direct phone number'),
-          const _UnlockRow(icon: '??', label: 'WhatsApp click-to-chat link'),
-          const _UnlockRow(icon: '??', label: 'Exact GPS coordinates & Pin'),
-          const _UnlockRow(icon: '??', label: 'Full street & Plot address'),
+          const _UnlockRow(icon: '📞', label: 'Agent direct phone number'),
+          const _UnlockRow(icon: '💬', label: 'WhatsApp click-to-chat link'),
+          const _UnlockRow(icon: '📍', label: 'Exact GPS coordinates & Pin'),
+          const _UnlockRow(icon: '🗺️', label: 'Full street & Plot address'),
         ],
       ),
     );
@@ -344,7 +352,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                   ),
                   child: Center(
                     child: Text(
-                      'VIEW CREDENTIALS ?',
+                      'VIEW CREDENTIALS 🔓',
                       style: syne(sz: 15, w: FontWeight.bold, c: C.bg),
                     ),
                   ),
@@ -475,7 +483,9 @@ class _PaymentScreenState extends State<PaymentScreen>
                 ),
                 SizedBox(height: 8),
                 Text(
-                  ugx(p.financial.unlockCost),
+                  _method == 'NCX_COINS'
+                      ? '${p.financial.unlockCost ~/ 100} NCX COINS'
+                      : 'UGX ${ugx(p.financial.unlockCost)}',
                   style: syne(sz: 18, c: C.brand, w: FontWeight.bold),
                 ),
               ],
@@ -504,7 +514,7 @@ class _PaymentScreenState extends State<PaymentScreen>
         ),
         child: Center(
           child: Text(
-            'AUTHORIZE PAYMENT ?',
+            'AUTHORIZE PAYMENT 💳',
             style: syne(sz: 15, w: FontWeight.bold, c: C.bg),
           ),
         ),
@@ -513,7 +523,9 @@ class _PaymentScreenState extends State<PaymentScreen>
   }
 
   Future<void> _processPayment(PropertyContainer p) async {
-    if (_method != 'NCX_COINS' && _phoneCtrl.text.isEmpty) {
+    final isEscrowMode = widget.state.currentEscrowInitiation != null;
+    final requiresPhone = _method == 'MTN_MOMO' || _method == 'AIRTEL_MONEY';
+    if (requiresPhone && _phoneCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Please enter your phone number')),
       );
@@ -527,21 +539,23 @@ class _PaymentScreenState extends State<PaymentScreen>
       final user = widget.state.user;
       if (user == null) throw Exception('User not authenticated');
 
-      final initiateRes = await _paymentService.initiateUnlock(
-        listingId: p.core.id,
-        method: _method,
-        amount: p.financial.unlockCost.toDouble(),
-        buyerId: user.id,
-        buyerEmail: user.email ?? '',
-        phone: _method != 'NCX_COINS' ? _phoneCtrl.text : null,
-      );
+      if (isEscrowMode) {
+        // ── ESCROW FCFS FLOW ──────────────────────────────────────────────
+        final escrow = widget.state.currentEscrowInitiation!;
+        final escrowResId = escrow['escrow_id']?.toString() ?? '';
+        final depositAmount = (escrow['deposit_amount'] as num?)?.toDouble()
+            ?? p.financial.escrowDeposit.toDouble();
 
-      bool success = false;
-      if (_method == 'NCX_COINS') {
-        success = initiateRes['success'] == true;
-      } else {
-        // Launch Pesapal redirect URL externally
-        final redirectUrl = initiateRes['redirect_url'];
+        final initiateRes = await _paymentService.initiateEscrowPayment(
+          listingId: p.core.id,
+          escrowReservationId: escrowResId,
+          depositAmount: depositAmount,
+          buyerId: user.id,
+          buyerEmail: user.email ?? '',
+        );
+
+        // Open Pesapal redirect
+        final redirectUrl = initiateRes['redirectUrl'];
         if (redirectUrl != null) {
           final uri = Uri.parse(redirectUrl);
           if (await canLaunchUrl(uri)) {
@@ -549,20 +563,63 @@ class _PaymentScreenState extends State<PaymentScreen>
           } else {
             throw Exception('Could not open checkout page.');
           }
-        } else {
-          throw Exception('No payment link received.');
         }
 
-        success = await _paymentService.pollForPaymentCompletion(
-          initiateRes['payment_id'],
+        final won = await _paymentService.pollForEscrowCompletion(
+          initiateRes['paymentId'],
         );
-      }
 
-      if (success) {
-        widget.state.unlockProperty(p.core.id);
-        setState(() => _stage = PaymentStage.success);
+        if (won) {
+          widget.state.currentEscrowInitiation = null;
+          await widget.state.loadProperties(); // property is now delisted
+          setState(() => _stage = PaymentStage.success);
+        } else {
+          throw Exception('Payment timed out. Please check your wallet.');
+        }
       } else {
-        throw Exception('Payment verification timed out');
+        // ── REGULAR UNLOCK FLOW ───────────────────────────────────────────
+        final initiateRes = await _paymentService.initiateUnlock(
+          listingId: p.core.id,
+          method: _method,
+          // unlock_cost is stored as UGX in the DB.
+          // NCX path: convert to NCX coins (1 NCX = 100 UGX).
+          // Fiat path: pass UGX directly to Pesapal.
+          amount: _method == 'NCX_COINS'
+              ? (p.financial.unlockCost / 100).roundToDouble()
+              : p.financial.unlockCost.toDouble(),
+          buyerId: user.id,
+          buyerEmail: user.email ?? '',
+          phone: _method != 'NCX_COINS' && _method != 'CARD' ? _phoneCtrl.text : null,
+        );
+
+        bool success = false;
+        if (_method == 'NCX_COINS') {
+          success = initiateRes['success'] == true;
+        } else {
+          final redirectUrl = initiateRes['redirectUrl'];
+          if (redirectUrl != null) {
+            final uri = Uri.parse(redirectUrl);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            } else {
+              throw Exception('Could not open checkout page.');
+            }
+          } else {
+            if (initiateRes['paymentId'] == null) {
+              throw Exception('No payment tracking ID received.');
+            }
+          }
+          success = await _paymentService.pollForPaymentCompletion(
+            initiateRes['paymentId'],
+          );
+        }
+
+        if (success) {
+          await widget.state.markPropertyUnlockedAfterPayment(p.core.id);
+          setState(() => _stage = PaymentStage.success);
+        } else {
+          throw Exception('Payment verification timed out');
+        }
       }
     } catch (e) {
       setState(() {

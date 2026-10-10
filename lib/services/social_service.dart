@@ -108,7 +108,9 @@ class SocialService {
   }
 
   /// Warms up the memory cache from SQLite - call at app start.
+  /// No-op on web (sqflite unavailable; first fetchPosts warms from Supabase).
   Future<void> preWarmCache() async {
+    if (kIsWeb) return;
     final localDb = LocalDbService();
     try {
       _feedCache = await localDb.getCachedFeed(limit: 15);
@@ -143,10 +145,16 @@ class SocialService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /// Returns local cache immediately, then schedules a background delta sync.
+  /// On web, bypasses SQLite entirely and queries Supabase directly.
   Future<List<Map<String, dynamic>>> fetchPosts({
     bool forceRefresh = false,
     int limit = 30,
   }) async {
+    // ── WEB PATH: sqflite is unavailable on web; query Supabase directly ──
+    if (kIsWeb) {
+      return _fetchPostsWeb(limit: limit, forceRefresh: forceRefresh);
+    }
+
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
 
@@ -169,12 +177,50 @@ class SocialService {
     return _feedCache;
   }
 
+  /// Web-safe feed fetch — queries Supabase PostgREST directly, no SQLite.
+  Future<List<Map<String, dynamic>>> _fetchPostsWeb({
+    int limit = 30,
+    bool forceRefresh = false,
+  }) async {
+    final now = DateTime.now();
+    // Return memory cache if still fresh and not forced
+    if (!forceRefresh &&
+        _feedCache.isNotEmpty &&
+        _feedLastSync != null &&
+        now.difference(_feedLastSync!) < _feedCooldown) {
+      return _feedCache;
+    }
+    try {
+      final rows = List<Map<String, dynamic>>.from(
+        await client
+            .from('community_posts')
+            .select(
+              'id, author_id, title, content, media_url, thumbnail_url, '
+              'media_type, hls_url, created_at, likes_count, comments_count, '
+              'profiles:author_id(full_name, avatar_url, trust_score_tier)',
+            )
+            .inFilter('status', ['verified', 'pending', 'active'])
+            .or('visibility.eq.public,visibility.is.null')
+            .order('created_at', ascending: false)
+            .limit(limit),
+      );
+      _feedCache = rows;
+      _feedLastSync = now;
+      state.notify();
+      return _feedCache;
+    } catch (e) {
+      debugPrint('[SocialService] Web fetchPosts error: $e');
+      return _feedCache; // return whatever is in memory
+    }
+  }
+
   /// Pulls ONLY records newer than the local cursor — minimal data transfer.
   Future<List<Map<String, dynamic>>> syncFeed(
     String userId, {
     bool force = false,
     int limit = 30,
   }) async {
+    if (kIsWeb) return _feedCache; // Web uses _fetchPostsWeb instead
     if (_feedSyncing) return _feedCache;
     if (!await _isOnline()) return _feedCache;
 
@@ -491,6 +537,15 @@ class SocialService {
     bool forceRefresh = false,
     int limit = 30,
   }) async {
+    // ── WEB PATH ─────────────────────────────────────────────────────────────
+    if (kIsWeb) {
+      return _fetchListingsWeb(
+        category: category,
+        limit: limit,
+        forceRefresh: forceRefresh,
+      );
+    }
+
     final localDb = LocalDbService();
 
     if (forceRefresh || _shopCache.length < limit || category != null) {
@@ -511,6 +566,50 @@ class SocialService {
     return category == null
         ? _shopCache
         : await localDb.getCachedListings(limit: limit, category: category);
+  }
+
+  /// Web-safe shop listings fetch — queries Supabase PostgREST directly.
+  Future<List<Map<String, dynamic>>> _fetchListingsWeb({
+    String? category,
+    int limit = 30,
+    bool forceRefresh = false,
+  }) async {
+    final now = DateTime.now();
+    if (!forceRefresh &&
+        _shopCache.isNotEmpty &&
+        _shopLastSync != null &&
+        category == null &&
+        now.difference(_shopLastSync!) < _shopCooldown) {
+      return _shopCache;
+    }
+    try {
+      var query = client
+          .from('listings')
+          .select(
+            'id, user_id, lister_id, title, description, price, price_ugx, '
+            'category, status, image_url, media_url, media_type, thumbnail_url, '
+            'photos, created_at, is_property_listing',
+          )
+          .inFilter('status', ['active', 'verified', 'pending'])
+          .eq('is_property_listing', false);
+      if (category != null) {
+        query = query.eq('category', category.toUpperCase());
+      }
+      final rows = List<Map<String, dynamic>>.from(
+        await query
+            .order('created_at', ascending: false)
+            .limit(limit),
+      );
+      if (category == null) {
+        _shopCache = rows;
+        _shopLastSync = now;
+      }
+      state.notify();
+      return rows;
+    } catch (e) {
+      debugPrint('[SocialService] Web fetchListings error: $e');
+      return _shopCache;
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchListingsFromNetwork({
@@ -1214,6 +1313,7 @@ class SocialService {
   }
 
   Future<void> syncPendingActions() async {
+    if (kIsWeb) return; // No offline queue on web
     if (_pendingSyncRunning || !await _isOnline()) return;
     _pendingSyncRunning = true;
     final localDb = LocalDbService();
@@ -1391,13 +1491,13 @@ class SocialService {
           .maybeSingle();
 
       if (res != null) {
-        final normalized = {
-          'display_name': res['full_name'],
-          'photo_url': res['avatar_url'],
-          'is_verified':
-              res['trust_score_tier'] == 'titan_trust' ||
-              res['trust_score_tier'] == 'verified',
-        };
+        final normalized = Map<String, dynamic>.from(res);
+        normalized['display_name'] = res['full_name'];
+        normalized['photo_url'] = res['avatar_url'];
+        normalized['is_verified'] =
+            res['trust_score_tier'] == 'titan_trust' ||
+            res['trust_score_tier'] == 'verified';
+        
         _profileCache[userId] = normalized;
         return normalized;
       }

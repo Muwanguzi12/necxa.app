@@ -3249,6 +3249,161 @@ serve(async (req) => {
       });
     }
 
+    // ── Action: initiate_property_unlock ─────────────────────────────────────
+    if (action === "initiate_property_unlock") {
+      const listingId = String(body.listingId ?? "");
+      const method = String(body.method ?? "momo").toLowerCase();
+      // Flutter sends:
+      //   NCX path  → rawAmount = NCX coins (unlock_cost_ugx / 100)
+      //   Fiat path → rawAmount = UGX amount (= unlock_cost_ugx directly)
+      const rawAmount = Math.trunc(Number(body.amountUgx));
+      const idempotencyKey = String(body.idempotencyKey ?? crypto.randomUUID());
+
+      if (!listingId || !Number.isFinite(rawAmount) || rawAmount <= 0) {
+        return json({ success: false, message: "Invalid property unlock request." }, 400);
+      }
+
+      // ── NCX Coins path ───────────────────────────────────────────────────
+      if (method === "ncx_coins") {
+        const amountNcx = rawAmount; // Flutter already converted to coins
+        const { error: ncxError } = await supabase.rpc("charge_ncx_purpose", {
+          p_user_id: user.id,
+          p_amount_ncx: amountNcx,
+          p_purpose: "property_unlock",
+          p_reference: `unlock_${listingId}`,
+          p_idempotency_key: idempotencyKey,
+        });
+        if (ncxError) return json({ success: false, message: ncxError.message }, 409);
+
+        // Write unlock record to SP1 (Primary DB)
+        if (PRIMARY_SUPABASE_URL && PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+          const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+          const { data: prop } = await primaryAdmin
+            .from("properties")
+            .select("lister_id, agent_id, unlock_cost")
+            .eq("id", listingId)
+            .single();
+          const unlockCostUgx = prop?.unlock_cost ?? amountNcx * 100;
+          const { error: unlockError } = await primaryAdmin.from("unlocks").upsert({
+            property_id: listingId,
+            buyer_id: user.id,
+            seller_id: prop?.lister_id ?? null,
+            agent_id: prop?.agent_id ?? null,
+            unlock_amount: unlockCostUgx,
+            unlock_cost: unlockCostUgx,
+            status: "completed",
+            address_revealed_at: new Date().toISOString(),
+            contact_revealed_at: new Date().toISOString(),
+          }, { onConflict: "property_id, buyer_id" });
+          if (unlockError) console.error("SP1 unlock upsert failed:", unlockError.message);
+        }
+        return json({ success: true, paymentId: idempotencyKey });
+      }
+
+      // ── Pesapal / Fiat path ──────────────────────────────────────────────
+      const amountUgx = rawAmount;
+      const { data: profile } = await userSupabase
+        .from("profiles")
+        .select("first_name, last_name, phone")
+        .eq("id", user.id)
+        .maybeSingle();
+      const firstName = String(profile?.first_name ?? "Necxa").trim() || "Necxa";
+      const lastName  = String(profile?.last_name  ?? "User").trim()  || "User";
+      const userPhone = String(body.buyerPhone ?? profile?.phone ?? "").trim();
+      const email     = String(body.buyerEmail ?? user.email ?? "noreply@necxa.app").trim();
+
+      const pesapalToken = await getPesapalToken();
+      const orderResult  = await submitPesapalOrder(pesapalToken, {
+        id: idempotencyKey,
+        amount: amountUgx,
+        currency: "UGX",
+        description: `Necxa Unlock Property ${listingId}`,
+        firstName,
+        lastName,
+        email,
+        phone: userPhone,
+        branch: "Necxa - Property Unlock",
+      });
+
+      const { error: paymentRecordError } = await supabase.from("payments").upsert({
+        provider: "pesapal",
+        provider_reference: orderResult.order_tracking_id,
+        idempotency_key: idempotencyKey,
+        purpose: "property_unlock",
+        amount: amountUgx,
+        currency: "UGX",
+        status: "pending",
+        request: { type: "property_unlock", listingId, method },
+        response: orderResult,
+      }, { onConflict: "idempotency_key" });
+      if (paymentRecordError) throw new Error(`Property unlock payment record failed: ${paymentRecordError.message}`);
+
+      return json({ success: true, redirectUrl: orderResult.redirect_url, paymentId: idempotencyKey });
+    }
+
+    // ── Action: property_unlock_status ────────────────────────────────────────
+    if (action === "property_unlock_status") {
+      const paymentId = String(body.paymentId ?? "");
+      if (!paymentId) return json({ success: false, message: "paymentId required." }, 400);
+
+      const { data: payment } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("idempotency_key", paymentId)
+        .maybeSingle();
+
+      if (!payment) return json({ success: false, status: "PENDING" });
+
+      // If already completed just return
+      if (payment.status === "completed") {
+        return json({ success: true, status: "COMPLETED" });
+      }
+
+      // Check Pesapal IPN status
+      const pesapalToken = await getPesapalToken();
+      const statusUrl = `${PESAPAL_BASE}/api/Transactions/GetTransactionStatus?orderTrackingId=${payment.provider_reference}`;
+      const statusRes = await fetch(statusUrl, {
+        headers: { Authorization: `Bearer ${pesapalToken}`, Accept: "application/json" },
+      });
+      const statusData = await statusRes.json();
+      const paymentStatus = String(statusData?.payment_status_description ?? "").toUpperCase();
+
+      if (paymentStatus === "COMPLETED") {
+        // Mark payment completed in SP2
+        await supabase.from("payments").update({ status: "completed" }).eq("idempotency_key", paymentId);
+
+        // Write unlock to SP1
+        const listingId = String((payment.request as any)?.listingId ?? "");
+        if (listingId && PRIMARY_SUPABASE_URL && PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+          const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+          const { data: prop } = await primaryAdmin
+            .from("properties")
+            .select("lister_id, agent_id")
+            .eq("id", listingId)
+            .maybeSingle();
+          await primaryAdmin.from("unlocks").upsert({
+            property_id: listingId,
+            buyer_id: user.id,
+            seller_id: prop?.lister_id ?? null,
+            agent_id: prop?.agent_id ?? null,
+            unlock_amount: payment.amount,
+            unlock_cost: payment.amount,
+            status: "completed",
+            address_revealed_at: new Date().toISOString(),
+            contact_revealed_at: new Date().toISOString(),
+          }, { onConflict: "property_id, buyer_id" });
+        }
+        return json({ success: true, status: "COMPLETED" });
+      }
+
+      if (paymentStatus === "FAILED" || paymentStatus === "INVALID") {
+        await supabase.from("payments").update({ status: "failed" }).eq("idempotency_key", paymentId);
+        return json({ success: false, status: "FAILED", message: "Payment was declined." }, 409);
+      }
+
+      return json({ success: true, status: "PENDING" });
+    }
+
     return json({ success: false, message: `Unknown action: ${action}` }, 400);
   } catch (err) {
     console.error("finance-engine error:", err);

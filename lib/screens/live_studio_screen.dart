@@ -735,17 +735,17 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       return widget.state.myDisplayName ??
           comment['userName']?.toString().trim() ??
           comment['user']?.toString().trim() ??
-          'User';
+          'Necxa User';
     }
     if (userId != null && userId == _hostUserId) return _hostDisplayName;
     final presenceName =
         _commentOwnerPresence(comment)?['userName']?.toString().trim() ?? '';
-    if (presenceName.isNotEmpty && presenceName != 'Viewer') {
+    if (presenceName.isNotEmpty && presenceName != 'Viewer' && presenceName != 'User') {
       return presenceName;
     }
     final storedName =
         (comment['userName'] ?? comment['user'])?.toString().trim() ?? '';
-    return storedName.isEmpty ? 'User' : storedName;
+    return storedName.isEmpty ? 'Necxa User' : storedName;
   }
 
   String _commentOwnerAvatar(Map<String, dynamic> comment) {

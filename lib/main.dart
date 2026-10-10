@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'theme.dart';
 import 'app_state.dart';
@@ -97,6 +97,15 @@ void main() async {
   runApp(const NecxaApp());
 }
 
+class AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+      };
+}
+
 class NecxaApp extends StatefulWidget {
   const NecxaApp({super.key});
 
@@ -159,6 +168,7 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
     C.themeMode = _state.themeMode;
     return MaterialApp(
       navigatorKey: navigatorKey,
+      scrollBehavior: AppScrollBehavior(),
       title: 'NECXA',
       themeMode: _state.themeMode,
       theme: buildLightTheme(),

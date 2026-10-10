@@ -388,8 +388,18 @@ class AppState extends ChangeNotifier {
 
   String? _shieldError;
   String? get shieldFeedback => _shieldError;
-  void setShieldFeedback(String? message) {
-    _shieldError = message;
+  void setShieldFeedback(Object? message) {
+    if (message == null) {
+      _shieldError = null;
+    } else if (message is String) {
+      _shieldError = message;
+    } else if (message is Map) {
+      final value =
+          message['message'] ?? message['error'] ?? message['feedback'];
+      _shieldError = value is String ? value : message.toString();
+    } else {
+      _shieldError = message.toString();
+    }
     notifyListeners();
   }
 
@@ -500,6 +510,11 @@ class AppState extends ChangeNotifier {
   String? utilityShardId;
   bool isVerifying = false;
   int verificationSubStep = 0; // TRACKS CURRENT CAPTURE STAGE (0-3)
+  void setVerificationSubStep(int step) {
+    verificationSubStep = step;
+    notify();
+  }
+
   IDResult? lastIDResult;
   IDResult? lastIDBackResult;
   SelfieResult? lastSelfieResult;
@@ -819,6 +834,9 @@ class AppState extends ChangeNotifier {
   String payMethod = 'momo';
   bool paying = false;
   bool paid = false;
+  /// Set when reserveProperty() creates a pending escrow. PaymentScreen reads this.
+  Map<String, dynamic>? currentEscrowInitiation;
+  String? escrowError;
 
   // ── Gift Engine ──
   String? giftEmoji;
@@ -1477,43 +1495,89 @@ class AppState extends ChangeNotifier {
 
   // ── Property Actions ──
 
-  Future<void> unlockProperty(String id) async {
+    Future<void> unlockProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
     try {
       final res = await SmoothAction.unlockProperty(id);
       if (res['success'] == true) {
-        // Find the property in the local list and mark it as unlocked
+        // Free trial used or already unlocked
         final idx = propertyContainers.indexWhere((p) => p.core.id == id);
         if (idx != -1) {
-          // Re-fetch listing data to get the now-decrypted contact fields
           final raw = await SmoothAction.getProperty(id);
           final refreshed = PropertyContainer.fromJson(raw);
           propertyContainers[idx] = refreshed;
         }
         await loadProperties(); // Full sync
         paid = true;
+      } else if (res['requires_payment'] == true) {
+        // Route to payment screen, free trial was already used
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Unknown error');
       }
-    } catch (e) {
+} catch (e) {
       debugPrint('Unlock Error: $e');
+      if (navigatorKey.currentContext != null) {
+        showDialog(
+          context: navigatorKey.currentContext!,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Unlock Error 🚨', style: TextStyle(color: Colors.red)),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              )
+            ],
+          )
+        );
+      }
     }
     paying = false;
     notify();
   }
 
+  /// Called by PaymentScreen after finance-engine confirms payment succeeded.
+  /// Refreshes the property from SP1 so unlocked credentials are shown
+  /// without re-triggering the unlock gate / free-trial check.
+  Future<void> markPropertyUnlockedAfterPayment(String id) async {
+    try {
+      final idx = propertyContainers.indexWhere((p) => p.core.id == id);
+      if (idx != -1) {
+        final raw = await SmoothAction.getProperty(id);
+        final refreshed = PropertyContainer.fromJson(raw);
+        propertyContainers[idx] = refreshed;
+      }
+      await loadProperties(); // full sync so is_unlocked_by_current_user flips
+      paid = true;
+    } catch (e) {
+      debugPrint('markPropertyUnlockedAfterPayment Error: $e');
+    }
+    notify();
+  }
+
+  /// Step 1: Creates a pending escrow reservation on the Primary DB.
+  /// Step 2: Hands off to the payment screen to process the fiat payment.
   Future<void> reserveProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
     try {
+      // Create the pending escrow record on smooth-action (Primary DB)
       final res = await SmoothAction.createEscrow(id);
       if (res['success'] == true) {
-        await loadProperties();
-        paid = true;
+        // Store the escrow initiation data so PaymentScreen can pick it up
+        currentEscrowInitiation = res;
+        // Navigate to payment screen — PaymentScreen detects escrow mode via currentEscrowInitiation
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Could not create escrow reservation.');
       }
     } catch (e) {
       debugPrint('Reservation Error: $e');
+      escrowError = e.toString();
     }
     paying = false;
     notify();
@@ -3405,3 +3469,6 @@ class IPResult {
   final String sessionId;
   IPResult({required this.verified, required this.sessionId});
 }
+
+
+

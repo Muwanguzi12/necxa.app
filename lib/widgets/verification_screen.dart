@@ -27,7 +27,7 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
         setState(() {
           _isProcessing = false;
           _sessionId = 'SES-${DateTime.now().millisecondsSinceEpoch}';
-          _status = '? Verified � Session: $_sessionId';
+          _status = '✅ Verified 🟢� Session: $_sessionId';
         });
       }
     } catch (e) {
@@ -44,7 +44,7 @@ class _VerificationDemoScreenState extends State<VerificationDemoScreen> {
       if (mounted) {
         setState(() {
           _isProcessing = false;
-          _status = '? Face Verified';
+          _status = '👤 Face Verified';
         });
       }
     } catch (e) {
