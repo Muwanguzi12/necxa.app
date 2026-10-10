@@ -26,7 +26,19 @@ insert into public.wallets(user_id)
 values('00000000-0000-4000-8000-000000000001') on conflict(user_id) do nothing;
 
 alter table public.gifts drop constraint if exists gifts_idempotency_key_key;
-alter table public.gifts add constraint gifts_sender_idempotency_key unique(sender_id,idempotency_key);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.gifts'::regclass
+      and conname = 'gifts_sender_idempotency_key'
+  ) then
+    alter table public.gifts
+      add constraint gifts_sender_idempotency_key unique(sender_id, idempotency_key);
+  end if;
+end;
+$$;
 
 create or replace function public.process_gift(
   p_sender_id uuid, p_receiver_id uuid, p_gift_item_id text, p_context_type text,

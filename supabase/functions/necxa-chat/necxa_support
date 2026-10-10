@@ -1,0 +1,65 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { create, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts"
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+}
+
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  })
+
+const err = (message: string, status = 400) => json({ error: message }, status)
+
+const PRIMARY_SUPABASE_URL = Deno.env.get("PRIMARY_SUPABASE_URL")!
+const PRIMARY_SUPABASE_ANON_KEY = Deno.env.get("PRIMARY_SUPABASE_ANON_KEY")!
+const SUPPORT_TOKEN_SECRET = Deno.env.get("SUPPORT_TOKEN_SECRET")!
+
+// Import the HMAC signing key once per cold start
+const keyPromise = crypto.subtle.importKey(
+  "raw",
+  new TextEncoder().encode(SUPPORT_TOKEN_SECRET),
+  { name: "HMAC", hash: "SHA-256" },
+  false,
+  ["sign", "verify"]
+)
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
+  if (req.method !== "POST") return err("Method not allowed", 405)
+
+  try {
+    // Auth: this must be called by a logged-in Necxa user, using their own JWT
+    const authHeader = req.headers.get("Authorization")
+    if (!authHeader) return err("Unauthorized: missing Authorization header", 401)
+
+    const userClient = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    })
+
+    const { data: { user }, error: userError } = await userClient.auth.getUser()
+    if (userError || !user) return err("Unauthorized: invalid session", 401)
+
+    const key = await keyPromise
+    const token = await create(
+      { alg: "HS256", typ: "JWT" },
+      {
+        user_id: user.id,
+        email: user.email,
+        purpose: "goobox_support",
+        exp: getNumericDate(60 * 10), // 10 minutes — just long enough to land on Goobox
+        iat: getNumericDate(0),
+      },
+      key
+    )
+
+    return json({ success: true, token })
+  } catch (e) {
+    console.error("create-support-token error:", e)
+    return err(`Internal error: ${e.message}`, 500)
+  }
+})

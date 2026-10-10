@@ -1,9 +1,11 @@
+import 'dart:convert';
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../app_state.dart';
 import 'local_db_service.dart';
-import 'notification_service.dart';
 
 // ── Necxa Social Service — Lazy Sync Architecture ────────────────────────────
 // Rules:
@@ -23,9 +25,21 @@ class SocialService {
   // ── In-memory caches (hot path for fast-scroll) ────────────────────────
   final Map<String, Map<String, dynamic>> _profileCache = {};
 
+  /// Loads the signed-in user's durable follow graph. A friendship is a
+  /// reciprocal follow, calculated and stored by the database transaction.
+  Future<List<Map<String, dynamic>>> loadMyFollowRelationships() async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return const [];
+    final result = await client.rpc('my_follow_relationships');
+    return (result as List)
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+  }
+
   // ── Sync debounce tracking (prevents hammering the backend) ───────────
   bool _feedSyncing = false;
   bool _shopSyncing = false;
+  bool _pendingSyncRunning = false;
   static const Duration _feedCooldown = Duration(minutes: 5);
   static const Duration _shopCooldown = Duration(minutes: 10);
   static const int _fetchLimit = 20; // Keep payloads lean
@@ -34,6 +48,7 @@ class SocialService {
   DateTime? _feedLastSync;
   DateTime? _shopLastSync;
   DateTime? _prefetchLastSync;
+  final Map<String, DateTime> _engagementLastLoaded = {};
 
   // ── High-speed Memory Cache (Ultra-low latency startup) ────────────
   List<Map<String, dynamic>> _feedCache = [];
@@ -42,8 +57,60 @@ class SocialService {
   List<Map<String, dynamic>> get feedPosts => _feedCache;
   List<Map<String, dynamic>> get shopListings => _shopCache;
 
+  void _incrementMemoryMetric(
+    String localId, {
+    required bool isShop,
+    required String column,
+    int amount = 1,
+  }) {
+    final cache = isShop ? _shopCache : _feedCache;
+    final index = cache.indexWhere((item) => item['id']?.toString() == localId);
+    if (index < 0) return;
+    final current = cache[index][column];
+    final value = (current is num ? current.toInt() : 0) + amount;
+    cache[index][column] = value < 0 ? 0 : value;
+  }
+
+  void _setMemoryEngagement(
+    String localId, {
+    required bool isShop,
+    required int likes,
+    required int comments,
+    required bool isLiked,
+  }) {
+    final cache = isShop ? _shopCache : _feedCache;
+    final index = cache.indexWhere((item) => item['id']?.toString() == localId);
+    if (index < 0) return;
+    cache[index]['likes_count'] = likes;
+    cache[index]['comments_count'] = comments;
+    cache[index]['is_liked'] = isLiked;
+    cache[index]['engagement_synced_at'] = DateTime.now().toIso8601String();
+  }
+
+  int _cachedMetric(
+    String localId, {
+    required bool isShop,
+    required String column,
+  }) {
+    final cache = isShop ? _shopCache : _feedCache;
+    final index = cache.indexWhere((item) => item['id']?.toString() == localId);
+    if (index < 0) return 0;
+    final value = cache[index][column];
+    return value is num ? value.toInt() : 0;
+  }
+
+  bool _cachedLiked(String localId, {required bool isShop}) {
+    final cache = isShop ? _shopCache : _feedCache;
+    final index = cache.indexWhere((item) => item['id']?.toString() == localId);
+    if (index < 0) return false;
+    final value = cache[index]['is_liked'];
+    return value == true || value == 1;
+  }
+
   /// Warms up the memory cache from SQLite - call at app start.
+  /// No-op on web (sqflite unavailable; first fetchPosts warms from Supabase).
   Future<void> preWarmCache() async {
+    if (kIsWeb) return;
     final localDb = LocalDbService();
     try {
       _feedCache = await localDb.getCachedFeed(limit: 15);
@@ -78,10 +145,16 @@ class SocialService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /// Returns local cache immediately, then schedules a background delta sync.
+  /// On web, bypasses SQLite entirely and queries Supabase directly.
   Future<List<Map<String, dynamic>>> fetchPosts({
     bool forceRefresh = false,
     int limit = 30,
   }) async {
+    // ── WEB PATH: sqflite is unavailable on web; query Supabase directly ──
+    if (kIsWeb) {
+      return _fetchPostsWeb(limit: limit, forceRefresh: forceRefresh);
+    }
+
     final userId = client.auth.currentUser?.id;
     if (userId == null) return [];
 
@@ -104,12 +177,50 @@ class SocialService {
     return _feedCache;
   }
 
+  /// Web-safe feed fetch — queries Supabase PostgREST directly, no SQLite.
+  Future<List<Map<String, dynamic>>> _fetchPostsWeb({
+    int limit = 30,
+    bool forceRefresh = false,
+  }) async {
+    final now = DateTime.now();
+    // Return memory cache if still fresh and not forced
+    if (!forceRefresh &&
+        _feedCache.isNotEmpty &&
+        _feedLastSync != null &&
+        now.difference(_feedLastSync!) < _feedCooldown) {
+      return _feedCache;
+    }
+    try {
+      final rows = List<Map<String, dynamic>>.from(
+        await client
+            .from('community_posts')
+            .select(
+              'id, author_id, title, content, media_url, thumbnail_url, '
+              'media_type, hls_url, created_at, likes_count, comments_count, '
+              'profiles:author_id(full_name, avatar_url, trust_score_tier)',
+            )
+            .inFilter('status', ['verified', 'pending', 'active'])
+            .or('visibility.eq.public,visibility.is.null')
+            .order('created_at', ascending: false)
+            .limit(limit),
+      );
+      _feedCache = rows;
+      _feedLastSync = now;
+      state.notify();
+      return _feedCache;
+    } catch (e) {
+      debugPrint('[SocialService] Web fetchPosts error: $e');
+      return _feedCache; // return whatever is in memory
+    }
+  }
+
   /// Pulls ONLY records newer than the local cursor — minimal data transfer.
   Future<List<Map<String, dynamic>>> syncFeed(
     String userId, {
     bool force = false,
     int limit = 30,
   }) async {
+    if (kIsWeb) return _feedCache; // Web uses _fetchPostsWeb instead
     if (_feedSyncing) return _feedCache;
     if (!await _isOnline()) return _feedCache;
 
@@ -216,12 +327,110 @@ class SocialService {
     if (state.user == null) return;
     final now = DateTime.now();
     if (_prefetchLastSync != null &&
-        now.difference(_prefetchLastSync!) < _prefetchCooldown)
+        now.difference(_prefetchLastSync!) < _prefetchCooldown) {
       return;
+    }
 
     _prefetchLastSync = now;
     debugPrint('🧠 Neural Prefetch: Fast scroll detected, syncing feed...');
     await syncFeed(state.user!.id);
+  }
+
+  Future<void> smartLoadEngagement(
+    List<Map<String, dynamic>> items,
+    int visibleIndex, {
+    required bool isShop,
+  }) async {
+    if (client.auth.currentUser == null || items.isEmpty) return;
+    if (!await _isOnline()) return;
+
+    final now = DateTime.now();
+    final entities = <Map<String, dynamic>>[];
+    final refreshKeys = <String>[];
+    final start = visibleIndex > 0 ? visibleIndex - 1 : 0;
+    final end = visibleIndex + 2 < items.length
+        ? visibleIndex + 2
+        : items.length - 1;
+    for (var index = start; index <= end; index++) {
+      final item = items[index];
+      final localId = item['id']?.toString();
+      if (localId == null || localId.isEmpty) continue;
+      final nestedListing = item['listings'];
+      final listingId =
+          item['listing_id'] ??
+          (nestedListing is Map ? nestedListing['id'] : null);
+      final targetType = isShop || listingId != null ? 'listing' : 'post';
+      final targetId = (isShop ? item['id'] : listingId ?? item['id'])
+          ?.toString();
+      if (targetId == null || targetId.isEmpty) continue;
+
+      final refreshKey = '$targetType:$targetId';
+      final lastLoaded = _engagementLastLoaded[refreshKey];
+      if (lastLoaded != null &&
+          now.difference(lastLoaded) < const Duration(minutes: 2)) {
+        continue;
+      }
+      _engagementLastLoaded[refreshKey] = now;
+      refreshKeys.add(refreshKey);
+      entities.add({
+        'id': targetId,
+        'local_id': localId,
+        'target_type': targetType,
+      });
+    }
+    if (entities.isEmpty) return;
+
+    try {
+      final response = await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'fetch-engagement',
+          'payload': {'entities': entities},
+        },
+      );
+      final responseData = response.data;
+      if (response.status < 200 ||
+          response.status >= 300 ||
+          responseData is! Map ||
+          responseData['success'] != true) {
+        throw StateError('Engagement smart load was not accepted');
+      }
+
+      final rows = responseData['data'];
+      if (rows is! List) return;
+      final localDb = LocalDbService();
+      for (final raw in rows.whereType<Map>()) {
+        final localId = raw['local_id']?.toString();
+        if (localId == null || localId.isEmpty) continue;
+        final likes = raw['likes_count'] is num
+            ? (raw['likes_count'] as num).toInt()
+            : 0;
+        final comments = raw['comments_count'] is num
+            ? (raw['comments_count'] as num).toInt()
+            : 0;
+        final isLiked = raw['is_liked'] == true;
+        _setMemoryEngagement(
+          localId,
+          isShop: isShop,
+          likes: likes,
+          comments: comments,
+          isLiked: isLiked,
+        );
+        await localDb.setCachedEngagement(
+          localId: localId,
+          isShop: isShop,
+          likes: likes,
+          comments: comments,
+          isLiked: isLiked,
+        );
+      }
+      state.notify();
+    } catch (error) {
+      for (final key in refreshKeys) {
+        _engagementLastLoaded.remove(key);
+      }
+      debugPrint('Engagement smart load deferred: $error');
+    }
   }
 
   /// Pagination: fetch posts strictly older than [beforeTime]
@@ -328,6 +537,15 @@ class SocialService {
     bool forceRefresh = false,
     int limit = 30,
   }) async {
+    // ── WEB PATH ─────────────────────────────────────────────────────────────
+    if (kIsWeb) {
+      return _fetchListingsWeb(
+        category: category,
+        limit: limit,
+        forceRefresh: forceRefresh,
+      );
+    }
+
     final localDb = LocalDbService();
 
     if (forceRefresh || _shopCache.length < limit || category != null) {
@@ -348,6 +566,50 @@ class SocialService {
     return category == null
         ? _shopCache
         : await localDb.getCachedListings(limit: limit, category: category);
+  }
+
+  /// Web-safe shop listings fetch — queries Supabase PostgREST directly.
+  Future<List<Map<String, dynamic>>> _fetchListingsWeb({
+    String? category,
+    int limit = 30,
+    bool forceRefresh = false,
+  }) async {
+    final now = DateTime.now();
+    if (!forceRefresh &&
+        _shopCache.isNotEmpty &&
+        _shopLastSync != null &&
+        category == null &&
+        now.difference(_shopLastSync!) < _shopCooldown) {
+      return _shopCache;
+    }
+    try {
+      var query = client
+          .from('listings')
+          .select(
+            'id, user_id, lister_id, title, description, price, price_ugx, '
+            'category, status, image_url, media_url, media_type, thumbnail_url, '
+            'photos, created_at, is_property_listing',
+          )
+          .inFilter('status', ['active', 'verified', 'pending'])
+          .eq('is_property_listing', false);
+      if (category != null) {
+        query = query.eq('category', category.toUpperCase());
+      }
+      final rows = List<Map<String, dynamic>>.from(
+        await query
+            .order('created_at', ascending: false)
+            .limit(limit),
+      );
+      if (category == null) {
+        _shopCache = rows;
+        _shopLastSync = now;
+      }
+      state.notify();
+      return rows;
+    } catch (e) {
+      debugPrint('[SocialService] Web fetchListings error: $e');
+      return _shopCache;
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchListingsFromNetwork({
@@ -513,7 +775,7 @@ class SocialService {
       final res = await client
           .from('listings')
           .select(
-            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)',
+            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, status, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, latitude, longitude, profiles:user_id(full_name, avatar_url, trust_score_tier)',
           )
           .eq('user_id', userId)
           .order('created_at', ascending: false)
@@ -678,7 +940,7 @@ class SocialService {
       final res = await client
           .from('listings')
           .select(
-            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, profiles:user_id(full_name, avatar_url, trust_score_tier)',
+            'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, status, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, latitude, longitude, profiles:user_id(full_name, avatar_url, trust_score_tier)',
           )
           .eq('user_id', userId)
           .order('created_at', ascending: false)
@@ -805,6 +1067,8 @@ class SocialService {
       final localDb = LocalDbService();
       final db = await localDb.database;
       await db.delete('community_posts', where: 'id = ?', whereArgs: [postId]);
+      _feedCache.removeWhere((post) => post['id']?.toString() == postId);
+      state.notify();
       debugPrint('🎬 SocialService: Post $postId deleted from all nodes.');
     } catch (e) {
       debugPrint('Post Deletion Error: $e');
@@ -812,85 +1076,146 @@ class SocialService {
     }
   }
 
-  Future<void> toggleReaction(String postId) async {
+  Future<void> toggleReaction(
+    String postId, {
+    String targetType = 'post',
+    String? localPostId,
+  }) async {
     final localDb = LocalDbService();
     final userId = client.auth.currentUser?.id;
     if (userId == null) return;
 
     // 1. Optimistic Update locally
-    await localDb.incrementPostMetric(postId, 'likes_count');
-    state.notify(); // 🚀 UI Pulse
 
-    // 2. Queue action for persistence
-    await localDb.queueSocialAction('like', postId);
-
-    // 2. Try to sync immediately
     try {
-      await client.functions.invoke(
+      final response = await client.functions.invoke(
         'clever-processor',
         body: {
           'action': 'toggle-like',
-          'payload': {'post_id': postId},
+          'payload': {'post_id': postId, 'target_type': targetType},
         },
       );
+      final responseData = response.data;
+      final succeeded =
+          response.status >= 200 &&
+          response.status < 300 &&
+          responseData is Map &&
+          responseData['success'] == true;
+      if (!succeeded) {
+        final message = responseData is Map
+            ? responseData['error']?.toString()
+            : null;
+        throw StateError(message ?? 'Reaction was not accepted');
+      }
+      final likesCount = responseData['likes_count'];
+      if (likesCount is num) {
+        final cacheId = localPostId ?? postId;
+        final isShopCache = targetType == 'listing' && localPostId == null;
+        final comments = _cachedMetric(
+          cacheId,
+          isShop: isShopCache,
+          column: 'comments_count',
+        );
+        final isLiked = responseData['liked'] == true;
+        await localDb.setCachedEngagement(
+          localId: cacheId,
+          isShop: isShopCache,
+          likes: likesCount.toInt(),
+          comments: comments,
+          isLiked: isLiked,
+        );
+        _setMemoryEngagement(
+          cacheId,
+          isShop: isShopCache,
+          likes: likesCount.toInt(),
+          comments: comments,
+          isLiked: isLiked,
+        );
+        state.notify();
+      }
 
       // 🚀 NOTIFIER SYNC (Local & Remote)
-      await dispatchSocialNotification(
-        'like',
-        postId,
-        'New Like!',
-        'Someone loved your post on Necxa.',
-      );
     } catch (e) {
       debugPrint('Offline Like Queued: $e');
-      // Even if offline, we show local feedback if we want "connected" feel
-      await _showLocalNotification(
+      await localDb.queueSocialAction(
         'like',
-        'Like Queued',
-        'Your reaction will sync when you are back online.',
-      );
-    }
-  }
-
-  Future<void> postComment(String postId, String content) async {
-    final userId = client.auth.currentUser?.id;
-    if (userId == null) return;
-
-    try {
-      // 🚀 COMMUNITY V2: NEURAL SYNC (REDIS)
-      // Delegating to Edge Function to handle Supabase + Redis + Notifs atomically
-      await client.functions.invoke(
-        'clever-processor',
-        body: {
-          'action': 'create-comment',
-          'payload': {'post_id': postId, 'content': content},
+        postId,
+        payload: {
+          'target_type': targetType,
+          if (localPostId != null) 'local_post_id': localPostId,
+          'is_shop_cache': targetType == 'listing' && localPostId == null,
         },
       );
-
-      // 🚀 OPTIMISTIC UPDATE: Increment local comment count
-      final localDb = LocalDbService();
-      await localDb.incrementPostMetric(postId, 'comments_count');
-      state.notify();
-
-      // Local Alert for immediate UX
-      await _showLocalNotification(
-        'comment',
-        'Comment Posted',
-        'Your thought has joined the neural grid.',
-      );
-    } catch (e) {
-      debugPrint('Comment Creation Error: $e');
-      rethrow;
+      // Even if offline, we show local feedback if we want "connected" feel
     }
   }
 
-  /// 🚀 NEURAL PULSE: Fetch comments from Redis/Backend
-  Future<List<Map<String, dynamic>>> fetchComments(String postId) async {
+  Future<void> postComment(
+    String postId,
+    String content, {
+    String targetType = 'post',
+    String? localPostId,
+  }) async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return;
+    final cleanContent = content.trim();
+    if (cleanContent.isEmpty) return;
+
     final localDb = LocalDbService();
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final idempotencyKey = 'comment_${userId}_$stamp';
+    final localCommentId = 'local_$idempotencyKey';
+    final profile = state.currentProfile;
+    await localDb.savePendingComment(
+      id: localCommentId,
+      postId: postId,
+      userId: userId,
+      content: cleanContent,
+      idempotencyKey: idempotencyKey,
+      targetType: targetType,
+      userName: profile?['display_name']?.toString(),
+      userAvatar: profile?['photo_url']?.toString(),
+    );
 
-    // 1. serve local cache immediately (Persistent)
+    final cacheId = localPostId ?? postId;
+    final isShopCache = targetType == 'listing' && localPostId == null;
+    await localDb.incrementCachedEngagementMetric(
+      localId: cacheId,
+      isShop: isShopCache,
+      column: 'comments_count',
+    );
+    _incrementMemoryMetric(
+      cacheId,
+      isShop: isShopCache,
+      column: 'comments_count',
+    );
+
+    await localDb.queueSocialAction(
+      'comment',
+      postId,
+      dedupeKey: idempotencyKey,
+      payload: {
+        'content': cleanContent,
+        'target_type': targetType,
+        'local_post_id': cacheId,
+        'is_shop_cache': isShopCache,
+        'local_comment_id': localCommentId,
+        'idempotency_key': idempotencyKey,
+      },
+    );
+    state.notify();
+    unawaited(syncPendingActions());
+  }
+
+  /// Returns persistent comments immediately and refreshes only when requested.
+  Future<List<Map<String, dynamic>>> fetchComments(
+    String postId, {
+    String targetType = 'post',
+    bool forceRefresh = false,
+  }) async {
+    final localDb = LocalDbService();
     final cached = await localDb.getCachedComments(postId);
-
+    if (!forceRefresh) return cached;
     if (!await _isOnline()) return cached;
 
     try {
@@ -898,18 +1223,19 @@ class SocialService {
         'clever-processor',
         body: {
           'action': 'fetch-comments',
-          'payload': {'post_id': postId},
+          'payload': {'post_id': postId, 'target_type': targetType},
         },
       );
 
       if (response.status == 200 && response.data != null) {
         final List<dynamic> raw = response.data['data'] ?? [];
-        final comments = raw.cast<Map<String, dynamic>>();
+        final comments = raw
+            .whereType<Map>()
+            .map((comment) => Map<String, dynamic>.from(comment))
+            .toList();
 
-        // 2. Persist to Local DB
         await localDb.saveComments(postId, comments);
-
-        return comments;
+        return localDb.getCachedComments(postId);
       }
     } catch (e) {
       debugPrint('Fetch Comments Error: $e');
@@ -917,31 +1243,10 @@ class SocialService {
     return cached;
   }
 
-  Future<void> dispatchSocialNotification(
-    String type,
-    String targetId,
-    String title,
-    String body,
-  ) async {
-    // 1. Local Alert & DB Persistence
-    await _showLocalNotification(type, title, body);
-
-    // 2. Remote Redis Sync
-    await notifySocialEvent(type, targetId);
-  }
-
-  Future<void> _showLocalNotification(
-    String type,
-    String title,
-    String body,
-  ) async {
-    final NotificationService ns = NotificationService();
-    await ns.simulateNotification(type, title, body);
-  }
-
   Future<void> notifySocialEvent(
     String type,
     String targetId, {
+    String targetType = 'post',
     Map<String, dynamic>? metadata,
   }) async {
     try {
@@ -954,7 +1259,7 @@ class SocialService {
           'payload': {
             'type': type,
             'target_id': targetId,
-            'actor_id': client.auth.currentUser?.id,
+            'target_type': targetType,
             'timestamp': DateTime.now().toIso8601String(),
             'metadata': metadata ?? {},
           },
@@ -967,11 +1272,17 @@ class SocialService {
   }
 
   /// 🚀 NEURAL PULSE: Fetch real-time alerts from Redis
-  Future<List<Map<String, dynamic>>> fetchRedisNotifications() async {
+  Future<List<Map<String, dynamic>>> fetchNotifications({
+    String? before,
+    int limit = 30,
+  }) async {
     try {
       final response = await client.functions.invoke(
         'clever-processor',
-        body: {'action': 'fetch-notifications'},
+        body: {
+          'action': 'fetch-notifications',
+          'payload': {'limit': limit, if (before != null) 'before': before},
+        },
       );
 
       if (response.status == 200 && response.data != null) {
@@ -979,36 +1290,178 @@ class SocialService {
         return raw.cast<Map<String, dynamic>>();
       }
     } catch (e) {
-      debugPrint('Redis Fetch Error: $e');
+      debugPrint('Notification Fetch Error: $e');
     }
     return [];
   }
 
-  Future<void> syncPendingActions() async {
-    final localDb = LocalDbService();
-    final actions = await localDb.getPendingActions();
-    if (actions.isEmpty) return;
+  Future<void> markNotificationRead(String notificationId) async {
+    await client.functions.invoke(
+      'clever-processor',
+      body: {
+        'action': 'mark-notification-read',
+        'payload': {'notification_id': notificationId},
+      },
+    );
+  }
 
-    for (var action in actions) {
-      try {
-        if (action['action_type'] == 'like') {
-          await client.functions.invoke(
-            'clever-processor',
-            body: {
-              'action': 'toggle-like',
-              'payload': {'post_id': action['post_id']},
-            },
-          );
-        } else if (action['action_type'] == 'follow') {
-          await toggleFollow(
-            action['post_id'],
-          ); // post_id is used as target_user_id here
+  Future<void> markAllNotificationsRead() async {
+    await client.functions.invoke(
+      'clever-processor',
+      body: {'action': 'mark-all-notifications-read'},
+    );
+  }
+
+  Future<void> syncPendingActions() async {
+    if (kIsWeb) return; // No offline queue on web
+    if (_pendingSyncRunning || !await _isOnline()) return;
+    _pendingSyncRunning = true;
+    final localDb = LocalDbService();
+    try {
+      final actions = (await localDb.getPendingActions()).take(25);
+      for (final action in actions) {
+        try {
+          final actionId = action['id'] as int;
+          await localDb.markActionAttempt(actionId);
+          if (action['action_type'] == 'like') {
+            var targetType = 'post';
+            String? localPostId;
+            var isShopCache = false;
+            final rawPayload = action['payload'];
+            if (rawPayload is! String || rawPayload.isEmpty) {
+              await localDb.removeAction(actionId);
+              continue;
+            }
+            try {
+              final decoded = jsonDecode(rawPayload);
+              if (decoded is Map && decoded['target_type'] is String) {
+                targetType = decoded['target_type'];
+                localPostId = decoded['local_post_id']?.toString();
+                isShopCache = decoded['is_shop_cache'] == true;
+              }
+            } catch (_) {
+              await localDb.removeAction(actionId);
+              continue;
+            }
+            final response = await client.functions.invoke(
+              'clever-processor',
+              body: {
+                'action': 'toggle-like',
+                'payload': {
+                  'post_id': action['post_id'],
+                  'target_type': targetType,
+                },
+              },
+            );
+            if (response.status < 200 ||
+                response.status >= 300 ||
+                response.data is! Map ||
+                response.data['success'] != true) {
+              throw StateError('Queued reaction was not accepted');
+            }
+            final likesCount = response.data['likes_count'];
+            if (likesCount is num) {
+              final localId = localPostId ?? action['post_id'];
+              final comments = _cachedMetric(
+                localId,
+                isShop: isShopCache,
+                column: 'comments_count',
+              );
+              final isLiked = response.data['liked'] == true;
+              await localDb.setCachedEngagement(
+                localId: localId,
+                isShop: isShopCache,
+                likes: likesCount.toInt(),
+                comments: comments,
+                isLiked: isLiked,
+              );
+              _setMemoryEngagement(
+                localId,
+                isShop: isShopCache,
+                likes: likesCount.toInt(),
+                comments: comments,
+                isLiked: isLiked,
+              );
+            }
+          } else if (action['action_type'] == 'comment') {
+            final rawPayload = action['payload'];
+            if (rawPayload is! String || rawPayload.isEmpty) {
+              await localDb.removeAction(actionId);
+              continue;
+            }
+            final payload = jsonDecode(rawPayload);
+            if (payload is! Map ||
+                payload['content'] is! String ||
+                payload['local_comment_id'] is! String ||
+                payload['idempotency_key'] is! String) {
+              await localDb.removeAction(actionId);
+              continue;
+            }
+            final response = await client.functions.invoke(
+              'clever-processor',
+              body: {
+                'action': 'create-comment',
+                'payload': {
+                  'post_id': action['post_id'],
+                  'content': payload['content'],
+                  'target_type': payload['target_type'] ?? 'post',
+                  'idempotency_key': payload['idempotency_key'],
+                },
+              },
+            );
+            if (response.status < 200 ||
+                response.status >= 300 ||
+                response.data is! Map ||
+                response.data['success'] != true ||
+                response.data['data'] is! Map) {
+              throw StateError('Queued comment was not accepted');
+            }
+            final localCommentId = payload['local_comment_id'] as String;
+            final serverComment = Map<String, dynamic>.from(
+              response.data['data'] as Map,
+            );
+            await localDb.reconcilePendingComment(
+              localCommentId,
+              action['post_id'],
+              serverComment,
+            );
+            final commentsCount = response.data['comments_count'];
+            final localId =
+                payload['local_post_id']?.toString() ?? action['post_id'];
+            final isShop = payload['is_shop_cache'] == true;
+            if (commentsCount is num) {
+              final likes = _cachedMetric(
+                localId,
+                isShop: isShop,
+                column: 'likes_count',
+              );
+              final liked = _cachedLiked(localId, isShop: isShop);
+              await localDb.setCachedEngagement(
+                localId: localId,
+                isShop: isShop,
+                likes: likes,
+                comments: commentsCount.toInt(),
+                isLiked: liked,
+              );
+              _setMemoryEngagement(
+                localId,
+                isShop: isShop,
+                likes: likes,
+                comments: commentsCount.toInt(),
+                isLiked: liked,
+              );
+            }
+          } else if (action['action_type'] == 'follow') {
+            await _applyFollow(action['post_id']);
+          }
+          await localDb.removeAction(actionId);
+          state.notify();
+        } catch (error) {
+          debugPrint('Queued engagement deferred: $error');
         }
-        // Remove on success
-        await localDb.removeAction(action['id']);
-      } catch (_) {
-        // Keep in queue for next retry
       }
+    } finally {
+      _pendingSyncRunning = false;
     }
   }
 
@@ -1038,13 +1491,13 @@ class SocialService {
           .maybeSingle();
 
       if (res != null) {
-        final normalized = {
-          'display_name': res['full_name'],
-          'photo_url': res['avatar_url'],
-          'is_verified':
-              res['trust_score_tier'] == 'titan_trust' ||
-              res['trust_score_tier'] == 'verified',
-        };
+        final normalized = Map<String, dynamic>.from(res);
+        normalized['display_name'] = res['full_name'];
+        normalized['photo_url'] = res['avatar_url'];
+        normalized['is_verified'] =
+            res['trust_score_tier'] == 'titan_trust' ||
+            res['trust_score_tier'] == 'verified';
+        
         _profileCache[userId] = normalized;
         return normalized;
       }
@@ -1122,42 +1575,40 @@ class SocialService {
 
   // ── NEW BACKEND INTERACTIONS ──────────────────────────────────
 
-  Future<void> toggleFollow(String targetUserId) async {
+  Future<Map<String, dynamic>?> toggleFollow(String targetUserId) async {
     final userId = client.auth.currentUser?.id;
-    if (userId == null || userId == targetUserId) return;
+    if (userId == null || userId == targetUserId) return null;
 
-    final localDb = LocalDbService();
-    // 1. Queue action locally
-    await localDb.queueSocialAction('follow', targetUserId);
-
-    // 2. Try to sync immediately
     try {
-      final existing = await client.from('creator_followers').select().match({
-        'follower_id': userId,
-        'creator_id': targetUserId,
-      }).maybeSingle();
-
-      if (existing != null) {
-        await client.from('creator_followers').delete().match({
-          'follower_id': userId,
-          'creator_id': targetUserId,
-        });
-      } else {
-        await client.from('creator_followers').insert({
-          'follower_id': userId,
-          'creator_id': targetUserId,
-        });
-        // 🚀 NOTIFIER SYNC
-        await dispatchSocialNotification(
-          'follow',
-          targetUserId,
-          'New Follower!',
-          'Someone started following you on Necxa.',
-        );
-      }
+      return await _applyFollow(targetUserId);
     } catch (e) {
+      if (await _isOnline()) rethrow;
       debugPrint('Offline Follow Queued: $e');
+      await LocalDbService().queueSocialAction(
+        'follow',
+        targetUserId,
+        dedupeKey: 'follow:$userId:$targetUserId',
+      );
+      return null;
     }
+  }
+
+  Future<Map<String, dynamic>> _applyFollow(String targetUserId) async {
+    final userId = client.auth.currentUser?.id;
+    if (userId == null || userId == targetUserId) {
+      throw StateError('Choose another user to follow.');
+    }
+    final result = await client.rpc(
+      'toggle_follow_relationship',
+      params: {'p_target_user_id': targetUserId},
+    );
+    final raw = result is List && result.isNotEmpty ? result.first : result;
+    if (raw is! Map) throw StateError('Invalid follow response.');
+    final relationship = Map<String, dynamic>.from(raw);
+    if (relationship['following'] == true) {
+      await notifySocialEvent('follow', targetUserId, targetType: 'profile');
+    }
+    return relationship;
   }
 
   Future<void> reportContent(
@@ -1195,12 +1646,7 @@ class SocialService {
         'post_id': postId,
       });
       // 🚀 NOTIFIER SYNC
-      await dispatchSocialNotification(
-        'save',
-        postId,
-        'Post Saved',
-        'You successfully saved this post to your library.',
-      );
+      await notifySocialEvent('save', postId);
     }
   }
 

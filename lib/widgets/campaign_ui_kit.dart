@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 
-// ── OBJECTIVE CARD ───────────────────────────────────────────
+// -- OBJECTIVE CARD -------------------------------------------
 class ObjectiveCard extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -10,7 +10,7 @@ class ObjectiveCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool isSelected;
 
-  const ObjectiveCard({
+  ObjectiveCard({
     super.key,
     required this.title,
     required this.subtitle,
@@ -25,9 +25,9 @@ class ObjectiveCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
+        duration: Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: EdgeInsets.only(bottom: 16),
         height: 120,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(24),
@@ -39,7 +39,7 @@ class ObjectiveCard extends StatelessWidget {
               : [colors[0].withAlpha(26), colors[1].withAlpha(13)],
           ),
           border: Border.all(
-            color: isSelected ? Colors.white : colors[0].withAlpha(77),
+            color: isSelected ? C.text : colors[0].withAlpha(77),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected ? [
@@ -52,21 +52,21 @@ class ObjectiveCard extends StatelessWidget {
             children: [
               Positioned(
                 right: -10, bottom: -10,
-                child: Icon(icon, color: Colors.white.withAlpha(13), size: 100),
+                child: Icon(icon, color: C.text.withAlpha(13), size: 100),
               ),
               Padding(
-                padding: const EdgeInsets.all(20),
+                padding: EdgeInsets.all(20),
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: isSelected ? Colors.black26 : colors[0].withAlpha(51),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(icon, color: isSelected ? Colors.white : colors[0], size: 28),
+                      child: Icon(icon, color: isSelected ? C.text : colors[0], size: 28),
                     ),
-                    const SizedBox(width: 20),
+                    SizedBox(width: 20),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -77,23 +77,23 @@ class ObjectiveCard extends StatelessWidget {
                             style: syne(
                               sz: 18, 
                               w: FontWeight.w900, 
-                              c: isSelected ? Colors.white : Colors.white,
+                              c: isSelected ? C.text : C.text,
                               ls: 1,
                             )
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4),
                           Text(
                             subtitle, 
                             style: dm(
                               sz: 12,
-                              c: isSelected ? Colors.white.withAlpha(204) : Colors.white54
+                              c: isSelected ? C.text.withAlpha(204) : C.dim
                             )
                           ),
                         ],
                       ),
                     ),
                     if (isSelected) 
-                      const Icon(Icons.check_circle, color: Colors.white, size: 24),
+                      Icon(Icons.check_circle, color: C.text, size: 24),
                   ],
                 ),
               ),
@@ -105,13 +105,13 @@ class ObjectiveCard extends StatelessWidget {
   }
 }
 
-// ── PREMIUM PROGRESS STEPPER ─────────────────────────────────
+// -- PREMIUM PROGRESS STEPPER ---------------------------------
 class PremiumStepper extends StatelessWidget {
   final int currentStep;
   final int totalSteps;
   final Color accentColor;
 
-  const PremiumStepper({
+  PremiumStepper({
     super.key,
     required this.currentStep,
     required this.totalSteps,
@@ -121,7 +121,7 @@ class PremiumStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       child: Column(
         children: [
           Row(
@@ -129,11 +129,11 @@ class PremiumStepper extends StatelessWidget {
               final active = i <= currentStep;
               return Expanded(
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
+                  duration: Duration(milliseconds: 500),
                   height: 4,
                   margin: EdgeInsets.only(right: i == totalSteps - 1 ? 0 : 6),
                   decoration: BoxDecoration(
-                    color: active ? accentColor : Colors.white12,
+                    color: active ? accentColor : C.dim,
                     borderRadius: BorderRadius.circular(2),
                     boxShadow: active ? [
                       BoxShadow(color: accentColor.withAlpha(102), blurRadius: 4)
@@ -143,12 +143,12 @@ class PremiumStepper extends StatelessWidget {
               );
             }),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('STEP ${currentStep + 1}', style: syne(sz: 10, w: FontWeight.w800, c: accentColor, ls: 1)),
-              Text('OF $totalSteps', style: syne(sz: 10, w: FontWeight.w800, c: Colors.white24, ls: 1)),
+              Text('OF $totalSteps', style: syne(sz: 10, w: FontWeight.w800, c: C.dim, ls: 1)),
             ],
           ),
         ],
@@ -157,29 +157,29 @@ class PremiumStepper extends StatelessWidget {
   }
 }
 
-// ── GLASS CARD ───────────────────────────────────────────────
+// -- GLASS CARD -----------------------------------------------
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets? padding;
   final double? height;
 
-  const GlassCard({super.key, required this.child, this.padding, this.height});
+  GlassCard({super.key, required this.child, this.padding, this.height});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: height,
-      padding: padding ?? const EdgeInsets.all(20),
+      padding: padding ?? EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withAlpha(8),
+        color: C.text.withAlpha(8),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: child,
     );
   }
 }
-// ── TIMELINE TRACK ───────────────────────────────────────────
+// -- TIMELINE TRACK -------------------------------------------
 class TimelineTrack extends StatelessWidget {
   final String label;
   final double startTime; // 0.0 to 1.0
@@ -188,7 +188,7 @@ class TimelineTrack extends StatelessWidget {
   final Function(double, double) onRangeChanged;
   final bool isSelected;
 
-  const TimelineTrack({
+  TimelineTrack({
     super.key,
     required this.label,
     required this.startTime,
@@ -201,10 +201,10 @@ class TimelineTrack extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.white.withAlpha(13) : Colors.transparent,
+        color: isSelected ? C.text.withAlpha(13) : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -213,11 +213,11 @@ class TimelineTrack extends StatelessWidget {
           Row(
             children: [
               Icon(Icons.layers_outlined, size: 12, color: color),
-              const SizedBox(width: 8),
-              Text(label, style: syne(sz: 10, w: FontWeight.bold, c: Colors.white70)),
+              SizedBox(width: 8),
+              Text(label, style: syne(sz: 10, w: FontWeight.bold, c: C.sub)),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Stack(
             children: [
               // Track background
@@ -225,7 +225,7 @@ class TimelineTrack extends StatelessWidget {
                 height: 24,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Colors.white10,
+                  color: C.dim,
                   borderRadius: BorderRadius.circular(6),
                 ),
               ),
@@ -240,8 +240,8 @@ class TimelineTrack extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(color: color),
                   ),
-                  child: const Center(
-                    child: Icon(Icons.drag_handle, size: 16, color: Colors.white70),
+                  child: Center(
+                    child: Icon(Icons.drag_handle, size: 16, color: C.sub),
                   ),
                 ),
               ),
@@ -253,14 +253,14 @@ class TimelineTrack extends StatelessWidget {
   }
 }
 
-// ── MASKING PREVIEW ──────────────────────────────────────────
+// -- MASKING PREVIEW ------------------------------------------
 class MaskingPreview extends StatefulWidget {
   final Widget child;
   final List<Widget> overlays;
   final bool isMasked;
   final VoidCallback onToggle;
 
-  const MaskingPreview({
+  MaskingPreview({
     super.key,
     required this.child,
     required this.overlays,
@@ -288,16 +288,16 @@ class _MaskingPreviewState extends State<MaskingPreview> {
           child: GestureDetector(
             onTap: widget.onToggle,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.all(10),
+              duration: Duration(milliseconds: 300),
+              padding: EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: widget.isMasked ? C.brand : Colors.black38,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white24),
+                border: Border.all(color: C.dim),
               ),
               child: Icon(
                 widget.isMasked ? Icons.visibility_off : Icons.visibility,
-                color: widget.isMasked ? Colors.black : Colors.white,
+                color: widget.isMasked ? Colors.black : C.text,
                 size: 20,
               ),
             ),
@@ -307,3 +307,6 @@ class _MaskingPreviewState extends State<MaskingPreview> {
     );
   }
 }
+
+
+

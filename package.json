@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "firebase-tools": "^15.15.0",
     "mongodb": "^7.5.0"
   },
   "devDependencies": {
