@@ -58,6 +58,45 @@ async function handleProfile(userId: string, action: string, _payload: Record<st
 
 // ── PROPERTY ──
 async function handleProperty(userId: string | null, action: string, payload: Record<string, unknown>) {
+  if (action === "update_property") {
+    if (!userId) return err("Unauthorized", 401)
+    const propertyId = payload.property_id as string
+    const newPrice = payload.price as number
+    if (!propertyId || newPrice === undefined) return err("property_id and price required")
+    
+    const { data: prop } = await supabase.from("properties").select("lister_id").eq("id", propertyId).single()
+    if (!prop || prop.lister_id !== userId) return err("Unauthorized", 403)
+    
+    const { error } = await supabase.from("properties").update({ price: newPrice }).eq("id", propertyId)
+    if (error) return err(`Update error: ${error.message}`)
+    return json({ success: true })
+  }
+
+  if (action === "delist_property") {
+    if (!userId) return err("Unauthorized", 401)
+    const propertyId = payload.property_id as string
+    if (!propertyId) return err("property_id required")
+    
+    const { data: prop } = await supabase.from("properties").select("lister_id").eq("id", propertyId).single()
+    if (!prop || prop.lister_id !== userId) return err("Unauthorized", 403)
+    
+    const { error } = await supabase.from("properties").update({ is_active: false }).eq("id", propertyId)
+    if (error) return err(`Delist error: ${error.message}`)
+    return json({ success: true })
+  }
+
+  if (action === "mylistings") {
+    if (!userId) return err("Unauthorized", 401)
+    const { data, error } = await supabase
+      .from("properties")
+      .select("*")
+      .eq("lister_id", userId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+    if (error) return err(`My listings error: ${error.message}`)
+    return json({ success: true, data: data || [] })
+  }
+
   if (action === "list") {
     const limit = (payload.limit as number) || 50
     const filter = (payload.filter as string) || "all"
@@ -220,9 +259,7 @@ async function handleUnlock(userId: string, payload: Record<string, unknown>) {
   // Check free trial
   const { data: profile } = await supabase
     .from("profiles")
-    .select("has_used_free_unlock")
-    .eq("id", userId)
-    .single()
+    .select("has_used_free_unlock").eq("id", userId).maybeSingle()
     
   if (profile?.has_used_free_unlock) {
     return json({ success: false, requires_payment: true, unlock_cost: unlockAmount })
@@ -616,3 +653,4 @@ Deno.serve(async (req: Request) => {
     return err(`Server error: ${msg}`, 500)
   }
 })
+

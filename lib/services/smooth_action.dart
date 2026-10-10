@@ -56,6 +56,22 @@ class SmoothAction {
     return res['data'] as List<dynamic>;
   }
 
+  static Future<void> updatePropertyPrice(String propertyId, double newPrice) async {
+    await _call(
+      name: 'property',
+      action: 'update_property',
+      payload: {'property_id': propertyId, 'price': newPrice},
+    );
+  }
+
+  static Future<void> delistProperty(String propertyId) async {
+    await _call(
+      name: 'property',
+      action: 'delist_property',
+      payload: {'property_id': propertyId},
+    );
+  }
+
   // ── UNLOCK ───────────────────────────────────
   static Future<Map<String, dynamic>> unlockProperty(String propertyId) async {
     return _call(name: 'unlock', payload: {'property_id': propertyId});

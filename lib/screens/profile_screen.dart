@@ -9,6 +9,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/commerce_service.dart';
 import '../services/support_service.dart';
+import '../services/smooth_action.dart';
 
 const String necxaSupportUrl = 'https://goobox.necxa.uk';
 const String necxaTermsUrl = 'https://goobox.necxa.uk/terms';
@@ -86,6 +87,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ),
               SliverToBoxAdapter(child: _buildVendorDashboard()),
+                SliverToBoxAdapter(child: _MyPropertiesList(state: widget.state)),
               _buildStickyTabs(),
               _buildTabContent(),
               const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
@@ -1629,3 +1631,184 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
 }
 
 
+
+
+class _MyPropertiesList extends StatefulWidget {
+  final AppState state;
+  const _MyPropertiesList({required this.state});
+  @override
+  State<_MyPropertiesList> createState() => _MyPropertiesListState();
+}
+
+class _MyPropertiesListState extends State<_MyPropertiesList> {
+  List<dynamic> _listings = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final data = await SmoothAction.myListings();
+      if (mounted) setState(() { _listings = data; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _editPrice(Map<String, dynamic> prop) {
+    final ctrl = TextEditingController(text: prop['price']?.toString() ?? '');
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: C.bg,
+        title: Text('Edit Price', style: dm(c: C.text)),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          style: dm(c: C.text),
+          decoration: InputDecoration(
+            labelText: 'New Price (UGX)',
+            labelStyle: dm(c: C.dim),
+            enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: C.border)),
+            focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: C.brand)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: Text('Cancel', style: dm(c: C.dim))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: C.brand),
+            onPressed: () async {
+              final val = double.tryParse(ctrl.text);
+              if (val != null && val > 0) {
+                Navigator.pop(c);
+                await SmoothAction.updatePropertyPrice(prop['id'], val);
+                _fetch();
+              }
+            },
+            child: Text('Save', style: dm(c: C.bg)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _delist(Map<String, dynamic> prop) {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: C.bg,
+        title: Text('Delist Property?', style: dm(c: C.text)),
+        content: Text('This will hide it from the public feed immediately.', style: dm(c: C.sub)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: Text('Cancel', style: dm(c: C.dim))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () async {
+              Navigator.pop(c);
+              await SmoothAction.delistProperty(prop['id']);
+              _fetch();
+            },
+            child: Text('Delist', style: dm(c: C.bg)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator(color: C.brand)));
+    if (_listings.isEmpty) return const SizedBox();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          child: Text('My Properties', style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
+        ),
+        SizedBox(
+          height: 140,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _listings.length,
+            itemBuilder: (context, i) {
+              final prop = _listings[i];
+              final images = prop['images'] as List<dynamic>? ?? [];
+              final thumb = images.isNotEmpty ? images[0] : null;
+              
+              return Container(
+                width: 220,
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: C.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: C.border),
+                ),
+                clipBehavior: Clip.hardEdge,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: thumb != null 
+                        ? CachedNetworkImage(imageUrl: thumb, fit: BoxFit.cover) 
+                        : Container(color: C.dim),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(prop['title'] ?? 'Property', maxLines: 1, overflow: TextOverflow.ellipsis, style: dm(w: FontWeight.bold, c: C.text)),
+                          Text('UGX \', style: dm(sz: 12, c: C.brand, w: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () => _editPrice(prop),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: C.text,
+                                    side: const BorderSide(color: C.border),
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: const Size(0, 32),
+                                  ),
+                                  child: Text('Edit Price', style: dm(sz: 11, c: C.text)),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: () => _delist(prop),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.redAccent.withOpacity(.1),
+                                    foregroundColor: Colors.redAccent,
+                                    elevation: 0,
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: const Size(0, 32),
+                                  ),
+                                  child: Text('Delist', style: dm(sz: 11, c: Colors.redAccent)),
+                                ),
+                              ),
+                            ],
+                          )
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+}
