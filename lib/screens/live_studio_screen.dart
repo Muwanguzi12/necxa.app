@@ -112,6 +112,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _guestAudioEnabled = true;
   bool _hostInGreenRoom = false;
   bool _startingBroadcast = false;
+  bool _isFrontCamera = true; // green room starts front-facing
   DateTime? _plannedBroadcastTime;
   final TextEditingController _liveTitleController = TextEditingController();
   int _greenRoomModeIndex = 1; // 0=Flip, 1=Camera, 2=Voice, 3=Gaming
@@ -1267,6 +1268,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
   }
 
+  /// Flips the camera between front and back during the green room or live.
+  Future<void> _flipCamera() async {
+    final localParticipant = widget.state.live.room?.localParticipant;
+    if (localParticipant == null) return;
+    final videoTrack =
+        localParticipant.videoTrackPublications.firstOrNull?.track;
+    if (videoTrack == null) return;
+    try {
+      final nextPosition =
+          _isFrontCamera ? CameraPosition.back : CameraPosition.front;
+      await videoTrack.setCameraPosition(nextPosition);
+      if (mounted) setState(() => _isFrontCamera = !_isFrontCamera);
+    } catch (e) {
+      debugPrint('Necxa Live: camera flip failed: $e');
+    }
+  }
+
   Future<void> _closeLiveStudio() async {
     if (_isLeaving) return;
     setState(() => _isLeaving = true);
@@ -1524,7 +1542,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           final active = i == _greenRoomModeIndex;
                           final (icon, label) = modes[i];
                           return GestureDetector(
-                            onTap: () => setState(() => _greenRoomModeIndex = i),
+                            onTap: () {
+                              if (i == 0) {
+                                _flipCamera(); // Flip = action, not a persistent mode
+                              } else {
+                                setState(() => _greenRoomModeIndex = i);
+                              }
+                            },
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
