@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart';
@@ -1051,49 +1051,26 @@ class _CommunityScreenState extends State<CommunityScreen> {
       child: InkResponse(
         onTap: _toggleLiveOverlay,
         radius: 30,
-        child: SizedBox(
-          width: 50,
-          height: 56,
-          child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: _showLiveOverlay
-                      ? const Color(0x33FF334E)
-                      : Colors.black.withValues(alpha: 0.3),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: _showLiveOverlay
-                        ? const Color(0xFFFF334E)
-                        : C.text.withValues(alpha: 0.12),
-                  ),
-                ),
-                child: Icon(Icons.sensors_rounded, color: C.text, size: 23),
-              ),
-              Positioned(
-                bottom: -1,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF334E),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.black, width: 1.5),
-                  ),
-                  child: Text(
-                    'LIVE',
-                    style: syne(sz: 8, w: FontWeight.w900, c: C.text),
-                  ),
-                ),
-              ),
-            ],
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 48,
+          height: 48,
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: _showLiveOverlay
+                ? const Color(0x33FF334E)
+                : Colors.black.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: _showLiveOverlay
+                  ? const Color(0xFFFF334E)
+                  : C.text.withValues(alpha: 0.12),
+              width: 1.5,
+            ),
+          ),
+          child: Image.asset(
+            'assets/images/live_icon.png',
+            fit: BoxFit.contain,
           ),
         ),
       ),
