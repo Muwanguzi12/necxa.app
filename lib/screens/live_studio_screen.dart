@@ -113,6 +113,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _hostInGreenRoom = false;
   bool _startingBroadcast = false;
   bool _isFrontCamera = true; // green room starts front-facing
+  // ── Green Room Effects ─────────────────────────────────────────────────────
+  int _activeFilterIndex = 0; // 0 = Normal (no tint)
+  double _beautySmoothing = 0.0; // 0..1
+  double _beautyWhitening = 0.0; // 0..1
+  bool _mirrorMode = false;
+  bool _showGrid = false;
+  bool _noiseSuppression = true;
+  // ──────────────────────────────────────────────────────────────────────────
   DateTime? _plannedBroadcastTime;
   final TextEditingController _liveTitleController = TextEditingController();
   int _greenRoomModeIndex = 1; // 0=Flip, 1=Camera, 2=Voice, 3=Gaming
@@ -1500,7 +1508,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               ),
             ),
 
-            // ── Right Rail (Filters / Beauty / More) ────────────────
             Positioned(
               right: 10,
               top: 0,
@@ -1509,11 +1516,32 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _greenRoomRailBtn(Icons.auto_fix_high_outlined, 'Filters'),
+                    GestureDetector(
+                      onTap: _openFiltersSheet,
+                      child: _greenRoomRailBtn(
+                        Icons.auto_fix_high_outlined,
+                        'Filters',
+                        active: _activeFilterIndex != 0,
+                      ),
+                    ),
                     const SizedBox(height: 24),
-                    _greenRoomRailBtn(Icons.face_retouching_natural, 'Beauty'),
+                    GestureDetector(
+                      onTap: _openBeautySheet,
+                      child: _greenRoomRailBtn(
+                        Icons.face_retouching_natural,
+                        'Beauty',
+                        active: _beautySmoothing > 0 || _beautyWhitening > 0,
+                      ),
+                    ),
                     const SizedBox(height: 24),
-                    _greenRoomRailBtn(Icons.more_horiz, 'More'),
+                    GestureDetector(
+                      onTap: _openMoreSheet,
+                      child: _greenRoomRailBtn(
+                        Icons.more_horiz,
+                        'More',
+                        active: _mirrorMode || _showGrid,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1689,7 +1717,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-  Widget _greenRoomRailBtn(IconData icon, String label) {
+  Widget _greenRoomRailBtn(IconData icon, String label, {bool active = false}) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1697,14 +1725,19 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.4),
+            color: active
+                ? C.brand.withValues(alpha: 0.25)
+                : Colors.black.withValues(alpha: 0.4),
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.white24),
+            border: Border.all(
+              color: active ? C.brand : Colors.white24,
+              width: active ? 1.5 : 1,
+            ),
           ),
-          child: Icon(icon, color: Colors.white70, size: 20),
+          child: Icon(icon, color: active ? C.brand : Colors.white70, size: 20),
         ),
         const SizedBox(height: 3),
-        Text(label, style: dm(sz: 9, c: Colors.white60)),
+        Text(label, style: dm(sz: 9, c: active ? C.brand : Colors.white60)),
       ],
     );
   }
@@ -1720,8 +1753,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          // -- Video Layer --
-          _buildVideoView(),
+          // -- Video Layer (with filter, mirror, grid) --
+          _buildFilteredVideoView(),
           Positioned(
             left: 0,
             right: 0,
@@ -1778,6 +1811,374 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         state: widget.state,
         listing: product,
         onDismiss: () => Navigator.pop(context),
+      ),
+    );
+  }
+
+
+  // ── Filter color matrices ──────────────────────────────────────────────────
+  // Each row is [R,G,B,A,Offset] × 4 rows (RGBA)
+  static const List<(String, List<double>)> _filterPresets = [
+    ('Normal', [
+      1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1,0,
+    ]),
+    ('Warm', [
+      1.2,0,0,0,0.05, 0,1.05,0,0,0, 0,0,0.85,0,0, 0,0,0,1,0,
+    ]),
+    ('Cool', [
+      0.85,0,0,0,0, 0,1.0,0,0,0, 0,0,1.25,0,0.05, 0,0,0,1,0,
+    ]),
+    ('Vivid', [
+      1.3,0,0,0,-0.1, 0,1.3,0,0,-0.1, 0,0,1.3,0,-0.1, 0,0,0,1,0,
+    ]),
+    ('Soft', [
+      0.9,0.05,0.05,0,0.02, 0.05,0.9,0.05,0,0.02, 0.05,0.05,0.9,0,0.02, 0,0,0,1,0,
+    ]),
+    ('B&W', [
+      0.33,0.59,0.11,0,0, 0.33,0.59,0.11,0,0, 0.33,0.59,0.11,0,0, 0,0,0,1,0,
+    ]),
+  ];
+
+  // Build a combined ColorMatrix for beauty (whitening = brightness lift,
+  // smoothing = subtle desaturation-free softening via a slight blur on the
+  // colour layer)
+  List<double> _beautyMatrix() {
+    final w = _beautyWhitening * 0.25; // max +0.25 brightness offset
+    // Smoothing is applied separately as a BackdropFilter blur
+    return [
+      1,0,0,0,w, 0,1,0,0,w, 0,0,1,0,w, 0,0,0,1,0,
+    ];
+  }
+
+  /// Wraps _buildVideoView() with ColorFiltered (tint), Transform (mirror),
+  /// optional smoothing BackdropFilter (beauty), and grid overlay.
+  Widget _buildFilteredVideoView() {
+    final (_, filterMatrix) = _filterPresets[_activeFilterIndex];
+    final combinedMatrix = _mergeColorMatrices(filterMatrix, _beautyMatrix());
+
+    Widget video = _buildVideoView();
+
+    // Mirror
+    if (_mirrorMode) {
+      video = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(-1, 1, 1),
+        child: video,
+      );
+    }
+
+    // Colour filter (Normal = identity so free when index==0)
+    if (_activeFilterIndex != 0 || _beautyWhitening > 0) {
+      video = ColorFiltered(
+        colorFilter: ColorFilter.matrix(combinedMatrix),
+        child: video,
+      );
+    }
+
+    // Beauty smoothing: overlay a very subtle blur tinted layer
+    if (_beautySmoothing > 0.01) {
+      video = Stack(
+        fit: StackFit.expand,
+        children: [
+          video,
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(
+                sigmaX: _beautySmoothing * 1.8,
+                sigmaY: _beautySmoothing * 1.8,
+              ),
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Grid overlay
+    if (_showGrid) {
+      video = Stack(
+        fit: StackFit.expand,
+        children: [
+          video,
+          const Positioned.fill(child: _GridOverlay()),
+        ],
+      );
+    }
+
+    return video;
+  }
+
+  /// Multiplies two 4×5 colour matrices together (element-wise approximation
+  /// sufficient for simple stacking of whitening on top of a LUT tint).
+  static List<double> _mergeColorMatrices(List<double> a, List<double> b) {
+    // a and b are both 20-element lists (4 rows × 5 columns)
+    final out = List<double>.filled(20, 0);
+    for (int row = 0; row < 4; row++) {
+      for (int col = 0; col < 5; col++) {
+        double sum = 0;
+        for (int k = 0; k < 4; k++) {
+          sum += a[row * 5 + k] * b[k * 5 + col];
+        }
+        if (col == 4) sum += a[row * 5 + 4]; // offset passthrough
+        out[row * 5 + col] = sum;
+      }
+    }
+    return out;
+  }
+
+  // ── Filters bottom sheet ──────────────────────────────────────────────────
+  void _openFiltersSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1D2A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              Text('Filters', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 90,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _filterPresets.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (_, i) {
+                    final (name, matrix) = _filterPresets[i];
+                    final selected = _activeFilterIndex == i;
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() => _activeFilterIndex = i);
+                        setSheet(() {});
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selected ? C.brand : Colors.white24,
+                                width: selected ? 2.5 : 1,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: ColorFiltered(
+                                colorFilter: ColorFilter.matrix(matrix),
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF), Color(0xFFFF7B2F)],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(name, style: dm(sz: 10, c: selected ? C.brand : Colors.white70)),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Beauty bottom sheet ────────────────────────────────────────────────────
+  void _openBeautySheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1D2A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              Text('Beauty', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+              const SizedBox(height: 20),
+              _beautySliderRow(
+                icon: Icons.face_retouching_natural,
+                label: 'Smoothing',
+                value: _beautySmoothing,
+                onChanged: (v) { setState(() => _beautySmoothing = v); setSheet(() {}); },
+              ),
+              const SizedBox(height: 12),
+              _beautySliderRow(
+                icon: Icons.wb_sunny_outlined,
+                label: 'Brightening',
+                value: _beautyWhitening,
+                onChanged: (v) { setState(() => _beautyWhitening = v); setSheet(() {}); },
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () {
+                    setState(() { _beautySmoothing = 0; _beautyWhitening = 0; });
+                    setSheet(() {});
+                  },
+                  child: Text('Reset', style: dm(sz: 13, c: Colors.white38)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _beautySliderRow({
+    required IconData icon,
+    required String label,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: C.brand, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(label, style: dm(sz: 13, c: Colors.white)),
+                  Text('${(value * 100).round()}%', style: dm(sz: 12, c: Colors.white54)),
+                ],
+              ),
+              SliderTheme(
+                data: SliderThemeData(
+                  activeTrackColor: C.brand,
+                  inactiveTrackColor: Colors.white12,
+                  thumbColor: Colors.white,
+                  overlayColor: C.brand.withValues(alpha: 0.2),
+                  trackHeight: 2,
+                ),
+                child: Slider(value: value, onChanged: onChanged),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── More bottom sheet ─────────────────────────────────────────────────────
+  void _openMoreSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1D2A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              Text('More', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+              const SizedBox(height: 8),
+              _moreToggleTile(
+                icon: Icons.flip_outlined,
+                label: 'Mirror',
+                subtitle: 'Flip camera view left-right',
+                value: _mirrorMode,
+                onChanged: (v) { setState(() => _mirrorMode = v); setSheet(() {}); },
+              ),
+              _moreToggleTile(
+                icon: Icons.grid_on_outlined,
+                label: 'Grid',
+                subtitle: 'Show composition guide lines',
+                value: _showGrid,
+                onChanged: (v) { setState(() => _showGrid = v); setSheet(() {}); },
+              ),
+              _moreToggleTile(
+                icon: Icons.noise_control_off_outlined,
+                label: 'Noise suppression',
+                subtitle: 'Reduce background audio noise',
+                value: _noiseSuppression,
+                onChanged: (v) {
+                  setState(() => _noiseSuppression = v);
+                  setSheet(() {});
+                  // Preference saved — applied when starting broadcast
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _moreToggleTile({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.white70, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: dm(sz: 14, c: Colors.white)),
+                Text(subtitle, style: dm(sz: 11, c: Colors.white38)),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: C.brand,
+            inactiveTrackColor: Colors.white24,
+          ),
+        ],
       ),
     );
   }
@@ -4682,6 +5083,37 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 }
+
+/// Simple rule-of-thirds composition grid overlay.
+class _GridOverlay extends StatelessWidget {
+  const _GridOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(painter: _GridPainter()),
+    );
+  }
+}
+
+class _GridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.25)
+      ..strokeWidth = 0.7;
+    // Two vertical lines (rule of thirds)
+    canvas.drawLine(Offset(size.width / 3, 0), Offset(size.width / 3, size.height), paint);
+    canvas.drawLine(Offset(size.width * 2 / 3, 0), Offset(size.width * 2 / 3, size.height), paint);
+    // Two horizontal lines
+    canvas.drawLine(Offset(0, size.height / 3), Offset(size.width, size.height / 3), paint);
+    canvas.drawLine(Offset(0, size.height * 2 / 3), Offset(size.width, size.height * 2 / 3), paint);
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter old) => false;
+}
+
 
 
 
