@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/commerce_service.dart';
 import '../services/support_service.dart';
 import '../services/smooth_action.dart';
+import '../data.dart';
 
 const String necxaSupportUrl = 'https://goobox.necxa.uk';
 const String necxaTermsUrl = 'https://goobox.necxa.uk/terms';
@@ -1673,7 +1674,7 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
           decoration: InputDecoration(
             labelText: 'New Price (UGX)',
             labelStyle: dm(c: C.dim),
-            enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: C.border)),
+            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: C.border)),
             focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: C.brand)),
           ),
         ),
@@ -1766,7 +1767,7 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(prop['title'] ?? 'Property', maxLines: 1, overflow: TextOverflow.ellipsis, style: dm(w: FontWeight.bold, c: C.text)),
-                          Text('UGX \', style: dm(sz: 12, c: C.brand, w: FontWeight.bold)),
+                          Text(ugx(num.tryParse('${prop['price']}') ?? 0), style: dm(sz: 12, c: C.brand, w: FontWeight.bold)),
                           const SizedBox(height: 8),
                           Row(
                             children: [
@@ -1775,7 +1776,7 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
                                   onPressed: () => _editPrice(prop),
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: C.text,
-                                    side: const BorderSide(color: C.border),
+                                    side: BorderSide(color: C.border),
                                     padding: EdgeInsets.zero,
                                     minimumSize: const Size(0, 32),
                                   ),
@@ -1787,7 +1788,7 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
                                 child: ElevatedButton(
                                   onPressed: () => _delist(prop),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.redAccent.withOpacity(.1),
+                                    backgroundColor: Colors.redAccent.withValues(alpha: .1),
                                     foregroundColor: Colors.redAccent,
                                     elevation: 0,
                                     padding: EdgeInsets.zero,
