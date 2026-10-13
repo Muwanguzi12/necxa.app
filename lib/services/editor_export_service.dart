@@ -1,5 +1,6 @@
+import '../theme.dart';
 import 'dart:convert';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Colors;
 import 'package:path_provider/path_provider.dart';
@@ -213,7 +214,7 @@ class EditorExportService {
             scale: operation.scale,
             rotation: operation.rotation,
             fontSize: operation.style.fontSize ?? 28,
-            color: operation.style.color ?? Colors.white,
+            color: operation.style.color ?? C.text,
           ),
         );
       } else if (operation is TransitionOperation) {
@@ -247,6 +248,9 @@ class EditorExportService {
               volume: clip.volume,
               speed: clip.speed,
               reverse: clip.isReversed || operation.reverse,
+              timelineDuration: clip.duration.inMilliseconds / 1000,
+              fadeIn: operation.fadeIn,
+              fadeOut: operation.fadeOut,
             ),
           );
         }
@@ -320,3 +324,5 @@ class EditorExportService {
     }
   }
 }
+
+

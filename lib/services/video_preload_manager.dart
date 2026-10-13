@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'data_saver_service.dart';
 import 'dart:async';
+// ignore: depend_on_referenced_packages
 
 class VideoPreloadManager {
   static final Map<String, VideoPlayerController> _preloadedControllers = {};
@@ -89,19 +90,22 @@ class VideoPreloadManager {
       return memoryController;
     }
 
-    // 2. Get from Disk Cache (Download & cache if missing)
-    try {
-      final file = await DefaultCacheManager().getSingleFile(url);
-      if (file.existsSync()) {
-        final controller = VideoPlayerController.file(file);
-        await controller.initialize();
-        return controller;
+    // 2. On web, VideoPlayerController.file() is not available.
+    //    Skip disk-cache entirely and fall through to network.
+    if (!kIsWeb) {
+      try {
+        final file = await DefaultCacheManager().getSingleFile(url);
+        if (file.existsSync()) {
+          final controller = VideoPlayerController.file(file);
+          await controller.initialize();
+          return controller;
+        }
+      } catch (e) {
+        debugPrint('Disk cache download/get error: $e');
       }
-    } catch (e) {
-      debugPrint('Disk cache download/get error: $e');
     }
 
-    // 3. Fallback to Network (Un-optimized case)
+    // 3. Fallback to Network (always used on web, fallback elsewhere)
     final controller = VideoPlayerController.networkUrl(Uri.parse(url));
     await controller.initialize();
     return controller;

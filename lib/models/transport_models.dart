@@ -12,6 +12,9 @@ class TransportDriver {
   final String permitUrl;
   final bool isVerified;
   final bool isAvailable;
+  final String countryCode;
+  final String verificationStatus;
+  final String verificationReasonCode;
   final double? lat;
   final double? lng;
 
@@ -25,6 +28,9 @@ class TransportDriver {
     required this.permitUrl,
     this.isVerified = false,
     this.isAvailable = true,
+    this.countryCode = '',
+    this.verificationStatus = 'not_submitted',
+    this.verificationReasonCode = '',
     this.lat,
     this.lng,
   });
@@ -43,6 +49,9 @@ class TransportDriver {
       permitUrl: json['permit_url'] ?? '',
       isVerified: json['is_verified'] ?? false,
       isAvailable: json['is_available'] ?? true,
+      countryCode: json['country_code'] ?? '',
+      verificationStatus: json['verification_status'] ?? (json['is_verified'] == true ? 'verified' : 'not_submitted'),
+      verificationReasonCode: json['verification_reason_code'] ?? '',
       lat: json['lat'],
       lng: json['lng'],
     );
@@ -58,6 +67,9 @@ class TransportDriver {
     'permit_url': permitUrl,
     'is_verified': isVerified,
     'is_available': isAvailable,
+    'country_code': countryCode,
+    'verification_status': verificationStatus,
+    'verification_reason_code': verificationReasonCode,
     'lat': lat,
     'lng': lng,
   };

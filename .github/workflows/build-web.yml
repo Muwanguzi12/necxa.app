@@ -1,0 +1,83 @@
+name: Build Web App
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.6'
+          channel: 'stable'
+          cache: false
+
+      - name: Enable web support
+        run: flutter config --enable-web
+
+      - name: Print build info
+        run: |
+          echo "==== WEB BUILD INFO ===="
+          echo "Commit : $GITHUB_SHA"
+          echo "Branch : $GITHUB_REF_NAME"
+          echo "Run    : $GITHUB_RUN_NUMBER"
+          flutter --version
+          git log --oneline -5
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build web release
+        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+
+      - name: Add .nojekyll (disable Jekyll processing)
+        run: touch build/web/.nojekyll
+
+      - name: Create SPA 404 fallback
+        run: cp build/web/index.html build/web/404.html
+
+      - name: Upload artifact (for inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: necxa-web-${{ github.run_number }}-${{ github.sha }}
+          path: build/web
+          retention-days: 14
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

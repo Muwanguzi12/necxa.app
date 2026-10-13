@@ -73,6 +73,7 @@ class TimelinePlaybackController extends ChangeNotifier {
     for (final track in tracks) {
       if (!track.isVisible) continue;
       for (final clip in track.clips) {
+        if (clip.isHidden) continue;
         if (time >= clip.start && time < clip.start + clip.duration) {
           grouped.putIfAbsent(track.type, () => <TimelineClip>[]).add(clip);
         }
@@ -278,6 +279,8 @@ class TimelineHistoryController {
         volume: operation.volume,
         speed: operation.speed,
         reverse: operation.reverse,
+        fadeIn: operation.fadeIn,
+        fadeOut: operation.fadeOut,
         startOffset: operation.startOffset,
         endOffset: operation.endOffset,
       );

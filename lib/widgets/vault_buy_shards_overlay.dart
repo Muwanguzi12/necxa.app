@@ -136,7 +136,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+        border: Border(bottom: BorderSide(color: C.text.withOpacity(0.05))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -144,13 +144,13 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Get NCX Coins', style: syne(sz: 20, w: FontWeight.bold, c: Colors.white)),
+              Text('Get NCX Coins', style: syne(sz: 20, w: FontWeight.bold, c: C.text)),
               const SizedBox(height: 4),
-              Text('Step $_stage of 4', style: dm(sz: 13, w: FontWeight.w500, c: Colors.white54)),
+              Text('Step $_stage of 4', style: dm(sz: 13, w: FontWeight.w500, c: C.dim)),
             ],
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white54),
+            icon: Icon(Icons.close, color: C.dim),
             onPressed: () => Navigator.pop(context),
             splashRadius: 24,
           ),
@@ -174,7 +174,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
     }
   }
 
-  // ── STAGE 1: PACK SELECTION ────────────────────────────────
+  // -- STAGE 1: PACK SELECTION --------------------------------
   Widget _buildPackSelection() {
     if (_isLoadingPacks) {
       return const Center(
@@ -191,9 +191,9 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.cloud_off_rounded, color: Colors.white24, size: 48),
+              Icon(Icons.cloud_off_rounded, color: C.dim, size: 48),
               const SizedBox(height: 16),
-              Text('Could not load coin packs.', style: dm(sz: 14, c: Colors.white54)),
+              Text('Could not load coin packs.', style: dm(sz: 14, c: C.dim)),
               const SizedBox(height: 16),
               TextButton.icon(
                 icon: const Icon(Icons.refresh_rounded, color: Colors.cyanAccent),
@@ -210,7 +210,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Select a package', style: dm(sz: 14, w: FontWeight.w600, c: Colors.white54)),
+          Text('Select a package', style: dm(sz: 14, w: FontWeight.w600, c: C.dim)),
           const SizedBox(height: 20),
           Expanded(
             child: GridView.builder(
@@ -243,14 +243,14 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
     );
   }
 
-  // ── STAGE 2: PAYMENT METHOD ──────────────────────────────────
+  // -- STAGE 2: PAYMENT METHOD ----------------------------------
   Widget _buildPaymentSelection() {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Select payment method', style: dm(sz: 14, w: FontWeight.w600, c: Colors.white54)),
+          Text('Select payment method', style: dm(sz: 14, w: FontWeight.w600, c: C.dim)),
           const SizedBox(height: 20),
           _PaymentMethodTile(
             id: 'fiat_balance',
@@ -295,9 +295,9 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                icon: Icon(Icons.arrow_back_rounded, color: C.text),
                 onPressed: () => setState(() => _stage = 1),
-                style: IconButton.styleFrom(backgroundColor: Colors.white10),
+                style: IconButton.styleFrom(backgroundColor: C.dim),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -370,7 +370,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(e.toString(), style: dm(c: Colors.white)),
+          content: Text(e.toString(), style: dm(c: C.text)),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ));
@@ -379,7 +379,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
     }
   }
 
-  // ── STAGE 3: PROCESSING ────────────────────────────────
+  // -- STAGE 3: PROCESSING --------------------------------
   Widget _buildProcessing() {
     return Padding(
       padding: const EdgeInsets.all(32),
@@ -403,13 +403,13 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
           const SizedBox(height: 32),
           Text(
             _isPolling ? 'Awaiting Payment' : 'Processing',
-            style: syne(sz: 22, w: FontWeight.bold, c: Colors.white),
+            style: syne(sz: 22, w: FontWeight.bold, c: C.text),
           ),
           const SizedBox(height: 12),
           Text(
             _processingStatus,
             textAlign: TextAlign.center,
-            style: dm(sz: 14, c: Colors.white54, h: 1.5),
+            style: dm(sz: 14, c: C.dim, h: 1.5),
           ),
           if (_isPolling) ...[
             const SizedBox(height: 40),
@@ -419,7 +419,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
               onPressed: () {
                 // Polling runs in background, but this gives users a placebo/manual trigger feeling
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Checking with Pesapal...', style: dm(c: Colors.white)), backgroundColor: Colors.blueGrey, duration: const Duration(seconds: 1)),
+                  SnackBar(content: Text('Checking with Pesapal...', style: dm(c: C.text)), backgroundColor: Colors.blueGrey, duration: Duration(seconds: 1)),
                 );
               },
             ),
@@ -429,7 +429,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
     );
   }
 
-  // ── STAGE 4: SUCCESS ──────────────────────────────────
+  // -- STAGE 4: SUCCESS ----------------------------------
   Widget _buildSuccess() {
     final pack = _localPacks.firstWhere(
       (p) => p['id'] == _selectedPackId,
@@ -452,12 +452,12 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
             child: const Icon(Icons.check_rounded, color: Colors.greenAccent, size: 64),
           ),
           const SizedBox(height: 32),
-          Text('Purchase Successful!', style: syne(sz: 24, w: FontWeight.bold, c: Colors.white)),
+          Text('Purchase Successful!', style: syne(sz: 24, w: FontWeight.bold, c: C.text)),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
@@ -470,7 +470,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
             ),
           ),
           const SizedBox(height: 12),
-          Text('Coins have been securely added to your wallet.', textAlign: TextAlign.center, style: dm(sz: 13, c: Colors.white54)),
+          Text('Coins have been securely added to your wallet.', textAlign: TextAlign.center, style: dm(sz: 13, c: C.dim)),
           const Spacer(),
           _PrimaryButton(
             label: 'Awesome, Thanks!',
@@ -483,7 +483,7 @@ class _VaultBuyShardsOverlayState extends State<VaultBuyShardsOverlay> {
   }
 }
 
-// ── WIDGETS ──────────────────────────────────────────────
+// -- WIDGETS ----------------------------------------------
 
 class _CoinPackCard extends StatelessWidget {
   final Map<String, dynamic> pack;
@@ -512,10 +512,10 @@ class _CoinPackCard extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.1) : Colors.white.withOpacity(0.02),
+          color: isSelected ? color.withOpacity(0.1) : C.text.withOpacity(0.02),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: isSelected ? color : Colors.white.withOpacity(0.05),
+            color: isSelected ? color : C.text.withOpacity(0.05),
             width: isSelected ? 2 : 1,
           ),
           boxShadow: isSelected
@@ -539,18 +539,18 @@ class _CoinPackCard extends StatelessWidget {
               ],
             ),
             const Spacer(),
-            Text(amount.toString(), style: syne(sz: 32, w: FontWeight.w800, c: Colors.white)),
-            Text('NCX COINS', style: dm(sz: 10, w: FontWeight.bold, c: Colors.white54, ls: 1.2)),
+            Text(amount.toString(), style: syne(sz: 32, w: FontWeight.w800, c: C.text)),
+            Text('NCX COINS', style: dm(sz: 10, w: FontWeight.bold, c: C.dim, ls: 1.2)),
             const Spacer(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
+                color: C.text.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 'UGX $price',
-                style: dm(sz: 11, w: FontWeight.bold, c: Colors.white),
+                style: dm(sz: 11, w: FontWeight.bold, c: C.text),
               ),
             ),
           ],
@@ -585,10 +585,10 @@ class _PaymentMethodTile extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.1) : Colors.white.withOpacity(0.02),
+          color: isSelected ? color.withOpacity(0.1) : C.text.withOpacity(0.02),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? color.withOpacity(0.5) : Colors.white.withOpacity(0.05),
+            color: isSelected ? color.withOpacity(0.5) : C.text.withOpacity(0.05),
             width: isSelected ? 1.5 : 1,
           ),
         ),
@@ -607,15 +607,15 @@ class _PaymentMethodTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: syne(sz: 15, w: FontWeight.bold, c: Colors.white)),
+                  Text(title, style: syne(sz: 15, w: FontWeight.bold, c: C.text)),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: dm(sz: 12, c: Colors.white54)),
+                  Text(subtitle, style: dm(sz: 12, c: C.dim)),
                 ],
               ),
             ),
             Icon(
               isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
-              color: isSelected ? color : Colors.white24,
+              color: isSelected ? color : C.dim,
             ),
           ],
         ),
@@ -657,3 +657,5 @@ class _PrimaryButton extends StatelessWidget {
     );
   }
 }
+
+

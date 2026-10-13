@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import '../services/video_enhancement_service.dart';
 
 /// Base class for any non-destructive edit operation.
@@ -45,7 +46,7 @@ class TextOverlay extends EditOperation {
     this.rotation = 0.0,
     this.style = const TextStyle(
       fontSize: 24,
-      color: Colors.white,
+      color: Color(0xFFF0F4FF),
       fontWeight: FontWeight.bold,
     ),
   }) : super('text');
@@ -127,7 +128,7 @@ class OverlayOperation extends EditOperation {
     this.rotation = 0,
     this.opacity = 1,
     this.fontSize = 28,
-    this.color = Colors.white,
+    this.color = const Color(0xFFF0F4FF),
     this.background = Colors.transparent,
     this.backgroundOpacity = 0,
     this.shadow = true,
@@ -150,7 +151,7 @@ class OverlayOperation extends EditOperation {
       rotation: (values['rotation'] as num?)?.toDouble() ?? 0,
       opacity: (values['opacity'] as num?)?.toDouble() ?? 1,
       fontSize: (values['fontSize'] as num?)?.toDouble() ?? 28,
-      color: values['color'] as Color? ?? Colors.white,
+      color: values['color'] as Color? ?? C.text,
       background: values['background'] as Color? ?? Colors.transparent,
       backgroundOpacity: (values['backgroundOpacity'] as num?)?.toDouble() ?? 0,
       shadow: values['shadow'] as bool? ?? true,
@@ -615,6 +616,8 @@ class AudioClipOperation extends EditOperation {
   double volume;
   double speed;
   bool reverse;
+  double fadeIn;
+  double fadeOut;
   final double? startOffset;
   final double? endOffset;
 
@@ -625,6 +628,8 @@ class AudioClipOperation extends EditOperation {
     this.volume = 1.0,
     this.speed = 1.0,
     this.reverse = false,
+    this.fadeIn = 0.0,
+    this.fadeOut = 0.0,
     this.startOffset,
     this.endOffset,
   }) : super('audio');
@@ -638,6 +643,8 @@ class AudioClipOperation extends EditOperation {
     'volume': volume,
     'speed': speed,
     'reverse': reverse,
+    'fadeIn': fadeIn,
+    'fadeOut': fadeOut,
     'startOffset': startOffset,
     'endOffset': endOffset,
   };
@@ -724,7 +731,8 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
-  bool isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  bool
+  isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
 
   TimelineClip({
     required this.id,
@@ -928,7 +936,7 @@ class TimelineModelUtils {
             style ??
             const TextStyle(
               fontSize: 28,
-              color: Colors.white,
+              color: Color(0xFFF0F4FF),
               fontWeight: FontWeight.bold,
             ),
       ),
@@ -953,3 +961,4 @@ class TimelineModelUtils {
         .toList();
   }
 }
+
