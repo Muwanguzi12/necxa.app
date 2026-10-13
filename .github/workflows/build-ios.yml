@@ -1,0 +1,46 @@
+name: Build iOS
+
+on:
+  push:
+    branches: [ main, fix/*, feature/* ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.sha }}
+        submodules: false
+        fetch-depth: 0
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.38.6'
+        channel: 'stable'
+        cache: false
+
+    - name: Flutter dependencies
+      run: flutter pub get
+
+    - name: Build iOS App (No Codesign)
+      run: flutter build ios --release --no-codesign
+
+    - name: Package to IPA
+      run: |
+        mkdir -p Payload
+        mv build/ios/iphoneos/Runner.app Payload/
+        zip -qq -r -9 Necxa-iOS.ipa Payload
+
+    - name: Upload iOS IPA Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: necxa-ios-unsigned
+        path: Necxa-iOS.ipa
+        retention-days: 7

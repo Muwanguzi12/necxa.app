@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
@@ -82,12 +82,13 @@ class CreatorScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          ('home', '🏠', 'Property'),
-          ('creator', '🎥', 'Creator'),
-          ('list', '📋', 'List'),
-          ('profile', '👤', 'Profile'),
+          ('home', 'assets/images/property_icon.png', 'Property'),
+          ('creator', null, 'Creator'),
+          ('list', 'assets/images/listing_icon.png', 'List'),
+          ('profile', null, 'Profile'),
         ].map((t) {
           final active = t.$1 == 'creator';
+          final iconAsset = t.$2;
           return Expanded(
             child: GestureDetector(
               onTap: () {
@@ -104,12 +105,31 @@ class CreatorScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                child: Text('${t.$2} ${t.$3}',
-                    textAlign: TextAlign.center,
-                    style: dm(
-                        sz: 10,
-                        w: active ? FontWeight.w800 : FontWeight.w600,
-                        c: active ? C.gold : C.dim)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (iconAsset != null)
+                      Opacity(
+                        opacity: active ? 1.0 : 0.6,
+                        child: Image.asset(iconAsset, width: 12, height: 12),
+                      )
+                    else
+                      Icon(
+                        t.$1 == 'creator' ? Icons.videocam_outlined : Icons.person,
+                        size: 12,
+                        color: active ? C.gold : C.dim,
+                      ),
+                    const SizedBox(width: 4),
+                    Text(
+                      t.$3,
+                      textAlign: TextAlign.center,
+                      style: dm(
+                          sz: 10,
+                          w: active ? FontWeight.w800 : FontWeight.w600,
+                          c: active ? C.gold : C.dim),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -186,7 +206,7 @@ class CreatorScreen extends StatelessWidget {
   }
 
   Widget _buildCatFilter() {
-    cats = ['All','Music','Afrobeats','RnB','HipHop','Dance','Art'];
+    final cats = ['All', 'Music', 'Afrobeats', 'RnB', 'HipHop', 'Dance', 'Art'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -232,7 +252,7 @@ class CreatorScreen extends StatelessWidget {
                 ],
               ),
             ),
-            Text('JOIN ?',
+            Text('JOIN 🚀',
                 style: dm(sz: 12, w: FontWeight.w800, c: C.gold)),
           ],
         ),
@@ -439,10 +459,20 @@ class CreatorScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', false, () => state.go('home')),
+          _BotBtn(
+            Opacity(
+              opacity: 0.5,
+              child: Image.asset('assets/images/property_icon.png', width: 24, height: 24),
+            ),
+            'Property', false, () => state.go('home')),
           _BotBtn('🎬', 'Creator', true, () {}),
           _BotBtn('🔖', 'Saved', false, () {}),
-          _BotBtn('👤', 'Profile', false, () {}),
+          _BotBtn(
+            Opacity(
+              opacity: 0.5,
+              child: Image.asset('assets/images/property_icon.png', width: 24, height: 24),
+            ),
+            'Profile', false, () {}),
         ],
       ),
     );
@@ -526,7 +556,7 @@ class _PostCard extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          Text('??', style: dm(sz: 11)),
+                          Text('👁️', style: dm(sz: 11)),
                           SizedBox(width: 4),
                           Text(p.views,
                               style: dm(sz: 10, c: C.text)),
@@ -599,7 +629,7 @@ class _PostCard extends StatelessWidget {
                                   style: dm(sz: 14, w: FontWeight.w800)),
                               if (p.verified) ...[
                                 SizedBox(width: 4),
-                                Text('?',
+                                Text('✅',
                                     style: dm(sz: 11, c: C.gold,
                                         w: FontWeight.w700)),
                               ],
@@ -625,7 +655,7 @@ class _PostCard extends StatelessWidget {
                               color: C.gold.withOpacity(.31)),
                         ),
                         child: Text(
-                          isFriend ? 'Friends' : following ? '? Following' : '+ Follow',
+                          isFriend ? 'Friends' : following ? '✓ Following' : '+ Follow',
                           style: dm(sz: 11, w: FontWeight.w700,
                               c: C.gold),
                         ),
@@ -681,7 +711,7 @@ class _PostCard extends StatelessWidget {
                           ),
                           child: Row(
                             children: [
-                              Text('??',
+                              Text('🎁',
                                   style: TextStyle(fontSize: 14)),
                               SizedBox(width: 4),
                               Text(kNum(p.gifts),
@@ -800,7 +830,7 @@ class _CreatorCard extends StatelessWidget {
                           border: Border.all(
                               color: C.gold.withOpacity(.25)),
                         ),
-                        child: Text('? PRO',
+                        child: Text('💎 PRO',
                             style: dm(sz: 9, w: FontWeight.w800,
                                 c: C.gold)),
                       ),
@@ -845,7 +875,7 @@ class _CreatorCard extends StatelessWidget {
                     Border.all(color: C.gold.withOpacity(.31)),
               ),
               child: Text(
-                isFriend ? 'Friends' : following ? '? Following' : '+ Follow',
+                isFriend ? 'Friends' : following ? '✓ Following' : '+ Follow',
                 style: dm(sz: 12, w: FontWeight.w700, c: C.gold),
               ),
             ),

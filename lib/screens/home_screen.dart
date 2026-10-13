@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
@@ -23,25 +25,30 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filtered = state.filtered;
-    return Column(
-      children: [
-        _buildNav(context),
-        _buildAppTabs(),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHero(),
-                _buildStats(filtered.length),
-                _buildFilterRow(),
-                _buildListings(filtered),
-              ],
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 700),
+        child: Column(
+          children: [
+            _buildNav(context),
+            _buildAppTabs(),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildHero(),
+                    _buildStats(filtered.length),
+                    _buildFilterRow(),
+                    _buildListings(filtered),
+                  ],
+                ),
+              ),
             ),
-          ),
+            _buildBottomNav(),
+          ],
         ),
-        _buildBottomNav(),
-      ],
+      ),
     );
   }
 
@@ -98,6 +105,7 @@ class HomeScreen extends StatelessWidget {
                       'assets/images/logo.png',
                       width: 14,
                       height: 14,
+                      color: C.text,
                     ),
                     const SizedBox(width: 6),
                     Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
@@ -422,21 +430,80 @@ class HomeScreen extends StatelessWidget {
 }
 
 // -- Property Card ---------------------------------------------
-class _PropertyCard extends StatelessWidget {
+class _PropertyCard extends StatefulWidget {
   final PropertyContainer p;
   final AppState state;
   const _PropertyCard({required this.p, required this.state});
 
   @override
+  State<_PropertyCard> createState() => _PropertyCardState();
+}
+
+class _PropertyCardState extends State<_PropertyCard> {
+  int _currentIndex = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.p.core.images.length > 1) {
+      _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+        if (mounted) {
+          setState(() {
+            _currentIndex = (_currentIndex + 1) % widget.p.core.images.length;
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _cleanLocation(String district, String city) {
+    final d = district.trim();
+    final c = city.trim();
+    if (d.isEmpty && c.isEmpty) return 'Uganda';
+    if (d.isEmpty) return c;
+    if (c.isEmpty) return d;
+    if (d.toLowerCase() == c.toLowerCase()) return d;
+    if (d.toLowerCase().contains(c.toLowerCase())) return d;
+    if (c.toLowerCase().contains(d.toLowerCase())) return c;
+    return '$d, $c';
+  }
+
+  Widget _specItem({required Widget icon, required String label, Color? textColor}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        icon,
+        const SizedBox(width: 4),
+        Text(label, style: dm(sz: 11, c: textColor ?? Colors.white70, w: FontWeight.w500)),
+      ],
+    );
+  }
+
+  Widget _vDivider() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 8),
+      child: Text('|', style: TextStyle(color: Colors.white24, fontSize: 11)),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final p = widget.p;
+    final state = widget.state;
     final saved = state.saved.contains(p.core.id);
     final isReserved = p.escrow.status == EscrowStatus.pending_escrow;
 
     return GestureDetector(
       onTap: () => state.openDetail(p.core.id),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(bottom: 14),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
           color: C.card,
           borderRadius: BorderRadius.circular(20),
@@ -444,199 +511,252 @@ class _PropertyCard extends StatelessWidget {
             color: isReserved ? C.red.withOpacity(.3) : C.border,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(20),
-              ),
-              child: Container(
-                height: 145,
-                decoration: BoxDecoration(
-                  color: C.cardDk,
-                  image: p.core.images.isNotEmpty
-                      ? DecorationImage(
-                          image: NetworkImage(p.core.images.first),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
-                ),
-                child: Stack(
-                  children: [
-                    if (p.core.images.isEmpty)
-                      Center(
-                        child: Text(
-                          p.core.propertyType == PropertyType.apartment
-                              ? '🏢'
-                              : '🏡',
-                          style: const TextStyle(fontSize: 50),
-                        ),
-                      ),
-
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: _TrustBadge(status: p.financial.trustStatus),
-                    ),
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: _PurposeBadge(
-                        p.core.listingType.name.toUpperCase(),
-                        C.brand,
-                      ),
-                    ),
-                    if (p.shadow.isUnlockedByCurrentUser)
-                      Positioned(
-                        bottom: 10,
-                        right: 10,
-                        child: _Badge('🔓 Unlocked', C.green, C.text),
-                      ),
-                    if (isReserved)
-                      Positioned.fill(
-                        child: Container(
-                          color: Colors.black45,
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 1. Photo with Badges & Saved Button
+              Stack(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    width: double.infinity,
+                    child: p.core.images.isNotEmpty
+                        ? AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 800),
+                            child: CachedNetworkImage(
+                              key: ValueKey<String>(p.core.images[_currentIndex]),
+                              imageUrl: p.core.images[_currentIndex],
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              height: double.infinity,
+                              placeholder: (context, url) => Container(color: C.dim.withOpacity(0.1)),
+                              errorWidget: (context, url, error) => Container(
+                                color: C.surface,
+                                child: Icon(Icons.broken_image, color: C.dim),
                               ),
-                              decoration: BoxDecoration(
-                                color: C.red,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
+                            ),
+                          )
+                        : Container(
+                            color: C.surface,
+                            child: Center(
                               child: Text(
-                                'RESERVED',
-                                style: syne(
-                                  sz: 10,
-                                  c: C.text,
-                                  w: FontWeight.w800,
-                                ),
+                                p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
+                                style: const TextStyle(fontSize: 50),
                               ),
                             ),
                           ),
+                  ),
+
+                  // Top Left: Trust Badge
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: _TrustBadge(status: p.financial.trustStatus),
+                  ),
+
+                  // Top Right: Purpose Badge
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: _PurposeBadge(
+                      p.core.listingType.name.toUpperCase(),
+                      C.brand,
+                    ),
+                  ),
+
+                  // If unlocked
+                  if (p.shadow.isUnlockedByCurrentUser)
+                    Positioned(
+                      top: 10,
+                      right: 76,
+                      child: _Badge('🔓 Unlocked', C.green, C.text),
+                    ),
+
+                  // Heart button (favorite) on the right side of image
+                  Positioned(
+                    top: 52,
+                    right: 12,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => state.toggleSave(p.core.id),
+                      child: Text(
+                        saved ? '❤️' : '🤍',
+                        style: const TextStyle(
+                          fontSize: 22,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 6),
+                          ],
                         ),
                       ),
+                    ),
+                  ),
+
+                  // Reserved overlay
+                  if (isReserved)
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black45,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
+                            child: Text('RESERVED', style: syne(sz: 10, c: C.text, w: FontWeight.w800)),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+
+              // 2. Info Card Section
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title
+                    Text(
+                      p.core.title,
+                      style: syne(sz: 18, w: FontWeight.bold, c: Colors.white),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 5),
+
+                    // Clean Location
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, size: 14, color: Color(0xFFFF4848)),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            _cleanLocation(p.core.district, p.core.city),
+                            style: dm(sz: 12, c: const Color(0xFF8E9BAE)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Specs Row with Dividers
+                    Row(
+                      children: [
+                        _specItem(
+                          icon: const Icon(Icons.bed_rounded, size: 15, color: C.brand),
+                          label: '${p.core.bedrooms} Bed',
+                        ),
+                        _vDivider(),
+                        _specItem(
+                          icon: const Icon(Icons.shower_outlined, size: 15, color: C.brand),
+                          label: '${p.core.bathrooms} Bath',
+                        ),
+                        _vDivider(),
+                        _specItem(
+                          icon: const Icon(Icons.square_foot_rounded, size: 15, color: C.brand),
+                          label: p.core.sizeSqft > 0 ? '${p.core.sizeSqft} m²' : '— m²',
+                        ),
+                        _vDivider(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star_rounded, size: 16, color: Color(0xFFFFB800)),
+                            const SizedBox(width: 3),
+                            Text(
+                              '4.8',
+                              style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Horizontal Divider
+                    Container(
+                      height: 1,
+                      color: Colors.white.withOpacity(0.08),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Pricing and Action
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    ugx(p.financial.price),
+                                    style: syne(sz: 18, c: C.brand, w: FontWeight.bold),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    p.financial.priceType == PriceType.monthly ? '/mo' : '/night',
+                                    style: dm(sz: 11, c: Colors.white60),
+                                  ),
+                                ],
+                              ),
+                              if (!p.shadow.isUnlockedByCurrentUser) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.lock, size: 12, color: C.gold),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Unlock: ${ugx(p.financial.unlockCost)}',
+                                      style: dm(sz: 11, c: C.gold, w: FontWeight.w700),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isReserved ? C.red.withOpacity(.1) : Colors.transparent,
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: isReserved ? C.red : C.brand,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                isReserved ? 'Reserved' : 'View',
+                                style: dm(
+                                  sz: 12,
+                                  w: FontWeight.w700,
+                                  c: isReserved ? C.red : C.brand,
+                                ),
+                              ),
+                              if (!isReserved) ...[
+                                const SizedBox(width: 5),
+                                const Icon(Icons.arrow_forward_rounded, size: 14, color: C.brand),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-            ),
-            // Body
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: Text(p.core.title, style: syne(sz: 15))),
-                      GestureDetector(
-                        onTap: () => state.toggleSave(p.core.id),
-                        child: Text(
-                          saved ? '❤️' : '🤍',
-                          style: const TextStyle(fontSize: 18),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '📍 ${p.core.district}, ${p.core.city}',
-                    style: dm(sz: 11, c: C.dim),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Text(
-                        '🛏 ${p.core.bedrooms} Bed',
-                        style: dm(sz: 11, c: C.sub),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '🚿 ${p.core.bathrooms} Bath',
-                        style: dm(sz: 11, c: C.sub),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '📐 ${p.core.sizeSqft}m²',
-                        style: dm(sz: 11, c: C.sub),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '⭐ 4.8',
-                        style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            ugx(p.financial.price),
-                            style: syne(sz: 18, c: C.brand),
-                          ),
-                          Row(
-                            children: [
-                              Text(
-                                p.financial.priceType == PriceType.monthly
-                                    ? '/mo'
-                                    : '/night',
-                                style: dm(sz: 10, c: C.dim),
-                              ),
-                              const SizedBox(width: 8),
-                              if (!p.shadow.isUnlockedByCurrentUser)
-                                Text(
-                                  '�  Unlock: ${ugx(p.financial.unlockCost)}',
-                                  style: dm(
-                                    sz: 10,
-                                    c: C.gold,
-                                    w: FontWeight.w700,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isReserved
-                              ? C.red.withOpacity(.1)
-                              : C.brand.withOpacity(.09),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isReserved
-                                ? C.red
-                                : C.brand.withOpacity(.22),
-                          ),
-                        ),
-                        child: Text(
-                          isReserved ? 'Reserved' : 'View ➜',
-                          style: dm(
-                            sz: 11,
-                            w: FontWeight.w700,
-                            c: isReserved ? C.red : C.brand,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -666,7 +786,7 @@ class _TrustBadge extends StatelessWidget {
         label = '⚠️ LIMITED';
         break;
       default:
-        bg = Colors.blueGrey;
+        bg = const Color(0xFF3B536D);
         label = 'STANDARD';
     }
 
@@ -812,11 +932,11 @@ class _AppTabs extends StatelessWidget {
     required this.state,
   });
 
-  static final _tabs = [
-    ('home', '🏠', 'Property'),
-    ('transport', '🚚', 'Transport'),
-    ('upload', '📤', 'Upload'),
-    ('profile', '👤', 'Profile'),
+  static const _tabRoutes = [
+    ('home', 'assets/images/property_icon.png', 'Property'),
+    ('transport', 'assets/images/transport_icon.png', 'Transport'),
+    ('upload', 'assets/images/upload_icon.png', 'Upload'),
+    ('profile', null, 'Profile'),
   ];
 
   @override
@@ -827,9 +947,10 @@ class _AppTabs extends StatelessWidget {
         border: Border(bottom: BorderSide(color: C.border)),
       ),
       child: Row(
-        children: _tabs.map((t) {
+        children: _tabRoutes.map((t) {
           final active = t.$1 == current;
           final isProfile = t.$1 == 'profile';
+          final iconAsset = t.$2;
 
           return Expanded(
             child: GestureDetector(
@@ -873,8 +994,11 @@ class _AppTabs extends StatelessWidget {
                           );
                         },
                       )
-                    else
-                      Text(t.$2, style: const TextStyle(fontSize: 10)),
+                    else if (iconAsset != null)
+                      Opacity(
+                        opacity: active ? 1.0 : 0.6,
+                        child: Image.asset(iconAsset, width: 14, height: 14),
+                      ),
 
                     if (!isProfile) const SizedBox(width: 4),
 
@@ -920,16 +1044,59 @@ class _BottomNav extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _BotBtn('🏠', 'Property', current == 'home', () => onTap('home')),
           _BotBtn(
-            '🌍',
+            Opacity(
+              opacity: current == 'home' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/property_icon.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
+            'Property', 
+            current == 'home', 
+            () => onTap('home')
+          ),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'community' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/community_icon_colored.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
             'Community',
             current == 'community',
             () => onTap('community'),
           ),
-          _BotBtn('📋', 'Listings', current == 'list', () => onTap('list')),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'list' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/listing_icon.png',
+                width: 24,
+                height: 24,
+              ),
+            ),
+            'Listings', 
+            current == 'list', 
+            () => onTap('list')
+          ),
           if (!kIsWeb)
-            _BotBtn('💬', 'Chat', current == 'chat', () => onTap('chat')),
+            _BotBtn(
+              Opacity(
+                opacity: current == 'chat' ? 1.0 : 0.5,
+                child: Image.asset(
+                  'assets/images/chat_icon.png',
+                  width: 24,
+                  height: 24,
+                ),
+              ),
+              'Chat',
+              current == 'chat',
+              () => onTap('chat'),
+            ),
         ],
       ),
     );
@@ -937,18 +1104,24 @@ class _BottomNav extends StatelessWidget {
 }
 
 class _BotBtn extends StatelessWidget {
-  final String icon, label;
+  final Object icon;
+  final String label;
   final bool active;
   final VoidCallback onTap;
   const _BotBtn(this.icon, this.label, this.active, this.onTap);
   @override
   Widget build(BuildContext context) {
+    final Widget iconWidget = icon is Widget 
+        ? (icon as Widget) 
+        : Text(icon.toString(), style: const TextStyle(fontSize: 22));
+
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: const TextStyle(fontSize: 22)),
+          iconWidget,
           const SizedBox(height: 3),
           Text(
             label,

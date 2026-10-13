@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:universal_io/io.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -18,6 +19,7 @@ class ListingSyncService {
       'sb_publishable_Bc_CXsA3BiuP36E4KxgkYQ_QmvyV7HT';
 
   static Future<File> compressImage(File file) async {
+    if (kIsWeb) return file;
     try {
       final tempDir = await getTemporaryDirectory();
       final targetPath = p.join(
@@ -43,17 +45,36 @@ class ListingSyncService {
     return file; // Fallback to original
   }
 
-  static Future<http.MultipartFile> _identityImage(
+  static Future<http.MultipartFile> _fileToMultipart(
     String field,
-    File file,
-  ) async {
-    final compressed = await compressImage(file);
+    File file, {
+    bool compress = true,
+  }) async {
+    if (kIsWeb) {
+      final bytes = await XFile(file.path).readAsBytes();
+      return http.MultipartFile.fromBytes(
+        field,
+        bytes,
+        filename: '$field.jpg',
+        contentType: MediaType('image', 'jpeg'),
+      );
+    }
+    final target = compress ? await compressImage(file) : file;
     return http.MultipartFile.fromPath(
       field,
-      compressed.path,
+      target.path,
       contentType: MediaType('image', 'jpeg'),
     );
   }
+
+  static Future<http.MultipartFile> _identityImage(
+    String field,
+    File file,
+  ) =>
+      _fileToMultipart(field, file, compress: true);
+
+  static Future<http.MultipartFile> _identityRawImage(String field, File file) =>
+      _fileToMultipart(field, file, compress: false);
 
   static String get _edgeFuncUrl {
     final restUrl = Supabase.instance.client.rest.url;
@@ -106,6 +127,7 @@ class ListingSyncService {
     }
     final message = decoded?['message']?.toString().trim();
     final error = decoded?['error']?.toString().trim();
+      final details = decoded?['details']?.toString().trim();
     final safeMessage = (message?.isNotEmpty ?? false)
         ? message!
         : (error?.isNotEmpty ?? false)
@@ -138,6 +160,8 @@ class ListingSyncService {
     String? idempotencyKey,
     File? livenessEvidence,
     Map<String, dynamic>? livenessMetadata,
+    Map<String, dynamic>? livenessManifest,
+    List<File>? livenessFrames,
   }) async {
     final req = http.MultipartRequest('POST', Uri.parse(_identityFuncUrl));
     final headers = await _getHeaders();
@@ -165,7 +189,21 @@ class ListingSyncService {
         await _identityImage('liveness_evidence', livenessEvidence),
       );
       if (livenessMetadata != null) {
-        req.fields['liveness_metadata'] = jsonEncode(livenessMetadata);
+        req.fields['liveness_metadata'] = jsonEncode({
+          ...livenessMetadata,
+          if (livenessManifest != null)
+            'cryptographicManifest': livenessManifest,
+        });
+      }
+      if (livenessFrames != null) {
+        for (var index = 0; index < livenessFrames.length; index++) {
+          req.files.add(
+            await _identityRawImage(
+              'liveness_frame_$index',
+              livenessFrames[index],
+            ),
+          );
+        }
       }
     }
 
@@ -209,10 +247,7 @@ class ListingSyncService {
     );
     req.headers.addAll(await _getHeaders());
     req.files.add(
-      await http.MultipartFile.fromPath(
-        'selfie',
-        (await compressImage(selfie)).path,
-      ),
+      await _fileToMultipart('selfie', selfie, compress: true),
     );
 
     final res = await req.send();
@@ -264,34 +299,22 @@ class ListingSyncService {
 
     if (utilityBillPhoto != null) {
       req.files.add(
-        await http.MultipartFile.fromPath(
-          'utility_bill_photo',
-          (await compressImage(utilityBillPhoto)).path,
-        ),
+        await _fileToMultipart('utility_bill_photo', utilityBillPhoto),
       );
     }
     if (lc1StampPhoto != null) {
       req.files.add(
-        await http.MultipartFile.fromPath(
-          'lc1_stamp_photo',
-          (await compressImage(lc1StampPhoto)).path,
-        ),
+        await _fileToMultipart('lc1_stamp_photo', lc1StampPhoto),
       );
     }
     if (landTitlePhoto != null) {
       req.files.add(
-        await http.MultipartFile.fromPath(
-          'land_title_photo',
-          (await compressImage(landTitlePhoto)).path,
-        ),
+        await _fileToMultipart('land_title_photo', landTitlePhoto),
       );
     }
     if (businessLicensePhoto != null) {
       req.files.add(
-        await http.MultipartFile.fromPath(
-          'business_license_photo',
-          (await compressImage(businessLicensePhoto)).path,
-        ),
+        await _fileToMultipart('business_license_photo', businessLicensePhoto),
       );
     }
 
@@ -405,16 +428,14 @@ class ListingSyncService {
     }
 
     for (int i = 0; i < photos.length; i++) {
-      final compressedPhoto = await compressImage(photos[i]);
       req.files.add(
-        await http.MultipartFile.fromPath('photo_$i', compressedPhoto.path),
+        await _fileToMultipart('photo_$i', photos[i]),
       );
     }
 
     for (int i = 0; i < bathroomPhotos.length; i++) {
-      final compressedBath = await compressImage(bathroomPhotos[i]);
       req.files.add(
-        await http.MultipartFile.fromPath('bathroom_$i', compressedBath.path),
+        await _fileToMultipart('bathroom_$i', bathroomPhotos[i]),
       );
     }
 
@@ -442,3 +463,6 @@ class ListingSyncException implements Exception {
   @override
   String toString() => message;
 }
+
+
+
