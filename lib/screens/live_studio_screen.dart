@@ -123,6 +123,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   // ──────────────────────────────────────────────────────────────────────────
   DateTime? _plannedBroadcastTime;
   final TextEditingController _liveTitleController = TextEditingController();
+  String _liveGoal = '';
   int _greenRoomModeIndex = 1; // 0=Flip, 1=Camera, 2=Voice, 3=Gaming
   final Set<String> _moderatorGuestIds = <String>{};
   final List<Map<String, dynamic>> _reactionBursts = [];
@@ -1391,89 +1392,49 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               right: 0,
               child: SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
-                      // Avatar + title
+                      // Integrated clean close button
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white, size: 24),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: _startingBroadcast ? null : _closeLiveStudio,
+                      ),
+                      const SizedBox(width: 14),
+                      // Host identity chip
                       Container(
-                        width: 36,
-                        height: 36,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white38, width: 1.5),
+                          color: Colors.black.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white24, width: 0.8),
                         ),
-                        clipBehavior: Clip.hardEdge,
-                        child: avatar.isNotEmpty
-                            ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-                            : Container(
-                                color: const Color(0xFF3B3F5C),
-                                child: const Icon(Icons.person, color: Colors.white70, size: 20),
-                              ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            // Focus the title field
-                          },
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _hostDisplayName,
-                                style: dm(sz: 12, w: FontWeight.bold, c: Colors.white),
-                              ),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _liveTitleController,
-                                      style: dm(sz: 11, c: Colors.white70),
-                                      maxLength: 50,
-                                      maxLines: 1,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Add a catchy title…',
-                                        hintStyle: TextStyle(color: Colors.white38, fontSize: 11),
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.zero,
-                                        border: InputBorder.none,
-                                        counterText: '',
-                                      ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 24,
+                              height: 24,
+                              decoration: const BoxDecoration(shape: BoxShape.circle),
+                              clipBehavior: Clip.hardEdge,
+                              child: avatar.isNotEmpty
+                                  ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
+                                  : Container(
+                                      color: const Color(0xFF3B3F5C),
+                                      child: const Icon(Icons.person, color: Colors.white70, size: 14),
                                     ),
-                                  ),
-                                  const Icon(Icons.edit, color: Colors.white54, size: 12),
-                                ],
-                              ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _hostDisplayName,
+                              style: dm(sz: 12, w: FontWeight.w600, c: Colors.white),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white60, size: 22),
                       const Spacer(),
-                      // Add goal button
-                      GestureDetector(
-                        onTap: () {}, // hook up goal picker
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: Colors.white24),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.flag_outlined, color: Colors.white70, size: 14),
-                              const SizedBox(width: 4),
-                              Text('Add goal', style: dm(sz: 11, c: Colors.white70)),
-                              const SizedBox(width: 2),
-                              const Icon(Icons.chevron_right, color: Colors.white54, size: 14),
-                            ],
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -1539,7 +1500,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       child: _greenRoomRailBtn(
                         Icons.more_horiz,
                         'More',
-                        active: _mirrorMode || _showGrid,
+                        active: _mirrorMode || _showGrid || _liveGoal.isNotEmpty,
                       ),
                     ),
                   ],
@@ -1556,6 +1517,76 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // ── Stream Title & Live Goal Bar (Just above modes) ──
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white24, width: 0.8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.edit_note_rounded, color: C.brand, size: 22),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _liveTitleController,
+                              style: dm(sz: 13, c: Colors.white, w: FontWeight.w500),
+                              maxLength: 60,
+                              maxLines: 1,
+                              decoration: const InputDecoration(
+                                hintText: 'Add a title to attract viewers…',
+                                hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                                border: InputBorder.none,
+                                counterText: '',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: _openGoalDialog,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _liveGoal.isNotEmpty
+                                    ? C.brand.withValues(alpha: 0.2)
+                                    : Colors.white.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: _liveGoal.isNotEmpty ? C.brand : Colors.white24,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.flag_rounded,
+                                    color: _liveGoal.isNotEmpty ? C.brand : Colors.white70,
+                                    size: 13,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _liveGoal.isNotEmpty ? _liveGoal : 'Add goal',
+                                    style: dm(
+                                      sz: 11,
+                                      c: _liveGoal.isNotEmpty ? C.brand : Colors.white70,
+                                      w: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
                     // Mode tabs (Flip / Camera / Voice / Gaming)
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -1696,18 +1727,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       ],
                     ),
                   ],
-                ),
-              ),
-            ),
-
-            // ── Top-left close ──────────────────────────────────────
-            Positioned(
-              top: 0,
-              left: 0,
-              child: SafeArea(
-                child: IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white70),
-                  onPressed: _startingBroadcast ? null : _closeLiveStudio,
                 ),
               ),
             ),
@@ -2109,7 +2128,39 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
               const SizedBox(height: 16),
               Text('More', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
+              _moreActionTile(
+                icon: Icons.flag_rounded,
+                label: 'Live Goal',
+                subtitle: _liveGoal.isNotEmpty ? _liveGoal : 'Set a target for viewers',
+                trailing: Text(
+                  _liveGoal.isNotEmpty ? 'Edit' : 'Add',
+                  style: dm(sz: 12, c: C.brand, w: FontWeight.w600),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openGoalDialog();
+                },
+              ),
+              _moreActionTile(
+                icon: Icons.edit_note_rounded,
+                label: 'Stream Title',
+                subtitle: _liveTitleController.text.trim().isNotEmpty
+                    ? _liveTitleController.text.trim()
+                    : 'Add a title to attract viewers',
+                trailing: Text(
+                  'Edit',
+                  style: dm(sz: 12, c: C.brand, w: FontWeight.w600),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openTitleDialog();
+                },
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(color: Colors.white12, height: 1),
+              ),
               _moreToggleTile(
                 icon: Icons.flip_outlined,
                 label: 'Mirror',
@@ -2137,6 +2188,171 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  void _openGoalDialog() {
+    final goals = ['100 Coins', '500 Coins', '1,000 Coins', '5,000 Coins', '10,000 Coins'];
+    final customCtrl = TextEditingController(text: _liveGoal);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1D2A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Live Goal', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+                  if (_liveGoal.isNotEmpty)
+                    TextButton(
+                      onPressed: () {
+                        setState(() => _liveGoal = '');
+                        Navigator.pop(ctx);
+                      },
+                      child: Text('Clear', style: dm(sz: 12, c: Colors.redAccent)),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: goals.map((g) {
+                  final sel = _liveGoal == g;
+                  return ChoiceChip(
+                    label: Text(g, style: dm(sz: 12, c: sel ? Colors.black : Colors.white)),
+                    selected: sel,
+                    selectedColor: C.brand,
+                    backgroundColor: Colors.white10,
+                    onSelected: (val) {
+                      setState(() => _liveGoal = val ? g : '');
+                      Navigator.pop(ctx);
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: customCtrl,
+                      style: dm(sz: 13, c: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Or enter custom goal...',
+                        hintStyle: dm(sz: 13, c: Colors.white38),
+                        isDense: true,
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.08),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      final text = customCtrl.text.trim();
+                      setState(() => _liveGoal = text);
+                      Navigator.pop(ctx);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: C.brand,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text('Set'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openTitleDialog() {
+    final ctrl = TextEditingController(text: _liveTitleController.text);
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1D2A),
+        title: Text('Stream Title', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLength: 60,
+          style: dm(c: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Add a catchy title…',
+            hintStyle: dm(c: Colors.white38),
+            enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: C.brand)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: Text('Cancel', style: dm(c: Colors.white54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: C.brand, foregroundColor: Colors.black),
+            onPressed: () {
+              setState(() => _liveTitleController.text = ctrl.text.trim());
+              Navigator.pop(c);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _moreActionTile({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required Widget trailing,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: Colors.white70, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: dm(sz: 14, c: Colors.white)),
+                  Text(subtitle, style: dm(sz: 11, c: Colors.white38), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            trailing,
+          ],
         ),
       ),
     );
