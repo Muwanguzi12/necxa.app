@@ -3263,6 +3263,47 @@ serve(async (req) => {
         return json({ success: false, message: "Invalid property unlock request." }, 400);
       }
 
+      // ── Fiat Wallet path (Necxa UGX balance) ────────────────────────────
+      if (method === "fiat_wallet" || method === "wallet_ugx" || method === "wallet") {
+        const amountUgx = rawAmount;
+        const { error: ugxError } = await supabase.rpc("charge_ugx_purpose", {
+          p_user_id: user.id,
+          p_amount_ugx: amountUgx,
+          p_purpose: "property_unlock",
+          p_reference: `unlock_${listingId}`,
+          p_idempotency_key: idempotencyKey,
+        });
+        if (ugxError) return json({ success: false, message: ugxError.message }, 409);
+
+        // Write unlock record to SP1 (Primary DB)
+        if (PRIMARY_SUPABASE_URL && PRIMARY_SUPABASE_SERVICE_ROLE_KEY) {
+          const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
+          const { data: prop } = await primaryAdmin
+            .from("properties")
+            .select("lister_id, agent_id, unlock_cost, unlocks_count")
+            .eq("id", listingId)
+            .maybeSingle();
+          const unlockCostUgx = prop?.unlock_cost ?? amountUgx;
+          const { error: unlockError } = await primaryAdmin.from("unlocks").upsert({
+            property_id: listingId,
+            buyer_id: user.id,
+            seller_id: prop?.lister_id ?? null,
+            agent_id: prop?.agent_id ?? null,
+            unlock_amount: unlockCostUgx,
+            unlock_cost: unlockCostUgx,
+            status: "completed",
+            address_revealed_at: new Date().toISOString(),
+            contact_revealed_at: new Date().toISOString(),
+          }, { onConflict: "property_id, buyer_id" });
+          if (unlockError) console.error("SP1 unlock upsert failed:", unlockError.message);
+
+          await primaryAdmin.from("properties").update({
+            unlocks_count: (prop?.unlocks_count || 0) + 1,
+          }).eq("id", listingId);
+        }
+        return json({ success: true, paymentId: idempotencyKey, method: "fiat_wallet" });
+      }
+
       // ── NCX Coins path ───────────────────────────────────────────────────
       if (method === "ncx_coins") {
         const amountNcx = rawAmount; // Flutter already converted to coins
@@ -3280,9 +3321,9 @@ serve(async (req) => {
           const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
           const { data: prop } = await primaryAdmin
             .from("properties")
-            .select("lister_id, agent_id, unlock_cost")
+            .select("lister_id, agent_id, unlock_cost, unlocks_count")
             .eq("id", listingId)
-            .single();
+            .maybeSingle();
           const unlockCostUgx = prop?.unlock_cost ?? amountNcx * 100;
           const { error: unlockError } = await primaryAdmin.from("unlocks").upsert({
             property_id: listingId,
@@ -3296,8 +3337,12 @@ serve(async (req) => {
             contact_revealed_at: new Date().toISOString(),
           }, { onConflict: "property_id, buyer_id" });
           if (unlockError) console.error("SP1 unlock upsert failed:", unlockError.message);
+
+          await primaryAdmin.from("properties").update({
+            unlocks_count: (prop?.unlocks_count || 0) + 1,
+          }).eq("id", listingId);
         }
-        return json({ success: true, paymentId: idempotencyKey });
+        return json({ success: true, paymentId: idempotencyKey, method: "ncx_coins" });
       }
 
       // ── Pesapal / Fiat path ──────────────────────────────────────────────
@@ -3378,7 +3423,7 @@ serve(async (req) => {
           const primaryAdmin = createClient(PRIMARY_SUPABASE_URL, PRIMARY_SUPABASE_SERVICE_ROLE_KEY);
           const { data: prop } = await primaryAdmin
             .from("properties")
-            .select("lister_id, agent_id")
+            .select("lister_id, agent_id, unlocks_count")
             .eq("id", listingId)
             .maybeSingle();
           await primaryAdmin.from("unlocks").upsert({
@@ -3392,6 +3437,10 @@ serve(async (req) => {
             address_revealed_at: new Date().toISOString(),
             contact_revealed_at: new Date().toISOString(),
           }, { onConflict: "property_id, buyer_id" });
+
+          await primaryAdmin.from("properties").update({
+            unlocks_count: (prop?.unlocks_count || 0) + 1,
+          }).eq("id", listingId);
         }
         return json({ success: true, status: "COMPLETED" });
       }

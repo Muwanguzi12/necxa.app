@@ -1428,7 +1428,7 @@ class AppState extends ChangeNotifier {
 
   PropertyContainer? get currentProperty => listingId == null
       ? null
-      : propertyContainers.firstWhere((p) => p.core.id == listingId);
+      : propertyContainers.where((p) => p.core.id == listingId).firstOrNull;
 
   Future<void> loadProperties() async {
     isLoadingProperties = true;
@@ -1513,6 +1513,7 @@ class AppState extends ChangeNotifier {
         paid = true;
       } else if (res['requires_payment'] == true) {
         // Route to payment screen, free trial was already used
+        listingId = id;
         go('payment');
       } else {
         throw Exception(res['error'] ?? 'Unknown error');

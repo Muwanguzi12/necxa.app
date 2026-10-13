@@ -1,9 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
 import '../models/property_container.dart';
 import '../services/payment_service.dart';
+import '../services/wallet_service.dart';
 import '../utils/error_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,7 +12,7 @@ enum PaymentStage { form, processing, success, error }
 
 class PaymentScreen extends StatefulWidget {
   final AppState state;
-  PaymentScreen({super.key, required this.state});
+  const PaymentScreen({super.key, required this.state});
 
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
@@ -20,11 +21,16 @@ class PaymentScreen extends StatefulWidget {
 class _PaymentScreenState extends State<PaymentScreen>
     with SingleTickerProviderStateMixin {
   final PaymentService _paymentService = PaymentService();
+  final WalletService _walletService = WalletService();
   final TextEditingController _phoneCtrl = TextEditingController();
 
   PaymentStage _stage = PaymentStage.form;
-  String _method = 'MTN_MOMO'; // MTN_MOMO | AIRTEL_MONEY | NCX_COINS
+  String _method = 'FIAT_WALLET'; // FIAT_WALLET | NCX_COINS | MTN_MOMO | AIRTEL_MONEY | CARD
   String _errMsg = '';
+
+  double _fiatBalance = 0;
+  int _coinBalance = 0;
+  bool _loadingBalances = true;
 
   late AnimationController _pulseCtrl;
 
@@ -33,8 +39,44 @@ class _PaymentScreenState extends State<PaymentScreen>
     super.initState();
     _pulseCtrl = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 1000),
     );
+    _loadWalletBalances();
+  }
+
+  Future<void> _loadWalletBalances() async {
+    try {
+      final w = await _walletService.getWalletDetails();
+      if (mounted) {
+        final fiat = (w['fiat_balance'] as num?)?.toDouble() ??
+            (w['ugx_balance'] as num?)?.toDouble() ??
+            0.0;
+        final coins = (w['coin_balance'] as num?)?.toInt() ??
+            (w['ncx_balance'] as num?)?.toInt() ??
+            0;
+        setState(() {
+          _fiatBalance = fiat;
+          _coinBalance = coins;
+          _loadingBalances = false;
+
+          final cost = widget.state.currentProperty?.financial.unlockCost ?? 0;
+          if (_fiatBalance >= cost && cost > 0) {
+            _method = 'FIAT_WALLET';
+          } else if (_coinBalance >= (cost ~/ 100) && cost > 0) {
+            _method = 'NCX_COINS';
+          } else {
+            _method = 'MTN_MOMO';
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingBalances = false;
+          _method = 'MTN_MOMO';
+        });
+      }
+    }
   }
 
   @override
@@ -56,12 +98,28 @@ class _PaymentScreenState extends State<PaymentScreen>
   Widget build(BuildContext context) {
     final p = widget.state.currentProperty;
     if (p == null) {
-      return Scaffold(body: Center(child: Text('Invalid Listing')));
+      return Scaffold(
+        backgroundColor: C.bg,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('Property not selected', style: syne(sz: 18, c: C.text)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => widget.state.go('detail'),
+                style: ElevatedButton.styleFrom(backgroundColor: C.brand),
+                child: Text('Return to Property', style: dm(c: Colors.black)),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     switch (_stage) {
       case PaymentStage.processing:
-        return _buildProcessingUI();
+        return _buildProcessingUI(p);
       case PaymentStage.success:
         return _buildSuccessUI(p);
       case PaymentStage.error:
@@ -73,6 +131,11 @@ class _PaymentScreenState extends State<PaymentScreen>
 
   // -- FORM UI --------------------------------------------------------------
   Widget _buildFormUI(PropertyContainer p) {
+    final unlockCost = p.financial.unlockCost;
+    final coinCost = (unlockCost / 100).round();
+    final hasEnoughFiat = _fiatBalance >= unlockCost;
+    final hasEnoughCoins = _coinBalance >= coinCost;
+
     return Scaffold(
       backgroundColor: C.bg,
       body: Column(
@@ -80,24 +143,66 @@ class _PaymentScreenState extends State<PaymentScreen>
           _buildNav(),
           Expanded(
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(20),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildSummary(p),
-                  SizedBox(height: 24),
+                  const SizedBox(height: 24),
                   _buildUnlockInclusion(),
-                  SizedBox(height: 32),
-                  Text(
-                    'PAYMENT METHOD',
-                    style: syne(sz: 14, ls: 1, w: FontWeight.bold, c: C.dim),
+                  const SizedBox(height: 28),
+
+                  // ── IN-APP WALLET OPTIONS ──
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'NECXA IN-APP WALLETS',
+                        style: syne(sz: 12, ls: 1, w: FontWeight.bold, c: C.brand),
+                      ),
+                      if (_loadingBalances)
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: C.brand),
+                        ),
+                    ],
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  _MethodTile(
+                    id: 'FIAT_WALLET',
+                    label: 'Necxa Fiat Wallet (UGX)',
+                    icon: '💼',
+                    sub: 'Available: UGX ${ugx(_fiatBalance.toInt())}${hasEnoughFiat ? ' · Instant' : ' (Insufficient)'}',
+                    selected: _method == 'FIAT_WALLET',
+                    badge: hasEnoughFiat ? 'INSTANT' : 'LOW BALANCE',
+                    badgeColor: hasEnoughFiat ? C.green : Colors.orangeAccent,
+                    onTap: () => setState(() => _method = 'FIAT_WALLET'),
+                  ),
+                  _MethodTile(
+                    id: 'NCX_COINS',
+                    label: 'Necxa Coins (NCX)',
+                    icon: '🪙',
+                    sub: 'Available: $_coinBalance NCX ($coinCost NCX needed)${hasEnoughCoins ? '' : ' (Insufficient)'}',
+                    selected: _method == 'NCX_COINS',
+                    badge: hasEnoughCoins ? 'INSTANT' : 'LOW BALANCE',
+                    badgeColor: hasEnoughCoins ? C.brand : Colors.orangeAccent,
+                    onTap: () => setState(() => _method = 'NCX_COINS'),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ── EXTERNAL PAYMENT GATEWAYS ──
+                  Text(
+                    'MOBILE MONEY & CARDS (UGANDA)',
+                    style: syne(sz: 12, ls: 1, w: FontWeight.bold, c: C.dim),
+                  ),
+                  const SizedBox(height: 12),
                   _MethodTile(
                     id: 'MTN_MOMO',
-                    label: 'MTN MoMo',
+                    label: 'MTN Mobile Money',
                     icon: '📱',
-                    sub: '256 77x / 78x / 39x',
+                    sub: '256 77x / 78x / 39x · Instant push prompt',
                     selected: _method == 'MTN_MOMO',
                     onTap: () => setState(() => _method = 'MTN_MOMO'),
                   ),
@@ -105,7 +210,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                     id: 'AIRTEL_MONEY',
                     label: 'Airtel Money',
                     icon: '❤️',
-                    sub: '256 70x / 75x',
+                    sub: '256 70x / 75x · Instant push prompt',
                     selected: _method == 'AIRTEL_MONEY',
                     onTap: () => setState(() => _method = 'AIRTEL_MONEY'),
                   ),
@@ -117,30 +222,22 @@ class _PaymentScreenState extends State<PaymentScreen>
                     selected: _method == 'CARD',
                     onTap: () => setState(() => _method = 'CARD'),
                   ),
-                  _MethodTile(
-                    id: 'NCX_COINS',
-                    label: 'NCX Coins',
-                    icon: '🪙',
-                    sub: 'From your Necxa wallet',
-                    selected: _method == 'NCX_COINS',
-                    onTap: () => setState(() => _method = 'NCX_COINS'),
-                  ),
 
                   if (_method == 'MTN_MOMO' || _method == 'AIRTEL_MONEY') ...[
-                    SizedBox(height: 24),
+                    const SizedBox(height: 20),
                     Text(
-                      'PHONE NUMBER',
-                      style: syne(sz: 14, ls: 1, w: FontWeight.bold, c: C.dim),
+                      'ENTER PHONE NUMBER FOR PUSH PROMPT',
+                      style: syne(sz: 12, ls: 1, w: FontWeight.bold, c: C.dim),
                     ),
-                    SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     _buildPhoneInput(),
                   ],
 
-                  SizedBox(height: 48),
+                  const SizedBox(height: 36),
                   _buildCallToAction(p),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Text(
-                    'By paying you agree to NECXA Terms. The fee goes to the platform, not the agent. Refunds are not available after contact is revealed.',
+                    'Direct contact credentials and verified location are permanently unlocked upon payment.',
                     textAlign: TextAlign.center,
                     style: dm(sz: 11, c: C.dim, h: 1.5),
                   ),
@@ -163,7 +260,7 @@ class _PaymentScreenState extends State<PaymentScreen>
       child: Row(
         children: [
           Container(
-            padding: EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text('🇺🇬 +256', style: syne(sz: 16, w: FontWeight.bold)),
           ),
           Container(width: 1, height: 24, color: C.border),
@@ -175,7 +272,7 @@ class _PaymentScreenState extends State<PaymentScreen>
               decoration: InputDecoration(
                 hintText: '772 000 000',
                 hintStyle: syne(c: C.dim),
-                contentPadding: EdgeInsets.symmetric(
+                contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 18,
                 ),
@@ -190,9 +287,9 @@ class _PaymentScreenState extends State<PaymentScreen>
 
   Widget _buildUnlockInclusion() {
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: C.text.withOpacity(.03),
+        color: C.text.withValues(alpha: .03),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: C.border),
       ),
@@ -200,26 +297,26 @@ class _PaymentScreenState extends State<PaymentScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'WHAT YOU UNLOCK:',
+            'WHAT GETS UNLOCKED:',
             style: syne(sz: 12, w: FontWeight.bold, c: C.brand),
           ),
-          SizedBox(height: 12),
-          const _UnlockRow(icon: '📞', label: 'Agent direct phone number'),
-          const _UnlockRow(icon: '💬', label: 'WhatsApp click-to-chat link'),
-          const _UnlockRow(icon: '📍', label: 'Exact GPS coordinates & Pin'),
-          const _UnlockRow(icon: '🗺️', label: 'Full street & Plot address'),
+          const SizedBox(height: 12),
+          const _UnlockRow(icon: '📞', label: 'Verified owner / agent phone number'),
+          const _UnlockRow(icon: '💬', label: 'Instant WhatsApp direct chat link'),
+          const _UnlockRow(icon: '📍', label: 'Exact physical address & GPS map pin'),
+          const _UnlockRow(icon: '🎥', label: 'Direct in-app video chat capability'),
         ],
       ),
     );
   }
 
   // -- PROCESSING UI ----------------------------------------------------------
-  Widget _buildProcessingUI() {
+  Widget _buildProcessingUI(PropertyContainer p) {
     return Scaffold(
       backgroundColor: C.bg,
       body: Center(
         child: Padding(
-          padding: EdgeInsets.all(40),
+          padding: const EdgeInsets.all(40),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -230,35 +327,41 @@ class _PaymentScreenState extends State<PaymentScreen>
                   height: 100,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: C.brand.withOpacity(.1),
+                    color: C.brand.withValues(alpha: .1),
                     border: Border.all(
-                      color: C.brand.withOpacity(.3),
+                      color: C.brand.withValues(alpha: .3),
                       width: 2,
                     ),
                   ),
-                  child: Center(
+                  child: const Center(
                     child: CircularProgressIndicator(color: C.brand),
                   ),
                 ),
               ),
-              SizedBox(height: 32),
-              Text('SYNCHRONIZING...', style: syne(sz: 24, w: FontWeight.bold)),
-              SizedBox(height: 12),
+              const SizedBox(height: 32),
+              Text('AUTHORIZING...', style: syne(sz: 24, w: FontWeight.bold)),
+              const SizedBox(height: 12),
               Text(
-                _method == 'NCX_COINS'
-                    ? 'Verifying Shard balance and unlocking asset...'
-                    : 'Waiting for you to approve on your phone.\nThis can take up to 60 seconds.',
+                _method == 'FIAT_WALLET'
+                    ? 'Debiting UGX ${ugx(p.financial.unlockCost)} from your Necxa Fiat Wallet...'
+                    : _method == 'NCX_COINS'
+                        ? 'Debiting ${(p.financial.unlockCost / 100).round()} NCX Coins from your wallet...'
+                        : 'Waiting for approval on your mobile phone.\nCheck your device screen to confirm.',
                 textAlign: TextAlign.center,
                 style: dm(sz: 14, c: C.dim, h: 1.5),
               ),
-              SizedBox(height: 48),
-              _buildStepIndicator('Payment request sent'),
-              _buildStepIndicator('Waiting for your approval'),
+              const SizedBox(height: 48),
+              _buildStepIndicator('Payment request initiated', active: true),
               _buildStepIndicator(
-                'Confirming with Blockchain/Network',
+                _method == 'FIAT_WALLET' || _method == 'NCX_COINS'
+                    ? 'Processing via Necxa Finance Engine'
+                    : 'Awaiting Pesapal / Telecom confirmation',
                 active: true,
               ),
-              _buildStepIndicator('Revealing Agent Credentials'),
+              _buildStepIndicator(
+                'Revealing contact credentials & GPS pin',
+                active: true,
+              ),
             ],
           ),
         ),
@@ -268,7 +371,7 @@ class _PaymentScreenState extends State<PaymentScreen>
 
   Widget _buildStepIndicator(String label, {bool active = false}) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
           Icon(
@@ -276,7 +379,7 @@ class _PaymentScreenState extends State<PaymentScreen>
             size: 16,
             color: active ? C.brand : C.dim,
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
           Text(label, style: dm(sz: 13, c: active ? C.text : C.dim)),
         ],
       ),
@@ -289,14 +392,14 @@ class _PaymentScreenState extends State<PaymentScreen>
       backgroundColor: C.bg,
       body: Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
                 width: 80,
                 height: 80,
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: C.green,
                 ),
@@ -306,39 +409,39 @@ class _PaymentScreenState extends State<PaymentScreen>
                   size: 40,
                 ),
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
               Text(
-                'SUCCESFULLY UNLOCKED!',
+                'SUCCESSFULLY UNLOCKED!',
                 style: syne(sz: 24, w: FontWeight.bold),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
-                'You now have full access to the agent\'s credentials and the property location.',
+                'You now have full access to the owner\'s credentials and exact location.',
                 textAlign: TextAlign.center,
                 style: dm(sz: 14, c: C.dim),
               ),
-              SizedBox(height: 32),
+              const SizedBox(height: 32),
               Container(
-                padding: EdgeInsets.all(20),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: C.card,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: C.green.withOpacity(.3)),
+                  border: Border.all(color: C.green.withValues(alpha: .3)),
                 ),
                 child: Column(
                   children: [
                     Text(
-                      'REVEALED:',
+                      'REVEALED CREDENTIALS:',
                       style: syne(sz: 12, w: FontWeight.bold, c: C.green),
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     const _RevealedItem(Icons.phone, 'Agent Phone Revealed'),
                     const _RevealedItem(Icons.chat, 'WhatsApp Link Active'),
-                    const _RevealedItem(Icons.location_on, 'GPS Pin Decoded'),
+                    const _RevealedItem(Icons.location_on, 'Exact GPS Pin Decoded'),
                   ],
                 ),
               ),
-              SizedBox(height: 48),
+              const SizedBox(height: 48),
               GestureDetector(
                 onTap: () {
                   widget.state.go('detail');
@@ -353,7 +456,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                   child: Center(
                     child: Text(
                       'VIEW CREDENTIALS 🔓',
-                      style: syne(sz: 15, w: FontWeight.bold, c: C.bg),
+                      style: syne(sz: 15, w: FontWeight.bold, c: Colors.black),
                     ),
                   ),
                 ),
@@ -371,20 +474,20 @@ class _PaymentScreenState extends State<PaymentScreen>
       backgroundColor: C.bg,
       body: Center(
         child: Padding(
-          padding: EdgeInsets.all(40),
+          padding: const EdgeInsets.all(40),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, color: C.red, size: 80),
-              SizedBox(height: 24),
+              const Icon(Icons.error_outline, color: C.red, size: 80),
+              const SizedBox(height: 24),
               Text('PAYMENT FAILED', style: syne(sz: 24, w: FontWeight.bold)),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 _errMsg,
                 textAlign: TextAlign.center,
                 style: dm(sz: 14, c: C.dim),
               ),
-              SizedBox(height: 48),
+              const SizedBox(height: 48),
               GestureDetector(
                 onTap: () => setState(() => _stage = PaymentStage.form),
                 child: Container(
@@ -403,7 +506,7 @@ class _PaymentScreenState extends State<PaymentScreen>
                   ),
                 ),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               GestureDetector(
                 onTap: () => widget.state.go('detail'),
                 child: Text(
@@ -421,7 +524,7 @@ class _PaymentScreenState extends State<PaymentScreen>
   // -- COMPONENTS ------------------------------------------------------------
   Widget _buildNav() {
     return Container(
-      padding: EdgeInsets.fromLTRB(16, 52, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 52, 16, 12),
       decoration: BoxDecoration(
         color: C.card,
         border: Border(bottom: BorderSide(color: C.border)),
@@ -432,21 +535,22 @@ class _PaymentScreenState extends State<PaymentScreen>
             onTap: () => widget.state.go('detail'),
             child: Icon(Icons.close, color: C.text, size: 22),
           ),
-          Spacer(),
+          const Spacer(),
           Text(
             'SECURE CHECKOUT',
             style: syne(sz: 14, w: FontWeight.bold, ls: 1),
           ),
-          Spacer(),
-          SizedBox(width: 22),
+          const Spacer(),
+          const SizedBox(width: 22),
         ],
       ),
     );
   }
 
   Widget _buildSummary(PropertyContainer p) {
+    final cost = p.financial.unlockCost;
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: C.card,
         borderRadius: BorderRadius.circular(20),
@@ -468,24 +572,24 @@ class _PaymentScreenState extends State<PaymentScreen>
               color: C.border,
             ),
           ),
-          SizedBox(width: 16),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'UNLOCK: ${p.core.title}',
+                  'REVEAL: ${p.core.title}',
                   style: dm(sz: 14, w: FontWeight.bold),
                 ),
                 Text(
-                  'Asset ID: ${p.core.id.substring(0, 8)}',
+                  'Listing Ref: ${p.core.id.substring(0, p.core.id.length.clamp(0, 8))}',
                   style: dm(sz: 11, c: C.dim),
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Text(
                   _method == 'NCX_COINS'
-                      ? '${p.financial.unlockCost ~/ 100} NCX COINS'
-                      : 'UGX ${ugx(p.financial.unlockCost)}',
+                      ? '${cost ~/ 100} NCX COINS'
+                      : 'UGX ${ugx(cost)}',
                   style: syne(sz: 18, c: C.brand, w: FontWeight.bold),
                 ),
               ],
@@ -497,6 +601,13 @@ class _PaymentScreenState extends State<PaymentScreen>
   }
 
   Widget _buildCallToAction(PropertyContainer p) {
+    String ctaText = 'AUTHORIZE PAYMENT 💳';
+    if (_method == 'FIAT_WALLET') {
+      ctaText = 'PAY WITH FIAT WALLET ⚡';
+    } else if (_method == 'NCX_COINS') {
+      ctaText = 'PAY ${(p.financial.unlockCost / 100).round()} NCX COINS ⚡';
+    }
+
     return GestureDetector(
       onTap: () => _processPayment(p),
       child: Container(
@@ -506,16 +617,16 @@ class _PaymentScreenState extends State<PaymentScreen>
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: C.brand.withOpacity(.2),
+              color: C.brand.withValues(alpha: .2),
               blurRadius: 20,
-              offset: Offset(0, 10),
+              offset: const Offset(0, 10),
             ),
           ],
         ),
         child: Center(
           child: Text(
-            'AUTHORIZE PAYMENT 💳',
-            style: syne(sz: 15, w: FontWeight.bold, c: C.bg),
+            ctaText,
+            style: syne(sz: 15, w: FontWeight.bold, c: Colors.black),
           ),
         ),
       ),
@@ -525,11 +636,39 @@ class _PaymentScreenState extends State<PaymentScreen>
   Future<void> _processPayment(PropertyContainer p) async {
     final isEscrowMode = widget.state.currentEscrowInitiation != null;
     final requiresPhone = _method == 'MTN_MOMO' || _method == 'AIRTEL_MONEY';
-    if (requiresPhone && _phoneCtrl.text.isEmpty) {
+    if (requiresPhone && _phoneCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter your phone number')),
+        const SnackBar(content: Text('Please enter your Uganda phone number for Mobile Money.')),
       );
       return;
+    }
+
+    // Balance checks for instant wallet debits
+    if (_method == 'FIAT_WALLET' && !isEscrowMode) {
+      if (_fiatBalance < p.financial.unlockCost) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Insufficient Fiat Wallet balance (UGX ${ugx(_fiatBalance.toInt())}). Please choose Mobile Money or top up.',
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
+    } else if (_method == 'NCX_COINS' && !isEscrowMode) {
+      final coinCost = (p.financial.unlockCost / 100).round();
+      if (_coinBalance < coinCost) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Insufficient NCX Coins ($_coinBalance available, $coinCost required). Please choose another payment method.',
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _stage = PaymentStage.processing);
@@ -537,14 +676,14 @@ class _PaymentScreenState extends State<PaymentScreen>
 
     try {
       final user = widget.state.user;
-      if (user == null) throw Exception('User not authenticated');
+      if (user == null) throw Exception('User not authenticated. Please log in.');
 
       if (isEscrowMode) {
         // ── ESCROW FCFS FLOW ──────────────────────────────────────────────
         final escrow = widget.state.currentEscrowInitiation!;
         final escrowResId = escrow['escrow_id']?.toString() ?? '';
-        final depositAmount = (escrow['deposit_amount'] as num?)?.toDouble()
-            ?? p.financial.escrowDeposit.toDouble();
+        final depositAmount = (escrow['deposit_amount'] as num?)?.toDouble() ??
+            p.financial.escrowDeposit.toDouble();
 
         final initiateRes = await _paymentService.initiateEscrowPayment(
           listingId: p.core.id,
@@ -554,7 +693,6 @@ class _PaymentScreenState extends State<PaymentScreen>
           buyerEmail: user.email ?? '',
         );
 
-        // Open Pesapal redirect
         final redirectUrl = initiateRes['redirectUrl'];
         if (redirectUrl != null) {
           final uri = Uri.parse(redirectUrl);
@@ -571,54 +709,47 @@ class _PaymentScreenState extends State<PaymentScreen>
 
         if (won) {
           widget.state.currentEscrowInitiation = null;
-          await widget.state.loadProperties(); // property is now delisted
+          await widget.state.loadProperties();
           setState(() => _stage = PaymentStage.success);
         } else {
           throw Exception('Payment timed out. Please check your wallet.');
         }
       } else {
-        // ── REGULAR UNLOCK FLOW ───────────────────────────────────────────
+        // ── UNLOCK CONTACT INFO FLOW ──────────────────────────────────────
         final initiateRes = await _paymentService.initiateUnlock(
           listingId: p.core.id,
           method: _method,
-          // unlock_cost is stored as UGX in the DB.
-          // NCX path: convert to NCX coins (1 NCX = 100 UGX).
-          // Fiat path: pass UGX directly to Pesapal.
           amount: _method == 'NCX_COINS'
               ? (p.financial.unlockCost / 100).roundToDouble()
               : p.financial.unlockCost.toDouble(),
           buyerId: user.id,
           buyerEmail: user.email ?? '',
-          phone: _method != 'NCX_COINS' && _method != 'CARD' ? _phoneCtrl.text : null,
+          phone: requiresPhone ? _phoneCtrl.text.trim() : null,
         );
 
         bool success = false;
-        if (_method == 'NCX_COINS') {
+        if (_method == 'FIAT_WALLET' || _method == 'NCX_COINS') {
+          // In-app wallet payments are authorized and completed synchronously by finance-engine
           success = initiateRes['success'] == true;
         } else {
+          // External Pesapal path (MTN, Airtel, Card)
           final redirectUrl = initiateRes['redirectUrl'];
           if (redirectUrl != null) {
             final uri = Uri.parse(redirectUrl);
             if (await canLaunchUrl(uri)) {
               await launchUrl(uri, mode: LaunchMode.externalApplication);
-            } else {
-              throw Exception('Could not open checkout page.');
-            }
-          } else {
-            if (initiateRes['paymentId'] == null) {
-              throw Exception('No payment tracking ID received.');
             }
           }
-          success = await _paymentService.pollForPaymentCompletion(
-            initiateRes['paymentId'],
-          );
+          final paymentId = initiateRes['paymentId'];
+          if (paymentId == null) throw Exception('No payment tracking ID received.');
+          success = await _paymentService.pollForPaymentCompletion(paymentId);
         }
 
         if (success) {
           await widget.state.markPropertyUnlockedAfterPayment(p.core.id);
           setState(() => _stage = PaymentStage.success);
         } else {
-          throw Exception('Payment verification timed out');
+          throw Exception('Payment verification could not be confirmed.');
         }
       }
     } catch (e) {
@@ -638,11 +769,11 @@ class _UnlockRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          Text(icon, style: TextStyle(fontSize: 14)),
-          SizedBox(width: 12),
+          Text(icon, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 12),
           Text(label, style: dm(sz: 13, c: C.sub)),
         ],
       ),
@@ -657,11 +788,11 @@ class _RevealedItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
           Icon(icon, color: C.green, size: 18),
-          SizedBox(width: 12),
+          const SizedBox(width: 12),
           Text(label, style: dm(sz: 14, w: FontWeight.bold)),
         ],
       ),
@@ -672,6 +803,8 @@ class _RevealedItem extends StatelessWidget {
 class _MethodTile extends StatelessWidget {
   final String id, label, icon, sub;
   final bool selected;
+  final String? badge;
+  final Color? badgeColor;
   final VoidCallback onTap;
   const _MethodTile({
     required this.id,
@@ -679,6 +812,8 @@ class _MethodTile extends StatelessWidget {
     required this.icon,
     required this.sub,
     required this.selected,
+    this.badge,
+    this.badgeColor,
     required this.onTap,
   });
 
@@ -687,11 +822,11 @@ class _MethodTile extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: Duration(milliseconds: 200),
-        margin: EdgeInsets.only(bottom: 12),
-        padding: EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: selected ? C.brand.withOpacity(.05) : C.card,
+          color: selected ? C.brand.withValues(alpha: .06) : C.card,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: selected ? C.brand : C.border,
@@ -700,27 +835,44 @@ class _MethodTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Text(icon, style: TextStyle(fontSize: 24)),
-            SizedBox(width: 16),
+            Text(icon, style: const TextStyle(fontSize: 22)),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: dm(sz: 14, w: FontWeight.bold)),
+                  Row(
+                    children: [
+                      Text(label, style: dm(sz: 14, w: FontWeight.bold)),
+                      if (badge != null) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: (badgeColor ?? C.brand).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            badge!,
+                            style: dm(sz: 8, w: FontWeight.bold, c: badgeColor ?? C.brand),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
                   Text(sub, style: dm(sz: 11, c: C.dim)),
                 ],
               ),
             ),
-            if (selected)
-              Icon(Icons.radio_button_checked, color: C.brand, size: 20)
-            else
-              Icon(Icons.radio_button_off, color: C.dim, size: 20),
+            Icon(
+              selected ? Icons.radio_button_checked : Icons.radio_button_off,
+              color: selected ? C.brand : C.dim,
+              size: 20,
+            ),
           ],
         ),
       ),
     );
   }
 }
-
-
-

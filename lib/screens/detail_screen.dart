@@ -338,7 +338,7 @@ class _DetailScreenState extends State<DetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Digital Shards', style: syne(sz: 18, w: FontWeight.bold)),
+        Text('Verified Credentials', style: syne(sz: 18, w: FontWeight.bold)),
         const SizedBox(height: 16),
         GridView.count(
           crossAxisCount: 2,

@@ -254,7 +254,7 @@ async function handleUnlock(userId: string, payload: Record<string, unknown>) {
     .single()
   if (existing) return json({ success: true, already_unlocked: true, unlock_id: existing.id })
 
-  const unlockAmount = Math.floor(property.price * 0.1)
+  const unlockAmount = property.unlock_cost ? Math.trunc(Number(property.unlock_cost)) : 20000
 
   // Check free trial
   const { data: profile } = await supabase
