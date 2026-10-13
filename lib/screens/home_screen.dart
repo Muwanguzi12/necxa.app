@@ -463,6 +463,36 @@ class _PropertyCardState extends State<_PropertyCard> {
     super.dispose();
   }
 
+  String _cleanLocation(String district, String city) {
+    final d = district.trim();
+    final c = city.trim();
+    if (d.isEmpty && c.isEmpty) return 'Uganda';
+    if (d.isEmpty) return c;
+    if (c.isEmpty) return d;
+    if (d.toLowerCase() == c.toLowerCase()) return d;
+    if (d.toLowerCase().contains(c.toLowerCase())) return d;
+    if (c.toLowerCase().contains(d.toLowerCase())) return c;
+    return '$d, $c';
+  }
+
+  Widget _specItem({required Widget icon, required String label, Color? textColor}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        icon,
+        const SizedBox(width: 4),
+        Text(label, style: dm(sz: 11, c: textColor ?? Colors.white70, w: FontWeight.w500)),
+      ],
+    );
+  }
+
+  Widget _vDivider() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 8),
+      child: Text('|', style: TextStyle(color: Colors.white24, fontSize: 11)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.p;
@@ -472,162 +502,261 @@ class _PropertyCardState extends State<_PropertyCard> {
 
     return GestureDetector(
       onTap: () => state.openDetail(p.core.id),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        height: 250,
-        margin: const EdgeInsets.only(bottom: 14),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
-          color: C.cardDk,
+          color: C.card,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isReserved ? C.red.withOpacity(.3) : C.border,
           ),
         ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: p.core.images.isNotEmpty
-                  ? AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 800),
-                      child: CachedNetworkImage(
-                        key: ValueKey<String>(p.core.images[_currentIndex]),
-                        imageUrl: p.core.images[_currentIndex],
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                        placeholder: (context, url) => Container(color: C.dim.withOpacity(0.1)),
-                        errorWidget: (context, url, error) => Icon(Icons.error, color: C.dim),
-                      ),
-                    )
-                  : Center(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 1. Photo with Badges & Saved Button
+              Stack(
+                children: [
+                  SizedBox(
+                    height: 200,
+                    width: double.infinity,
+                    child: p.core.images.isNotEmpty
+                        ? AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 800),
+                            child: CachedNetworkImage(
+                              key: ValueKey<String>(p.core.images[_currentIndex]),
+                              imageUrl: p.core.images[_currentIndex],
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              height: double.infinity,
+                              placeholder: (context, url) => Container(color: C.dim.withOpacity(0.1)),
+                              errorWidget: (context, url, error) => Container(
+                                color: C.surface,
+                                child: Icon(Icons.broken_image, color: C.dim),
+                              ),
+                            ),
+                          )
+                        : Container(
+                            color: C.surface,
+                            child: Center(
+                              child: Text(
+                                p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
+                                style: const TextStyle(fontSize: 50),
+                              ),
+                            ),
+                          ),
+                  ),
+
+                  // Top Left: Trust Badge
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: _TrustBadge(status: p.financial.trustStatus),
+                  ),
+
+                  // Top Right: Purpose Badge
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: _PurposeBadge(
+                      p.core.listingType.name.toUpperCase(),
+                      C.brand,
+                    ),
+                  ),
+
+                  // If unlocked
+                  if (p.shadow.isUnlockedByCurrentUser)
+                    Positioned(
+                      top: 10,
+                      right: 76,
+                      child: _Badge('🔓 Unlocked', C.green, C.text),
+                    ),
+
+                  // Heart button (favorite) on the right side of image
+                  Positioned(
+                    top: 52,
+                    right: 12,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => state.toggleSave(p.core.id),
                       child: Text(
-                        p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
-                        style: const TextStyle(fontSize: 50),
+                        saved ? '❤️' : '🤍',
+                        style: const TextStyle(
+                          fontSize: 22,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 6),
+                          ],
+                        ),
                       ),
                     ),
-            ),
+                  ),
 
-            Positioned(
-              top: 10,
-              left: 10,
-              child: _TrustBadge(status: p.financial.trustStatus),
-            ),
-            Positioned(
-              top: 10,
-              right: 10,
-              child: _PurposeBadge(
-                p.core.listingType.name.toUpperCase(),
-                C.brand,
-              ),
-            ),
-            if (p.shadow.isUnlockedByCurrentUser)
-              Positioned(
-                top: 10,
-                right: 70,
-                child: _Badge('🔓 Unlocked', C.green, C.text),
-              ),
-            if (isReserved)
-              Positioned.fill(
-                child: Container(
-                  color: Colors.black45,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
-                      child: Text('RESERVED', style: syne(sz: 10, c: C.text, w: FontWeight.w800)),
+                  // Reserved overlay
+                  if (isReserved)
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.black45,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(color: C.red, borderRadius: BorderRadius.circular(8)),
+                            child: Text('RESERVED', style: syne(sz: 10, c: C.text, w: FontWeight.w800)),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                ],
               ),
 
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
-                decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.6),
-                      Colors.black.withOpacity(0.9),
-                    ],
-                  ),
-                ),
+              // 2. Info Card Section
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Title
+                    Text(
+                      p.core.title,
+                      style: syne(sz: 18, w: FontWeight.bold, c: Colors.white),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 5),
+
+                    // Clean Location
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: Text(p.core.title, style: syne(sz: 15, w: FontWeight.bold))),
-                        GestureDetector(
-                          onTap: () => state.toggleSave(p.core.id),
-                          child: Text(saved ? '❤️' : '🤍', style: const TextStyle(fontSize: 18)),
+                        const Icon(Icons.location_on, size: 14, color: Color(0xFFFF4848)),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            _cleanLocation(p.core.district, p.core.city),
+                            style: dm(sz: 12, c: const Color(0xFF8E9BAE)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text('📍 ${p.core.district}, ${p.core.city}', style: dm(sz: 11, c: Colors.white70)),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
+
+                    // Specs Row with Dividers
                     Row(
                       children: [
-                        Text('🛏 ${p.core.bedrooms} Bed', style: dm(sz: 11, c: Colors.white70)),
-                        const SizedBox(width: 12),
-                        Text('🚿 ${p.core.bathrooms} Bath', style: dm(sz: 11, c: Colors.white70)),
-                        const SizedBox(width: 12),
-                        Text('📐 ${p.core.sizeSqft}m²', style: dm(sz: 11, c: Colors.white70)),
-                        const SizedBox(width: 12),
-                        Text('⭐ 4.8', style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Divider(color: Colors.white24, height: 1),
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        _specItem(
+                          icon: const Icon(Icons.bed_rounded, size: 15, color: C.brand),
+                          label: '${p.core.bedrooms} Bed',
+                        ),
+                        _vDivider(),
+                        _specItem(
+                          icon: const Icon(Icons.shower_outlined, size: 15, color: C.brand),
+                          label: '${p.core.bathrooms} Bath',
+                        ),
+                        _vDivider(),
+                        _specItem(
+                          icon: const Icon(Icons.square_foot_rounded, size: 15, color: C.brand),
+                          label: p.core.sizeSqft > 0 ? '${p.core.sizeSqft} m²' : '— m²',
+                        ),
+                        _vDivider(),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(ugx(p.financial.price), style: syne(sz: 18, c: C.brand, w: FontWeight.bold)),
-                            Row(
-                              children: [
-                                Text(
-                                  p.financial.priceType == PriceType.monthly ? '/mo' : '/night',
-                                  style: dm(sz: 10, c: Colors.white70),
-                                ),
-                                const SizedBox(width: 8),
-                                if (!p.shadow.isUnlockedByCurrentUser)
-                                  Text('  Unlock: ${ugx(p.financial.unlockCost)}', style: dm(sz: 10, c: C.gold, w: FontWeight.w700)),
-                              ],
+                            const Icon(Icons.star_rounded, size: 16, color: Color(0xFFFFB800)),
+                            const SizedBox(width: 3),
+                            Text(
+                              '4.8',
+                              style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
                             ),
                           ],
                         ),
-                        const Spacer(),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Horizontal Divider
+                    Container(
+                      height: 1,
+                      color: Colors.white.withOpacity(0.08),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Pricing and Action
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    ugx(p.financial.price),
+                                    style: syne(sz: 18, c: C.brand, w: FontWeight.bold),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    p.financial.priceType == PriceType.monthly ? '/mo' : '/night',
+                                    style: dm(sz: 11, c: Colors.white60),
+                                  ),
+                                ],
+                              ),
+                              if (!p.shadow.isUnlockedByCurrentUser) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.lock, size: 12, color: C.gold),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Unlock: ${ugx(p.financial.unlockCost)}',
+                                      style: dm(sz: 11, c: C.gold, w: FontWeight.w700),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                           decoration: BoxDecoration(
                             color: isReserved ? C.red.withOpacity(.1) : Colors.transparent,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: isReserved ? C.red : C.brand),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: isReserved ? C.red : C.brand,
+                              width: 1.5,
+                            ),
                           ),
-                          child: Text(isReserved ? 'Reserved' : 'View ➜', style: dm(sz: 12, w: FontWeight.w700, c: isReserved ? C.red : C.brand)),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                isReserved ? 'Reserved' : 'View',
+                                style: dm(
+                                  sz: 12,
+                                  w: FontWeight.w700,
+                                  c: isReserved ? C.red : C.brand,
+                                ),
+                              ),
+                              if (!isReserved) ...[
+                                const SizedBox(width: 5),
+                                const Icon(Icons.arrow_forward_rounded, size: 14, color: C.brand),
+                              ],
+                            ],
+                          ),
                         ),
                       ],
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -657,7 +786,7 @@ class _TrustBadge extends StatelessWidget {
         label = '⚠️ LIMITED';
         break;
       default:
-        bg = Colors.blueGrey;
+        bg = const Color(0xFF3B536D);
         label = 'STANDARD';
     }
 
