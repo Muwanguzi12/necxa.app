@@ -12,8 +12,18 @@ class NecxaVideoPlayer extends StatefulWidget {
   final bool adaptive;
   final bool lowDataMode;
   final Function(bool)? onToggle;
+  final Function(VideoPlayerController)? onControllerReady;
   final AppState? state;
-  const NecxaVideoPlayer({super.key, required this.url, this.audioUrl, this.adaptive = false, this.lowDataMode = false, this.onToggle, this.state});
+  const NecxaVideoPlayer({
+    super.key,
+    required this.url,
+    this.audioUrl,
+    this.adaptive = false,
+    this.lowDataMode = false,
+    this.onToggle,
+    this.onControllerReady,
+    this.state,
+  });
 
   @override
   State<NecxaVideoPlayer> createState() => NecxaVideoPlayerState();
@@ -21,6 +31,8 @@ class NecxaVideoPlayer extends StatefulWidget {
 
 class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
   late VideoPlayerController _controller;
+  VideoPlayerController? get controller => _initialized ? _controller : null;
+  bool get isInitialized => _initialized;
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _initialized = false;
   bool _error = false;
@@ -93,7 +105,12 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
         }
       }
       
-      if (mounted) setState(() => _initialized = true);
+      if (mounted) {
+        setState(() => _initialized = true);
+        if (widget.onControllerReady != null) {
+          widget.onControllerReady!(_controller);
+        }
+      }
     } catch (e) {
       debugPrint('? NecxaVideoPlayer Error (${widget.url}): $e');
       if (mounted) setState(() => _error = true);

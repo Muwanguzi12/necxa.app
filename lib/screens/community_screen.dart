@@ -4,6 +4,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
+import 'package:video_player/video_player.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../theme.dart';
@@ -835,113 +836,113 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Widget _buildTopHUDContent() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Back Button (Dashboard Return)
-        GestureDetector(
-          onTap: () => widget.state.go('home'),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3),
-              shape: BoxShape.circle,
-              border: Border.all(color: C.text.withOpacity(0.1)),
+        // Left: Back chevron (<) + Live indicator/button (📺 LIVE)
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: () => widget.state.go('home'),
+              child: Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: C.text.withValues(alpha: 0.1)),
+                ),
+                child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 16),
+              ),
             ),
-            child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 16),
+            const SizedBox(width: 8),
+            _buildLiveButton(),
+          ],
+        ),
+
+        // Center: Segmented capsule toggle (Feed | Shop)
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _selectedTab = _selectedTab == 0 ? 1 : 0;
+              _currentItems = []; // Clear stale data
+
+              // 🚀 RESTORE PERSISTENCE: Use saved index from AppState for the target tab
+              _currentPageIndex = _selectedTab == 0
+                  ? widget.state.communityFeedIndex
+                  : widget.state.communityShopIndex;
+
+              if (_pageController.hasClients) {
+                _pageController.jumpToPage(_currentPageIndex);
+              }
+              // 🚀 FORCE SYNC: Ensure the Smart Loader triggers immediately on tab switch
+              _refreshFuture(force: true);
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: C.text.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: C.text.withValues(alpha: 0.1)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _selectedTab == 0 ? C.text : Colors.transparent,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text(
+                    'Feed',
+                    style: syne(
+                      sz: 12,
+                      w: FontWeight.bold,
+                      c: _selectedTab == 0 ? Colors.black : C.sub,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _selectedTab == 1 ? C.text : Colors.transparent,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text(
+                    'Shop',
+                    style: syne(
+                      sz: 12,
+                      w: FontWeight.bold,
+                      c: _selectedTab == 1 ? Colors.black : C.sub,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
 
-        _buildLiveButton(),
-
-        // Toggle Pill (Feed / Shop) + Sync Indicator above it
-        Column(
+        // Right: Cloud upload (☁️⬆️), network sync dots (traffic light), and Search (🔍)
+        Row(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _buildSyncDots(),
-            const SizedBox(height: 6),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _selectedTab = _selectedTab == 0 ? 1 : 0;
-                  _currentItems = []; // Clear stale data
-
-                  // 🚀 RESTORE PERSISTENCE: Use saved index from AppState for the target tab
-                  _currentPageIndex = _selectedTab == 0
-                      ? widget.state.communityFeedIndex
-                      : widget.state.communityShopIndex;
-
-                  if (_pageController.hasClients) {
-                    _pageController.jumpToPage(_currentPageIndex);
-                  }
-                  // 🚀 FORCE SYNC: Ensure the Smart Loader triggers immediately on tab switch
-                  _refreshFuture(force: true);
-                });
-              },
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: C.text.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: C.text.withOpacity(0.1)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _selectedTab == 0 ? C.text : Colors.transparent,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Text(
-                        'Feed',
-                        style: syne(
-                          sz: 12,
-                          w: FontWeight.bold,
-                          c: _selectedTab == 0 ? Colors.black : C.sub,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _selectedTab == 1 ? C.text : Colors.transparent,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Text(
-                        'Shop',
-                        style: syne(
-                          sz: 12,
-                          w: FontWeight.bold,
-                          c: _selectedTab == 1 ? Colors.black : C.sub,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        // Right Edge: Upload + Search stacked vertically
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // Upload / New Shard Button
             GestureDetector(
               onTap: () => _showUploadOptions(context),
               child: Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
-                  border: Border.all(color: C.text.withOpacity(0.1)),
+                  border: Border.all(color: C.text.withValues(alpha: 0.1)),
                 ),
                 child: Icon(
                   Icons.cloud_upload_outlined,
@@ -950,21 +951,21 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            // Search Button
+            const SizedBox(width: 8),
+            _buildSyncDots(),
+            const SizedBox(width: 8),
             GestureDetector(
               onTap: () => _showSearchSheet(context),
               child: Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
-                  border: Border.all(color: C.text.withOpacity(0.1)),
+                  border: Border.all(color: C.text.withValues(alpha: 0.1)),
                 ),
                 child: Icon(Icons.search_rounded, color: C.text, size: 18),
               ),
             ),
-            const SizedBox(height: 10),
           ],
         ),
       ],
@@ -1050,11 +1051,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
       message: _showLiveOverlay ? 'Hide live streams' : 'Show live streams',
       child: InkResponse(
         onTap: _toggleLiveOverlay,
-        radius: 30,
+        radius: 20,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          width: 48,
-          height: 48,
+          width: 36,
+          height: 36,
           padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: _showLiveOverlay
@@ -1375,14 +1376,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
             ? const Color(0xFF69F0AE)
             : C.dim;
 
-        return Row(
+        return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _dot(redCol, sz: 3, isPulse: isOffline),
-            const SizedBox(width: 2),
-            _dot(yellowCol, sz: 3, isPulse: isSyncing),
-            const SizedBox(width: 2),
-            _dot(greenCol, sz: 3),
+            _dot(redCol, sz: 3.5, isPulse: isOffline),
+            const SizedBox(height: 2.5),
+            _dot(yellowCol, sz: 3.5, isPulse: isSyncing),
+            const SizedBox(height: 2.5),
+            _dot(greenCol, sz: 3.5),
           ],
         );
       },
@@ -1609,6 +1610,138 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 }
 
+// ── Horizontal Video Scrubber / Progress Indicator ─────────────
+class _VideoScrubber extends StatefulWidget {
+  final VideoPlayerController? controller;
+  const _VideoScrubber({this.controller});
+
+  @override
+  State<_VideoScrubber> createState() => _VideoScrubberState();
+}
+
+class _VideoScrubberState extends State<_VideoScrubber> {
+  bool _isDragging = false;
+  double _dragValue = 0.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final durationMs = value.duration.inMilliseconds;
+        final positionMs = value.position.inMilliseconds;
+        if (durationMs <= 0) return const SizedBox.shrink();
+
+        final progress = _isDragging
+            ? _dragValue
+            : (positionMs / durationMs).clamp(0.0, 1.0);
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final trackWidth = constraints.maxWidth;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: (details) {
+                setState(() {
+                  _isDragging = true;
+                  _dragValue = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                });
+              },
+              onHorizontalDragUpdate: (details) {
+                setState(() {
+                  _dragValue = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                });
+              },
+              onHorizontalDragEnd: (details) async {
+                final targetMs = (_dragValue * durationMs).round();
+                await controller.seekTo(Duration(milliseconds: targetMs));
+                setState(() {
+                  _isDragging = false;
+                });
+              },
+              onTapDown: (details) async {
+                final tapProgress = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                final targetMs = (tapProgress * durationMs).round();
+                await controller.seekTo(Duration(milliseconds: targetMs));
+              },
+              child: Container(
+                height: 18,
+                color: Colors.transparent,
+                alignment: Alignment.center,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    // Background track
+                    Container(
+                      height: 2.5,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    // Buffered progress (if available)
+                    if (value.buffered.isNotEmpty) ...[
+                      Builder(
+                        builder: (_) {
+                          final bufferedEnd = value.buffered.last.end.inMilliseconds;
+                          final bufferedFraction = (bufferedEnd / durationMs).clamp(0.0, 1.0);
+                          return Container(
+                            height: 2.5,
+                            width: trackWidth * bufferedFraction,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.38),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                    // Played progress bar
+                    Container(
+                      height: 2.5,
+                      width: trackWidth * progress,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    // Circular thumb indicator
+                    Positioned(
+                      left: (trackWidth * progress - 5).clamp(0.0, trackWidth - 10),
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              blurRadius: 3,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 class _ReelItem extends StatefulWidget {
   final Map<String, dynamic> post;
   final AppState state;
@@ -1627,6 +1760,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   bool _audioInitialized = false;
   bool _isPlaying = true;
   final GlobalKey<NecxaVideoPlayerState> _videoKey = GlobalKey();
+  VideoPlayerController? _activeVideoController;
 
   // ── New UX States ──
   bool _isExpanded = false;
@@ -1668,6 +1802,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant _ReelItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.post['id'] != widget.post['id']) {
+      _activeVideoController = null;
+    }
     _isLiked = widget.post['is_liked'] == true || widget.post['is_liked'] == 1;
     _likesCount = (widget.post['likes_count'] as num?)?.toInt() ?? 0;
     _commentsCount = (widget.post['comments_count'] as num?)?.toInt() ?? 0;
@@ -1937,6 +2074,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                         audioUrl: widget.post['audio_url'],
                         adaptive: true, // 🚀 RESTORED: Always original size
                         lowDataMode: widget.state.isDataSaverMode,
+                        onControllerReady: (ctrl) {
+                          if (mounted) {
+                            setState(() => _activeVideoController = ctrl);
+                          }
+                        },
                         onToggle: (playing) => setState(() {
                           _isPlaying = playing;
                           if (playing) {
@@ -2108,6 +2250,23 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               child: GestureDetector(
                 onTap: _goToSoundHub,
                 child: _buildRotatingDisc(),
+              ),
+            ),
+          ),
+        ),
+
+        // 6. VIDEO PROGRESS INDICATOR / MEDIA SCRUBBER (Horizontally above sound, no time indicators)
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).padding.bottom + 88,
+          child: AnimatedOpacity(
+            opacity: _isCleanMode ? 0.0 : 1.0,
+            duration: const Duration(milliseconds: 300),
+            child: IgnorePointer(
+              ignoring: _isCleanMode,
+              child: _VideoScrubber(
+                controller: _activeVideoController ?? _videoKey.currentState?.controller,
               ),
             ),
           ),
@@ -3033,6 +3192,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
     with TickerProviderStateMixin {
   final GlobalKey<NecxaVideoPlayerState> _videoKey =
       GlobalKey<NecxaVideoPlayerState>();
+  VideoPlayerController? _activeVideoController;
   bool _buyPanelVisible = false;
   Timer? _buyPanelTimer;
 
@@ -3200,6 +3360,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
                         true, // 🚀 FILM HUB: Always use original aspect ratio
                     lowDataMode: widget.state.isDataSaverMode,
                     state: widget.state,
+                    onControllerReady: (ctrl) {
+                      if (mounted) {
+                        setState(() => _activeVideoController = ctrl);
+                      }
+                    },
                   )
                 : Image.network(
                     mediaUrl,
@@ -3353,6 +3518,23 @@ class _ShopReelItemState extends State<_ShopReelItem>
                     },
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+
+        // 5. VIDEO PROGRESS INDICATOR / MEDIA SCRUBBER (Horizontally across bottom, no time indicators)
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: MediaQuery.of(context).padding.bottom + 88,
+          child: AnimatedOpacity(
+            opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
+            duration: const Duration(milliseconds: 300),
+            child: IgnorePointer(
+              ignoring: widget.state.isFeedCleanMode,
+              child: _VideoScrubber(
+                controller: _activeVideoController ?? _videoKey.currentState?.controller,
               ),
             ),
           ),
