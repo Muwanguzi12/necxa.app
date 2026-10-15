@@ -88,6 +88,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ),
               SliverToBoxAdapter(child: _buildVendorDashboard()),
+              // ── My Properties (private only) ──
+              // Smart-loaded: cached data first, lazy fetch, 5-min stale guard
+              SliverToBoxAdapter(child: _MyPropertiesList(state: widget.state)),
               _buildStickyTabs(),
               _buildTabContent(),
               const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
@@ -1641,21 +1644,69 @@ class _MyPropertiesList extends StatefulWidget {
 }
 
 class _MyPropertiesListState extends State<_MyPropertiesList> {
+  // ── Smart Loading Pipeline ──────────────────────────────────────────────
+  // Session-level cache: persists across profile rebuilds so scrolling back
+  // never triggers a new network call. Cleared only on logout (via AppState).
+  static List<dynamic>? _sessionCache;
+  static DateTime? _lastFetchAt;
+  static const _staleDuration = Duration(minutes: 5);
+
   List<dynamic> _listings = [];
-  bool _loading = true;
+  bool _loading = true;   // true only on cold start (no cache at all)
+  bool _refreshing = false; // silent background refresh — no spinner shown
+
+  bool get _isStale =>
+      _lastFetchAt == null ||
+      DateTime.now().difference(_lastFetchAt!) > _staleDuration;
 
   @override
   void initState() {
     super.initState();
-    _fetch();
+    _initSmartLoad();
   }
 
+  /// Smart pipeline:
+  /// 1. If session cache exists → paint instantly, then silently refresh if stale.
+  /// 2. If no cache → show spinner, fetch, cache result, paint.
+  void _initSmartLoad() {
+    if (_sessionCache != null) {
+      // Paint immediately from cache — zero spinner, zero bandwidth
+      _listings = _sessionCache!;
+      _loading = false;
+      if (_isStale) _backgroundRefresh();
+    } else {
+      _fetch();
+    }
+  }
+
+  /// Cold fetch: shows spinner (first ever load or after logout).
   Future<void> _fetch() async {
     try {
       final data = await SmoothAction.myListings();
-      if (mounted) setState(() { _listings = data; _loading = false; });
-    } catch (e) {
+      if (!mounted) return;
+      _sessionCache = data;
+      _lastFetchAt = DateTime.now();
+      setState(() { _listings = data; _loading = false; });
+    } catch (_) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Silent background refresh: no spinner, no layout jump.
+  Future<void> _backgroundRefresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      final data = await SmoothAction.myListings();
+      if (!mounted) return;
+      _sessionCache = data;
+      _lastFetchAt = DateTime.now();
+      // Only repaint if data actually changed — saves unnecessary rebuilds
+      if (data.toString() != _listings.toString()) {
+        setState(() => _listings = data);
+      }
+    } catch (_) {} finally {
+      _refreshing = false;
     }
   }
 
@@ -1686,7 +1737,10 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
               if (val != null && val > 0) {
                 Navigator.pop(c);
                 await SmoothAction.updatePropertyPrice(prop['id'], val);
-                _fetch();
+                // Optimistically clear cache timestamp so next background refresh
+                // is treated as stale and fetches immediately
+                _lastFetchAt = null;
+                _backgroundRefresh();
               }
             },
             child: Text('Save', style: dm(c: C.bg)),
@@ -1710,7 +1764,8 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
             onPressed: () async {
               Navigator.pop(c);
               await SmoothAction.delistProperty(prop['id']);
-              _fetch();
+              _lastFetchAt = null; // Force immediate refresh
+              _backgroundRefresh();
             },
             child: Text('Delist', style: dm(c: C.bg)),
           ),
