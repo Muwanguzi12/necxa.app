@@ -20,6 +20,7 @@ import '../widgets/checkout_overlay.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/commerce_service.dart';
+import '../utils/content_sanitizer.dart';
 
 String? _extractListingImageUrl(dynamic value) {
   if (value == null) return null;
@@ -1764,7 +1765,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
   // ── New UX States ──
   bool _isExpanded = false;
-  final bool _isDescExpanded = false;
+  bool _isDescExpanded = false;
   bool _isCleanMode = false;
   bool _showCleanHint = false;
   late AnimationController _pulseController;
@@ -1872,6 +1873,26 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         ),
       );
     }
+  }
+
+  void _openTagSearch(String tag) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Align(
+        alignment: kIsWeb ? Alignment.center : Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: communityModalMaxWidth(MediaQuery.sizeOf(context).width),
+          ),
+          child: _CommunitySearchSheet(
+            state: widget.state,
+            initialTab: 0,
+          ),
+        ),
+      ),
+    );
   }
 
   void _handleLike() async {
@@ -2180,37 +2201,99 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ),
                 ),
 
-                // Creator Bubble
+                // 🚀 UNIFIED BOTTOM CONTROLS
+                // Avatar + Name, Scrubber, Description + Chevron, Hashtags/Nametags, Rotating Sound Disc
                 Positioned(
                   left: 16,
-                  bottom: MediaQuery.of(context).padding.bottom + 120,
-                  child: _buildExpandableBubble(),
-                ),
-
-                // Info Section
-                Positioned(
-                  left: 20,
-                  bottom: MediaQuery.of(context).padding.bottom + 40,
-                  right: 80,
+                  right: 16,
+                  bottom: MediaQuery.of(context).padding.bottom + 14,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '@$username',
-                        style: syne(sz: 13, w: FontWeight.w900, c: C.text),
+                      // 1. Creator Bubble + Display Name ('kiol')
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _buildExpandableBubble(),
+                          AnimatedBuilder(
+                            animation: _expandController,
+                            builder: (context, _) {
+                              final double opacity =
+                                  (1.0 - _expandController.value * 2.5)
+                                      .clamp(0.0, 1.0);
+                              if (opacity <= 0.0) return const SizedBox.shrink();
+                              return Opacity(
+                                opacity: opacity,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 10),
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      widget.state.targetProfileId =
+                                          widget.post['author_id'];
+                                      widget.state.go('public_profile');
+                                    },
+                                    child: Text(
+                                      username,
+                                      style: syne(
+                                        sz: 14,
+                                        w: FontWeight.w700,
+                                        c: Colors.white,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        description,
-                        style: dm(sz: 13, c: C.text.withOpacity(0.9)),
-                      ),
+                      const SizedBox(height: 10),
 
-                      // 🚀 SHOP REEL: Inline Buy Button if linked to a listing
-                      if (widget.post['listings'] != null) ...[
-                        const SizedBox(height: 12),
-                        _buildMiniBuyCard(widget.post['listings']),
-                      ],
+                      // 2. Video Progress Scrubber Bar (Horizontal line with thumb)
+                      _VideoScrubber(
+                        controller:
+                            _activeVideoController ??
+                            _videoKey.currentState?.controller,
+                      ),
+                      const SizedBox(height: 10),
+
+                      // 3. Bottom Row: Description + Hashtags on Left, Rotating Sound Disc on Right
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Description with '>' chevron expand button
+                                _buildDescriptionRow(description),
+                                const SizedBox(height: 8),
+
+                                // Hashtag / nametag / mentions chips
+                                _buildHashtagRow(description),
+
+                                // Shop Reel inline buy card if linked to a listing
+                                if (widget.post['listings'] != null) ...[
+                                  const SizedBox(height: 8),
+                                  _buildMiniBuyCard(widget.post['listings']),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+
+                          // 4. Rotating Sound Disc (Bottom Right)
+                          GestureDetector(
+                            onTap: _goToSoundHub,
+                            child: _buildRotatingDisc(),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -2238,44 +2321,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             ),
           ),
 
-        // 5. ROTATING SOUND DISC (Bottom Right)
+        // 4. Side Action Hub (positioned directly above bottom controls)
         Positioned(
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 40,
-          child: AnimatedOpacity(
-            opacity: _isCleanMode ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 300),
-            child: IgnorePointer(
-              ignoring: _isCleanMode,
-              child: GestureDetector(
-                onTap: _goToSoundHub,
-                child: _buildRotatingDisc(),
-              ),
-            ),
-          ),
-        ),
-
-        // 6. VIDEO PROGRESS INDICATOR / MEDIA SCRUBBER (Horizontally above sound, no time indicators)
-        Positioned(
-          left: 16,
-          right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 88,
-          child: AnimatedOpacity(
-            opacity: _isCleanMode ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 300),
-            child: IgnorePointer(
-              ignoring: _isCleanMode,
-              child: _VideoScrubber(
-                controller: _activeVideoController ?? _videoKey.currentState?.controller,
-              ),
-            ),
-          ),
-        ),
-
-        // 4. Side Action Hub
-        Positioned(
-          right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 100,
+          bottom: MediaQuery.of(context).padding.bottom + 140,
           child: AnimatedOpacity(
             opacity: _isCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -2545,6 +2594,124 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   }
 
   // ── NEW UI COMPONENTS ───────────────────────────────────────
+
+  Widget _buildDescriptionRow(String description) {
+    if (description.isEmpty) return const SizedBox.shrink();
+
+    // Strip trailing hashtags from text so they don't duplicate with the chips below
+    String displayDesc =
+        description.replaceAll(RegExp(r'(#[a-zA-Z0-9_]+\s*)+$'), '').trim();
+    if (displayDesc.isEmpty) displayDesc = description;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _isDescExpanded = !_isDescExpanded;
+        });
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              displayDesc,
+              style: dm(
+                sz: 13,
+                w: FontWeight.w500,
+                c: Colors.white.withValues(alpha: 0.95),
+              ),
+              maxLines: _isDescExpanded ? null : 1,
+              overflow:
+                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            _isDescExpanded
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.chevron_right_rounded,
+            color: const Color(0xFF00E5FF),
+            size: 18,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHashtagRow(String description) {
+    final tags = _extractPostTags(description);
+    if (tags.isEmpty) return const SizedBox.shrink();
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: tags.map((tag) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => _openTagSearch(tag),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    width: 0.8,
+                  ),
+                ),
+                child: Text(
+                  tag,
+                  style: dm(
+                    sz: 11,
+                    w: FontWeight.w600,
+                    c: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  List<String> _extractPostTags(String description) {
+    final List<String> result = [];
+
+    final rawTags = widget.post['tags'] ?? widget.post['hashtags'];
+    if (rawTags is List) {
+      for (final t in rawTags) {
+        final s = t.toString().trim();
+        if (s.isNotEmpty) {
+          result.add(s.startsWith('#') || s.startsWith('@') ? s : '#$s');
+        }
+      }
+    } else if (rawTags is String && rawTags.trim().isNotEmpty) {
+      result.addAll(ContentSanitizer.sanitizeTags(rawTags));
+    }
+
+    final inlineTags = ContentSanitizer.extractHashtagsFromText(description);
+    result.addAll(inlineTags);
+
+    final mentionRegex = RegExp(r'@[a-zA-Z0-9_]+');
+    for (final m in mentionRegex.allMatches(description)) {
+      final mention = m.group(0);
+      if (mention != null && mention.isNotEmpty) {
+        result.add(mention);
+      }
+    }
+
+    if (result.isEmpty) {
+      result.addAll(['#NightVibes', '#StreetStyle', '#NecxaMoments']);
+    }
+
+    return result.toSet().toList();
+  }
 
   Widget _buildExpandableBubble() {
     return GestureDetector(
@@ -3321,6 +3488,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
     final price = widget.listing['price'] ?? 0;
     final title = widget.listing['title'] ?? 'Luxury Shard';
     final description = widget.listing['description'] ?? '';
+    final rawProf = widget.listing['profiles'] ?? widget.listing['lister'];
+    final prof = (rawProf is List && rawProf.isNotEmpty)
+        ? rawProf[0]
+        : (rawProf is Map ? rawProf : null);
+    final vendorName = prof?['display_name'] ?? prof?['full_name'] ?? 'Vendor';
 
     return Stack(
       fit: StackFit.expand,
@@ -3554,8 +3726,49 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 1. Creator Info Bubble
-                  _buildExpandableBubble(),
+                  // 1. Creator Info Bubble + Display Name
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _buildExpandableBubble(),
+                      AnimatedBuilder(
+                        animation: _expandController,
+                        builder: (context, _) {
+                          final double opacity =
+                              (1.0 - _expandController.value * 2.5).clamp(0.0, 1.0);
+                          if (opacity <= 0.0) return const SizedBox.shrink();
+                          return Opacity(
+                            opacity: opacity,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 10),
+                              child: GestureDetector(
+                                onTap: () {
+                                  final authorId =
+                                      widget.listing['lister_id'] ??
+                                      widget.listing['user_id'];
+                                  if (authorId != null) {
+                                    widget.state.targetProfileId = authorId;
+                                    widget.state.go('public_profile');
+                                  }
+                                },
+                                child: Text(
+                                  vendorName,
+                                  style: syne(
+                                    sz: 14,
+                                    w: FontWeight.w700,
+                                    c: Colors.white,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
 
                   // 2. Product Description & Price (Always visible)
