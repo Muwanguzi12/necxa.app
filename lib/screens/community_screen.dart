@@ -3369,6 +3369,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
 
   // New Bubble States
   bool _isExpanded = false;
+  bool _isDescExpanded = false;
   late AnimationController _pulseController;
   late AnimationController _expandController;
   Timer? _collapseTimer;
@@ -3400,6 +3401,16 @@ class _ShopReelItemState extends State<_ShopReelItem>
   @override
   void didUpdateWidget(covariant _ShopReelItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.listing['id'] != widget.listing['id']) {
+      _activeVideoController = null;
+      _isDescExpanded = false;
+      _buyPanelTimer?.cancel();
+      _buyPanelVisible = false;
+      // Restart 4s attention timer for newly swiped product
+      _buyPanelTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _buyPanelVisible = true);
+      });
+    }
     _isLiked =
         widget.listing['is_liked'] == true || widget.listing['is_liked'] == 1;
     _likesCount = (widget.listing['likes_count'] as num?)?.toInt() ?? 0;
@@ -3592,7 +3603,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
         // 5. SIDE ACTION HUB (RIGHT)
         Positioned(
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 120,
+          bottom: MediaQuery.of(context).padding.bottom + 200,
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -3695,28 +3706,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
           ),
         ),
 
-        // 5. VIDEO PROGRESS INDICATOR / MEDIA SCRUBBER (Horizontally across bottom, no time indicators)
+        // 5. UNIFIED BOTTOM COMMERCE UI
         Positioned(
           left: 16,
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 88,
-          child: AnimatedOpacity(
-            opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 300),
-            child: IgnorePointer(
-              ignoring: widget.state.isFeedCleanMode,
-              child: _VideoScrubber(
-                controller: _activeVideoController ?? _videoKey.currentState?.controller,
-              ),
-            ),
-          ),
-        ),
-
-        // 6. BOTTOM INTERACTIVE UI (LEFT)
-        Positioned(
-          left: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 20,
-          right: 80, // Leave space for side actions
+          bottom: MediaQuery.of(context).padding.bottom + 14,
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -3726,7 +3720,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 1. Creator Info Bubble + Display Name
+                  // 1. Creator Info Bubble + Display Name (Inline, fades when panel is expanded)
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -3769,25 +3763,75 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
-                  // 2. Product Description & Price (Always visible)
-                  Text(
-                    title,
-                    style: syne(sz: 14, w: FontWeight.w900, c: C.text),
+                  // 2. Video Progress Scrubber Bar (Horizontal line with thumb)
+                  _VideoScrubber(
+                    controller:
+                        _activeVideoController ??
+                        _videoKey.currentState?.controller,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: dm(sz: 12, c: C.sub),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
-                  // 3. 4s DELAYED BUY OVERLAY
-                  // This overlays on top but is fairly small as requested.
-                  if (_buyPanelVisible) _buildExpandedBuyPanel(context),
+                  // 3. Product Title & Price Highlight
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          style: syne(
+                            sz: 15,
+                            w: FontWeight.w900,
+                            c: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2.5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Text(
+                          ugx(num.tryParse(price.toString()) ?? 0),
+                          style: dm(
+                            sz: 13,
+                            w: FontWeight.bold,
+                            c: const Color(0xFF00E5FF),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  // 4. Product Description with '>' Expand Chevron
+                  _buildShopDescriptionRow(description),
+
+                  // 5. Smart 4s Delayed Buy Overlay (pops up only after customer gives attention)
+                  AnimatedCrossFade(
+                    firstChild: const SizedBox.shrink(),
+                    secondChild: Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: _buildExpandedBuyPanel(context),
+                    ),
+                    crossFadeState: _buyPanelVisible
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                    duration: const Duration(milliseconds: 350),
+                  ),
                 ],
               ),
             ),
@@ -3836,6 +3880,45 @@ class _ShopReelItemState extends State<_ShopReelItem>
               const SizedBox(height: 8),
               Container(width: 80, height: 10, color: C.dim),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShopDescriptionRow(String description) {
+    if (description.isEmpty) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _isDescExpanded = !_isDescExpanded;
+        });
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              description,
+              style: dm(
+                sz: 12,
+                w: FontWeight.w500,
+                c: Colors.white.withValues(alpha: 0.85),
+              ),
+              maxLines: _isDescExpanded ? null : 1,
+              overflow:
+                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            _isDescExpanded
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.chevron_right_rounded,
+            color: const Color(0xFF00E5FF),
+            size: 16,
           ),
         ],
       ),
