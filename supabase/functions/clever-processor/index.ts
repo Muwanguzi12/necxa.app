@@ -441,6 +441,9 @@ async function handleFetchShowcase(payload: any) {
     .select('*, profiles:user_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')
     .eq('user_id', targetUserId)
     .eq('status', 'active')
+    // 🔒 Property listings must NEVER appear in the public showcase.
+    // They are agent-gated — revealing them would expose the agent without unlock.
+    .or('is_property_listing.is.null,is_property_listing.eq.false')
     .order('created_at', { ascending: false })
     .limit(50);
 

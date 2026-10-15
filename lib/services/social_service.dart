@@ -778,6 +778,8 @@ class SocialService {
             'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, status, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, latitude, longitude, profiles:user_id(full_name, avatar_url, trust_score_tier)',
           )
           .eq('user_id', userId)
+          // 🔒 Never expose property listings on the public showcase
+          .or('is_property_listing.is.null,is_property_listing.eq.false')
           .order('created_at', ascending: false)
           .limit(_fetchLimit);
       final data = List<Map<String, dynamic>>.from(res);
@@ -943,6 +945,8 @@ class SocialService {
             'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, status, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, latitude, longitude, profiles:user_id(full_name, avatar_url, trust_score_tier)',
           )
           .eq('user_id', userId)
+          // 🔒 Never expose property listings on the public showcase
+          .or('is_property_listing.is.null,is_property_listing.eq.false')
           .order('created_at', ascending: false)
           .limit(20);
       final data = List<Map<String, dynamic>>.from(res);

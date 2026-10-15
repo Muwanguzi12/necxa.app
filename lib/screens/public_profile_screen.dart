@@ -417,7 +417,7 @@ class _ProductGridItem extends StatelessWidget {
                       children: [
                         Icon(Icons.play_circle_fill, color: C.text, size: 12),
                         SizedBox(width: 4),
-                        Text('STORY', style: syne(sz: 8, w: FontWeight.w900, c: C.text)),
+                        Text('VIDEO', style: syne(sz: 8, w: FontWeight.w900, c: C.text)),
                       ],
                     ),
                   ),
