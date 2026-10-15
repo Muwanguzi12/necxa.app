@@ -2236,10 +2236,13 @@ class AppState extends ChangeNotifier {
   void onAuthStateChange(AuthState state) {
     final authenticatedUserId = state.session?.user.id;
     if (authenticatedUserId != null) {
-      if (_notificationUserId != authenticatedUserId) {
+      final isNewUser = _notificationUserId != authenticatedUserId;
+      if (isNewUser) {
         appNotifications = [];
         _notificationUserId = authenticatedUserId;
         unawaited(NotificationService().clearDisplayedNotifications());
+        // Reload profile immediately so the UI doesn't sit blank after login
+        unawaited(loadMyProfile());
       }
       _syncVault();
       checkSecurityStatus(); // Syncs 2FA, Forex, and Payment Methods
@@ -2257,11 +2260,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // Clear all local data first
     await localDb.clearAllOnLogout();
+    // Reset all user-specific state
+    myProfile = null;
     myTransportOrders = [];
     myDriverOrders = [];
     currentDriverProfile = null;
     isDriver = false;
+    // Reset navigation to home so after re-login the app opens cleanly
+    screen = 'home';
     await Supabase.instance.client.auth.signOut();
     notifyListeners();
   }

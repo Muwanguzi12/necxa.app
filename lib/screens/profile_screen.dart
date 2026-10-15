@@ -88,7 +88,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ),
               SliverToBoxAdapter(child: _buildVendorDashboard()),
-                SliverToBoxAdapter(child: _MyPropertiesList(state: widget.state)),
               _buildStickyTabs(),
               _buildTabContent(),
               const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
