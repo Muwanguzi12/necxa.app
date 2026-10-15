@@ -2634,7 +2634,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 leading: const Icon(Icons.flag_outlined, color: Colors.orangeAccent, size: 18),
                 title: Text(reason, style: dm(sz: 14, c: C.text)),
-                trailing: const Icon(Icons.chevron_right, color: C.dim, size: 18),
+                trailing: Icon(Icons.chevron_right, color: C.dim, size: 18),
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   final messenger = ScaffoldMessenger.of(this.context);
