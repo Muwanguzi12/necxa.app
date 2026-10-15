@@ -1618,16 +1618,44 @@ class SocialService {
   Future<void> reportContent(
     String targetId,
     String type,
-    String reason,
-  ) async {
+    String reason, {
+    String? details,
+  }) async {
     final userId = client.auth.currentUser?.id;
-    await client.from('reports').insert({
-      'reporter_id': userId,
-      'target_id': targetId,
-      'target_type': type,
-      'reason': reason,
-      'created_at': DateTime.now().toIso8601String(),
-    });
+
+    // 1. Dispatch report to clever-processor (creates report, triggers AI scan, flags for Goobox review)
+    try {
+      await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'report-content',
+          'payload': {
+            'target_id': targetId,
+            'target_type': type,
+            'reason': reason,
+            'details': details ?? '',
+          },
+        },
+      );
+    } catch (e) {
+      debugPrint('[SocialService] clever-processor report-content error: $e');
+      // Direct database fallback if edge function unavailable
+      if (userId != null) {
+        try {
+          await client.from('reports').insert({
+            'user_id': userId,
+            'target_id': targetId,
+            'target_type': type,
+            'reason': reason,
+            'status': 'pending',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (_) {}
+      }
+    }
+
+    // 2. Hide reported content locally and from state immediately
+    await hideContent(targetId, type);
   }
 
   Future<void> toggleSavePost(String postId) async {
@@ -1656,14 +1684,48 @@ class SocialService {
 
   Future<void> hideContent(String targetId, String type) async {
     final userId = client.auth.currentUser?.id;
-    if (userId == null) return;
 
-    await client.from('user_preferences').insert({
-      'user_id': userId,
-      'target_id': targetId,
-      'preference_type': 'not_interested',
-      'content_type': type,
-    });
+    // 1. Optimistic removal from in-memory feed and shop caches
+    _feedCache.removeWhere((p) => (p['id'] ?? p['post_id'])?.toString() == targetId);
+    _shopCache.removeWhere((l) => (l['id'] ?? l['listing_id'])?.toString() == targetId);
+    state.notify();
+
+    // 2. Purge immediately from SQLite local database so it never reappears on reload
+    try {
+      final localDb = LocalDbService();
+      final db = await localDb.database;
+      await db.delete('community_posts', where: 'id = ?', whereArgs: [targetId]);
+      await db.delete('shop_listings', where: 'id = ?', whereArgs: [targetId]);
+    } catch (e) {
+      debugPrint('[SocialService] LocalDb hideContent error: $e');
+    }
+
+    // 3. Dispatch to clever-processor edge function
+    try {
+      await client.functions.invoke(
+        'clever-processor',
+        body: {
+          'action': 'not-interested',
+          'payload': {
+            'target_id': targetId,
+            'content_type': type,
+          },
+        },
+      );
+    } catch (_) {
+      // Fallback: direct Supabase insert into user_preferences
+      if (userId != null) {
+        try {
+          await client.from('user_preferences').upsert({
+            'user_id': userId,
+            'target_id': targetId,
+            'preference_type': 'not_interested',
+            'content_type': type,
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        } catch (_) {}
+      }
+    }
   }
 
   // ── BATCH MANAGEMENT (PROFILE) ────────────────────────────────

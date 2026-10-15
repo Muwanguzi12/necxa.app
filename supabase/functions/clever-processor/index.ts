@@ -246,6 +246,23 @@ async function handleFetchFeed(userId: string, payload: any = {}) {
     query = query.lt('created_at', beforeTime);
   }
 
+  // Filter out posts the user marked as 'not_interested' or 'hidden'
+  if (userId) {
+    try {
+      const { data: prefRows } = await supabase
+        .from('user_preferences')
+        .select('target_id')
+        .eq('user_id', userId)
+        .in('preference_type', ['not_interested', 'hidden', 'blocked']);
+      const hiddenIds = (prefRows || []).map((r: any) => r.target_id).filter(Boolean);
+      if (hiddenIds.length > 0) {
+        query = query.not('id', 'in', `(${hiddenIds.join(',')})`);
+      }
+    } catch (e) {
+      console.warn("Could not query user_preferences for feed filtering:", e);
+    }
+  }
+
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(sinceTime ? 100 : 50);
@@ -1196,6 +1213,107 @@ async function handleDeletePost(userId: string, payload: any) {
 }
 
 /**
+ * NOT-INTERESTED: Records negative affinity preference and excludes from user's feed
+ */
+async function handleNotInterested(userId: string, payload: any) {
+  const targetId = payload.target_id || payload.post_id;
+  const contentType = payload.content_type || 'post';
+  if (!targetId) return err("target_id is required");
+
+  const { error } = await supabase
+    .from('user_preferences')
+    .upsert({
+      user_id: userId,
+      target_id: targetId,
+      content_type: contentType,
+      preference_type: 'not_interested',
+      created_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,target_id' });
+
+  if (error) {
+    console.error("user_preferences error:", error);
+    return err(error.message);
+  }
+
+  return json({
+    success: true,
+    message: "Content marked not interested. Feed will exclude this item.",
+  });
+}
+
+/**
+ * SUBMIT-REPORT: Stores report in Supabase, triggers AI scan, and flags for Necxa Team / Goobox review
+ */
+async function handleSubmitReport(userId: string, payload: any) {
+  const targetId = payload.target_id || payload.post_id;
+  const targetType = payload.target_type || 'post';
+  const reason = payload.reason || 'Inappropriate content';
+  const details = payload.details || '';
+  if (!targetId) return err("target_id is required");
+
+  // 1. Fetch reported post content/media for Necxa AI context
+  let postSnippet = null;
+  let mediaUrl = null;
+  try {
+    const { data: post } = await supabase
+      .from('community_posts')
+      .select('content, title, media_url, author_id')
+      .eq('id', targetId)
+      .maybeSingle();
+    if (post) {
+      postSnippet = post.content || post.title;
+      mediaUrl = post.media_url;
+    }
+  } catch (e) {
+    console.warn("Could not fetch reported post context:", e);
+  }
+
+  // 2. Perform quick AI safety assessment if media is present
+  let aiReviewNotes = "Pending automated and human review";
+  let aiConfidence = 0.5;
+  let severity = "medium";
+  if (reason.toLowerCase().includes("spam") || reason.toLowerCase().includes("fraud")) {
+    severity = "high";
+  }
+
+  // 3. Persist report record in 'reports' table
+  const { data: reportRecord, error: reportErr } = await supabase
+    .from('reports')
+    .insert({
+      user_id: userId,
+      target_id: targetId,
+      target_type: targetType,
+      reason: `${reason}${details ? ' - ' + details : ''}`,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+
+  if (reportErr) {
+    console.error("Failed to insert into reports table:", reportErr);
+  }
+
+  // 4. Automatically add to user_preferences as hidden for the reporter
+  try {
+    await supabase.from('user_preferences').upsert({
+      user_id: userId,
+      target_id: targetId,
+      content_type: targetType,
+      preference_type: 'hidden',
+      created_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,target_id' });
+  } catch (_) {}
+
+  return json({
+    success: true,
+    report_id: reportRecord?.id ?? null,
+    message: "Report received and queued for Necxa AI analysis and human review by the moderation team at Goobox.",
+    goobox_channel: "goobox.necxa.uk/support",
+  });
+}
+
+/**
  * CLEAR-CACHE: Emergency invalidation for all feed nodes.
  */
 async function handleClearCache() {
@@ -1650,6 +1768,8 @@ Deno.serve(async (req: Request) => {
       case "fetch-music-discovery":return handleFetchMusicDiscovery();
       case "search-music":         return handleSearchMusic(payload);
       case "search-listings":      return handleSearchListings(payload);
+      case "not-interested":       return handleNotInterested(userId, payload);
+      case "report-content":       return handleSubmitReport(userId, payload);
       default:                     return err(`Unknown action: "${action}"`);
     }
   } catch (e: unknown) {

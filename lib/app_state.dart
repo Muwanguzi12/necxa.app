@@ -1773,8 +1773,13 @@ class AppState extends ChangeNotifier {
     await social.toggleSavePost(id);
   }
 
-  Future<void> reportContent(String id, String type, String reason) async {
-    await social.reportContent(id, type, reason);
+  Future<void> reportContent(
+    String id,
+    String type,
+    String reason, {
+    String? details,
+  }) async {
+    await social.reportContent(id, type, reason, details: details);
   }
 
   Future<void> notInterested(String id, String type) async {

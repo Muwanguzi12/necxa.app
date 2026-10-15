@@ -2453,9 +2453,35 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ListTile(
                   leading: Icon(Icons.visibility_off_outlined, color: C.sub),
                   title: Text('Not Interested', style: dm(sz: 16, c: C.text)),
-                  onTap: () {
+                  subtitle: Text(
+                    "We'll hide this post and show fewer posts like this.",
+                    style: dm(sz: 12, c: C.dim),
+                  ),
+                  onTap: () async {
                     Navigator.pop(context);
-                    widget.state.notInterested(postId, 'post');
+                    await widget.state.notInterested(postId, 'post');
+                    if (mounted) {
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Post hidden. You will see fewer posts like this.',
+                                  style: dm(sz: 13, c: C.text),
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: const Color(0xFF131923),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
                   },
                 ),
               if (isOwner && postId != null)
@@ -2523,39 +2549,137 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(Icons.report_problem_outlined, color: C.text),
+                  leading: Icon(Icons.report_problem_outlined, color: Colors.orangeAccent),
                   title: Text('Report Content', style: dm(sz: 16, c: C.text)),
-                  onTap: () async {
+                  subtitle: Text(
+                    'Sent for review by Necxa AI & team at Goobox.',
+                    style: dm(sz: 12, c: C.dim),
+                  ),
+                  onTap: () {
                     Navigator.pop(context);
-                    final messenger = ScaffoldMessenger.of(this.context);
-                    try {
-                      await widget.state.reportContent(
-                        postId,
-                        'post',
-                        'Inappropriate content',
-                      );
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text('Post reported for review'),
-                          ),
-                        );
-                      }
-                    } catch (_) {
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Could not submit the report. Try again.',
-                            ),
-                            backgroundColor: Colors.redAccent,
-                          ),
-                        );
-                      }
-                    }
+                    _showReportReasonsDialog(postId);
                   },
                 ),
               const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showReportReasonsDialog(String postId) {
+    final reasons = [
+      'Inappropriate or adult content',
+      'Spam, misleading or fraud',
+      'Hate speech, harassment or bullying',
+      'Violence or dangerous content',
+      'Copyright or intellectual property violation',
+      'Other content policy violation',
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D121B),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          border: Border.all(color: C.text.withOpacity(0.1)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: C.dim,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.orangeAccent.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.shield_outlined, color: Colors.orangeAccent, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Report Content', style: syne(sz: 18, w: FontWeight.w700, c: C.text)),
+                        const SizedBox(height: 2),
+                        Text('Reviewed by Necxa AI & team at Goobox', style: dm(sz: 12, c: C.dim)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white10),
+              ...reasons.map((reason) => ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                leading: const Icon(Icons.flag_outlined, color: Colors.orangeAccent, size: 18),
+                title: Text(reason, style: dm(sz: 14, c: C.text)),
+                trailing: const Icon(Icons.chevron_right, color: C.dim, size: 18),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  final messenger = ScaffoldMessenger.of(this.context);
+                  try {
+                    await widget.state.reportContent(
+                      postId,
+                      'post',
+                      reason,
+                      details: 'Reported from community reel via moderation engine',
+                    );
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.verified_user_outlined, color: C.brand, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Report submitted. Necxa AI & Goobox team will review this content.',
+                                  style: dm(sz: 13, c: C.text),
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: const Color(0xFF131923),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not submit report. Please try again.'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
+                  }
+                },
+              )),
+              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -3074,12 +3198,33 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           _menuItem(
                             'Not Interested',
                             Icons.sentiment_dissatisfied,
-                            onTap: () {
+                            onTap: () async {
                               Navigator.pop(context);
-                              widget.state.notInterested(
+                              await widget.state.notInterested(
                                 widget.post['id'],
                                 'post',
                               );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Row(
+                                      children: [
+                                        const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Post hidden. You will see fewer posts like this.',
+                                            style: dm(sz: 13, c: C.text),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    backgroundColor: const Color(0xFF131923),
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                );
+                              }
                             },
                           ),
                           _menuItem(
@@ -3088,17 +3233,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             color: Colors.redAccent,
                             onTap: () {
                               Navigator.pop(context);
-                              widget.state.reportContent(
-                                widget.post['id'],
-                                'post',
-                                'Inappropriate content',
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Post reported'),
-                                  backgroundColor: Colors.redAccent,
-                                ),
-                              );
+                              final postId = widget.post['id']?.toString();
+                              if (postId != null) {
+                                _showReportReasonsDialog(postId);
+                              }
                             },
                           ),
                         ],
