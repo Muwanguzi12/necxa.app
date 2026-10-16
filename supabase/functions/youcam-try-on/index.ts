@@ -70,29 +70,33 @@ Deno.serve(async (req: Request) => {
       // If we have an active YouCam task, poll Perfect Corp API
       if (YOUCAM_API_KEY) {
         try {
-          const resp = await fetch(`https://api.perfectcorp.com/s2s/v2.0/task/cloth/${body.task_id}`, {
+          const resp = await fetch(`https://yce-api-01.makeupar.com/s2s/v2.0/task/cloth/${body.task_id}`, {
             method: "GET",
             headers: {
+              "Authorization": `Bearer ${YOUCAM_API_KEY}`,
               "x-api-key": YOUCAM_API_KEY,
             },
           });
           const result = await resp.json();
           console.log("[YouCam Polling Status]:", JSON.stringify(result));
           
-          // Perfect Corp standard response: { status: 200, data: { task_id, task_status: "success", url: "..." } }
-          const taskStatus = result?.data?.task_status || result?.task_status || result?.status;
-          const resultUrl = result?.data?.url || result?.url || result?.data?.result_url;
+          const rawStatus = (result?.data?.task_status || result?.task_status || result?.status || "").toString().toLowerCase();
+          const resultUrl = result?.data?.results?.url || 
+            (Array.isArray(result?.data?.results) ? result?.data?.results[0]?.url : null) ||
+            result?.data?.url || 
+            result?.url || 
+            result?.data?.result_url;
           
-          if (taskStatus === "success" && resultUrl) {
+          if (rawStatus === "success" && resultUrl) {
             return json({
               status: "SUCCESS",
               result_url: resultUrl,
               task_id: body.task_id,
             });
-          } else if (taskStatus === "error" || taskStatus === "failed") {
+          } else if (rawStatus === "error" || rawStatus === "failed") {
             return json({
               status: "FAILED",
-              error: result?.data?.error_message || result?.message || "YouCam processing failed",
+              error: result?.data?.error || result?.data?.error_message || result?.message || "YouCam processing failed",
             });
           } else {
             return json({
@@ -102,10 +106,14 @@ Deno.serve(async (req: Request) => {
           }
         } catch (pollErr) {
           console.warn("[YouCam Polling Error]:", pollErr);
+          return json({
+            status: "PROCESSING",
+            task_id: body.task_id,
+          });
         }
       }
 
-      // If simulated fallback task
+      // If simulated fallback task without YouCam API key
       return json({
         status: "SUCCESS",
         result_url: body.garment_image_url || null,
@@ -150,10 +158,11 @@ Deno.serve(async (req: Request) => {
     if (YOUCAM_API_KEY) {
       try {
         console.log(`[YouCam Try-On Submit] src: ${src_image_url}, ref: ${garment_image_url}, category: ${resolvedCategory}`);
-        const response = await fetch("https://api.perfectcorp.com/s2s/v2.0/task/cloth", {
+        const response = await fetch("https://yce-api-01.makeupar.com/s2s/v2.0/task/cloth", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Authorization": `Bearer ${YOUCAM_API_KEY}`,
             "x-api-key": YOUCAM_API_KEY,
           },
           body: JSON.stringify({
@@ -173,9 +182,21 @@ Deno.serve(async (req: Request) => {
             status: data.data.status || data.data.task_status || "PROCESSING",
             garment_category: resolvedCategory,
           });
+        } else {
+          return json({
+            success: false,
+            status: "FAILED",
+            error: data?.message || data?.error_message || data?.data?.error_message || `YouCam HTTP ${response.status}`,
+            raw_response: data,
+          });
         }
       } catch (youcamErr) {
         console.warn("[YouCam API Call error]:", youcamErr);
+        return json({
+          success: false,
+          status: "FAILED",
+          error: youcamErr instanceof Error ? youcamErr.message : String(youcamErr),
+        });
       }
     }
 

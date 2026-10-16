@@ -164,10 +164,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
               }
             }
 
-            // If asynchronous task_id provided, poll for status up to 15 times (30 seconds)
+            // If asynchronous task_id provided, poll for status up to 25 times (50 seconds)
             final taskId = data is Map ? data['task_id'] : null;
             if (taskId != null && aiResults.isEmpty) {
-              for (int poll = 0; poll < 15; poll++) {
+              for (int poll = 0; poll < 25; poll++) {
                 await Future.delayed(const Duration(milliseconds: 2000));
                 if (!mounted) break;
                 try {
