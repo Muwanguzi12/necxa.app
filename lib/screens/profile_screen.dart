@@ -1812,22 +1812,62 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator(color: C.brand)));
-    if (_listings.isEmpty) return const SizedBox();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Text('My Properties', style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('My Properties', style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
+              if (_listings.isNotEmpty)
+                Text('${_listings.length} listed', style: dm(sz: 12, c: C.dim)),
+            ],
+          ),
         ),
-        SizedBox(
-          height: 220,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _listings.length,
+        if (_listings.isEmpty)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+            decoration: BoxDecoration(
+              color: C.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: C.border),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: C.brand.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.home_work_outlined, color: C.brand, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('No properties listed yet', style: dm(w: FontWeight.bold, c: C.text, sz: 14)),
+                      const SizedBox(height: 4),
+                      Text('Your active listings will appear here for price management and delisting.', style: dm(c: C.dim, sz: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          SizedBox(
+            height: 220,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _listings.length,
             itemBuilder: (context, i) {
               final prop = _listings[i];
               final images = prop['images'] as List<dynamic>? ?? [];
