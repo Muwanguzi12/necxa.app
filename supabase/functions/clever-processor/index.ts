@@ -1938,6 +1938,11 @@ Deno.serve(async (req: Request) => {
       return handleDiagnoseEngagement(user);
     }
 
+    // sync-support-response is invoked by Goobox backend webhooks/admins
+    if (action === "sync-support-response") {
+      return handleSyncSupportResponse(payload);
+    }
+
     if (!userId) return err("Unauthorized", 401);
 
     switch (action) {

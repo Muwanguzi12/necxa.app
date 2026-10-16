@@ -17,6 +17,7 @@ import 'dart:convert';
 import 'sound_hub_screen.dart';
 import 'live_studio_screen.dart';
 import '../widgets/checkout_overlay.dart';
+import '../widgets/necxa_experience_sheet.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/commerce_service.dart';
@@ -3911,43 +3912,116 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   ),
                   const SizedBox(height: 10),
 
-                  // 3. Product Title & Price Highlight
+                  // 3. Product Title, Price & Experience Action
                   Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Flexible(
-                        child: Text(
-                          title,
-                          style: syne(
-                            sz: 15,
-                            w: FontWeight.w900,
-                            c: Colors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      // Product Title + Price Pill
+                      Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: syne(
+                                  sz: 15,
+                                  w: FontWeight.w900,
+                                  c: Colors.white,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                ugx(num.tryParse(price.toString()) ?? 0),
+                                style: dm(
+                                  sz: 13,
+                                  w: FontWeight.bold,
+                                  c: const Color(0xFF00E5FF),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2.5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
-                            width: 0.8,
+
+                      // 👤✨ EXPERIENCE → Button
+                      GestureDetector(
+                        onTap: () {
+                          NecxaExperienceSheet.show(
+                            context: context,
+                            listing: widget.listing,
+                            state: widget.state,
+                            onBuyNow: () {
+                              widget.state.selectedListing = widget.listing;
+                              widget.state.showCheckoutOverlay = true;
+                              widget.state.notify();
+                            },
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
                           ),
-                        ),
-                        child: Text(
-                          ugx(num.tryParse(price.toString()) ?? 0),
-                          style: dm(
-                            sz: 13,
-                            w: FontWeight.bold,
-                            c: const Color(0xFF00E5FF),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A1324).withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFF00E5FF),
+                              width: 1.3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+                                blurRadius: 10,
+                                spreadRadius: 0.5,
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.auto_awesome,
+                                color: Color(0xFF00E5FF),
+                                size: 14,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'EXPERIENCE',
+                                style: syne(
+                                  sz: 11,
+                                  w: FontWeight.w900,
+                                  c: const Color(0xFF00E5FF),
+                                  ls: 0.8,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_forward_rounded,
+                                color: Color(0xFF00E5FF),
+                                size: 14,
+                              ),
+                            ],
                           ),
                         ),
                       ),
