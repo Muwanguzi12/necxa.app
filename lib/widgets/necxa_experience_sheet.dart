@@ -49,6 +49,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
   String? _selectedUserPhotoPath;
   int _selectedVariantIndex = 0;
   int _selectedResultIndex = 0;
+  List<String> _aiResultImages = [];
 
   final ImagePicker _picker = ImagePicker();
 
@@ -100,12 +101,13 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
       });
 
       // Call YouCam try-on API via Goobox Edge Function (where YouCam credentials reside)
+      List<String> aiResults = [];
       try {
         final images = _extractImages();
         final garmentUrl = images.isNotEmpty ? images[_selectedVariantIndex.clamp(0, images.length - 1)] : '';
 
         final gooboxUrl = Uri.parse('https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on');
-        await http.post(
+        final res = await http.post(
           gooboxUrl,
           headers: {
             'Content-Type': 'application/json',
@@ -119,6 +121,19 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
             'listing_id': widget.listing['id'],
           }),
         );
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (data is Map && data['result_url'] != null) {
+            aiResults.add(data['result_url'].toString());
+          }
+          if (data is Map && data['variations'] is List) {
+            for (final v in data['variations']) {
+              if (v is String && v.isNotEmpty && !aiResults.contains(v)) {
+                aiResults.add(v);
+              }
+            }
+          }
+        }
       } catch (err) {
         debugPrint('[ExperienceSheet] Goobox Edge function notice: $err');
       }
@@ -127,6 +142,9 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
       await Future.delayed(const Duration(milliseconds: 1400));
       if (mounted) {
         setState(() {
+          if (aiResults.isNotEmpty) {
+            _aiResultImages = aiResults;
+          }
           _isProcessing = false;
           _activeStep = 3; // Results
         });
@@ -653,7 +671,8 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                           scrollDirection: Axis.horizontal,
                           physics: const BouncingScrollPhysics(),
                           children: [
-                            for (int i = 0; i < (images.isNotEmpty ? images.length : 3); i++)
+                            final displayResults = _aiResultImages.isNotEmpty ? _aiResultImages : images;
+                            for (int i = 0; i < (displayResults.isNotEmpty ? displayResults.length : 3); i++)
                               GestureDetector(
                                 onTap: () => setState(() => _selectedResultIndex = i),
                                 child: Container(
@@ -671,8 +690,8 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(11),
                                     child: Image.network(
-                                      images.isNotEmpty
-                                          ? images[i % images.length]
+                                      displayResults.isNotEmpty
+                                          ? displayResults[i % displayResults.length]
                                           : primaryImg,
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) => const Icon(
