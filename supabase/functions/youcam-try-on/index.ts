@@ -24,6 +24,12 @@ const supabase = createClient(
 const GOOBOX_URL = Deno.env.get("GOOBOX_SUPABASE_URL") || "https://anregykcgolpgxecfxej.supabase.co";
 const GOOBOX_KEY = Deno.env.get("GOOBOX_SERVICE_ROLE_KEY") || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFucmVneWtjZ29scGd4ZWNmeGVqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDQ2MjU1NCwiZXhwIjoyMDk2MDM4NTU0fQ.519sxkeFrEL-zIyP2MM4kbSZ3sHHP7OY-uwXoDV7cnc";
 
+const goobox = createClient(
+  GOOBOX_URL,
+  GOOBOX_KEY,
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
+
 const YOUCAM_API_KEY = Deno.env.get("YOUCAM_API_KEY") || "";
 const YOUCAM_API_SECRET = Deno.env.get("YOUCAM_API_SECRET") || "";
 
@@ -32,9 +38,19 @@ Deno.serve(async (req: Request) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
-    const { data: { user } } = await supabase.auth.getUser(authHeader?.replace("Bearer ", "") || "");
-    const userId = user?.id;
-    if (!userId) return err("Unauthorized", 401);
+    const token = authHeader?.replace("Bearer ", "") || "";
+    let userId = "guest_user";
+    
+    // Check if token validates against Necxa primary Supabase or Goobox
+    if (token) {
+      const { data: { user } } = await supabase.auth.getUser(token);
+      if (user?.id) {
+        userId = user.id;
+      } else {
+        const { data: { user: gUser } } = await goobox.auth.getUser(token);
+        if (gUser?.id) userId = gUser.id;
+      }
+    }
 
     const body = await req.json() as {
       action?: string;

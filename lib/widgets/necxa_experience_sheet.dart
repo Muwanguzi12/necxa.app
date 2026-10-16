@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme.dart';
 import '../app_state.dart';
@@ -98,23 +99,28 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
         _activeStep = 2; // AI Preview
       });
 
-      // Call YouCam try-on API via Edge Function
+      // Call YouCam try-on API via Goobox Edge Function (where YouCam credentials reside)
       try {
-        final client = Supabase.instance.client;
         final images = _extractImages();
         final garmentUrl = images.isNotEmpty ? images[_selectedVariantIndex.clamp(0, images.length - 1)] : '';
 
-        await client.functions.invoke(
-          'youcam-try-on',
-          body: {
+        final gooboxUrl = Uri.parse('https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on');
+        await http.post(
+          gooboxUrl,
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': 'sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
+            'Authorization': 'Bearer sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
+          },
+          body: jsonEncode({
             'action': 'try-on',
             'src_image_url': file.path,
             'garment_image_url': garmentUrl,
             'listing_id': widget.listing['id'],
-          },
+          }),
         );
       } catch (err) {
-        debugPrint('[ExperienceSheet] Edge function notice: $err');
+        debugPrint('[ExperienceSheet] Goobox Edge function notice: $err');
       }
 
       // Smooth transition to results after AI generation
