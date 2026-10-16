@@ -1682,13 +1682,33 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
   /// Cold fetch: shows spinner (first ever load or after logout).
   Future<void> _fetch() async {
     try {
-      final data = await SmoothAction.myListings();
+      List<dynamic> data = [];
+      try {
+        data = await SmoothAction.myListings();
+      } catch (err) {
+        debugPrint('[_MyPropertiesList] SmoothAction notice: $err');
+      }
+
+      // Resilient fallback: Direct Supabase client query for user's properties
+      if (data.isEmpty) {
+        final uid = Supabase.instance.client.auth.currentUser?.id;
+        if (uid != null) {
+          final res = await Supabase.instance.client
+              .from('properties')
+              .select('*')
+              .eq('lister_id', uid)
+              .order('created_at', ascending: false);
+          if (res is List) data = res;
+        }
+      }
+
       if (!mounted) return;
       _sessionCache = data;
       _lastFetchAt = DateTime.now();
       setState(() { _listings = data; _loading = false; });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() => _loading = false);
     }
   }
 
@@ -1697,11 +1717,26 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
     if (_refreshing) return;
     _refreshing = true;
     try {
-      final data = await SmoothAction.myListings();
+      List<dynamic> data = [];
+      try {
+        data = await SmoothAction.myListings();
+      } catch (_) {}
+
+      if (data.isEmpty) {
+        final uid = Supabase.instance.client.auth.currentUser?.id;
+        if (uid != null) {
+          final res = await Supabase.instance.client
+              .from('properties')
+              .select('*')
+              .eq('lister_id', uid)
+              .order('created_at', ascending: false);
+          if (res is List) data = res;
+        }
+      }
+
       if (!mounted) return;
       _sessionCache = data;
       _lastFetchAt = DateTime.now();
-      // Only repaint if data actually changed — saves unnecessary rebuilds
       if (data.toString() != _listings.toString()) {
         setState(() => _listings = data);
       }
@@ -1787,7 +1822,7 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
           child: Text('My Properties', style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
         ),
         SizedBox(
-          height: 140,
+          height: 220,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
