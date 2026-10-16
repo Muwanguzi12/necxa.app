@@ -47,12 +47,14 @@ class NecxaExperienceSheet extends StatefulWidget {
 class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
   int _activeStep = 1; // 1: Your Photo, 2: AI Preview, 3: Results
   bool _isProcessing = false;
-  XFile? _selectedUserPhoto; // Stores the picked XFile so we can show a preview
+  XFile? _selectedUserPhoto;
   int _selectedVariantIndex = 0;
   int _selectedResultIndex = 0;
   List<String> _aiResultImages = [];
 
   final ImagePicker _picker = ImagePicker();
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
 
   List<String> _extractImages() {
     final list = <String>[];
@@ -73,7 +75,6 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
         list.add(photos);
       }
     }
-
     if (list.isEmpty) {
       final fallback = widget.listing['thumbnail_url'] ??
           widget.listing['media_url'] ??
@@ -85,28 +86,23 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
     return list;
   }
 
-  /// Upload the local image file to Necxa Supabase Storage and return the
-  /// public URL so that the YouCam edge function receives a remotely accessible
-  /// URL (not a local file path which would be rejected by the API).
+  /// Upload user photo bytes to Necxa Storage → return public URL for YouCam.
   Future<String?> _uploadUserPhoto(XFile file) async {
     try {
       final bytes = await file.readAsBytes();
       final ext = file.path.split('.').last.toLowerCase();
-      final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
-      final fileName =
+      final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
+      final name =
           'tryon_${DateTime.now().millisecondsSinceEpoch}_${widget.listing['id'] ?? 'item'}.$ext';
-
-      // Use the Supabase SDK — auth/anon key are handled automatically
       final client = Supabase.instance.client;
       await client.storage.from('user-tryons').uploadBinary(
-            fileName,
+            name,
             bytes,
-            fileOptions: FileOptions(contentType: mimeType, upsert: true),
+            fileOptions: FileOptions(contentType: mime, upsert: true),
           );
-
-      return client.storage.from('user-tryons').getPublicUrl(fileName);
+      return client.storage.from('user-tryons').getPublicUrl(name);
     } catch (e) {
-      debugPrint('[ExperienceSheet] Upload error: $e');
+      debugPrint('[ExperienceSheet] upload error: $e');
       return null;
     }
   }
@@ -124,25 +120,21 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
       setState(() {
         _selectedUserPhoto = file;
         _isProcessing = true;
-        _activeStep = 2; // AI Preview
+        _activeStep = 2;
       });
 
-      // Upload to storage to get a public URL for the YouCam API
       List<String> aiResults = [];
       try {
         final images = _extractImages();
         final garmentUrl = images.isNotEmpty
             ? images[_selectedVariantIndex.clamp(0, images.length - 1)]
             : '';
-
-        // Upload user photo to storage; fall back to null (edge fn will gracefully degrade)
         final publicPhotoUrl = await _uploadUserPhoto(file);
 
         if (garmentUrl.isNotEmpty && publicPhotoUrl != null) {
-          final gooboxUrl = Uri.parse(
-              'https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on');
           final res = await http.post(
-            gooboxUrl,
+            Uri.parse(
+                'https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on'),
             headers: {
               'Content-Type': 'application/json',
               'apikey': 'sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
@@ -168,24 +160,18 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                 }
               }
             }
-          } else {
-            debugPrint(
-                '[ExperienceSheet] Goobox ${res.statusCode}: ${res.body}');
           }
         }
-      } catch (err) {
-        debugPrint('[ExperienceSheet] Goobox Edge function notice: $err');
+      } catch (e) {
+        debugPrint('[ExperienceSheet] Goobox notice: $e');
       }
 
-      // Smooth transition to results after AI generation
       await Future.delayed(const Duration(milliseconds: 1400));
       if (mounted) {
         setState(() {
-          if (aiResults.isNotEmpty) {
-            _aiResultImages = aiResults;
-          }
+          if (aiResults.isNotEmpty) _aiResultImages = aiResults;
           _isProcessing = false;
-          _activeStep = 3; // Results
+          _activeStep = 3;
         });
       }
     } catch (e) {
@@ -198,6 +184,8 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
     }
   }
 
+  // ── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final images = _extractImages();
@@ -207,10 +195,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
     final prof = (rawProf is List && rawProf.isNotEmpty)
         ? rawProf[0]
         : (rawProf is Map ? rawProf : null);
-    final vendorName = prof?['display_name'] ?? prof?['full_name'] ?? 'Vendor';
+    final vendorName =
+        prof?['display_name'] ?? prof?['full_name'] ?? 'Vendor';
 
-    // In step 3, show the selected AI result in the main product image slot.
-    // Fall back to the selected variant image in steps 1 & 2.
+    // Main image: show selected AI result in Step 3, otherwise selected variant
     final displayResults =
         _aiResultImages.isNotEmpty ? _aiResultImages : images;
     final mainImg = (_activeStep == 3 &&
@@ -222,660 +210,540 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
             : '');
 
     return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
-          height: MediaQuery.of(context).size.height * 0.82,
+          height: MediaQuery.of(context).size.height * 0.88,
           decoration: BoxDecoration(
-            color: const Color(0xFF030A14).withValues(alpha: 0.96),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            color: const Color(0xFF060F1E),
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(24)),
             border: Border.all(
-              color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
-              width: 1.2,
+              color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+              width: 1.0,
             ),
           ),
           child: Column(
             children: [
-              // 1. Top Drag Handle & Close Header
+              // ── Drag Handle ───────────────────────────────────────────
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ── Header Row: ✦✦ NECXA Experience  [X] ────────────────
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
-                child: Column(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
+                    // Two 4-pointed sparkle stars (matches mockup exactly)
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.stars_rounded,
+                            color: const Color(0xFF00E5FF), size: 18),
+                        const SizedBox(height: 2),
+                        Icon(Icons.stars_rounded,
+                            color: const Color(0xFF00E5FF), size: 14),
+                      ],
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            text: TextSpan(children: [
+                              TextSpan(
+                                text: 'NECXA  ',
+                                style: syne(
+                                    sz: 20,
+                                    w: FontWeight.w900,
+                                    c: Colors.white),
+                              ),
+                              TextSpan(
+                                text: 'Experience',
+                                style: syne(
+                                    sz: 20,
+                                    w: FontWeight.w900,
+                                    c: const Color(0xFF00E5FF)),
+                              ),
+                            ]),
+                          ),
+                          Text(
+                            'See how this product looks on you with AI',
+                            style: dm(
+                                sz: 11.5,
+                                c: const Color(0xFF8A9AB2)),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        // Sparkle Avatar Icon
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: const Color(0xFF00E5FF),
-                              width: 1.2,
-                            ),
-                            color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.person_add_alt_1_rounded,
-                              color: Color(0xFF00E5FF),
-                              size: 20,
-                            ),
-                          ),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          shape: BoxShape.circle,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              RichText(
-                                text: TextSpan(
-                                  children: [
-                                    TextSpan(
-                                      text: 'NECXA ',
-                                      style: syne(
-                                        sz: 18,
-                                        w: FontWeight.w900,
-                                        c: Colors.white,
-                                      ),
-                                    ),
-                                    TextSpan(
-                                      text: 'Experience',
-                                      style: syne(
-                                        sz: 18,
-                                        w: FontWeight.w900,
-                                        c: const Color(0xFF00E5FF),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'See how this product looks on you with AI',
-                                style: dm(
-                                  sz: 12,
-                                  w: FontWeight.w400,
-                                  c: const Color(0xFF8A9AB2),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white70, size: 22),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
+                        child: const Icon(Icons.close,
+                            color: Colors.white70, size: 18),
+                      ),
                     ),
                   ],
                 ),
               ),
 
-              // 2. Stepper Progress Pill (1. Your Photo -> 2. AI Preview -> 3. Results)
+              const SizedBox(height: 14),
+
+              // ── Stepper Pill ──────────────────────────────────────────
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
                     color: const Color(0xFF0A1324),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                    borderRadius: BorderRadius.circular(30),
+                    border:
+                        Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildStepItem(1, 'Your Photo', _activeStep >= 1),
-                      Icon(Icons.chevron_right, color: Colors.white24, size: 16),
-                      _buildStepItem(2, 'AI Preview', _activeStep >= 2),
-                      Icon(Icons.chevron_right, color: Colors.white24, size: 16),
-                      _buildStepItem(3, 'Results', _activeStep >= 3),
+                      _stepPill(1, 'Your Photo'),
+                      const Icon(Icons.chevron_right,
+                          color: Colors.white24, size: 16),
+                      _stepPill(2, 'AI Preview'),
+                      const Icon(Icons.chevron_right,
+                          color: Colors.white24, size: 16),
+                      _stepPill(3, 'Results'),
                     ],
                   ),
                 ),
               ),
 
-              const Divider(color: Colors.white12, height: 1),
+              const SizedBox(height: 14),
+              const Divider(color: Colors.white10, height: 1),
 
-              // 3. Scrollable Interactive Body
+              // ── Scrollable Body ───────────────────────────────────────
               Expanded(
-                child: ListView(
+                child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  children: [
-                    // Product Showcase & Selector Card
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Main Product Card — in step 3 shows selected AI result
-                        Expanded(
-                          flex: 5,
-                          child: Container(
-                            height: 200,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0A1324),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: (_activeStep == 3 && _aiResultImages.isNotEmpty)
-                                    ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
-                                    : Colors.white10,
-                                width: (_activeStep == 3 && _aiResultImages.isNotEmpty)
-                                    ? 1.5
-                                    : 1.0,
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── 2-column layout: Product card LEFT, Photo picker RIGHT
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // LEFT: Main product image + variant strip + info
+                            Expanded(
+                              flex: 5,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Main image card
+                                  Container(
+                                    height: 190,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0A1324),
+                                      borderRadius:
+                                          BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: (_activeStep == 3 &&
+                                                _aiResultImages.isNotEmpty)
+                                            ? const Color(0xFF00E5FF)
+                                                .withValues(alpha: 0.6)
+                                            : Colors.white10,
+                                        width: (_activeStep == 3 &&
+                                                _aiResultImages.isNotEmpty)
+                                            ? 1.5
+                                            : 1.0,
+                                      ),
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius:
+                                          BorderRadius.circular(13),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          if (mainImg.isNotEmpty)
+                                            Image.network(
+                                              mainImg,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) =>
+                                                  const Icon(
+                                                Icons.checkroom_outlined,
+                                                color: Colors.white24,
+                                                size: 36,
+                                              ),
+                                            )
+                                          else
+                                            const Icon(
+                                              Icons.checkroom_outlined,
+                                              color: Colors.white24,
+                                              size: 36,
+                                            ),
+                                          // AI-processing shimmer overlay
+                                          if (_isProcessing)
+                                            Container(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.55),
+                                              child: Column(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  const SizedBox(
+                                                    width: 22,
+                                                    height: 22,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color:
+                                                          Color(0xFF00E5FF),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Text(
+                                                    'AI generating…',
+                                                    style: dm(
+                                                        sz: 10,
+                                                        c: const Color(
+                                                            0xFF00E5FF)),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+
+                                  // Variant thumbnails (horizontal strip below main image)
+                                  if (images.length > 1) ...[
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 52,
+                                      child: ListView.separated(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: images.length,
+                                        separatorBuilder: (_, __) =>
+                                            const SizedBox(width: 6),
+                                        itemBuilder: (_, idx) {
+                                          final sel =
+                                              idx == _selectedVariantIndex;
+                                          return GestureDetector(
+                                            onTap: () => setState(() =>
+                                                _selectedVariantIndex = idx),
+                                            child: Container(
+                                              width: 48,
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: sel
+                                                      ? const Color(
+                                                          0xFF00E5FF)
+                                                      : Colors.white12,
+                                                  width: sel ? 1.8 : 1.0,
+                                                ),
+                                              ),
+                                              child: ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(7),
+                                                child: Image.network(
+                                                    images[idx],
+                                                    fit: BoxFit.cover),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+
+                                  const SizedBox(height: 10),
+
+                                  // Product title + price + vendor + rating (UNDER main image)
+                                  Text(
+                                    title,
+                                    style: syne(
+                                        sz: 13,
+                                        w: FontWeight.w800,
+                                        c: Colors.white),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    ugx(num.tryParse(price.toString()) ?? 0),
+                                    style: dm(
+                                        sz: 14,
+                                        w: FontWeight.w800,
+                                        c: const Color(0xFF00E5FF)),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.storefront_outlined,
+                                          size: 12,
+                                          color: Color(0xFF8A9AB2)),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          vendorName,
+                                          style: dm(
+                                              sz: 11,
+                                              c: const Color(0xFF8A9AB2)),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  // Star rating
+                                  Row(
+                                    children: [
+                                      ...List.generate(
+                                          5,
+                                          (i) => const Icon(
+                                                Icons.star_rounded,
+                                                size: 13,
+                                                color: Colors.amber,
+                                              )),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '(24)',
+                                        style: dm(
+                                            sz: 10,
+                                            c: const Color(0xFF8A9AB2)),
+                                      ),
+                                    ],
+                                  ),
+
+                                  // User photo thumbnail (shown after picking)
+                                  if (_selectedUserPhoto != null) ...[
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(24),
+                                          child: Image.file(
+                                            File(_selectedUserPhoto!.path),
+                                            width: 38,
+                                            height: 38,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Your photo',
+                                          style: dm(
+                                              sz: 10,
+                                              c: const Color(0xFF8A9AB2)),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: mainImg.isNotEmpty
-                                  ? Image.network(
-                                      mainImg,
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.checkroom_outlined,
-                                        color: Colors.white38,
-                                        size: 40,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.checkroom_outlined,
-                                      color: Colors.white38,
-                                      size: 40,
-                                    ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
 
-                        // Variant Selection Strip — right side thumbnails
-                        if (images.length > 1)
-                          Expanded(
-                            flex: 2,
-                            child: SizedBox(
-                              height: 200,
-                              child: ListView.separated(
-                                scrollDirection: Axis.vertical,
-                                itemCount: images.length,
-                                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                                itemBuilder: (context, idx) {
-                                  final isSel = idx == _selectedVariantIndex;
-                                  return GestureDetector(
-                                    onTap: () => setState(() => _selectedVariantIndex = idx),
-                                    child: Container(
-                                      height: 56,
+                            const SizedBox(width: 12),
+
+                            // RIGHT: Select a photo box
+                            Expanded(
+                              flex: 5,
+                              child: _buildPhotoPickerBox(),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 22),
+
+                      // ── "Experience it on you" section ────────────────
+                      Row(
+                        children: [
+                          const Icon(Icons.auto_awesome,
+                              color: Color(0xFF00E5FF), size: 15),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Experience it on you',
+                            style: syne(
+                                sz: 13,
+                                w: FontWeight.w700,
+                                c: Colors.white),
+                          ),
+                          if (_activeStep == 3 &&
+                              _aiResultImages.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF)
+                                    .withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: const Color(0xFF00E5FF)
+                                        .withValues(alpha: 0.4)),
+                              ),
+                              child: Text('AI Results',
+                                  style: dm(
+                                      sz: 9,
+                                      w: FontWeight.w700,
+                                      c: const Color(0xFF00E5FF))),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Results carousel — 170px wide cards to match mockup
+                      SizedBox(
+                        height: 200,
+                        child: _isProcessing
+                            ? Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const CircularProgressIndicator(
+                                        color: Color(0xFF00E5FF),
+                                        strokeWidth: 2),
+                                    const SizedBox(height: 10),
+                                    Text('AI generating try-on preview…',
+                                        style: dm(
+                                            sz: 11,
+                                            c: const Color(0xFF00E5FF))),
+                                  ],
+                                ),
+                              )
+                            : ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                physics: const BouncingScrollPhysics(),
+                                // images or placeholders + 1 "More styles" card
+                                itemCount:
+                                    (displayResults.isNotEmpty
+                                            ? displayResults.length
+                                            : 4) +
+                                        1,
+                                itemBuilder: (ctx, i) {
+                                  final total = displayResults.isNotEmpty
+                                      ? displayResults.length
+                                      : 4;
+                                  // "More styles ›" card
+                                  if (i >= total) {
+                                    return Container(
+                                      width: 100,
+                                      margin: const EdgeInsets.only(right: 10),
                                       decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(10),
+                                        color: const Color(0xFF0A1324),
+                                        borderRadius:
+                                            BorderRadius.circular(14),
+                                        border: Border.all(
+                                            color: Colors.white10),
+                                      ),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(Icons.auto_awesome,
+                                              color: Color(0xFF00E5FF),
+                                              size: 22),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'More\nstyles ›',
+                                            textAlign: TextAlign.center,
+                                            style: dm(
+                                                sz: 11,
+                                                w: FontWeight.w600,
+                                                c: const Color(0xFF00E5FF)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+
+                                  final isSel = _selectedResultIndex == i;
+                                  final imgUrl = displayResults.isNotEmpty
+                                      ? displayResults[
+                                          i % displayResults.length]
+                                      : '';
+
+                                  return GestureDetector(
+                                    onTap: () => setState(
+                                        () => _selectedResultIndex = i),
+                                    child: Container(
+                                      width: 170,
+                                      margin:
+                                          const EdgeInsets.only(right: 10),
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(14),
                                         border: Border.all(
                                           color: isSel
                                               ? const Color(0xFF00E5FF)
                                               : Colors.white12,
-                                          width: isSel ? 1.8 : 1.0,
+                                          width: isSel ? 2.0 : 1.0,
                                         ),
                                       ),
                                       child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(9),
-                                        child: Image.network(
-                                          images[idx],
-                                          fit: BoxFit.cover,
-                                        ),
+                                        borderRadius:
+                                            BorderRadius.circular(13),
+                                        child: imgUrl.isNotEmpty
+                                            ? Image.network(imgUrl,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (_, __, ___) =>
+                                                    const Icon(
+                                                        Icons.checkroom,
+                                                        color: Colors.white24))
+                                            : Container(
+                                                color:
+                                                    const Color(0xFF0A1324),
+                                                child: const Icon(
+                                                    Icons.checkroom,
+                                                    color: Colors.white24,
+                                                    size: 32),
+                                              ),
                                       ),
                                     ),
                                   );
                                 },
                               ),
-                            ),
-                          ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    // Product Title, Price, Vendor & Rating
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: syne(
-                                  sz: 15,
-                                  w: FontWeight.w700,
-                                  c: Colors.white,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                ugx(num.tryParse(price.toString()) ?? 0),
-                                style: dm(
-                                  sz: 14,
-                                  w: FontWeight.w800,
-                                  c: const Color(0xFF00E5FF),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.storefront_outlined,
-                                    size: 13,
-                                    color: Color(0xFF8A9AB2),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    vendorName,
-                                    style: dm(
-                                      sz: 11,
-                                      w: FontWeight.w500,
-                                      c: const Color(0xFF8A9AB2),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.star_rounded,
-                                    size: 14,
-                                    color: Colors.amber,
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    '4.9 (24)',
-                                    style: dm(
-                                      sz: 11,
-                                      w: FontWeight.w500,
-                                      c: const Color(0xFF8A9AB2),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Show user photo thumbnail if one has been selected
-                        if (_selectedUserPhoto != null)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 10),
-                            child: Column(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(32),
-                                  child: Image.file(
-                                    File(_selectedUserPhoto!.path),
-                                    width: 48,
-                                    height: 48,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Your photo',
-                                  style: dm(
-                                    sz: 9,
-                                    c: const Color(0xFF8A9AB2),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    // Step 1: Select a Photo Action Box
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0A1324),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.account_box_outlined,
-                                  color: Color(0xFF00E5FF),
-                                  size: 18,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Select a photo',
-                                    style: syne(
-                                      sz: 13,
-                                      w: FontWeight.w700,
-                                      c: Colors.white,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Choose a clear, well-lit photo of yourself',
-                                    style: dm(
-                                      sz: 11,
-                                      c: const Color(0xFF8A9AB2),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-
-                          // Gallery Button
-                          GestureDetector(
-                            onTap: _isProcessing
-                                ? null
-                                : () => _pickImage(ImageSource.gallery),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: Colors.transparent,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFF00E5FF),
-                                  width: 1.2,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.image_outlined,
-                                    color: Color(0xFF00E5FF),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Upload from Gallery',
-                                    style: dm(
-                                      sz: 13,
-                                      w: FontWeight.w600,
-                                      c: const Color(0xFF00E5FF),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          // Camera Button
-                          GestureDetector(
-                            onTap: _isProcessing
-                                ? null
-                                : () => _pickImage(ImageSource.camera),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF101B2E),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white12),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.camera_alt_outlined,
-                                    color: Colors.white70,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Take a Photo',
-                                    style: dm(
-                                      sz: 13,
-                                      w: FontWeight.w600,
-                                      c: Colors.white70,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 12),
-                          // Tips for best results
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.lightbulb_outline_rounded,
-                                color: Colors.amber,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'Tips: Use good lighting • Face the camera • Avoid sunglasses',
-                                  style: dm(
-                                    sz: 10.5,
-                                    w: FontWeight.w400,
-                                    c: const Color(0xFF8A9AB2),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // Step 3 / Results Preview: Experience it on you
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.auto_awesome,
-                          color: Color(0xFF00E5FF),
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Experience it on you',
-                          style: syne(
-                            sz: 13,
-                            w: FontWeight.w700,
-                            c: Colors.white,
-                          ),
-                        ),
-                        if (_activeStep == 3 && _aiResultImages.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
-                              ),
-                            ),
-                            child: Text(
-                              'AI Results',
-                              style: dm(
-                                sz: 9,
-                                w: FontWeight.w700,
-                                c: const Color(0xFF00E5FF),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    if (_isProcessing)
-                      Container(
-                        height: 110,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0A1324),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Color(0xFF00E5FF),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'AI generating try-on preview...',
-                                style: dm(
-                                  sz: 11,
-                                  c: const Color(0xFF00E5FF),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      SizedBox(
-                        height: 110,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          physics: const BouncingScrollPhysics(),
-                          itemCount: (displayResults.isNotEmpty
-                                  ? displayResults.length
-                                  : 3) +
-                              1, // +1 for "More styles" card
-                          itemBuilder: (context, i) {
-                            // Last item = "More styles >" card
-                            if (i >= (displayResults.isNotEmpty
-                                ? displayResults.length
-                                : 3)) {
-                              return Container(
-                                width: 82,
-                                margin: const EdgeInsets.only(right: 10),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF0A1324),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.white10),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      Icons.auto_awesome,
-                                      color: Color(0xFF00E5FF),
-                                      size: 18,
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'More styles >',
-                                      style: dm(
-                                        sz: 9.5,
-                                        w: FontWeight.w600,
-                                        c: const Color(0xFF00E5FF),
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-
-                            final imgUrl = displayResults.isNotEmpty
-                                ? displayResults[i % displayResults.length]
-                                : '';
-                            final isSel = _selectedResultIndex == i;
-
-                            return GestureDetector(
-                              onTap: () =>
-                                  setState(() => _selectedResultIndex = i),
-                              child: Container(
-                                width: 82,
-                                margin: const EdgeInsets.only(right: 10),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: isSel
-                                        ? const Color(0xFF00E5FF)
-                                        : Colors.white12,
-                                    width: isSel ? 2 : 1,
-                                  ),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(11),
-                                  child: imgUrl.isNotEmpty
-                                      ? Image.network(
-                                          imgUrl,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              const Icon(
-                                            Icons.checkroom,
-                                            color: Colors.white30,
-                                          ),
-                                        )
-                                      : const Icon(
-                                          Icons.checkroom,
-                                          color: Colors.white30,
-                                        ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
                       ),
 
-                    const SizedBox(height: 24),
-                  ],
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
 
-              // 4. Sticky Bottom Commerce Bar
+              // ── Sticky Bottom Commerce Bar ────────────────────────────
               Container(
                 padding: EdgeInsets.fromLTRB(
-                  16,
-                  10,
-                  16,
-                  MediaQuery.of(context).padding.bottom + 10,
-                ),
+                    16, 12, 16, MediaQuery.of(context).padding.bottom + 12),
                 decoration: BoxDecoration(
                   color: const Color(0xFF060F1E),
                   border: Border(
-                    top: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
+                      top: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.08))),
                 ),
                 child: Row(
                   children: [
@@ -885,11 +753,8 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                         color: Colors.white.withValues(alpha: 0.06),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(
-                        Icons.shopping_cart_outlined,
-                        color: Colors.white70,
-                        size: 20,
-                      ),
+                      child: const Icon(Icons.shopping_cart_outlined,
+                          color: Colors.white70, size: 20),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -897,21 +762,13 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            'Love this look?',
-                            style: syne(
-                              sz: 12,
-                              w: FontWeight.w700,
-                              c: Colors.white,
-                            ),
-                          ),
-                          Text(
-                            'Get it from our trusted vendors.',
-                            style: dm(
-                              sz: 10,
-                              c: const Color(0xFF8A9AB2),
-                            ),
-                          ),
+                          Text('Love this look?',
+                              style: syne(
+                                  sz: 12,
+                                  w: FontWeight.w700,
+                                  c: Colors.white)),
+                          Text('Get it from our trusted vendors.',
+                              style: dm(sz: 10, c: const Color(0xFF8A9AB2))),
                         ],
                       ),
                     ),
@@ -923,16 +780,14 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
+                            horizontal: 22, vertical: 13),
                         decoration: BoxDecoration(
                           color: const Color(0xFF00E5FF),
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius: BorderRadius.circular(26),
                           boxShadow: const [
                             BoxShadow(
                               color: Color(0x5500E5FF),
-                              blurRadius: 10,
+                              blurRadius: 12,
                               spreadRadius: 1,
                             ),
                           ],
@@ -940,20 +795,14 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.shopping_cart,
-                              color: Colors.black,
-                              size: 16,
-                            ),
+                            const Icon(Icons.shopping_cart,
+                                color: Colors.black, size: 16),
                             const SizedBox(width: 6),
-                            Text(
-                              'Buy Now',
-                              style: syne(
-                                sz: 13,
-                                w: FontWeight.w900,
-                                c: Colors.black,
-                              ),
-                            ),
+                            Text('Buy Now',
+                                style: syne(
+                                    sz: 13,
+                                    w: FontWeight.w900,
+                                    c: Colors.black)),
                           ],
                         ),
                       ),
@@ -968,39 +817,191 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
     );
   }
 
-  Widget _buildStepItem(int stepNumber, String title, bool isCurrentOrCompleted) {
-    return Row(
-      children: [
-        Container(
-          width: 20,
-          height: 20,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isCurrentOrCompleted
-                ? const Color(0xFF00E5FF)
-                : Colors.white.withValues(alpha: 0.1),
+  // ── Right-column photo picker box (matches mockup layout) ─────────────
+  Widget _buildPhotoPickerBox() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A1324),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: const Icon(Icons.account_box_outlined,
+                    color: Color(0xFF00E5FF), size: 16),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Select a photo',
+                        style: syne(
+                            sz: 12, w: FontWeight.w700, c: Colors.white)),
+                    Text('Choose a clear, well-lit photo of yourself',
+                        style: dm(sz: 10, c: const Color(0xFF8A9AB2))),
+                  ],
+                ),
+              ),
+            ],
           ),
-          child: Center(
-            child: Text(
-              '$stepNumber',
-              style: dm(
-                sz: 11,
-                w: FontWeight.w800,
-                c: isCurrentOrCompleted ? Colors.black : Colors.white60,
+          const SizedBox(height: 12),
+
+          // Upload from Gallery
+          GestureDetector(
+            onTap: _isProcessing
+                ? null
+                : () => _pickImage(ImageSource.gallery),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: const Color(0xFF00E5FF), width: 1.2),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.image_outlined,
+                      color: Color(0xFF00E5FF), size: 16),
+                  const SizedBox(width: 6),
+                  Text('Upload from Gallery',
+                      style: dm(
+                          sz: 12,
+                          w: FontWeight.w600,
+                          c: const Color(0xFF00E5FF))),
+                ],
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          title,
-          style: dm(
-            sz: 12,
-            w: isCurrentOrCompleted ? FontWeight.w700 : FontWeight.w400,
-            c: isCurrentOrCompleted ? Colors.white : Colors.white54,
+          const SizedBox(height: 8),
+
+          // Take a Photo
+          GestureDetector(
+            onTap: _isProcessing
+                ? null
+                : () => _pickImage(ImageSource.camera),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              decoration: BoxDecoration(
+                color: const Color(0xFF101B2E),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.camera_alt_outlined,
+                      color: Colors.white70, size: 16),
+                  const SizedBox(width: 6),
+                  Text('Take a Photo',
+                      style: dm(
+                          sz: 12,
+                          w: FontWeight.w600,
+                          c: Colors.white70)),
+                ],
+              ),
+            ),
           ),
+
+          const SizedBox(height: 12),
+
+          // Bullet-point tips (matches mockup "Tips for best results:")
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.lightbulb_outline_rounded,
+                  color: Colors.amber, size: 14),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Tips for best results:',
+                        style: dm(
+                            sz: 10,
+                            w: FontWeight.w700,
+                            c: Colors.white70)),
+                    const SizedBox(height: 3),
+                    _tip('Use good lighting'),
+                    _tip('Face the camera'),
+                    _tip('Avoid sunglasses or hats'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tip(String text) => Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('• ',
+                style: dm(sz: 10, c: const Color(0xFF8A9AB2))),
+            Flexible(
+              child: Text(text,
+                  style: dm(sz: 10, c: const Color(0xFF8A9AB2))),
+            ),
+          ],
         ),
-      ],
+      );
+
+  // ── Stepper pill item ─────────────────────────────────────────────────
+  Widget _stepPill(int n, String label) {
+    final active = _activeStep >= n;
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: active
+                  ? const Color(0xFF00E5FF)
+                  : Colors.white.withValues(alpha: 0.1),
+            ),
+            child: Center(
+              child: Text('$n',
+                  style: dm(
+                      sz: 11,
+                      w: FontWeight.w800,
+                      c: active ? Colors.black : Colors.white60)),
+            ),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              style: dm(
+                sz: 11,
+                w: active ? FontWeight.w700 : FontWeight.w400,
+                c: active ? Colors.white : Colors.white54,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
