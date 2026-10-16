@@ -87,9 +87,37 @@ Deno.serve(async (req: Request) => {
     }
 
     // 2. Submit Try-On Task
-    const { src_image_url, garment_image_url, garment_category = "upper_body", listing_id } = body;
+    const { src_image_url, garment_image_url, garment_category, listing_id } = body;
     if (!src_image_url || !garment_image_url) {
       return err("src_image_url and garment_image_url are required");
+    }
+
+    // Smart category resolution based on category name or listing title
+    let resolvedCategory = garment_category || "upper_body";
+    if (!garment_category && body.listing_id) {
+      try {
+        const { data: item } = await supabase
+          .from("listings")
+          .select("title, category")
+          .eq("id", listing_id)
+          .maybeSingle();
+        const text = `${item?.category || ""} ${item?.title || ""}`.toLowerCase();
+        if (text.includes("trouser") || text.includes("pant") || text.includes("short") || text.includes("skirt")) {
+          resolvedCategory = "lower_body";
+        } else if (text.includes("dress") || text.includes("suit") || text.includes("jumpsuit")) {
+          resolvedCategory = "full_body";
+        } else if (text.includes("jacket") || text.includes("coat") || text.includes("hoodie") || text.includes("vest")) {
+          resolvedCategory = "outerwear";
+        } else if (text.includes("shoe") || text.includes("sneaker") || text.includes("boot") || text.includes("heel")) {
+          resolvedCategory = "shoes";
+        } else if (text.includes("earring") || text.includes("jewelry")) {
+          resolvedCategory = "earrings";
+        } else if (text.includes("hat") || text.includes("cap") || text.includes("beanie")) {
+          resolvedCategory = "hat";
+        } else {
+          resolvedCategory = "upper_body";
+        }
+      } catch (_) {}
     }
 
     // If YouCam API key is present, invoke Perfect Corp v2.0 Clothes API
@@ -105,7 +133,7 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({
             src_file_url: src_image_url,
             ref_file_url: garment_image_url,
-            garment_category: garment_category,
+            garment_category: resolvedCategory,
           }),
         });
 
@@ -115,6 +143,7 @@ Deno.serve(async (req: Request) => {
             success: true,
             task_id: data.data.task_id,
             status: data.data.status || "PROCESSING",
+            garment_category: resolvedCategory,
           });
         }
       } catch (youcamErr) {

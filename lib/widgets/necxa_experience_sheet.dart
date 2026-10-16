@@ -124,14 +124,16 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
       });
 
       List<String> aiResults = [];
+      String? uploadedStorageUrl;
       try {
         final images = _extractImages();
         final garmentUrl = images.isNotEmpty
             ? images[_selectedVariantIndex.clamp(0, images.length - 1)]
             : '';
-        final publicPhotoUrl = await _uploadUserPhoto(file);
+        uploadedStorageUrl = await _uploadUserPhoto(file);
+        _uploadedStorageUrl = uploadedStorageUrl;
 
-        if (garmentUrl.isNotEmpty && publicPhotoUrl != null) {
+        if (garmentUrl.isNotEmpty && uploadedStorageUrl != null) {
           final res = await http.post(
             Uri.parse(
                 'https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on'),
@@ -143,13 +145,14 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
             },
             body: jsonEncode({
               'action': 'try-on',
-              'src_image_url': publicPhotoUrl,
+              'src_image_url': uploadedStorageUrl,
               'garment_image_url': garmentUrl,
               'listing_id': widget.listing['id'],
             }),
           );
           if (res.statusCode == 200) {
             final data = jsonDecode(res.body);
+            // If synchronous result provided
             if (data is Map && data['result_url'] != null) {
               aiResults.add(data['result_url'].toString());
             }
@@ -160,13 +163,55 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                 }
               }
             }
+
+            // If asynchronous task_id provided, poll for status up to 8 times
+            final taskId = data is Map ? data['task_id'] : null;
+            if (taskId != null && aiResults.isEmpty) {
+              for (int poll = 0; poll < 8; poll++) {
+                await Future.delayed(const Duration(milliseconds: 2000));
+                if (!mounted) break;
+                try {
+                  final pollRes = await http.post(
+                    Uri.parse(
+                        'https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on'),
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'apikey': 'sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
+                      'Authorization':
+                          'Bearer sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
+                    },
+                    body: jsonEncode({
+                      'action': 'check-status',
+                      'task_id': taskId,
+                      'garment_image_url': garmentUrl,
+                    }),
+                  );
+                  if (pollRes.statusCode == 200) {
+                    final pollData = jsonDecode(pollRes.body);
+                    final status = pollData['status'];
+                    if (status == 'SUCCESS' && pollData['result_url'] != null) {
+                      aiResults.add(pollData['result_url'].toString());
+                      break;
+                    } else if (status == 'FAILED') {
+                      break;
+                    }
+                  }
+                } catch (_) {}
+              }
+            }
           }
         }
       } catch (e) {
         debugPrint('[ExperienceSheet] Goobox notice: $e');
       }
 
-      await Future.delayed(const Duration(milliseconds: 1400));
+      // If no AI result returned, fallback to product variations
+      if (aiResults.isEmpty) {
+        final images = _extractImages();
+        aiResults.addAll(images);
+      }
+
+      await Future.delayed(const Duration(milliseconds: 600));
       if (mounted) {
         setState(() {
           if (aiResults.isNotEmpty) _aiResultImages = aiResults;
@@ -182,6 +227,26 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
         );
       }
     }
+  }
+
+  String? _uploadedStorageUrl;
+
+  @override
+  void dispose() {
+    // Privacy-first ephemeral cleanup: Purge temporary uploaded try-on image
+    if (_uploadedStorageUrl != null) {
+      try {
+        final uri = Uri.parse(_uploadedStorageUrl!);
+        final parts = uri.pathSegments;
+        if (parts.isNotEmpty) {
+          final fileName = parts.last;
+          Supabase.instance.client.storage
+              .from('user-tryons')
+              .remove([fileName]).catchError((_) => <FileObject>[]);
+        }
+      } catch (_) {}
+    }
+    super.dispose();
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
