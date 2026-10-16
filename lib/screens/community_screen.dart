@@ -4004,10 +4004,31 @@ class _ShopReelItemState extends State<_ShopReelItem>
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const Icon(
-                                        Icons.person_add_alt_1_rounded,
-                                        color: Color(0xFF00E5FF),
-                                        size: 14,
+                                      SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: Stack(
+                                          children: [
+                                            const Positioned(
+                                              left: 0,
+                                              top: 2,
+                                              child: Icon(
+                                                Icons.person_outline_rounded,
+                                                color: Color(0xFF00E5FF),
+                                                size: 14,
+                                              ),
+                                            ),
+                                            Positioned(
+                                              right: 0,
+                                              top: 0,
+                                              child: Icon(
+                                                Icons.auto_awesome,
+                                                color: const Color(0xFF00E5FF),
+                                                size: 8,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                       const SizedBox(width: 5),
                                       Text(

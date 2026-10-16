@@ -356,125 +356,135 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Main image card
-                                  Container(
-                                    height: 190,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF0A1324),
-                                      borderRadius:
-                                          BorderRadius.circular(14),
-                                      border: Border.all(
-                                        color: (_activeStep == 3 &&
-                                                _aiResultImages.isNotEmpty)
-                                            ? const Color(0xFF00E5FF)
-                                                .withValues(alpha: 0.6)
-                                            : Colors.white10,
-                                        width: (_activeStep == 3 &&
-                                                _aiResultImages.isNotEmpty)
-                                            ? 1.5
-                                            : 1.0,
-                                      ),
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius:
-                                          BorderRadius.circular(13),
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          if (mainImg.isNotEmpty)
-                                            Image.network(
-                                              mainImg,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) =>
-                                                  const Icon(
-                                                Icons.checkroom_outlined,
-                                                color: Colors.white24,
-                                                size: 36,
-                                              ),
-                                            )
-                                          else
-                                            const Icon(
-                                              Icons.checkroom_outlined,
-                                              color: Colors.white24,
-                                              size: 36,
+                                  // Main image card + vertical variant thumbnail column side-by-side
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Main preview card
+                                      Expanded(
+                                        child: Container(
+                                          height: 190,
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF0A1324),
+                                            borderRadius:
+                                                BorderRadius.circular(14),
+                                            border: Border.all(
+                                              color: (_activeStep == 3 &&
+                                                      _aiResultImages.isNotEmpty)
+                                                  ? const Color(0xFF00E5FF)
+                                                      .withValues(alpha: 0.6)
+                                                  : Colors.white10,
+                                              width: (_activeStep == 3 &&
+                                                      _aiResultImages.isNotEmpty)
+                                                  ? 1.5
+                                                  : 1.0,
                                             ),
-                                          // AI-processing shimmer overlay
-                                          if (_isProcessing)
-                                            Container(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.55),
-                                              child: Column(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.center,
-                                                children: [
-                                                  const SizedBox(
-                                                    width: 22,
-                                                    height: 22,
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color:
-                                                          Color(0xFF00E5FF),
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(13),
+                                            child: Stack(
+                                              fit: StackFit.expand,
+                                              children: [
+                                                if (mainImg.isNotEmpty)
+                                                  Image.network(
+                                                    mainImg,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __, ___) =>
+                                                        const Icon(
+                                                      Icons.checkroom_outlined,
+                                                      color: Colors.white24,
+                                                      size: 36,
+                                                    ),
+                                                  )
+                                                else
+                                                  const Icon(
+                                                    Icons.checkroom_outlined,
+                                                    color: Colors.white24,
+                                                    size: 36,
+                                                  ),
+                                                // AI-processing shimmer overlay
+                                                if (_isProcessing)
+                                                  Container(
+                                                    color: Colors.black
+                                                        .withValues(alpha: 0.55),
+                                                    child: Column(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment.center,
+                                                      children: [
+                                                        const SizedBox(
+                                                          width: 22,
+                                                          height: 22,
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                            color:
+                                                                Color(0xFF00E5FF),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(height: 8),
+                                                        Text(
+                                                          'AI generating…',
+                                                          style: dm(
+                                                              sz: 10,
+                                                              c: const Color(
+                                                                  0xFF00E5FF)),
+                                                        ),
+                                                      ],
                                                     ),
                                                   ),
-                                                  const SizedBox(height: 8),
-                                                  Text(
-                                                    'AI generating…',
-                                                    style: dm(
-                                                        sz: 10,
-                                                        c: const Color(
-                                                            0xFF00E5FF)),
-                                                  ),
-                                                ],
-                                              ),
+                                              ],
                                             ),
-                                        ],
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ),
 
-                                  // Variant thumbnails (horizontal strip below main image)
-                                  if (images.length > 1) ...[
-                                    const SizedBox(height: 8),
-                                    SizedBox(
-                                      height: 52,
-                                      child: ListView.separated(
-                                        scrollDirection: Axis.horizontal,
-                                        itemCount: images.length,
-                                        separatorBuilder: (_, __) =>
-                                            const SizedBox(width: 6),
-                                        itemBuilder: (_, idx) {
-                                          final sel =
-                                              idx == _selectedVariantIndex;
-                                          return GestureDetector(
-                                            onTap: () => setState(() =>
-                                                _selectedVariantIndex = idx),
-                                            child: Container(
-                                              width: 48,
-                                              decoration: BoxDecoration(
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: sel
-                                                      ? const Color(
-                                                          0xFF00E5FF)
-                                                      : Colors.white12,
-                                                  width: sel ? 1.8 : 1.0,
+                                      // Vertical variant thumbnails to the right of the main image
+                                      if (images.length > 1) ...[
+                                        const SizedBox(width: 8),
+                                        SizedBox(
+                                          width: 48,
+                                          height: 190,
+                                          child: ListView.separated(
+                                            padding: EdgeInsets.zero,
+                                            physics: const NeverScrollableScrollPhysics(),
+                                            itemCount: images.length > 3 ? 3 : images.length,
+                                            separatorBuilder: (_, __) =>
+                                                const SizedBox(height: 8),
+                                            itemBuilder: (_, idx) {
+                                              final sel =
+                                                  idx == _selectedVariantIndex;
+                                              return GestureDetector(
+                                                onTap: () => setState(() =>
+                                                    _selectedVariantIndex = idx),
+                                                child: Container(
+                                                  height: 54,
+                                                  decoration: BoxDecoration(
+                                                    borderRadius:
+                                                        BorderRadius.circular(8),
+                                                    border: Border.all(
+                                                      color: sel
+                                                          ? const Color(
+                                                              0xFF00E5FF)
+                                                          : Colors.white12,
+                                                      width: sel ? 1.8 : 1.0,
+                                                    ),
+                                                  ),
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(7),
+                                                    child: Image.network(
+                                                        images[idx],
+                                                        fit: BoxFit.cover),
+                                                  ),
                                                 ),
-                                              ),
-                                              child: ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(7),
-                                                child: Image.network(
-                                                    images[idx],
-                                                    fit: BoxFit.cover),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
 
                                   const SizedBox(height: 10),
 
