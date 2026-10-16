@@ -69,20 +69,46 @@ Deno.serve(async (req: Request) => {
       
       // If we have an active YouCam task, poll Perfect Corp API
       if (YOUCAM_API_KEY) {
-        const resp = await fetch(`https://api.perfectcorp.com/s2s/v2.0/task/cloth/${body.task_id}`, {
-          headers: {
-            "x-api-key": YOUCAM_API_KEY,
-            "Authorization": `Bearer ${YOUCAM_API_KEY}`,
-          },
-        });
-        const result = await resp.json();
-        return json(result);
+        try {
+          const resp = await fetch(`https://api.perfectcorp.com/s2s/v2.0/task/cloth/${body.task_id}`, {
+            method: "GET",
+            headers: {
+              "x-api-key": YOUCAM_API_KEY,
+            },
+          });
+          const result = await resp.json();
+          console.log("[YouCam Polling Status]:", JSON.stringify(result));
+          
+          // Perfect Corp standard response: { status: 200, data: { task_id, task_status: "success", url: "..." } }
+          const taskStatus = result?.data?.task_status || result?.task_status || result?.status;
+          const resultUrl = result?.data?.url || result?.url || result?.data?.result_url;
+          
+          if (taskStatus === "success" && resultUrl) {
+            return json({
+              status: "SUCCESS",
+              result_url: resultUrl,
+              task_id: body.task_id,
+            });
+          } else if (taskStatus === "error" || taskStatus === "failed") {
+            return json({
+              status: "FAILED",
+              error: result?.data?.error_message || result?.message || "YouCam processing failed",
+            });
+          } else {
+            return json({
+              status: "PROCESSING",
+              task_id: body.task_id,
+            });
+          }
+        } catch (pollErr) {
+          console.warn("[YouCam Polling Error]:", pollErr);
+        }
       }
 
-      // Fallback/Simulated task completion
+      // If simulated fallback task
       return json({
         status: "SUCCESS",
-        result_url: body.garment_image_url || body.src_image_url,
+        result_url: body.garment_image_url || null,
       });
     }
 
@@ -123,12 +149,12 @@ Deno.serve(async (req: Request) => {
     // If YouCam API key is present, invoke Perfect Corp v2.0 Clothes API
     if (YOUCAM_API_KEY) {
       try {
+        console.log(`[YouCam Try-On Submit] src: ${src_image_url}, ref: ${garment_image_url}, category: ${resolvedCategory}`);
         const response = await fetch("https://api.perfectcorp.com/s2s/v2.0/task/cloth", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-api-key": YOUCAM_API_KEY,
-            "Authorization": `Bearer ${YOUCAM_API_KEY}`,
           },
           body: JSON.stringify({
             src_file_url: src_image_url,
@@ -138,43 +164,49 @@ Deno.serve(async (req: Request) => {
         });
 
         const data = await response.json();
+        console.log("[YouCam Submit Response]:", JSON.stringify(data));
+        
         if (response.ok && data?.data?.task_id) {
           return json({
             success: true,
             task_id: data.data.task_id,
-            status: data.data.status || "PROCESSING",
+            status: data.data.status || data.data.task_status || "PROCESSING",
             garment_category: resolvedCategory,
           });
         }
       } catch (youcamErr) {
-        console.warn("YouCam API Call error:", youcamErr);
+        console.warn("[YouCam API Call error]:", youcamErr);
       }
     }
 
-    // High quality instant fallback with curated styling outputs for interactive visual feedback
+    // Graceful fallback with actual garment variations (never the raw user photo)
     const taskId = `exp_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
     
-    // Log experience session into database if table exists
-    try {
-      await supabase.from("product_experiences").insert({
-        user_id: userId,
-        listing_id: listing_id || null,
-        src_image: src_image_url,
-        garment_image: garment_image_url,
-        status: "COMPLETED",
-        created_at: new Date().toISOString(),
-      });
-    } catch (_) {}
+    // Fetch additional listing images if available to show real product styling
+    let fallbackVariations = [garment_image_url];
+    if (listing_id) {
+      try {
+        const { data: item } = await supabase
+          .from("listings")
+          .select("photos")
+          .eq("id", listing_id)
+          .maybeSingle();
+        if (item?.photos && Array.isArray(item.photos)) {
+          for (const p of item.photos) {
+            if (typeof p === "string" && p && !fallbackVariations.includes(p)) {
+              fallbackVariations.push(p);
+            }
+          }
+        }
+      } catch (_) {}
+    }
 
     return json({
       success: true,
       task_id: taskId,
       status: "SUCCESS",
       result_url: garment_image_url,
-      variations: [
-        garment_image_url,
-        src_image_url,
-      ],
+      variations: fallbackVariations,
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

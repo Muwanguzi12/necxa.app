@@ -164,10 +164,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
               }
             }
 
-            // If asynchronous task_id provided, poll for status up to 8 times
+            // If asynchronous task_id provided, poll for status up to 15 times (30 seconds)
             final taskId = data is Map ? data['task_id'] : null;
             if (taskId != null && aiResults.isEmpty) {
-              for (int poll = 0; poll < 8; poll++) {
+              for (int poll = 0; poll < 15; poll++) {
                 await Future.delayed(const Duration(milliseconds: 2000));
                 if (!mounted) break;
                 try {
@@ -189,8 +189,9 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                   if (pollRes.statusCode == 200) {
                     final pollData = jsonDecode(pollRes.body);
                     final status = pollData['status'];
-                    if (status == 'SUCCESS' && pollData['result_url'] != null) {
-                      aiResults.add(pollData['result_url'].toString());
+                    final resultUrl = pollData['result_url'];
+                    if (status == 'SUCCESS' && resultUrl != null && resultUrl.toString().isNotEmpty) {
+                      aiResults.insert(0, resultUrl.toString());
                       break;
                     } else if (status == 'FAILED') {
                       break;
