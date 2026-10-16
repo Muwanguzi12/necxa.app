@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
@@ -30,7 +31,7 @@ class NecxaExperienceSheet extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withOpacity(0.7),
+      barrierColor: Colors.black.withValues(alpha: 0.7),
       builder: (_) => NecxaExperienceSheet(
         listing: listing,
         state: state,
@@ -46,7 +47,7 @@ class NecxaExperienceSheet extends StatefulWidget {
 class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
   int _activeStep = 1; // 1: Your Photo, 2: AI Preview, 3: Results
   bool _isProcessing = false;
-  String? _selectedUserPhotoPath;
+  XFile? _selectedUserPhoto; // Stores the picked XFile so we can show a preview
   int _selectedVariantIndex = 0;
   int _selectedResultIndex = 0;
   List<String> _aiResultImages = [];
@@ -84,6 +85,32 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
     return list;
   }
 
+  /// Upload the local image file to Necxa Supabase Storage and return the
+  /// public URL so that the YouCam edge function receives a remotely accessible
+  /// URL (not a local file path which would be rejected by the API).
+  Future<String?> _uploadUserPhoto(XFile file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final ext = file.path.split('.').last.toLowerCase();
+      final mimeType = ext == 'png' ? 'image/png' : 'image/jpeg';
+      final fileName =
+          'tryon_${DateTime.now().millisecondsSinceEpoch}_${widget.listing['id'] ?? 'item'}.$ext';
+
+      // Use the Supabase SDK — auth/anon key are handled automatically
+      final client = Supabase.instance.client;
+      await client.storage.from('user-tryons').uploadBinary(
+            fileName,
+            bytes,
+            fileOptions: FileOptions(contentType: mimeType, upsert: true),
+          );
+
+      return client.storage.from('user-tryons').getPublicUrl(fileName);
+    } catch (e) {
+      debugPrint('[ExperienceSheet] Upload error: $e');
+      return null;
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? file = await _picker.pickImage(
@@ -95,43 +122,55 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
       if (file == null) return;
 
       setState(() {
-        _selectedUserPhotoPath = file.path;
+        _selectedUserPhoto = file;
         _isProcessing = true;
         _activeStep = 2; // AI Preview
       });
 
-      // Call YouCam try-on API via Goobox Edge Function (where YouCam credentials reside)
+      // Upload to storage to get a public URL for the YouCam API
       List<String> aiResults = [];
       try {
         final images = _extractImages();
-        final garmentUrl = images.isNotEmpty ? images[_selectedVariantIndex.clamp(0, images.length - 1)] : '';
+        final garmentUrl = images.isNotEmpty
+            ? images[_selectedVariantIndex.clamp(0, images.length - 1)]
+            : '';
 
-        final gooboxUrl = Uri.parse('https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on');
-        final res = await http.post(
-          gooboxUrl,
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': 'sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
-            'Authorization': 'Bearer sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
-          },
-          body: jsonEncode({
-            'action': 'try-on',
-            'src_image_url': file.path,
-            'garment_image_url': garmentUrl,
-            'listing_id': widget.listing['id'],
-          }),
-        );
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          if (data is Map && data['result_url'] != null) {
-            aiResults.add(data['result_url'].toString());
-          }
-          if (data is Map && data['variations'] is List) {
-            for (final v in data['variations']) {
-              if (v is String && v.isNotEmpty && !aiResults.contains(v)) {
-                aiResults.add(v);
+        // Upload user photo to storage; fall back to null (edge fn will gracefully degrade)
+        final publicPhotoUrl = await _uploadUserPhoto(file);
+
+        if (garmentUrl.isNotEmpty && publicPhotoUrl != null) {
+          final gooboxUrl = Uri.parse(
+              'https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on');
+          final res = await http.post(
+            gooboxUrl,
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': 'sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
+              'Authorization':
+                  'Bearer sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
+            },
+            body: jsonEncode({
+              'action': 'try-on',
+              'src_image_url': publicPhotoUrl,
+              'garment_image_url': garmentUrl,
+              'listing_id': widget.listing['id'],
+            }),
+          );
+          if (res.statusCode == 200) {
+            final data = jsonDecode(res.body);
+            if (data is Map && data['result_url'] != null) {
+              aiResults.add(data['result_url'].toString());
+            }
+            if (data is Map && data['variations'] is List) {
+              for (final v in data['variations']) {
+                if (v is String && v.isNotEmpty && !aiResults.contains(v)) {
+                  aiResults.add(v);
+                }
               }
             }
+          } else {
+            debugPrint(
+                '[ExperienceSheet] Goobox ${res.statusCode}: ${res.body}');
           }
         }
       } catch (err) {
@@ -162,9 +201,6 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
   @override
   Widget build(BuildContext context) {
     final images = _extractImages();
-    final primaryImg = images.isNotEmpty
-        ? images[_selectedVariantIndex.clamp(0, images.length - 1)]
-        : '';
     final title = widget.listing['title'] ?? 'Product';
     final price = widget.listing['price'] ?? 0;
     final rawProf = widget.listing['profiles'] ?? widget.listing['lister'];
@@ -173,6 +209,18 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
         : (rawProf is Map ? rawProf : null);
     final vendorName = prof?['display_name'] ?? prof?['full_name'] ?? 'Vendor';
 
+    // In step 3, show the selected AI result in the main product image slot.
+    // Fall back to the selected variant image in steps 1 & 2.
+    final displayResults =
+        _aiResultImages.isNotEmpty ? _aiResultImages : images;
+    final mainImg = (_activeStep == 3 &&
+            _aiResultImages.isNotEmpty &&
+            _selectedResultIndex < _aiResultImages.length)
+        ? _aiResultImages[_selectedResultIndex]
+        : (images.isNotEmpty
+            ? images[_selectedVariantIndex.clamp(0, images.length - 1)]
+            : '');
+
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
@@ -180,10 +228,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
         child: Container(
           height: MediaQuery.of(context).size.height * 0.82,
           decoration: BoxDecoration(
-            color: const Color(0xFF030A14).withOpacity(0.96),
+            color: const Color(0xFF030A14).withValues(alpha: 0.96),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(
-              color: const Color(0xFF00E5FF).withOpacity(0.3),
+              color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
               width: 1.2,
             ),
           ),
@@ -199,7 +247,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                         width: 44,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF00E5FF).withOpacity(0.4),
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -218,11 +266,11 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                               color: const Color(0xFF00E5FF),
                               width: 1.2,
                             ),
-                            color: const Color(0xFF00E5FF).withOpacity(0.12),
+                            color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
                           ),
                           child: const Center(
                             child: Icon(
-                              Icons.auto_awesome,
+                              Icons.person_add_alt_1_rounded,
                               color: Color(0xFF00E5FF),
                               size: 20,
                             ),
@@ -285,7 +333,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                   decoration: BoxDecoration(
                     color: const Color(0xFF0A1324),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -312,7 +360,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Main Product Card
+                        // Main Product Card — in step 3 shows selected AI result
                         Expanded(
                           flex: 5,
                           child: Container(
@@ -320,13 +368,20 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                             decoration: BoxDecoration(
                               color: const Color(0xFF0A1324),
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white10),
+                              border: Border.all(
+                                color: (_activeStep == 3 && _aiResultImages.isNotEmpty)
+                                    ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
+                                    : Colors.white10,
+                                width: (_activeStep == 3 && _aiResultImages.isNotEmpty)
+                                    ? 1.5
+                                    : 1.0,
+                              ),
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
-                              child: primaryImg.isNotEmpty
+                              child: mainImg.isNotEmpty
                                   ? Image.network(
-                                      primaryImg,
+                                      mainImg,
                                       fit: BoxFit.contain,
                                       errorBuilder: (_, __, ___) => const Icon(
                                         Icons.checkroom_outlined,
@@ -344,7 +399,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                         ),
                         const SizedBox(width: 12),
 
-                        // Variant Selection Strip
+                        // Variant Selection Strip — right side thumbnails
                         if (images.length > 1)
                           Expanded(
                             flex: 2,
@@ -451,6 +506,32 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                             ],
                           ),
                         ),
+                        // Show user photo thumbnail if one has been selected
+                        if (_selectedUserPhoto != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 10),
+                            child: Column(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(32),
+                                  child: Image.file(
+                                    File(_selectedUserPhoto!.path),
+                                    width: 48,
+                                    height: 48,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Your photo',
+                                  style: dm(
+                                    sz: 9,
+                                    c: const Color(0xFF8A9AB2),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
 
@@ -462,7 +543,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                       decoration: BoxDecoration(
                         color: const Color(0xFF0A1324),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,7 +553,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                               Container(
                                 padding: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF00E5FF).withOpacity(0.12),
+                                  color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: const Icon(
@@ -626,6 +707,28 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                             c: Colors.white,
                           ),
                         ),
+                        if (_activeStep == 3 && _aiResultImages.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Text(
+                              'AI Results',
+                              style: dm(
+                                sz: 9,
+                                w: FontWeight.w700,
+                                c: const Color(0xFF00E5FF),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -637,7 +740,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                           color: const Color(0xFF0A1324),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: const Color(0xFF00E5FF).withOpacity(0.3),
+                            color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
                           ),
                         ),
                         child: Center(
@@ -667,72 +770,89 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                     else
                       SizedBox(
                         height: 110,
-                        child: ListView(
+                        child: ListView.builder(
                           scrollDirection: Axis.horizontal,
                           physics: const BouncingScrollPhysics(),
-                          children: [
-                            final displayResults = _aiResultImages.isNotEmpty ? _aiResultImages : images;
-                            for (int i = 0; i < (displayResults.isNotEmpty ? displayResults.length : 3); i++)
-                              GestureDetector(
-                                onTap: () => setState(() => _selectedResultIndex = i),
-                                child: Container(
-                                  width: 82,
-                                  margin: const EdgeInsets.only(right: 10),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: _selectedResultIndex == i
-                                          ? const Color(0xFF00E5FF)
-                                          : Colors.white12,
-                                      width: _selectedResultIndex == i ? 2 : 1,
+                          itemCount: (displayResults.isNotEmpty
+                                  ? displayResults.length
+                                  : 3) +
+                              1, // +1 for "More styles" card
+                          itemBuilder: (context, i) {
+                            // Last item = "More styles >" card
+                            if (i >= (displayResults.isNotEmpty
+                                ? displayResults.length
+                                : 3)) {
+                              return Container(
+                                width: 82,
+                                margin: const EdgeInsets.only(right: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0A1324),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.white10),
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.auto_awesome,
+                                      color: Color(0xFF00E5FF),
+                                      size: 18,
                                     ),
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(11),
-                                    child: Image.network(
-                                      displayResults.isNotEmpty
-                                          ? displayResults[i % displayResults.length]
-                                          : primaryImg,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.checkroom,
-                                        color: Colors.white30,
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'More styles >',
+                                      style: dm(
+                                        sz: 9.5,
+                                        w: FontWeight.w600,
+                                        c: const Color(0xFF00E5FF),
                                       ),
+                                      textAlign: TextAlign.center,
                                     ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            final imgUrl = displayResults.isNotEmpty
+                                ? displayResults[i % displayResults.length]
+                                : '';
+                            final isSel = _selectedResultIndex == i;
+
+                            return GestureDetector(
+                              onTap: () =>
+                                  setState(() => _selectedResultIndex = i),
+                              child: Container(
+                                width: 82,
+                                margin: const EdgeInsets.only(right: 10),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isSel
+                                        ? const Color(0xFF00E5FF)
+                                        : Colors.white12,
+                                    width: isSel ? 2 : 1,
                                   ),
                                 ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(11),
+                                  child: imgUrl.isNotEmpty
+                                      ? Image.network(
+                                          imgUrl,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              const Icon(
+                                            Icons.checkroom,
+                                            color: Colors.white30,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.checkroom,
+                                          color: Colors.white30,
+                                        ),
+                                ),
                               ),
-
-                            // "More styles >" Card
-                            Container(
-                              width: 82,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0A1324),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white10),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.auto_awesome,
-                                    color: Color(0xFF00E5FF),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'More styles >',
-                                    style: dm(
-                                      sz: 9.5,
-                                      w: FontWeight.w600,
-                                      c: const Color(0xFF00E5FF),
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                            );
+                          },
                         ),
                       ),
 
@@ -753,7 +873,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                   color: const Color(0xFF060F1E),
                   border: Border(
                     top: BorderSide(
-                      color: Colors.white.withOpacity(0.08),
+                      color: Colors.white.withValues(alpha: 0.08),
                     ),
                   ),
                 ),
@@ -762,7 +882,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                     Container(
                       padding: const EdgeInsets.all(9),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.06),
+                        color: Colors.white.withValues(alpha: 0.06),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
@@ -858,7 +978,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
             shape: BoxShape.circle,
             color: isCurrentOrCompleted
                 ? const Color(0xFF00E5FF)
-                : Colors.white.withOpacity(0.1),
+                : Colors.white.withValues(alpha: 0.1),
           ),
           child: Center(
             child: Text(

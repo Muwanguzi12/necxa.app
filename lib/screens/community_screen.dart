@@ -3963,74 +3963,73 @@ class _ShopReelItemState extends State<_ShopReelItem>
                       ),
                       const SizedBox(width: 8),
 
-                      // 👤✨ EXPERIENCE → Button (Pops up with the 4s smart loading customer attention window)
-                      AnimatedOpacity(
-                        opacity: _buyPanelVisible ? 1.0 : 0.0,
+                      // 👤 EXPERIENCE → Button (collapses to zero until 4s smart-loading window fires)
+                      AnimatedSize(
                         duration: const Duration(milliseconds: 350),
-                        child: IgnorePointer(
-                          ignoring: !_buyPanelVisible,
-                          child: GestureDetector(
-                            onTap: () {
-                              NecxaExperienceSheet.show(
-                                context: context,
-                                listing: widget.listing,
-                                state: widget.state,
-                                onBuyNow: () {
-                                  widget.state.selectedListing = widget.listing;
-                                  widget.state.showCheckoutOverlay = true;
-                                  widget.state.notify();
+                        curve: Curves.easeOut,
+                        child: _buyPanelVisible
+                            ? GestureDetector(
+                                onTap: () {
+                                  NecxaExperienceSheet.show(
+                                    context: context,
+                                    listing: widget.listing,
+                                    state: widget.state,
+                                    onBuyNow: () {
+                                      widget.state.selectedListing = widget.listing;
+                                      widget.state.showCheckoutOverlay = true;
+                                      widget.state.notify();
+                                    },
+                                  );
                                 },
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0A1324).withValues(alpha: 0.85),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: const Color(0xFF00E5FF),
-                                  width: 1.3,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
-                                    blurRadius: 10,
-                                    spreadRadius: 0.5,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 7,
                                   ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.auto_awesome,
-                                    color: Color(0xFF00E5FF),
-                                    size: 14,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    'EXPERIENCE',
-                                    style: syne(
-                                      sz: 11,
-                                      w: FontWeight.w900,
-                                      c: const Color(0xFF00E5FF),
-                                      ls: 0.8,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0A1324).withValues(alpha: 0.85),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: const Color(0xFF00E5FF),
+                                      width: 1.3,
                                     ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+                                        blurRadius: 10,
+                                        spreadRadius: 0.5,
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 4),
-                                  const Icon(
-                                    Icons.arrow_forward_rounded,
-                                    color: Color(0xFF00E5FF),
-                                    size: 14,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.person_add_alt_1_rounded,
+                                        color: Color(0xFF00E5FF),
+                                        size: 14,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        'EXPERIENCE',
+                                        style: syne(
+                                          sz: 11,
+                                          w: FontWeight.w900,
+                                          c: const Color(0xFF00E5FF),
+                                          ls: 0.8,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(
+                                        Icons.arrow_forward_rounded,
+                                        color: Color(0xFF00E5FF),
+                                        size: 14,
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                                ),
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ],
                   ),
