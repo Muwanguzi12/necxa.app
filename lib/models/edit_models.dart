@@ -68,10 +68,16 @@ class TextOverlay extends EditOperation {
 /// Represents a color filter operation.
 class FilterOperation extends EditOperation {
   final String filterName; // e.g., 'sepia', 'grayscale', 'vignette'
-  FilterOperation({required this.filterName}) : super('filter');
+  final double intensity;
+  FilterOperation({required this.filterName, this.intensity = 1.0})
+      : super('filter');
 
   @override
-  Map<String, dynamic> toJson() => {'type': type, 'name': filterName};
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'name': filterName,
+    'intensity': intensity,
+  };
 }
 
 /// Non-destructive visual transform shared by every editor surface and renderer.
