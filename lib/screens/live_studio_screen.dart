@@ -18,6 +18,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../widgets/live_studio/live_enforcement_overlay.dart';
 import '../utils/error_handler.dart';
+import '../services/filter_catalogue_service.dart';
+import '../effects_engine/necxa_effects_engine.dart';
 
 enum _GuestJoinMode { video, audioOnly }
 
@@ -113,13 +115,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _hostInGreenRoom = false;
   bool _startingBroadcast = false;
   bool _isFrontCamera = true; // green room starts front-facing
-  // ── Green Room Effects ─────────────────────────────────────────────────────
+  // ── Green Room Effects & Smart Filter Catalogue ───────────────────────────
   int _activeFilterIndex = 0; // 0 = Normal (no tint)
   double _beautySmoothing = 0.0; // 0..1
   double _beautyWhitening = 0.0; // 0..1
+  double _faceSymmetry = 0.0; // 0..1
   bool _mirrorMode = false;
   bool _showGrid = false;
   bool _noiseSuppression = true;
+
+  // NECXA Smart Filter Library integration
+  List<NecxaFilterMeta> _catalogueFilters = [];
+  NecxaFilterMeta? _activeCatalogueFilter;
+  double _catalogueFilterIntensity = 1.0;
+  bool _loadingCatalogue = false;
+  bool _previewOriginal = false; // true during hold to compare
+  String _activeCategoryTab = 'All';
+  int _effectsPanelTab = 0; // 0 = Smart Filters, 1 = Beauty Retouch
   // ──────────────────────────────────────────────────────────────────────────
   DateTime? _plannedBroadcastTime;
   final TextEditingController _liveTitleController = TextEditingController();
@@ -198,7 +210,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     } catch (e) {
       debugPrint('Necxa Live: Verification cache check failed: $e');
     }
+    unawaited(_loadFilterCatalogue());
     if (mounted) await _initLiveKit();
+  }
+
+  Future<void> _loadFilterCatalogue() async {
+    if (mounted) setState(() => _loadingCatalogue = true);
+    try {
+      final filters = await FilterCatalogueService.loadCatalogue();
+      if (mounted) {
+        setState(() {
+          _catalogueFilters = filters;
+        });
+      }
+    } catch (e) {
+      debugPrint('[LiveStudio] Catalogue load failed: $e');
+    } finally {
+      if (mounted) setState(() => _loadingCatalogue = false);
+    }
   }
 
   void _startLiveEventSync() {
@@ -1373,360 +1402,368 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   Widget _buildHostGreenRoom() {
     final avatar = _hostAvatar;
-    final modes = [
-      (Icons.flip_camera_ios_outlined, 'Flip'),
-      (Icons.videocam_outlined, 'Camera'),
-      (Icons.mic_outlined, 'Voice'),
-      (Icons.sports_esports_outlined, 'Gaming'),
-    ];
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final threeQuartersHeight = screenHeight * 0.75;
+    final topQuarterHeight = screenHeight * 0.25;
+
+    final hasActiveFilter = (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
+        _activeFilterIndex != 0 ||
+        _beautySmoothing > 0 ||
+        _beautyWhitening > 0 ||
+        _faceSymmetry > 0;
 
     return Positioned.fill(
       child: Material(
         color: Colors.transparent,
         child: Stack(
           children: [
-            // ── Top Bar ────────────────────────────────────────────
+            // ── TOP QUARTER: Live Camera Preview & Floating Studio Header ──
             Positioned(
               top: 0,
               left: 0,
               right: 0,
+              height: topQuarterHeight,
               child: SafeArea(
+                bottom: false,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
+                  child: Column(
                     children: [
-                      // Integrated clean close button
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white, size: 24),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        onPressed: _startingBroadcast ? null : _closeLiveStudio,
-                      ),
-                      const SizedBox(width: 14),
-                      // Host identity chip
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.45),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white24, width: 0.8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 24,
-                              height: 24,
-                              decoration: const BoxDecoration(shape: BoxShape.circle),
-                              clipBehavior: Clip.hardEdge,
-                              child: avatar.isNotEmpty
-                                  ? CachedNetworkImage(imageUrl: avatar, fit: BoxFit.cover)
-                                  : Container(
-                                      color: const Color(0xFF3B3F5C),
-                                      child: const Icon(Icons.person, color: Colors.white70, size: 14),
-                                    ),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white, size: 24),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: _startingBroadcast ? null : _closeLiveStudio,
+                          ),
+                          const SizedBox(width: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: C.brand.withValues(alpha: 0.6), width: 1),
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              _hostDisplayName,
-                              style: dm(sz: 12, w: FontWeight.w600, c: Colors.white),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(color: C.brand, shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'NECXA LIVE STUDIO',
+                                  style: syne(sz: 10, w: FontWeight.w800, c: C.brand, ls: 1),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.flip_camera_ios_outlined, color: Colors.white, size: 22),
+                            onPressed: _flipCamera,
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
+                              color: _showGrid ? C.brand : Colors.white70,
+                              size: 20,
+                            ),
+                            onPressed: () => setState(() => _showGrid = !_showGrid),
+                          ),
+                        ],
                       ),
-                      const Spacer(),
+                      if (hasActiveFilter) ...[
+                        const SizedBox(height: 6),
+                        GestureDetector(
+                          onLongPressStart: (_) => setState(() => _previewOriginal = true),
+                          onLongPressEnd: (_) => setState(() => _previewOriginal = false),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.65),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: _previewOriginal ? Colors.white54 : C.brand.withValues(alpha: 0.8),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _previewOriginal ? Icons.visibility_off : Icons.auto_awesome,
+                                  size: 13,
+                                  color: _previewOriginal ? Colors.white70 : C.brand,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _previewOriginal
+                                      ? 'Original (hold)'
+                                      : 'Hold for Original \u2022 ${_activeCatalogueFilter?.displayName ?? _filterPresets[_activeFilterIndex].$1}',
+                                  style: dm(
+                                    sz: 10,
+                                    w: FontWeight.w600,
+                                    c: _previewOriginal ? Colors.white70 : C.brand,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
             ),
 
-            // ── Camera Focus Brackets (centre) ──────────────────────
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white38, width: 1.5),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.camera_alt_outlined, color: Colors.white54, size: 28),
-                          const SizedBox(height: 6),
-                          Text('Camera ready', style: dm(sz: 10, c: Colors.white70)),
-                          Text('Tap to focus', style: dm(sz: 10, c: Colors.white38)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            Positioned(
-              right: 10,
-              top: 0,
-              bottom: 0,
-              child: SafeArea(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    GestureDetector(
-                      onTap: _openFiltersSheet,
-                      child: _greenRoomRailBtn(
-                        Icons.auto_fix_high_outlined,
-                        'Filters',
-                        active: _activeFilterIndex != 0,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    GestureDetector(
-                      onTap: _openBeautySheet,
-                      child: _greenRoomRailBtn(
-                        Icons.face_retouching_natural,
-                        'Beauty',
-                        active: _beautySmoothing > 0 || _beautyWhitening > 0,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    GestureDetector(
-                      onTap: _openMoreSheet,
-                      child: _greenRoomRailBtn(
-                        Icons.more_horiz,
-                        'More',
-                        active: _mirrorMode || _showGrid || _liveGoal.isNotEmpty,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // ── Bottom Controls ─────────────────────────────────────
+            // ── BOTTOM 3-QUARTERS: Preparation Console Sheet ──
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              child: SafeArea(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // ── Stream Title & Live Goal Bar (Just above modes) ──
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white24, width: 0.8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.edit_note_rounded, color: C.brand, size: 22),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _liveTitleController,
-                              style: dm(sz: 13, c: Colors.white, w: FontWeight.w500),
-                              maxLength: 60,
-                              maxLines: 1,
-                              decoration: const InputDecoration(
-                                hintText: 'Add a title to attract viewers…',
-                                hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
-                                isDense: true,
-                                contentPadding: EdgeInsets.zero,
-                                border: InputBorder.none,
-                                counterText: '',
-                              ),
-                            ),
+              height: threeQuartersHeight,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xF50D1017),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                  border: Border.all(color: Colors.white12, width: 1.2),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black87, blurRadius: 28, spreadRadius: 6),
+                  ],
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      // Grab handle
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 4,
+                          margin: const EdgeInsets.only(top: 10, bottom: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white24,
+                            borderRadius: BorderRadius.circular(2),
                           ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: _openGoalDialog,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: _liveGoal.isNotEmpty
-                                    ? C.brand.withValues(alpha: 0.2)
-                                    : Colors.white.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: _liveGoal.isNotEmpty ? C.brand : Colors.white24,
+                        ),
+                      ),
+
+                      Expanded(
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 1. Host identity & Stream Title Card
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.05),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: Colors.white10),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 14,
+                                          backgroundColor: const Color(0xFF3B3F5C),
+                                          backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
+                                          child: avatar.isEmpty ? const Icon(Icons.person, size: 14, color: Colors.white70) : null,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            _hostDisplayName,
+                                            style: syne(sz: 13, w: FontWeight.w700, c: Colors.white),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        GestureDetector(
+                                          onTap: _openGoalDialog,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: _liveGoal.isNotEmpty ? C.brand.withValues(alpha: 0.2) : Colors.white10,
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(color: _liveGoal.isNotEmpty ? C.brand : Colors.white24),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.flag_rounded, size: 12, color: _liveGoal.isNotEmpty ? C.brand : Colors.white70),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  _liveGoal.isNotEmpty ? _liveGoal : 'Add Goal',
+                                                  style: dm(sz: 11, w: FontWeight.w600, c: _liveGoal.isNotEmpty ? C.brand : Colors.white70),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextField(
+                                      controller: _liveTitleController,
+                                      style: dm(sz: 14, c: Colors.white, w: FontWeight.w500),
+                                      maxLength: 60,
+                                      maxLines: 1,
+                                      decoration: InputDecoration(
+                                        hintText: 'Add a title to attract viewers…',
+                                        hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                                        filled: true,
+                                        fillColor: Colors.black.withValues(alpha: 0.35),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                        counterText: '',
+                                        prefixIcon: const Icon(Icons.edit_note_rounded, color: C.brand, size: 20),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
+
+                              const SizedBox(height: 12),
+
+                              // 2. Broadcast Mode Switcher (Camera / Voice / Gaming)
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.4),
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(child: _greenRoomModePill(1, Icons.videocam_rounded, 'Camera')),
+                                    Expanded(child: _greenRoomModePill(2, Icons.mic_rounded, 'Voice Only')),
+                                    Expanded(child: _greenRoomModePill(3, Icons.sports_esports_rounded, 'Gaming')),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 14),
+
+                              // 3. NECXA Real-Time Beauty Filters & Effects Studio Tray
+                              _buildEffectsAndBeautyTray(),
+
+                              const SizedBox(height: 14),
+
+                              // 4. Schedule & Mirror Options
+                              Row(
                                 children: [
-                                  Icon(
-                                    Icons.flag_rounded,
-                                    color: _liveGoal.isNotEmpty ? C.brand : Colors.white70,
-                                    size: 13,
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: _pickBroadcastTime,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.05),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: _plannedBroadcastTime != null ? C.brand : Colors.white10),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.calendar_month_outlined, size: 14, color: _plannedBroadcastTime != null ? C.brand : Colors.white70),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              _plannedBroadcastTime != null ? _plannedBroadcastLabel() : 'Schedule',
+                                              style: dm(sz: 11, c: _plannedBroadcastTime != null ? C.brand : Colors.white70),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _liveGoal.isNotEmpty ? _liveGoal : 'Add goal',
-                                    style: dm(
-                                      sz: 11,
-                                      c: _liveGoal.isNotEmpty ? C.brand : Colors.white70,
-                                      w: FontWeight.w600,
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () => setState(() => _mirrorMode = !_mirrorMode),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.05),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: _mirrorMode ? C.brand : Colors.white10),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.flip_outlined, size: 14, color: _mirrorMode ? C.brand : Colors.white70),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              _mirrorMode ? 'Mirrored' : 'Mirror: Off',
+                                              style: dm(sz: 11, c: _mirrorMode ? C.brand : Colors.white70),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
 
-                    const SizedBox(height: 10),
+                              const SizedBox(height: 16),
 
-                    // Mode tabs (Flip / Camera / Voice / Gaming)
-                    Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: List.generate(modes.length, (i) {
-                          final active = i == _greenRoomModeIndex;
-                          final (icon, label) = modes[i];
-                          return GestureDetector(
-                            onTap: () {
-                              if (i == 0) {
-                                _flipCamera(); // Flip = action, not a persistent mode
-                              } else {
-                                setState(() => _greenRoomModeIndex = i);
-                              }
-                            },
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Stack(
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    Icon(icon, color: active ? Colors.white : Colors.white54, size: 22),
-                                    if (label == 'Gaming')
-                                      Positioned(
-                                        top: -6,
-                                        right: -14,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                          decoration: BoxDecoration(
-                                            color: C.brand,
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: Text('Beta', style: dm(sz: 7, c: Colors.white, w: FontWeight.bold)),
+                              // 5. Prominent "Go LIVE" Button
+                              GestureDetector(
+                                onTap: _startingBroadcast ? null : _startBroadcast,
+                                child: Container(
+                                  height: 52,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: _startingBroadcast
+                                          ? [Colors.grey.shade700, Colors.grey.shade600]
+                                          : [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)],
+                                      begin: Alignment.centerLeft,
+                                      end: Alignment.centerRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(30),
+                                    boxShadow: [
+                                      if (!_startingBroadcast)
+                                        BoxShadow(
+                                          color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                                          blurRadius: 16,
+                                          spreadRadius: 1,
+                                          offset: const Offset(0, 4),
                                         ),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 3),
-                                Text(label, style: dm(sz: 10, c: active ? Colors.white : Colors.white54)),
-                              ],
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // Go LIVE button
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: GestureDetector(
-                        onTap: _startingBroadcast ? null : _startBroadcast,
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          height: 52,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: _startingBroadcast
-                                  ? [Colors.grey.shade700, Colors.grey.shade600]
-                                  : [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)],
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                            ),
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          child: Center(
-                            child: _startingBroadcast
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                                  )
-                                : Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.wifi_tethering_rounded, color: Colors.white, size: 20),
-                                      const SizedBox(width: 8),
-                                      Text('Go LIVE', style: syne(sz: 16, w: FontWeight.w900, c: Colors.white, ls: 0.5)),
                                     ],
                                   ),
+                                  child: Center(
+                                    child: _startingBroadcast
+                                        ? const SizedBox(
+                                            width: 22,
+                                            height: 22,
+                                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                                          )
+                                        : Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.wifi_tethering_rounded, color: Colors.white, size: 22),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                'Go LIVE',
+                                                style: syne(sz: 16, w: FontWeight.w900, c: Colors.white, ls: 0.8),
+                                              ),
+                                            ],
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    // Effects | Schedule strip
-                    Row(
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {}, // hook effects
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.auto_awesome, color: Colors.white70, size: 16),
-                                  const SizedBox(width: 6),
-                                  Text('Effects', style: dm(sz: 12, c: Colors.white70)),
-                                  const SizedBox(width: 4),
-                                  const Icon(Icons.chevron_right, color: Colors.white38, size: 16),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        Container(width: 1, height: 20, color: Colors.white24),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: _pickBroadcastTime,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(Icons.calendar_month_outlined, color: Colors.white70, size: 16),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _plannedBroadcastTime != null ? _plannedBroadcastLabel() : 'Schedule',
-                                    style: dm(sz: 12, c: _plannedBroadcastTime != null ? C.brand : Colors.white70),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  const Icon(Icons.chevron_right, color: Colors.white38, size: 16),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1736,28 +1773,394 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-  Widget _greenRoomRailBtn(IconData icon, String label, {bool active = false}) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: active
-                ? C.brand.withValues(alpha: 0.25)
-                : Colors.black.withValues(alpha: 0.4),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: active ? C.brand : Colors.white24,
-              width: active ? 1.5 : 1,
-            ),
-          ),
-          child: Icon(icon, color: active ? C.brand : Colors.white70, size: 20),
+  Widget _greenRoomModePill(int modeIndex, IconData icon, String label) {
+    final active = _greenRoomModeIndex == modeIndex;
+    return GestureDetector(
+      onTap: () => setState(() => _greenRoomModeIndex = modeIndex),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? C.brand : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
         ),
-        const SizedBox(height: 3),
-        Text(label, style: dm(sz: 9, c: active ? C.brand : Colors.white60)),
-      ],
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: active ? Colors.black : Colors.white60),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: syne(
+                sz: 11,
+                w: FontWeight.w700,
+                c: active ? Colors.black : Colors.white60,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEffectsAndBeautyTray({StateSetter? setSheetState}) {
+    final categories = ['All', 'beauty', 'super_face', 'symmetry', 'glow', 'color', 'creative'];
+    final filteredCatalogue = _activeCategoryTab == 'All'
+        ? _catalogueFilters
+        : _catalogueFilters.where((f) => f.category == _activeCategoryTab).toList();
+
+    void update(VoidCallback fn) {
+      if (mounted) setState(fn);
+      setSheetState?.call(fn);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white10),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Sub-tabs: Smart Filters vs Beauty Retouch
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => update(() => _effectsPanelTab = 0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _effectsPanelTab == 0 ? C.brand.withValues(alpha: 0.25) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _effectsPanelTab == 0 ? C.brand : Colors.transparent,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.auto_awesome, size: 13, color: _effectsPanelTab == 0 ? C.brand : Colors.white60),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Smart Filters',
+                        style: syne(
+                          sz: 11,
+                          w: FontWeight.w700,
+                          c: _effectsPanelTab == 0 ? C.brand : Colors.white60,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => update(() => _effectsPanelTab = 1),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _effectsPanelTab == 1 ? C.brand.withValues(alpha: 0.25) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _effectsPanelTab == 1 ? C.brand : Colors.transparent,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.face_retouching_natural, size: 13, color: _effectsPanelTab == 1 ? C.brand : Colors.white60),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Beauty Retouch',
+                        style: syne(
+                          sz: 11,
+                          w: FontWeight.w700,
+                          c: _effectsPanelTab == 1 ? C.brand : Colors.white60,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const Spacer(),
+              if (_activeCatalogueFilter != null || _beautySmoothing > 0 || _beautyWhitening > 0 || _faceSymmetry > 0)
+                GestureDetector(
+                  onTap: () {
+                    update(() {
+                      _activeCatalogueFilter = null;
+                      _activeFilterIndex = 0;
+                      _beautySmoothing = 0;
+                      _beautyWhitening = 0;
+                      _faceSymmetry = 0;
+                    });
+                  },
+                  child: Text('Reset', style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600)),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          // Content of Tab 0: Smart Filters
+          if (_effectsPanelTab == 0) ...[
+            // Category pills
+            SizedBox(
+              height: 32,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: categories.length,
+                itemBuilder: (_, i) {
+                  final cat = categories[i];
+                  final isCatActive = _activeCategoryTab == cat;
+                  final label = cat == 'super_face'
+                      ? 'Super Face'
+                      : (cat == 'All' ? 'All' : cat[0].toUpperCase() + cat.substring(1));
+                  return GestureDetector(
+                    onTap: () => update(() => _activeCategoryTab = cat),
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isCatActive ? C.brand : Colors.white10,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Center(
+                        child: Text(
+                          label,
+                          style: syne(
+                            sz: 10,
+                            w: FontWeight.w700,
+                            c: isCatActive ? Colors.black : Colors.white70,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // Horizontal Filter Carousel
+            SizedBox(
+              height: 96,
+              child: _loadingCatalogue && _catalogueFilters.isEmpty
+                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2, color: C.brand))
+                  : ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        // None / Original Card
+                        _buildFilterCardItem(
+                          displayName: 'Original',
+                          isSelected: _activeCatalogueFilter == null && _activeFilterIndex == 0,
+                          icon: Icons.block,
+                          onTap: () {
+                            update(() {
+                              _activeCatalogueFilter = null;
+                              _activeFilterIndex = 0;
+                            });
+                          },
+                        ),
+                        // Dynamic Catalogue Filter Cards
+                        ...filteredCatalogue.map((filter) {
+                          if (filter.isNone) return const SizedBox.shrink();
+                          final isSelected = _activeCatalogueFilter?.id == filter.id;
+                          return _buildFilterCardItem(
+                            displayName: filter.displayName,
+                            isSelected: isSelected,
+                            icon: Icons.auto_awesome,
+                            meta: filter,
+                            onTap: () {
+                              update(() {
+                                _activeCatalogueFilter = filter;
+                              });
+                            },
+                          );
+                        }),
+                      ],
+                    ),
+            ),
+
+            // Intensity Slider (when a catalogue filter is active)
+            if (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text('Intensity', style: dm(sz: 11, c: Colors.white70)),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderThemeData(
+                        activeTrackColor: C.brand,
+                        inactiveTrackColor: Colors.white12,
+                        thumbColor: Colors.white,
+                        overlayColor: C.brand.withValues(alpha: 0.2),
+                        trackHeight: 2,
+                      ),
+                      child: Slider(
+                        value: _catalogueFilterIntensity,
+                        min: 0,
+                        max: 1,
+                        onChanged: (v) => update(() => _catalogueFilterIntensity = v),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${(_catalogueFilterIntensity * 100).round()}%',
+                    style: dm(sz: 11, c: C.brand, w: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ],
+          ] else ...[
+            // Content of Tab 1: Beauty Retouch & Face Shaping
+            _beautySliderRow(
+              icon: Icons.face_retouching_natural,
+              label: 'Skin Smoothing',
+              value: _beautySmoothing,
+              onChanged: (v) => update(() => _beautySmoothing = v),
+            ),
+            const SizedBox(height: 8),
+            _beautySliderRow(
+              icon: Icons.wb_sunny_outlined,
+              label: 'Skin Brightening',
+              value: _beautyWhitening,
+              onChanged: (v) => update(() => _beautyWhitening = v),
+            ),
+            const SizedBox(height: 8),
+            _beautySliderRow(
+              icon: Icons.center_focus_strong_outlined,
+              label: 'Facial Symmetry',
+              value: _faceSymmetry,
+              onChanged: (v) => update(() => _faceSymmetry = v),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterCardItem({
+    required String displayName,
+    required bool isSelected,
+    required IconData icon,
+    NecxaFilterMeta? meta,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 72,
+        margin: const EdgeInsets.only(right: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? C.brand.withValues(alpha: 0.15) : Colors.black45,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? C.brand : Colors.white24,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: isSelected
+                          ? [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)]
+                          : [Colors.white12, Colors.white10],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      icon,
+                      color: isSelected ? Colors.white : Colors.white60,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+              child: Text(
+                displayName,
+                style: syne(
+                  sz: 9,
+                  w: isSelected ? FontWeight.w800 : FontWeight.w600,
+                  c: isSelected ? C.brand : Colors.white70,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Opens the 3-quarters Effects & Beauty modal while live streaming.
+  void _openLiveEffectsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setSheet) => Container(
+          height: MediaQuery.sizeOf(context).height * 0.75, // Exactly 3-quarters!
+          decoration: BoxDecoration(
+            color: const Color(0xF20D1017),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: Colors.white12, width: 1.2),
+          ),
+          child: Column(
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 10, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.auto_awesome, color: C.brand, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Studio Effects & Beauty', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.check, color: C.brand),
+                      onPressed: () => Navigator.pop(sheetCtx),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: _buildEffectsAndBeautyTray(setSheetState: setSheet),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1869,11 +2272,28 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     ];
   }
 
-  /// Wraps _buildVideoView() with ColorFiltered (tint), Transform (mirror),
+  /// Wraps _buildVideoView() with ColorFiltered (tint/catalogue), Transform (mirror),
   /// optional smoothing BackdropFilter (beauty), and grid overlay.
   Widget _buildFilteredVideoView() {
-    final (_, filterMatrix) = _filterPresets[_activeFilterIndex];
-    final combinedMatrix = _mergeColorMatrices(filterMatrix, _beautyMatrix());
+    List<double> filterMatrix;
+    if (_previewOriginal) {
+      filterMatrix = const [
+        1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1,0,
+      ];
+    } else if (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) {
+      filterMatrix = NecxaEffectsEngine.buildMatrixForMeta(
+        _activeCatalogueFilter!,
+        intensity: _catalogueFilterIntensity,
+      );
+    } else {
+      final idx = _activeFilterIndex.clamp(0, _filterPresets.length - 1);
+      final (_, legacyMatrix) = _filterPresets[idx];
+      filterMatrix = legacyMatrix;
+    }
+
+    final combinedMatrix = _previewOriginal
+        ? filterMatrix
+        : _mergeColorMatrices(filterMatrix, _beautyMatrix());
 
     Widget video = _buildVideoView();
 
@@ -1886,8 +2306,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
     }
 
-    // Colour filter (Normal = identity so free when index==0)
-    if (_activeFilterIndex != 0 || _beautyWhitening > 0) {
+    // Colour filter (Normal/none = identity so free when inactive)
+    final hasActiveFilter = (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
+        _activeFilterIndex != 0 ||
+        _beautyWhitening > 0;
+
+    if (!_previewOriginal && hasActiveFilter) {
       video = ColorFiltered(
         colorFilter: ColorFilter.matrix(combinedMatrix),
         child: video,
@@ -1895,7 +2319,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
 
     // Beauty smoothing: overlay a very subtle blur tinted layer
-    if (_beautySmoothing > 0.01) {
+    if (!_previewOriginal && _beautySmoothing > 0.01) {
       video = Stack(
         fit: StackFit.expand,
         children: [
@@ -1947,129 +2371,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   // ── Filters bottom sheet ──────────────────────────────────────────────────
   void _openFiltersSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1D2A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
-              const SizedBox(height: 16),
-              Text('Filters', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 90,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _filterPresets.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (_, i) {
-                    final (name, matrix) = _filterPresets[i];
-                    final selected = _activeFilterIndex == i;
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() => _activeFilterIndex = i);
-                        setSheet(() {});
-                      },
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selected ? C.brand : Colors.white24,
-                                width: selected ? 2.5 : 1,
-                              ),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: ColorFiltered(
-                                colorFilter: ColorFilter.matrix(matrix),
-                                child: Container(
-                                  decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF), Color(0xFFFF7B2F)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(name, style: dm(sz: 10, c: selected ? C.brand : Colors.white70)),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    _effectsPanelTab = 0;
+    _openLiveEffectsSheet();
   }
 
-  // ── Beauty bottom sheet ────────────────────────────────────────────────────
   void _openBeautySheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1A1D2A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
-              const SizedBox(height: 16),
-              Text('Beauty', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
-              const SizedBox(height: 20),
-              _beautySliderRow(
-                icon: Icons.face_retouching_natural,
-                label: 'Smoothing',
-                value: _beautySmoothing,
-                onChanged: (v) { setState(() => _beautySmoothing = v); setSheet(() {}); },
-              ),
-              const SizedBox(height: 12),
-              _beautySliderRow(
-                icon: Icons.wb_sunny_outlined,
-                label: 'Brightening',
-                value: _beautyWhitening,
-                onChanged: (v) { setState(() => _beautyWhitening = v); setSheet(() {}); },
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () {
-                    setState(() { _beautySmoothing = 0; _beautyWhitening = 0; });
-                    setSheet(() {});
-                  },
-                  child: Text('Reset', style: dm(sz: 13, c: Colors.white38)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    _effectsPanelTab = 1;
+    _openLiveEffectsSheet();
   }
 
   Widget _beautySliderRow({
@@ -5089,7 +5397,18 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   _openLiveShop();
                 },
               ),
-              if (widget.isHost)
+              if (widget.isHost) ...[
+                ListTile(
+                  leading: const Icon(
+                    Icons.auto_awesome,
+                    color: Color(0xFF00E5FF),
+                  ),
+                  title: Text('Studio Effects & Beauty', style: dm(c: C.text)),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _openLiveEffectsSheet();
+                  },
+                ),
                 ListTile(
                   leading: const Icon(
                     Icons.push_pin_outlined,
@@ -5101,6 +5420,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     _showProductPicker();
                   },
                 ),
+              ],
               ListTile(
                 leading: const Icon(
                   Icons.emoji_emotions_outlined,
