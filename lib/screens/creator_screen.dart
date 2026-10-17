@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../data.dart';
 import '../app_state.dart';
@@ -1005,7 +1005,8 @@ class _LiveDotState extends State<_LiveDot>
 }
 
 class _BotBtn extends StatelessWidget {
-  final String icon, label;
+  final dynamic icon;
+  final String label;
   final bool active;
   final VoidCallback onTap;
   const _BotBtn(this.icon, this.label, this.active, this.onTap);
@@ -1016,8 +1017,13 @@ class _BotBtn extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(icon, style: TextStyle(fontSize: 22)),
-          SizedBox(height: 3),
+          if (icon is Widget)
+            icon as Widget
+          else if (icon is String)
+            Text(icon as String, style: const TextStyle(fontSize: 22))
+          else
+            const SizedBox(height: 22),
+          const SizedBox(height: 3),
           Text(label,
               style: dm(sz: 9, w: FontWeight.w600,
                   c: active ? C.gold : C.dim)),
