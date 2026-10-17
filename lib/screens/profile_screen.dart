@@ -1295,26 +1295,280 @@ class _MoreOptionsSheet extends StatelessWidget {
   }
 
   Future<void> _openSupportLink(BuildContext context) async {
-    final uri = await SupportService().createGooboxUri();
-    if (!context.mounted) return;
-    try {
-      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!opened && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to open Necxa Support right now.'),
-          ),
-        );
-      }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to open Necxa Support right now.'),
-          ),
-        );
-      }
-    }
+    // Show dual-path support sheet instead of immediately opening browser
+    await _showSupportSheet(context);
+  }
+
+  /// Shows the in-app support bottom sheet with two paths:
+  ///   1. Submit a ticket directly from within Necxa (opens support chat room)
+  ///   2. Open goobox.necxa.uk in the browser as fallback
+  Future<void> _showSupportSheet(BuildContext context) async {
+    final categories = [
+      ('Account & Login', Icons.person_outline, 'account'),
+      ('Orders & Payments', Icons.payment_outlined, 'payments'),
+      ('Listings & Products', Icons.storefront_outlined, 'listings'),
+      ('Content & Reports', Icons.flag_outlined, 'content'),
+      ('Technical Issue', Icons.build_outlined, 'technical'),
+      ('Other', Icons.help_outline, 'general'),
+    ];
+
+    final subjectCtrl = TextEditingController();
+    final messageCtrl = TextEditingController();
+    String selectedCategory = 'general';
+    bool submitting = false;
+    bool submitted = false;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          if (submitted) {
+            return Container(
+              height: 280,
+              decoration: BoxDecoration(
+                color: C.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle, color: C.brand, size: 56),
+                  const SizedBox(height: 16),
+                  Text('Request Sent!', style: syne(sz: 20, w: FontWeight.w700, c: C.text)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Our support team will respond in your Necxa chat.',
+                    style: dm(sz: 13, c: C.dim),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text('Close', style: dm(sz: 14, c: C.brand)),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Container(
+              decoration: BoxDecoration(
+                color: C.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle + header
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 12, bottom: 8),
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: C.dim.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                    child: Row(
+                      children: [
+                        Icon(Icons.support_agent_rounded, color: C.brand, size: 22),
+                        const SizedBox(width: 10),
+                        Text('Contact Necxa Support',
+                            style: syne(sz: 17, w: FontWeight.w700, c: C.text)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Category chips
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text('Category', style: dm(sz: 12, w: FontWeight.w600, c: C.dim)),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 38,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: categories.length,
+                      itemBuilder: (_, i) {
+                        final (label, icon, value) = categories[i];
+                        final active = selectedCategory == value;
+                        return GestureDetector(
+                          onTap: () => setSheet(() => selectedCategory = value),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: active ? C.brand : C.dim.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(icon, size: 13, color: active ? Colors.black : C.dim),
+                                const SizedBox(width: 5),
+                                Text(label,
+                                    style: syne(sz: 11, w: FontWeight.w600,
+                                        c: active ? Colors.black : C.dim)),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Subject
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextField(
+                      controller: subjectCtrl,
+                      style: dm(sz: 14, c: C.text),
+                      decoration: InputDecoration(
+                        hintText: 'Subject (optional)',
+                        hintStyle: dm(sz: 14, c: C.dim),
+                        filled: true,
+                        fillColor: C.dim.withValues(alpha: 0.1),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Message
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextField(
+                      controller: messageCtrl,
+                      style: dm(sz: 14, c: C.text),
+                      maxLines: 4,
+                      minLines: 3,
+                      decoration: InputDecoration(
+                        hintText: 'Describe your issue...',
+                        hintStyle: dm(sz: 14, c: C.dim),
+                        filled: true,
+                        fillColor: C.dim.withValues(alpha: 0.1),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Submit button
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: submitting ? null : () async {
+                          final msg = messageCtrl.text.trim();
+                          if (msg.isEmpty) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(content: Text('Please describe your issue.')),
+                            );
+                            return;
+                          }
+                          setSheet(() => submitting = true);
+                          final subject = subjectCtrl.text.trim().isEmpty
+                              ? 'Support Request'
+                              : subjectCtrl.text.trim();
+                          final res = await SupportService().submitSupportTicket(
+                            subject: subject,
+                            message: msg,
+                            category: selectedCategory,
+                          );
+                          setSheet(() {
+                            submitting = false;
+                            submitted = res['success'] == true;
+                          });
+                          if (res['success'] != true && ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(content: Text(
+                                res['error']?.toString() ?? 'Failed to send request. Try again.')),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: C.brand,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: submitting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.black,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text('Send to Support',
+                                style: syne(sz: 14, w: FontWeight.w700, c: Colors.black)),
+                      ),
+                    ),
+                  ),
+
+                  // Divider + external link fallback
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        Expanded(child: Divider(color: C.dim.withValues(alpha: 0.2))),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('or', style: dm(sz: 12, c: C.dim)),
+                        ),
+                        Expanded(child: Divider(color: C.dim.withValues(alpha: 0.2))),
+                      ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final uri = await SupportService().createGooboxUri();
+                      if (context.mounted) {
+                        try {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        } catch (_) {}
+                      }
+                    },
+                    icon: Icon(Icons.open_in_new, size: 14, color: C.dim),
+                    label: Text('Open goobox.necxa.uk',
+                        style: dm(sz: 13, c: C.dim)),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override

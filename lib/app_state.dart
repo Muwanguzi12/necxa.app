@@ -12,6 +12,7 @@ import 'services/media_compression_service.dart';
 import 'services/listing_sync_service.dart';
 import 'services/local_db_service.dart';
 import 'services/smooth_action.dart';
+import 'services/support_service.dart';
 
 import 'models/property_container.dart';
 import 'models/wallet.dart';
@@ -2801,6 +2802,17 @@ class AppState extends ChangeNotifier {
       // Do NOT re-fetch — the Realtime subscription delivers the echo automatically.
       // Triggering fetchMessages here would double-count egress on every send.
       debugPrint('✅ Message dispatched via Realtime pipeline');
+
+      // If this is a support conversation, forward to Goobox ticket thread
+      if (activeConversation?.isSupport == true) {
+        final ticketId = activeConversation?.metadata?['ticket_id'] as String?;
+        final roomId = activeConversation?.id;
+        SupportService().forwardSupportMessage(
+          message: msg,
+          ticketId: ticketId,
+          roomId: roomId,
+        );
+      }
     }
   }
 
