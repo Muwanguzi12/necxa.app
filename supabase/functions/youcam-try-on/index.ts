@@ -132,11 +132,22 @@ Deno.serve(async (req: Request) => {
       try {
         const { data: item } = await supabase
           .from("listings")
-          .select("title, category")
+          .select("title, category, description")
           .eq("id", listing_id)
           .maybeSingle();
-        const text = `${item?.category || ""} ${item?.title || ""}`.toLowerCase();
-        if (text.includes("trouser") || text.includes("pant") || text.includes("short") || text.includes("skirt")) {
+        const text = `${item?.category || ""} ${item?.title || ""} ${item?.description || ""}`.toLowerCase();
+        
+        // Detect non-fashion items requiring spatial room/desk placement
+        if (
+          text.includes("sofa") || text.includes("chair") || text.includes("table") ||
+          text.includes("bed") || text.includes("furniture") || text.includes("lamp") ||
+          text.includes("rug") || text.includes("decor") || text.includes("desk") ||
+          text.includes("laptop") || text.includes("phone") || text.includes("monitor") ||
+          text.includes("electronics") || text.includes("speaker") || text.includes("appliance") ||
+          text.includes("plant") || text.includes("shelf") || text.includes("tv")
+        ) {
+          resolvedCategory = "spatial_placement";
+        } else if (text.includes("trouser") || text.includes("pant") || text.includes("short") || text.includes("skirt")) {
           resolvedCategory = "lower_body";
         } else if (text.includes("dress") || text.includes("suit") || text.includes("jumpsuit")) {
           resolvedCategory = "full_body";
@@ -152,6 +163,38 @@ Deno.serve(async (req: Request) => {
           resolvedCategory = "upper_body";
         }
       } catch (_) {}
+    }
+
+    // Fast-path for non-fashion spatial placement (room, desk, decor, tech)
+    if (resolvedCategory === "spatial_placement") {
+      const taskId = `spatial_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+      let fallbackVariations = [garment_image_url];
+      if (listing_id) {
+        try {
+          const { data: item } = await supabase
+            .from("listings")
+            .select("photos")
+            .eq("id", listing_id)
+            .maybeSingle();
+          if (item?.photos && Array.isArray(item.photos)) {
+            for (const p of item.photos) {
+              if (typeof p === "string" && p && !fallbackVariations.includes(p)) {
+                fallbackVariations.push(p);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      return json({
+        success: true,
+        task_id: taskId,
+        status: "SUCCESS",
+        result_url: garment_image_url,
+        variations: fallbackVariations,
+        mode: "spatial_placement",
+        garment_category: "spatial_placement",
+      });
     }
 
     // If YouCam API key is present, invoke Perfect Corp v2.0 Clothes API

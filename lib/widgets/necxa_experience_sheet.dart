@@ -11,6 +11,14 @@ import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
 
+enum ExperienceCategory {
+  fashion,
+  homeLiving,
+  electronics,
+  beautyJewelry,
+  general,
+}
+
 class NecxaExperienceSheet extends StatefulWidget {
   final Map<String, dynamic> listing;
   final AppState state;
@@ -56,8 +64,284 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
   bool _showOriginalPhoto = false; // "Before vs After" toggle
   int _processingSeconds = 0;
   Timer? _processingTimer;
+  double _spatialScale = 1.0;
+  Offset _spatialPosition = Offset.zero;
 
   final ImagePicker _picker = ImagePicker();
+
+  ExperienceCategory get _category {
+    final cat = (widget.listing['category'] ?? '').toString().toLowerCase();
+    final title = (widget.listing['title'] ?? '').toString().toLowerCase();
+    final desc = (widget.listing['description'] ?? '').toString().toLowerCase();
+    final combined = '$cat $title $desc';
+
+    if (combined.contains('sofa') ||
+        combined.contains('chair') ||
+        combined.contains('table') ||
+        combined.contains('bed') ||
+        combined.contains('furniture') ||
+        combined.contains('lamp') ||
+        combined.contains('rug') ||
+        combined.contains('decor') ||
+        combined.contains('desk') ||
+        combined.contains('mirror') ||
+        combined.contains('curtain') ||
+        combined.contains('shelf') ||
+        combined.contains('plant') ||
+        combined.contains('couch') ||
+        combined.contains('cushion') ||
+        combined.contains('appliance')) {
+      return ExperienceCategory.homeLiving;
+    }
+
+    if (combined.contains('laptop') ||
+        combined.contains('phone') ||
+        combined.contains('monitor') ||
+        combined.contains('headphone') ||
+        combined.contains('speaker') ||
+        combined.contains('keyboard') ||
+        combined.contains('tech') ||
+        combined.contains('gadget') ||
+        combined.contains('screen') ||
+        combined.contains('audio') ||
+        combined.contains('camera')) {
+      return ExperienceCategory.electronics;
+    }
+
+    if (combined.contains('lipstick') ||
+        combined.contains('makeup') ||
+        combined.contains('cosmetic') ||
+        combined.contains('cream') ||
+        combined.contains('skincare') ||
+        combined.contains('watch') ||
+        combined.contains('ring') ||
+        combined.contains('earring') ||
+        combined.contains('necklace') ||
+        combined.contains('bracelet') ||
+        combined.contains('jewelry') ||
+        combined.contains('chain')) {
+      return ExperienceCategory.beautyJewelry;
+    }
+
+    if (combined.contains('shirt') ||
+        combined.contains('pant') ||
+        combined.contains('trouser') ||
+        combined.contains('dress') ||
+        combined.contains('suit') ||
+        combined.contains('jacket') ||
+        combined.contains('coat') ||
+        combined.contains('hoodie') ||
+        combined.contains('shoe') ||
+        combined.contains('sneaker') ||
+        combined.contains('heel') ||
+        combined.contains('boot') ||
+        combined.contains('hat') ||
+        combined.contains('cap') ||
+        combined.contains('clothes') ||
+        combined.contains('clothing') ||
+        combined.contains('wear') ||
+        combined.contains('t-shirt') ||
+        combined.contains('fashion')) {
+      return ExperienceCategory.fashion;
+    }
+
+    return ExperienceCategory.general;
+  }
+
+  String get _categorySubtitle {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'See how this furniture fits in your room with AI';
+      case ExperienceCategory.electronics:
+        return 'See how this tech fits on your desk with AI';
+      case ExperienceCategory.beautyJewelry:
+        return 'See how this piece looks on you with AI';
+      case ExperienceCategory.general:
+        return 'See how this product fits in your space with AI';
+      case ExperienceCategory.fashion:
+        return 'See how this product looks on you with AI';
+    }
+  }
+
+  String get _step1Label {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Your Room';
+      case ExperienceCategory.electronics:
+        return 'Your Desk';
+      case ExperienceCategory.beautyJewelry:
+        return 'Your Photo';
+      case ExperienceCategory.general:
+        return 'Your Space';
+      case ExperienceCategory.fashion:
+        return 'Your Photo';
+    }
+  }
+
+  String get _step2Label {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Room Preview';
+      case ExperienceCategory.electronics:
+        return 'Setup Preview';
+      case ExperienceCategory.beautyJewelry:
+        return 'AI Preview';
+      case ExperienceCategory.general:
+        return 'Space Preview';
+      case ExperienceCategory.fashion:
+        return 'AI Preview';
+    }
+  }
+
+  String get _experienceSectionTitle {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Experience in your room';
+      case ExperienceCategory.electronics:
+        return 'Experience on your desk';
+      case ExperienceCategory.beautyJewelry:
+        return 'Experience on you';
+      case ExperienceCategory.general:
+        return 'Experience in your space';
+      case ExperienceCategory.fashion:
+        return 'Experience it on you';
+    }
+  }
+
+  String get _resultsBadgeLabel {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Room Results';
+      case ExperienceCategory.electronics:
+        return 'Desk Results';
+      case ExperienceCategory.beautyJewelry:
+        return 'AI Results';
+      case ExperienceCategory.general:
+        return 'Space Results';
+      case ExperienceCategory.fashion:
+        return 'AI Results';
+    }
+  }
+
+  String get _pickerTitle {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Select a room photo';
+      case ExperienceCategory.electronics:
+        return 'Select a desk photo';
+      case ExperienceCategory.beautyJewelry:
+        return 'Select a photo';
+      case ExperienceCategory.general:
+        return 'Select a space photo';
+      case ExperienceCategory.fashion:
+        return 'Select a photo';
+    }
+  }
+
+  String get _pickerDesc {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Choose a photo of your living room, wall, or corner';
+      case ExperienceCategory.electronics:
+        return 'Choose a photo of your desk, table, or workspace';
+      case ExperienceCategory.beautyJewelry:
+        return 'Choose a clear photo of your face, wrist, or hand';
+      case ExperienceCategory.general:
+        return 'Choose a photo of where you plan to place this';
+      case ExperienceCategory.fashion:
+        return 'Choose a clear, well-lit photo of yourself';
+    }
+  }
+
+  List<String> get _pickerTips {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return ['Capture the entire corner or wall', 'Keep floor visible for scale', 'Clear away clutter'];
+      case ExperienceCategory.electronics:
+        return ['Capture your workspace surface', 'Use natural daylight', 'Leave open desk space'];
+      case ExperienceCategory.beautyJewelry:
+        return ['Hold wrist or face steady', 'Direct front lighting', 'Avoid heavy shadows'];
+      case ExperienceCategory.general:
+        return ['Capture the full surface', 'Use clear lighting', 'Hold camera steady'];
+      case ExperienceCategory.fashion:
+        return ['Use good lighting', 'Face the camera', 'Avoid sunglasses or hats'];
+    }
+  }
+
+  String get _uploadButtonLabel {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Upload Room Photo';
+      case ExperienceCategory.electronics:
+        return 'Upload Desk Photo';
+      case ExperienceCategory.beautyJewelry:
+        return 'Upload from Gallery';
+      case ExperienceCategory.general:
+        return 'Upload Space Photo';
+      case ExperienceCategory.fashion:
+        return 'Upload from Gallery';
+    }
+  }
+
+  String get _cameraButtonLabel {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Take Room Photo';
+      case ExperienceCategory.electronics:
+        return 'Take Desk Photo';
+      case ExperienceCategory.beautyJewelry:
+        return 'Take a Photo';
+      case ExperienceCategory.general:
+        return 'Take Space Photo';
+      case ExperienceCategory.fashion:
+        return 'Take a Photo';
+    }
+  }
+
+  String get _photoBadgeLabel {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Your room';
+      case ExperienceCategory.electronics:
+        return 'Your desk';
+      case ExperienceCategory.beautyJewelry:
+        return 'Your photo';
+      case ExperienceCategory.general:
+        return 'Your space';
+      case ExperienceCategory.fashion:
+        return 'Your photo';
+    }
+  }
+
+  String get _beforePillLabel {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'Empty Room';
+      case ExperienceCategory.electronics:
+        return 'Empty Desk';
+      case ExperienceCategory.beautyJewelry:
+        return 'Before';
+      case ExperienceCategory.general:
+        return 'Original Space';
+      case ExperienceCategory.fashion:
+        return 'Before (You)';
+    }
+  }
+
+  String get _afterPillLabel {
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        return 'In Room ✨';
+      case ExperienceCategory.electronics:
+        return 'On Desk ✨';
+      case ExperienceCategory.beautyJewelry:
+        return 'Try-On ✨';
+      case ExperienceCategory.general:
+        return 'In Space ✨';
+      case ExperienceCategory.fashion:
+        return 'AI Fit ✨';
+    }
+  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -132,10 +416,33 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
   }
 
   String _getProcessingStageText(int s) {
-    if (s < 3) return 'Detecting silhouette & posture…';
-    if (s < 7) return 'Aligning fabric drape & lighting…';
-    if (s < 13) return 'Synthesizing realistic AI fit…';
-    return 'Polishing high-definition preview…';
+    switch (_category) {
+      case ExperienceCategory.homeLiving:
+        if (s < 3) return 'Analyzing room dimensions & lighting…';
+        if (s < 7) return 'Calibrating floor plane & perspective…';
+        if (s < 13) return 'Staging furniture into your space…';
+        return 'Finalizing interactive room preview…';
+      case ExperienceCategory.electronics:
+        if (s < 3) return 'Analyzing desk workspace surface…';
+        if (s < 7) return 'Aligning scale & tabletop angle…';
+        if (s < 13) return 'Placing device in your setup…';
+        return 'Finalizing realistic desk view…';
+      case ExperienceCategory.beautyJewelry:
+        if (s < 3) return 'Detecting contour & surface angle…';
+        if (s < 7) return 'Aligning reflections & realistic gleam…';
+        if (s < 13) return 'Compositing item onto your photo…';
+        return 'Finalizing try-on preview…';
+      case ExperienceCategory.general:
+        if (s < 3) return 'Analyzing scene perspective & lighting…';
+        if (s < 7) return 'Calibrating surface placement…';
+        if (s < 13) return 'Compositing item into your space…';
+        return 'Finalizing interactive preview…';
+      case ExperienceCategory.fashion:
+        if (s < 3) return 'Detecting silhouette & posture…';
+        if (s < 7) return 'Aligning fabric drape & lighting…';
+        if (s < 13) return 'Synthesizing realistic AI fit…';
+        return 'Polishing high-definition preview…';
+    }
   }
 
   double _getProcessingStageProgress(int s) {
@@ -167,6 +474,8 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
           'src_image_url': userPhotoUrl,
           'garment_image_url': garmentUrl,
           'listing_id': widget.listing['id'],
+          'garment_category':
+              _category == ExperienceCategory.fashion ? null : 'spatial_placement',
         }),
       );
 
@@ -499,12 +808,12 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                     // Two 4-pointed sparkle stars (matches mockup exactly)
                     Column(
                       mainAxisSize: MainAxisSize.min,
-                      children: [
+                      children: const [
                         Icon(Icons.stars_rounded,
-                            color: const Color(0xFF00E5FF), size: 18),
-                        const SizedBox(height: 2),
+                            color: Color(0xFF00E5FF), size: 18),
+                        SizedBox(height: 2),
                         Icon(Icons.stars_rounded,
-                            color: const Color(0xFF00E5FF), size: 14),
+                            color: Color(0xFF00E5FF), size: 14),
                       ],
                     ),
                     const SizedBox(width: 10),
@@ -531,7 +840,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                             ]),
                           ),
                           Text(
-                            'See how this product looks on you with AI',
+                            _categorySubtitle,
                             style: dm(
                                 sz: 11.5,
                                 c: const Color(0xFF8A9AB2)),
@@ -572,10 +881,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                   ),
                   child: Row(
                     children: [
-                      _stepPill(1, 'Your Photo'),
+                      _stepPill(1, _step1Label),
                       const Icon(Icons.chevron_right,
                           color: Colors.white24, size: 16),
-                      _stepPill(2, 'AI Preview'),
+                      _stepPill(2, _step2Label),
                       const Icon(Icons.chevron_right,
                           color: Colors.white24, size: 16),
                       _stepPill(3, 'Results'),
@@ -649,11 +958,132 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                               child: Stack(
                                                 fit: StackFit.expand,
                                                 children: [
-                                                  // Main display: Original photo or AI Try-On result or Product garment
+                                                  // Main display: Original photo or Spatial Room/Desk Placement or AI Try-On result or Product garment
                                                   if (_showOriginalPhoto && _selectedUserPhoto != null)
                                                     Image.file(
                                                       File(_selectedUserPhoto!.path),
                                                       fit: BoxFit.cover,
+                                                    )
+                                                  else if (_category != ExperienceCategory.fashion &&
+                                                      _activeStep == 3 &&
+                                                      _selectedUserPhoto != null)
+                                                    // ── Interactive Spatial Room / Desk Placement Mode ──
+                                                    Stack(
+                                                      fit: StackFit.expand,
+                                                      children: [
+                                                        // Background: Room / Desk photo taken or uploaded by shopper
+                                                        Image.file(
+                                                          File(_selectedUserPhoto!.path),
+                                                          fit: BoxFit.cover,
+                                                        ),
+                                                        // Draggable & Scalable product composited into room
+                                                        Center(
+                                                          child: Transform.translate(
+                                                            offset: _spatialPosition,
+                                                            child: Transform.scale(
+                                                              scale: _spatialScale,
+                                                              child: GestureDetector(
+                                                                onPanUpdate: (details) {
+                                                                  setState(() {
+                                                                    _spatialPosition += details.delta;
+                                                                  });
+                                                                },
+                                                                child: Container(
+                                                                  decoration: BoxDecoration(
+                                                                    boxShadow: [
+                                                                      BoxShadow(
+                                                                        color: Colors.black.withValues(alpha: 0.5),
+                                                                        blurRadius: 18,
+                                                                        offset: const Offset(0, 8),
+                                                                      ),
+                                                                    ],
+                                                                  ),
+                                                                  child: ClipRRect(
+                                                                    borderRadius: BorderRadius.circular(8),
+                                                                    child: Image.network(
+                                                                      images.isNotEmpty
+                                                                          ? images[_selectedVariantIndex.clamp(0, images.length - 1)]
+                                                                          : mainImg,
+                                                                      width: 110,
+                                                                      height: 110,
+                                                                      fit: BoxFit.contain,
+                                                                      errorBuilder: (_, __, ___) => const Icon(
+                                                                        Icons.checkroom_outlined,
+                                                                        color: Colors.white24,
+                                                                        size: 36,
+                                                                      ),
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        // Floating pan helper badge
+                                                        Positioned(
+                                                          bottom: 8,
+                                                          left: 8,
+                                                          child: Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.black.withValues(alpha: 0.75),
+                                                              borderRadius: BorderRadius.circular(12),
+                                                              border: Border.all(color: Colors.white12),
+                                                            ),
+                                                            child: Row(
+                                                              mainAxisSize: MainAxisSize.min,
+                                                              children: [
+                                                                const Icon(Icons.touch_app, color: Color(0xFF00E5FF), size: 10),
+                                                                const SizedBox(width: 4),
+                                                                Text('Drag to place', style: dm(sz: 9, c: Colors.white70)),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        // Scale buttons [-] [+]
+                                                        Positioned(
+                                                          bottom: 8,
+                                                          right: 8,
+                                                          child: Container(
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.black.withValues(alpha: 0.75),
+                                                              borderRadius: BorderRadius.circular(16),
+                                                              border: Border.all(color: Colors.white12),
+                                                            ),
+                                                            child: Row(
+                                                              mainAxisSize: MainAxisSize.min,
+                                                              children: [
+                                                                GestureDetector(
+                                                                  onTap: () {
+                                                                    setState(() {
+                                                                      _spatialScale = (_spatialScale - 0.15).clamp(0.4, 2.5);
+                                                                    });
+                                                                  },
+                                                                  child: const Padding(
+                                                                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                                                    child: Icon(Icons.remove, color: Colors.white, size: 14),
+                                                                  ),
+                                                                ),
+                                                                Text(
+                                                                  '${(_spatialScale * 100).toInt()}%',
+                                                                  style: dm(sz: 9, w: FontWeight.w700, c: const Color(0xFF00E5FF)),
+                                                                ),
+                                                                GestureDetector(
+                                                                  onTap: () {
+                                                                    setState(() {
+                                                                      _spatialScale = (_spatialScale + 0.15).clamp(0.4, 2.5);
+                                                                    });
+                                                                  },
+                                                                  child: const Padding(
+                                                                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                                                    child: Icon(Icons.add, color: Colors.white, size: 14),
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
                                                     )
                                                   else if (mainImg.isNotEmpty)
                                                     Image.network(
@@ -673,7 +1103,9 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                                     ),
 
                                                   // Floating Before/After toggle pill (top-left)
-                                                  if (_activeStep == 3 && _aiResultImages.isNotEmpty && _selectedUserPhoto != null)
+                                                  if (_activeStep == 3 &&
+                                                      (_aiResultImages.isNotEmpty || _category != ExperienceCategory.fashion) &&
+                                                      _selectedUserPhoto != null)
                                                     Positioned(
                                                       top: 8,
                                                       left: 8,
@@ -695,7 +1127,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                                             mainAxisSize: MainAxisSize.min,
                                                             children: [
                                                               Icon(
-                                                                _showOriginalPhoto ? Icons.person : Icons.auto_awesome,
+                                                                _showOriginalPhoto ? Icons.visibility_outlined : Icons.auto_awesome,
                                                                 size: 11,
                                                                 color: _showOriginalPhoto
                                                                     ? Colors.white
@@ -703,7 +1135,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                                               ),
                                                               const SizedBox(width: 4),
                                                               Text(
-                                                                _showOriginalPhoto ? 'Before (You)' : 'AI Fit ✨',
+                                                                _showOriginalPhoto ? _beforePillLabel : _afterPillLabel,
                                                                 style: dm(
                                                                   sz: 9.5,
                                                                   w: FontWeight.w700,
@@ -943,7 +1375,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
                                               Text(
-                                                'Your photo',
+                                                _photoBadgeLabel,
                                                 style: dm(
                                                     sz: 10,
                                                     c: const Color(0xFF8A9AB2)),
@@ -991,7 +1423,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                               color: Color(0xFF00E5FF), size: 15),
                           const SizedBox(width: 6),
                           Text(
-                            'Experience it on you',
+                            _experienceSectionTitle,
                             style: syne(
                                 sz: 13,
                                 w: FontWeight.w700,
@@ -1011,7 +1443,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                     color: const Color(0xFF00E5FF)
                                         .withValues(alpha: 0.4)),
                               ),
-                              child: Text('AI Results',
+                              child: Text(_resultsBadgeLabel,
                                   style: dm(
                                       sz: 9,
                                       w: FontWeight.w700,
@@ -1305,10 +1737,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Select a photo',
+                    Text(_pickerTitle,
                         style: syne(
                             sz: 12, w: FontWeight.w700, c: Colors.white)),
-                    Text('Choose a clear, well-lit photo of yourself',
+                    Text(_pickerDesc,
                         style: dm(sz: 10, c: const Color(0xFF8A9AB2))),
                   ],
                 ),
@@ -1337,7 +1769,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                   const Icon(Icons.image_outlined,
                       color: Color(0xFF00E5FF), size: 16),
                   const SizedBox(width: 6),
-                  Text('Upload from Gallery',
+                  Text(_uploadButtonLabel,
                       style: dm(
                           sz: 12,
                           w: FontWeight.w600,
@@ -1367,7 +1799,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                   const Icon(Icons.camera_alt_outlined,
                       color: Colors.white70, size: 16),
                   const SizedBox(width: 6),
-                  Text('Take a Photo',
+                  Text(_cameraButtonLabel,
                       style: dm(
                           sz: 12,
                           w: FontWeight.w600,
@@ -1396,9 +1828,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                             w: FontWeight.w700,
                             c: Colors.white70)),
                     const SizedBox(height: 3),
-                    _tip('Use good lighting'),
-                    _tip('Face the camera'),
-                    _tip('Avoid sunglasses or hats'),
+                    ..._pickerTips.map((tip) => _tip(tip)),
                   ],
                 ),
               ),
