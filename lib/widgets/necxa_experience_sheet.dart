@@ -870,7 +870,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
 
   void _shareLook(String url, String title) {
     SharePlus.instance.share(
-      'Check out how "$title" looks on me with NECXA Experience AI try-on!\n$url',
+      ShareParams(
+        text: 'Check out how "$title" looks on me with NECXA Experience AI try-on!\n$url',
+        subject: 'NECXA Experience Try-On: $title',
+      ),
     );
   }
 
