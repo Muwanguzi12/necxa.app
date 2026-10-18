@@ -1401,27 +1401,39 @@ async function handleSubmitReport(userId: string, payload: any) {
       type: url.includes('.mp4') || url.includes('.m3u8') || url.includes('hls') ? 'video' : 'image',
     }));
 
-    const { data: ticket, error: ticketErr } = await goobox
+    const ticketPayload = {
+      subject,
+      snippet,
+      status: 'open',
+      priority: severity === 'high' ? 'high' : 'medium',
+      source: 'report',
+      inbox: 'support@necxa.uk',
+      sender: `${reporterName} <${reporterEmail}>`,
+      necxa_user_id: userId,
+      customer_name: reporterName,
+      customer_email: reporterEmail,
+      customer_phone: reporterProfile?.phone || null,
+      verified: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: ticket, error: ticketErr } = await goobox
       .from('support_tickets')
-      .insert({
-        subject,
-        snippet,
-        status: 'open',
-        priority: severity === 'high' ? 'high' : 'medium',
-        // NOTE: 'report' violates support_tickets_source_check. Only portal/manual/gmail allowed.
-        source: 'portal',
-        inbox: 'support@necxa.uk',
-        sender: `${reporterName} <${reporterEmail}>`,
-        necxa_user_id: userId,
-        customer_name: reporterName,
-        customer_email: reporterEmail,
-        customer_phone: reporterProfile?.phone || null,
-        verified: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .insert(ticketPayload)
       .select('id')
       .single();
+
+    if (ticketErr && (ticketErr.code === '23514' || ticketErr.message?.includes('source_check'))) {
+      console.warn("[Goobox Sync] source='report' hit check constraint; falling back to source='portal'");
+      const fallback = await goobox
+        .from('support_tickets')
+        .insert({ ...ticketPayload, source: 'portal' })
+        .select('id')
+        .single();
+      ticket = fallback.data;
+      ticketErr = fallback.error;
+    }
 
     if (!ticketErr && ticket) {
       gooboxTicketId = ticket.id;
@@ -1621,26 +1633,39 @@ async function handleCreateSupportTicket(userId: string, payload: any) {
   // 1. Create ticket in Goobox
   let gooboxTicketId: string | null = null;
   try {
-    const { data: ticket, error: ticketErr } = await goobox
+    const ticketPayload = {
+      subject: subject.slice(0, 200),
+      snippet: message.slice(0, 120),
+      status: 'open',
+      priority,
+      source: 'in_app',
+      inbox: 'support@necxa.uk',
+      sender: `${userName} <${userEmail}>`,
+      necxa_user_id: userId,
+      customer_name: userName,
+      customer_email: userEmail,
+      customer_phone: profile?.phone || null,
+      verified: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: ticket, error: ticketErr } = await goobox
       .from('support_tickets')
-      .insert({
-        subject: subject.slice(0, 200),
-        snippet: message.slice(0, 120),
-        status: 'open',
-        priority,
-        source: 'portal',
-        inbox: 'support@necxa.uk',
-        sender: `${userName} <${userEmail}>`,
-        necxa_user_id: userId,
-        customer_name: userName,
-        customer_email: userEmail,
-        customer_phone: profile?.phone || null,
-        verified: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .insert(ticketPayload)
       .select('id')
       .single();
+
+    if (ticketErr && (ticketErr.code === '23514' || ticketErr.message?.includes('source_check'))) {
+      console.warn("[CreateTicket] source='in_app' hit check constraint; falling back to source='portal'");
+      const fallback = await goobox
+        .from('support_tickets')
+        .insert({ ...ticketPayload, source: 'portal' })
+        .select('id')
+        .single();
+      ticket = fallback.data;
+      ticketErr = fallback.error;
+    }
 
     if (!ticketErr && ticket) {
       gooboxTicketId = ticket.id;
