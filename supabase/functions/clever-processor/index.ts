@@ -2258,7 +2258,9 @@ Deno.serve(async (req: Request) => {
     const { data: { user } } = await supabase.auth.getUser(authHeader?.replace("Bearer ", "") || "");
     const userId = user?.id;
     const body = await req.json() as { action: string; payload?: Record<string, unknown> };
-    const { action, payload = {} } = body;
+    const { payload = {} } = body;
+    const rawAction = body.action || "";
+    const action = rawAction.trim().toLowerCase().replace(/\s*-\s*|\s*_\s*|\s+/g, "-");
 
     // The one-time cutover is authenticated by a private application key.
     // It runs before user auth because deployment callers use the project anon
@@ -2306,10 +2308,17 @@ Deno.serve(async (req: Request) => {
       case "not-interested":       return handleNotInterested(userId, payload);
       case "report-content":       return handleSubmitReport(userId, payload);
       case "sync-support-response":return handleSyncSupportResponse(payload);
-      case "fetch-user-support":   return handleFetchUserSupportMessages(userId);
-      case "create-support-ticket":return handleCreateSupportTicket(userId, payload);
-      case "forward-support-message": return handleForwardSupportMessage(userId, payload);
-      default:                     return err(`Unknown action: "${action}"`);
+      case "fetch-user-support":
+      case "fetch-support":
+        return handleFetchUserSupportMessages(userId);
+      case "create-support-ticket":
+      case "create-ticket":
+      case "support-ticket":
+        return handleCreateSupportTicket(userId, payload);
+      case "forward-support-message":
+      case "forward-message":
+        return handleForwardSupportMessage(userId, payload);
+      default:                     return err(`Unknown action: "${rawAction}"`);
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
