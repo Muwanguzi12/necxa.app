@@ -1626,30 +1626,15 @@ class _MoreOptionsSheet extends StatelessWidget {
                         c: C.sub,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Light mode is available as an accessibility option.',
+                      style: syne(sz: 11, c: C.sub.withValues(alpha: .55)),
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _ThemeToggleBtn(
-                          label: 'Soft White',
-                          icon: Icons.light_mode,
-                          activeColor: Colors.yellow,
-                          isActive: state.themeMode == ThemeMode.light,
-                          onTap: () {
-                            state.setTheme(ThemeMode.light);
-                            Navigator.pop(context);
-                          },
-                        ),
-                        _ThemeToggleBtn(
-                          label: 'System',
-                          icon: Icons.settings_suggest,
-                          activeColor: Colors.cyan,
-                          isActive: state.themeMode == ThemeMode.system,
-                          onTap: () {
-                            state.setTheme(ThemeMode.system);
-                            Navigator.pop(context);
-                          },
-                        ),
                         _ThemeToggleBtn(
                           label: 'Dark',
                           icon: Icons.dark_mode,
@@ -1657,6 +1642,16 @@ class _MoreOptionsSheet extends StatelessWidget {
                           isActive: state.themeMode == ThemeMode.dark,
                           onTap: () {
                             state.setTheme(ThemeMode.dark);
+                            Navigator.pop(context);
+                          },
+                        ),
+                        _ThemeToggleBtn(
+                          label: 'Light (Accessibility)',
+                          icon: Icons.accessibility_new_rounded,
+                          activeColor: Colors.yellow.shade700,
+                          isActive: state.themeMode == ThemeMode.light,
+                          onTap: () {
+                            state.setTheme(ThemeMode.light);
                             Navigator.pop(context);
                           },
                         ),

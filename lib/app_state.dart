@@ -55,7 +55,7 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 class AppState extends ChangeNotifier {
   String screen = 'home';
 
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.dark;
   ThemeMode get themeMode => _themeMode;
 
   static AppState? maybeOf(BuildContext context) {
@@ -227,7 +227,7 @@ class AppState extends ChangeNotifier {
       } else if (modeStr == 'ThemeMode.light') {
         _themeMode = ThemeMode.light;
       } else {
-        _themeMode = ThemeMode.system;
+        _themeMode = ThemeMode.dark; // default: dark mode (light = accessibility option)
       }
       C.themeMode = _themeMode;
 
