@@ -1403,8 +1403,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   Widget _buildHostGreenRoom() {
     final avatar = _hostAvatar;
     final screenHeight = MediaQuery.sizeOf(context).height;
-    final threeQuartersHeight = screenHeight * 0.75;
-    final topQuarterHeight = screenHeight * 0.25;
+    // Sheet takes bottom half; camera preview fills the full screen behind glass
+    final sheetHeight = screenHeight * 0.52;
 
     final hasActiveFilter = (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
         _activeFilterIndex != 0 ||
@@ -1417,12 +1417,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         color: Colors.transparent,
         child: Stack(
           children: [
-            // ── TOP QUARTER: Live Camera Preview & Floating Studio Header ──
+            // ── FLOATING STUDIO HEADER (floats over full camera feed) ──
             Positioned(
               top: 0,
               left: 0,
               right: 0,
-              height: topQuarterHeight,
               child: SafeArea(
                 bottom: false,
                 child: Padding(
@@ -1520,21 +1519,45 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               ),
             ),
 
-            // ── BOTTOM 3-QUARTERS: Preparation Console Sheet ──
+            // ── BOTTOM HALF: Glassmorphic Preparation Console Sheet ──
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              height: threeQuartersHeight,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xF50D1017),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                  border: Border.all(color: Colors.white12, width: 1.2),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black87, blurRadius: 28, spreadRadius: 6),
-                  ],
-                ),
+              height: sheetHeight,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.55),
+                          Colors.black.withValues(alpha: 0.82),
+                        ],
+                      ),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+                      border: Border(
+                        top: BorderSide(
+                          color: C.brand.withValues(alpha: 0.35),
+                          width: 1.2,
+                        ),
+                        left: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                        right: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: C.brand.withValues(alpha: 0.10),
+                          blurRadius: 40,
+                          spreadRadius: -4,
+                          offset: const Offset(0, -8),
+                        ),
+                        const BoxShadow(color: Colors.black87, blurRadius: 32, spreadRadius: 8),
+                      ],
+                    ),
                 child: SafeArea(
                   top: false,
                   child: Column(
@@ -1767,10 +1790,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 ),
               ),
             ),
-          ],
+          ),
         ),
+        ],
       ),
-    );
+    ),
+  );
   }
 
   Widget _greenRoomModePill(int modeIndex, IconData icon, String label) {

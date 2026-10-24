@@ -1015,6 +1015,54 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       'LIVE Now',
                       style: syne(sz: 13, w: FontWeight.w900, c: C.text),
                     ),
+                    const SizedBox(width: 10),
+                    // ── Go Live shortcut button ──
+                    GestureDetector(
+                      onTap: () {
+                        _toggleLiveOverlay();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LiveStudioScreen(
+                              state: widget.state,
+                              channelName:
+                                  '${widget.state.myDisplayName ?? 'User'}_Live',
+                              isHost: true,
+                              hostId: widget.state.user?.id,
+                              hostName: widget.state.myDisplayName,
+                              hostAvatar: widget.state.myAvatarUrl,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF334E), Color(0xFFFF6B35)],
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFF334E).withValues(alpha: 0.4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.wifi_tethering_rounded, size: 12, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Go Live',
+                              style: syne(sz: 11, w: FontWeight.w800, c: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     const Spacer(),
                     if (_activeLiveStreams.isNotEmpty)
                       TextButton(
