@@ -2521,9 +2521,35 @@ class AppState extends ChangeNotifier {
       debugPrint('fetchMessages Neural Sync Error: $e');
     }
 
-    // 3. Ensure Realtime is active
+    // 3. If this is a support room, reconcile Goobox agent replies
+    if (activeConversation?.isSupport == true) {
+      await syncSupportMessages(roomId);
+    }
+
+    // 4. Ensure Realtime is active
     if (_msgChannel == null || _currentSubscribedRoomId != roomId) {
       _subscribeToMessages(roomId);
+    }
+  }
+
+  Future<void> syncSupportMessages([String? targetRoomId]) async {
+    final roomId = targetRoomId ?? activeConversation?.id;
+    if (roomId == null) return;
+    try {
+      final ticketId = activeConversation?.metadata?['ticket_id']?.toString();
+      final replies = await SupportService().syncSupportReplies(
+        roomId: roomId,
+        ticketId: ticketId,
+      );
+      if (replies.isNotEmpty) {
+        await localDb.saveMessages(replies);
+        if (activeConversation?.id == roomId) {
+          currentMessages = await localDb.getMessages(roomId);
+          notify();
+        }
+      }
+    } catch (e) {
+      debugPrint('syncSupportMessages Error: $e');
     }
   }
 

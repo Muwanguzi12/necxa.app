@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/chat_models.dart';
 
 const String necxaSupportBaseUrl = 'https://goobox.necxa.uk';
 const String _gooboxFunctionsUrl = 'https://anregykcgolpgxecfxej.supabase.co/functions/v1';
@@ -208,5 +209,133 @@ class SupportService {
     } catch (_) {
       return [];
     }
+  }
+
+  /// Syncs Goobox support replies directly for the active support conversation.
+  /// Pulls from Goobox ticket_replies and ticket_messages, formats into ChatMessage objects,
+  /// and updates Necxa direct_messages.
+  Future<List<ChatMessage>> syncSupportReplies({
+    required String roomId,
+    String? ticketId,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return [];
+
+    // Trigger clever-processor background sync first if available
+    try {
+      await _client.functions.invoke(
+        'clever-processor',
+        body: const {'action': 'fetch-user-support'},
+      );
+    } catch (_) {}
+
+    String? resolvedTicketId = ticketId;
+
+    // Resolve ticket ID if not provided
+    if (resolvedTicketId == null || resolvedTicketId.isEmpty) {
+      try {
+        final ticketUri = Uri.parse(
+          '$_gooboxRestUrl/support_tickets?necxa_user_id=eq.${user.id}&order=created_at.desc&limit=1',
+        );
+        final ticketRes = await http.get(ticketUri, headers: {
+          'apikey': _gooboxAnonKey,
+          'Authorization': 'Bearer $_gooboxAnonKey',
+        });
+        if (ticketRes.statusCode == 200) {
+          final List list = jsonDecode(ticketRes.body);
+          if (list.isNotEmpty) {
+            resolvedTicketId = list.first['id']?.toString();
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (resolvedTicketId == null || resolvedTicketId.isEmpty) return [];
+
+    const supportBotId = '709c2cae-4be0-42db-9f28-37f172c32749';
+    final List<ChatMessage> replies = [];
+
+    // 1. Fetch from Goobox ticket_replies (primary agent replies table)
+    try {
+      final repliesUri = Uri.parse(
+        '$_gooboxRestUrl/ticket_replies?ticket_id=eq.$resolvedTicketId&order=created_at.asc',
+      );
+      final res = await http.get(repliesUri, headers: {
+        'apikey': _gooboxAnonKey,
+        'Authorization': 'Bearer $_gooboxAnonKey',
+      });
+
+      if (res.statusCode == 200) {
+        final List list = jsonDecode(res.body);
+        for (final item in list) {
+          final id = item['id']?.toString();
+          final body = item['body']?.toString() ?? '';
+          final createdAtStr = item['created_at']?.toString();
+          final sender = item['sender']?.toString() ?? 'Necxa Support Team';
+          if (id == null || body.trim().isEmpty) continue;
+
+          final createdAt = DateTime.tryParse(createdAtStr ?? '') ?? DateTime.now();
+          replies.add(ChatMessage(
+            id: id,
+            conversationId: roomId,
+            senderId: supportBotId,
+            messageType: 'text',
+            content: body,
+            metadata: {
+              'source': 'goobox',
+              'ticket_id': resolvedTicketId,
+              'ticket_reply_id': id,
+              'sender': sender,
+              'interaction_context': 'support',
+            },
+            createdAt: createdAt,
+          ));
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fetch from Goobox ticket_messages (outbound/agent messages)
+    try {
+      final msgsUri = Uri.parse(
+        '$_gooboxRestUrl/ticket_messages?ticket_id=eq.$resolvedTicketId&or=(direction.eq.outbound,sender_type.eq.agent)&order=created_at.asc',
+      );
+      final res = await http.get(msgsUri, headers: {
+        'apikey': _gooboxAnonKey,
+        'Authorization': 'Bearer $_gooboxAnonKey',
+      });
+
+      if (res.statusCode == 200) {
+        final List list = jsonDecode(res.body);
+        for (final item in list) {
+          final id = item['id']?.toString();
+          final body = item['body']?.toString() ?? '';
+          final createdAtStr = item['created_at']?.toString();
+          final sender = item['sender']?.toString() ?? 'Necxa Support Team';
+          if (id == null || body.trim().isEmpty) continue;
+
+          // Skip if already in replies
+          if (replies.any((r) => r.id == id || r.content == body)) continue;
+
+          final createdAt = DateTime.tryParse(createdAtStr ?? '') ?? DateTime.now();
+          replies.add(ChatMessage(
+            id: id,
+            conversationId: roomId,
+            senderId: supportBotId,
+            messageType: 'text',
+            content: body,
+            metadata: {
+              'source': 'goobox',
+              'ticket_id': resolvedTicketId,
+              'ticket_message_id': id,
+              'sender': sender,
+              'interaction_context': 'support',
+            },
+            createdAt: createdAt,
+          ));
+        }
+      }
+    } catch (_) {}
+
+    return replies;
   }
 }

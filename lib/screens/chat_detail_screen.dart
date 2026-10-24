@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:universal_io/io.dart';
 import '../theme.dart';
 import '../app_state.dart';
@@ -29,6 +29,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   int _prevMsgCount = 0;
   bool _isRecording = false;
   String? _recordPath;
+  Timer? _supportPollTimer;
 
   @override
   void initState() {
@@ -40,6 +41,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final conv = widget.state.activeConversation;
     if (conv != null) {
       widget.state.markRoomAsRead(conv.id);
+      if (conv.isSupport) {
+        // Poll for Goobox support replies while screen is active
+        _supportPollTimer = Timer.periodic(
+          const Duration(seconds: 4),
+          (_) {
+            if (mounted && widget.state.activeConversation?.id == conv.id) {
+              widget.state.syncSupportMessages(conv.id);
+            }
+          },
+        );
+      }
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -49,6 +61,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    _supportPollTimer?.cancel();
     widget.state.removeListener(_onStateChange);
     widget.state.unsubscribeFromMessages();
     _msg.dispose();

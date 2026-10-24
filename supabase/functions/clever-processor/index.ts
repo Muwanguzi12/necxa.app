@@ -1526,6 +1526,31 @@ async function handleSyncSupportResponse(payload: any) {
         })
         .eq('id', roomId);
 
+      // Deduplication check
+      const { count: dupCount } = await supabase
+        .from('direct_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('room_id', roomId)
+        .eq('content', replyMessage);
+
+      if (dupCount && dupCount > 0) {
+        return json({
+          success: true,
+          message: "Already synced",
+          delivered_to: targetUserId,
+          room_id: roomId,
+        });
+      }
+
+      const replyMetadata: Record<string, any> = {
+        source: 'goobox',
+        ticket_id: ticketId,
+        agent_name: agentName,
+        interaction_context: 'support',
+      };
+      if (payload.ticket_reply_id) replyMetadata.ticket_reply_id = payload.ticket_reply_id;
+      if (payload.ticket_message_id) replyMetadata.ticket_message_id = payload.ticket_message_id;
+
       const { data: insertedMsg } = await supabase
         .from('direct_messages')
         .insert({
@@ -1533,12 +1558,7 @@ async function handleSyncSupportResponse(payload: any) {
           sender_id: supportBotId,
           message_type: 'text',
           content: replyMessage,
-          metadata: {
-            source: 'goobox',
-            ticket_id: ticketId,
-            agent_name: agentName,
-            interaction_context: 'support',
-          },
+          metadata: replyMetadata,
         })
         .select('id')
         .single();
@@ -1798,32 +1818,58 @@ async function handleFetchUserSupportMessages(userId: string) {
     if (tickets && tickets.length > 0) {
       try {
         for (const ticket of tickets.slice(0, 5)) {
+          // 1. Check ticket_replies (standard Goobox outbound replies)
+          const { data: replies } = await goobox
+            .from('ticket_replies')
+            .select('id, body, sender, created_at')
+            .eq('ticket_id', ticket.id)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (replies && replies.length > 0) {
+            for (const r of replies) {
+              const { count } = await supabase.from('direct_messages')
+                .select('id', { count: 'exact', head: true })
+                .contains('metadata', { ticket_reply_id: r.id });
+
+              if (count === 0) {
+                await handleSyncSupportResponse({
+                  necxa_user_id: userId,
+                  ticket_id: ticket.id,
+                  ticket_reply_id: r.id,
+                  message: r.body,
+                  agent_name: r.sender || 'Necxa Support Team',
+                });
+                console.log(`[AutoSync] Delivered pending Goobox ticket_reply: ${r.id}`);
+              }
+            }
+          }
+
+          // 2. Also check ticket_messages (agent messages)
           const { data: messages } = await goobox
             .from('ticket_messages')
             .select('id, body, sender_type, sender, created_at')
             .eq('ticket_id', ticket.id)
-            .eq('direction', 'outbound')  // agent replies
+            .or('direction.eq.outbound,sender_type.eq.agent')
             .order('created_at', { ascending: false })
             .limit(5);
 
-          if (!messages || messages.length === 0) continue;
+          if (messages && messages.length > 0) {
+            for (const msg of messages) {
+              const { count } = await supabase.from('direct_messages')
+                .select('id', { count: 'exact', head: true })
+                .contains('metadata', { ticket_message_id: msg.id });
 
-          // Check if any of these are already in Necxa direct_messages
-          for (const msg of messages) {
-            const { count } = await supabase.from('direct_messages')
-              .select('id', { count: 'exact', head: true })
-              .contains('metadata', { ticket_message_id: msg.id });
-
-            if (count === 0) {
-              // Not yet delivered — sync it
-              await handleSyncSupportResponse({
-                necxa_user_id: userId,
-                ticket_id: ticket.id,
-                message: msg.body,
-                agent_name: msg.sender || 'Necxa Support Team',
-              });
-              // Mark message ID so we don't double-deliver
-              console.log(`[AutoSync] Delivered pending Goobox reply: ${msg.id}`);
+              if (count === 0) {
+                await handleSyncSupportResponse({
+                  necxa_user_id: userId,
+                  ticket_id: ticket.id,
+                  ticket_message_id: msg.id,
+                  message: msg.body,
+                  agent_name: msg.sender || 'Necxa Support Team',
+                });
+                console.log(`[AutoSync] Delivered pending Goobox ticket_message: ${msg.id}`);
+              }
             }
           }
         }
