@@ -3,10 +3,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'ffmpeg_stub.dart'
-    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart'
+    show FFmpegKit;
 import 'ffmpeg_stub.dart'
-    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart'
+    show ReturnCode;
 import '../face_engine/models/face_preset.dart';
+import '../effects_engine/necxa_effects_engine.dart';
+import '../services/filter_catalogue_service.dart';
 
 class ClipData {
   final String path;
@@ -82,6 +86,7 @@ class RenderEffects {
   final double vignette;
   final double blur;
   final double grain;
+  final NecxaFilterMeta? necxaFilter;
 
   const RenderEffects({
     this.brightness = 0.0,
@@ -91,6 +96,7 @@ class RenderEffects {
     this.vignette = 0.0,
     this.blur = 0.0,
     this.grain = 0.0,
+    this.necxaFilter,
   });
 }
 
@@ -629,6 +635,12 @@ class VideoEnhancementService {
 
   String _globalVisualFilters(RenderEffects effects, int width, int height) {
     final filters = <String>[];
+    if (effects.necxaFilter != null && !effects.necxaFilter!.isNone) {
+      final f = NecxaEffectsEngine.buildFfmpegEqFilter(effects.necxaFilter!);
+      if (f.isNotEmpty) {
+        filters.add(f);
+      }
+    }
     if (effects.brightness.abs() > 0.001 ||
         (effects.contrast - 1.0).abs() > 0.001 ||
         (effects.saturation - 1.0).abs() > 0.001) {
