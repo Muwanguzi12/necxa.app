@@ -22,6 +22,9 @@ import '../services/timeline_playback_controller.dart';
 import '../services/video_enhancement_service.dart';
 import '../face_engine/core/face_engine_controller.dart';
 import '../face_engine/widgets/face_preset_sheet.dart';
+import '../services/timeline_snap_engine.dart';
+import '../widgets/timeline_playhead_view.dart';
+import '../widgets/timeline_ruler_view.dart';
 
 // Private enum for clip drag modes (top-level so it compiles in class scope)
 enum _ClipDragMode { none, move, resizeLeft, resizeRight, stretch }
@@ -192,12 +195,36 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final rawDelta = Duration(
       milliseconds: (_dragCumulativeDx / scale * 1000.0).round(),
     );
-    final delta = _isSnappingEnabled ? _snapToFrame(rawDelta) : rawDelta;
+    // Step 1: frame-snap the delta (keeps edits on frame boundaries).
+    final frameDelta = _isSnappingEnabled ? _snapToFrame(rawDelta) : rawDelta;
     setState(() {
       switch (_clipDragMode) {
         case _ClipDragMode.move:
-          final newStart = (_dragOriginalStart ?? clip.start) + delta;
-          clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
+          final rawStart = (_dragOriginalStart ?? clip.start) + frameDelta;
+          final clampedStart =
+              rawStart >= Duration.zero ? rawStart : Duration.zero;
+          // Step 2: snap the proposed start to nearby clip edges (exclude this
+          // clip from snap targets so it doesn't snap to its own old position).
+          final otherTracks = _tracks
+              .map(
+                (t) => TimelineTrack(
+                  id: t.id,
+                  type: t.type,
+                  clips: t.clips.where((c) => c.id != clip.id).toList(),
+                  label: t.label,
+                  icon: t.icon,
+                  isLocked: t.isLocked,
+                  isVisible: t.isVisible,
+                ),
+              )
+              .toList();
+          clip.start = TimelineSnapEngine.snap(
+            clampedStart,
+            otherTracks,
+            pixelsPerSecond: _pixelsPerSecond,
+            zoom: _timelineZoom,
+            enabled: _isSnappingEnabled,
+          );
           final appliedDelta =
               clip.start - (_dragOriginalStart ?? Duration.zero);
           if (_isRippleMode) {
@@ -207,14 +234,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         case _ClipDragMode.resizeLeft:
           final origStart = _dragOriginalStart ?? clip.start;
           final origDur = _dragOriginalDuration ?? clip.duration;
-          final newStart = origStart + delta;
-          final newDur = origDur - delta;
+          final newStart = origStart + frameDelta;
+          final newDur = origDur - frameDelta;
           if (newDur >= const Duration(milliseconds: 100)) {
             // Advanced trim: update TrimOperation if available to restore/hide source
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
               final newSourceStart = _clampDuration(
-                trim.start + delta,
+                trim.start + frameDelta,
                 Duration.zero,
                 trim.end,
               );
@@ -233,18 +260,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
 
             if (_isRippleMode) {
-              _positionRippleFollowers(track, delta);
+              _positionRippleFollowers(track, frameDelta);
             }
           }
           break;
         case _ClipDragMode.resizeRight:
           final origDur = _dragOriginalDuration ?? clip.duration;
-          final newDur = origDur + delta;
+          final newDur = origDur + frameDelta;
           if (newDur >= const Duration(milliseconds: 100)) {
             if (clip.operation is TrimOperation) {
               final trim = clip.operation as TrimOperation;
               final newEnd = _clampDuration(
-                trim.end + delta,
+                trim.end + frameDelta,
                 trim.start + const Duration(milliseconds: 1),
                 Duration(days: 36500),
               );
@@ -261,13 +288,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
 
             if (_isRippleMode) {
-              _positionRippleFollowers(track, delta);
+              _positionRippleFollowers(track, frameDelta);
             }
           }
           break;
         case _ClipDragMode.stretch:
           final origDur = _dragOriginalDuration ?? clip.duration;
-          final newDur = origDur + delta;
+          final newDur = origDur + frameDelta;
           if (newDur >= const Duration(milliseconds: 100)) {
             // Stretch changes playback speed to keep source mapping
             final sourceDurMs = clip.sourceDuration.inMilliseconds;
@@ -285,7 +312,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             }
             clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
             if (_isRippleMode) {
-              _positionRippleFollowers(track, delta);
+              _positionRippleFollowers(track, frameDelta);
             }
           }
           break;
@@ -1989,66 +2016,28 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Widget _buildTimelineRuler(double timelineWidth) {
-    const rulerHeight = 28.0;
-    final scale = _pixelsPerSecond * _timelineZoom;
-
-    return SizedBox(
-      height: rulerHeight,
+    return TimelineRulerView(
+      totalDuration: _totalDuration,
+      pixelsPerSecond: _pixelsPerSecond,
+      zoom: _timelineZoom,
       width: timelineWidth,
-      child: Stack(
-        children: List.generate((_totalDuration.inSeconds).ceil() + 1, (i) {
-          final x = i * scale;
-          final isMajor = i % 5 == 0;
-          return Positioned(
-            left: x,
-            top: isMajor ? 8 : 16,
-            child: Column(
-              children: [
-                Container(
-                  width: 1,
-                  height: isMajor ? 6 : 4,
-                  color: C.dim.withAlpha(128),
-                ),
-                if (isMajor)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text('${i}s', style: dm(sz: 7, c: C.dim)),
-                  ),
-              ],
-            ),
-          );
-        }),
-      ),
     );
   }
 
   Widget _buildGlobalPlayhead(double timelineWidth) {
-    final scale = _pixelsPerSecond * _timelineZoom;
-    final playheadOffset = (_currentTime.inMilliseconds / 1000.0) * scale;
-
-    return Positioned(
-      left: playheadOffset,
-      top: 0,
-      bottom: 0,
-      child: IgnorePointer(
-        child: Container(
-          width: 2,
-          color: C.brand,
-          child: Column(
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: const BoxDecoration(
-                  color: C.brand,
-                  shape: BoxShape.circle,
-                ),
-                transform: Matrix4.translationValues(-4, 0, 0),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return TimelinePlayheadView(
+      currentTime: _currentTime,
+      totalDuration: _totalDuration,
+      tracks: _tracks,
+      pixelsPerSecond: _pixelsPerSecond,
+      zoom: _timelineZoom,
+      snappingEnabled: _isSnappingEnabled,
+      scrollController: _timelineScrollController,
+      timelineWidth: timelineWidth,
+      onSeek: (t) {
+        _playback.seek(t, _tracks);
+        setState(() => _currentTime = t);
+      },
     );
   }
 
