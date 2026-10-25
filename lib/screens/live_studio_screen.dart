@@ -1,5 +1,6 @@
 import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
@@ -138,6 +139,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   final TextEditingController _liveTitleController = TextEditingController();
   String _liveGoal = '';
   int _greenRoomModeIndex = 1; // 0=Flip, 1=Camera, 2=Voice, 3=Gaming
+  bool _isFlippingCamera = false;
+  bool _isFocusingCamera = false;
+  bool _isStudioPinned = false;
+  bool _isSwitchingMode = false;
+  String? _selectedMusicTrack;
   final Set<String> _moderatorGuestIds = <String>{};
   final List<Map<String, dynamic>> _reactionBursts = [];
 
@@ -1308,14 +1314,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
   }
 
-  /// Flips the camera between front and back during the green room or live.
+  /// Flips the camera between front and back during the green room or live with concurrency protection.
   Future<void> _flipCamera() async {
+    if (_isFlippingCamera) return;
     final localParticipant = widget.state.live.room?.localParticipant;
-    if (localParticipant == null) return;
+    if (localParticipant == null) {
+      _showToast('Camera is initializing...');
+      return;
+    }
     final videoTrack =
         localParticipant.videoTrackPublications.firstOrNull?.track;
-    if (videoTrack == null) return;
+    if (videoTrack == null) {
+      _showToast('No active camera track available');
+      return;
+    }
+    _isFlippingCamera = true;
     try {
+      HapticFeedback.lightImpact();
       final nextPosition =
           _isFrontCamera ? CameraPosition.back : CameraPosition.front;
       await videoTrack.setCameraPosition(nextPosition);
@@ -1325,6 +1340,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       }
     } catch (e) {
       debugPrint('Necxa Live: camera flip failed: $e');
+      if (mounted) _showToast('Camera flip unavailable on this hardware');
+    } finally {
+      if (mounted) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) setState(() => _isFlippingCamera = false);
+        });
+      } else {
+        _isFlippingCamera = false;
+      }
     }
   }
 
@@ -1333,11 +1357,278 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       final local = widget.state.live.room?.localParticipant;
       final videoTrack = local?.videoTrackPublications.firstOrNull?.track;
       if (videoTrack != null) {
-        await (videoTrack.mediaStreamTrack as dynamic).setZoom(1.0);
+        final dynamic mst = videoTrack.mediaStreamTrack;
+        try {
+          await mst.setZoom(1.0);
+        } catch (_) {
+          // Hardware setZoom unsupported on some devices
+        }
       }
     } catch (e) {
       debugPrint('[LiveStudio] setZoom(1.0) failed or unsupported: $e');
     }
+  }
+
+  void _triggerFocusCamera() {
+    if (_isFocusingCamera) return;
+    HapticFeedback.selectionClick();
+    setState(() => _isFocusingCamera = true);
+    unawaited(_resetCameraHardwareZoom());
+    _showToast('Camera focused and calibrated');
+    Future.delayed(const Duration(milliseconds: 1000), () {
+      if (mounted) setState(() => _isFocusingCamera = false);
+    });
+  }
+
+  Future<void> _selectGreenRoomMode(int index) async {
+    if (_greenRoomModeIndex == index || _isSwitchingMode) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _greenRoomModeIndex = index;
+      _isSwitchingMode = true;
+    });
+
+    try {
+      final localParticipant = widget.state.live.room?.localParticipant;
+      if (localParticipant != null) {
+        final videoPub = localParticipant.videoTrackPublications.firstOrNull;
+        if (index == 2) {
+          // Voice mode: mute video publication
+          await videoPub?.mute();
+          _showToast('Voice mode: Camera muted, audio active');
+        } else if (index == 1) {
+          // Camera mode: unmute video publication
+          await videoPub?.unmute();
+          unawaited(_resetCameraHardwareZoom());
+        } else if (index == 3) {
+          // Gaming mode
+          _showToast('Gaming mode ready: Audio + game screen ready for live');
+        }
+      }
+    } catch (e) {
+      debugPrint('[LiveStudio] Mode switch error: $e');
+    } finally {
+      if (mounted) setState(() => _isSwitchingMode = false);
+    }
+  }
+
+  void _togglePinStudio() {
+    HapticFeedback.selectionClick();
+    setState(() => _isStudioPinned = !_isStudioPinned);
+    _showToast(_isStudioPinned ? 'Studio dashboard pinned' : 'Studio dashboard unpinned');
+  }
+
+  void _openMusicPickerSheet() {
+    HapticFeedback.mediumImpact();
+
+    const tracks = <Map<String, dynamic>>[
+      {'title': 'Trending Afrobeats', 'artist': 'Various Artists', 'duration': '3:12', 'icon': Icons.music_note},
+      {'title': 'Lo-Fi Chill', 'artist': 'Lo-Fi Hub', 'duration': '4:05', 'icon': Icons.headphones},
+      {'title': 'Hip-Hop Vibes', 'artist': 'Urban Collective', 'duration': '2:58', 'icon': Icons.album},
+      {'title': 'Pop Hits Mix', 'artist': 'Top Charts', 'duration': '3:44', 'icon': Icons.queue_music},
+      {'title': 'Afro Dance', 'artist': 'DJ Necxa', 'duration': '3:20', 'icon': Icons.graphic_eq},
+      {'title': 'R&B Smooth', 'artist': 'Soul Station', 'duration': '4:18', 'icon': Icons.piano},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        String? localSelected = _selectedMusicTrack;
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              decoration: BoxDecoration(
+                color: const Color(0xF20D1017),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(color: Colors.white12, width: 1.2),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Handle bar
+                    Center(
+                      child: Container(
+                        width: 40, height: 4,
+                        margin: const EdgeInsets.only(bottom: 18),
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+
+                    // Header
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(9),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF7B2FFF).withValues(alpha: 0.18),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.library_music, color: Color(0xFF00E5FF), size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Live Music',
+                              style: syne(sz: 16, w: FontWeight.w800, c: Colors.white),
+                            ),
+                            Text(
+                              'Background music for your stream',
+                              style: dm(sz: 11, c: Colors.white54),
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        if (localSelected != null)
+                          GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              setLocal(() => localSelected = null);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                'Remove',
+                                style: dm(sz: 11, w: FontWeight.w600, c: Colors.redAccent),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // Track list
+                    ...tracks.map((track) {
+                      final title = track['title'] as String;
+                      final isActive = localSelected == title;
+                      return GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setLocal(() => localSelected = title);
+                        },
+                        behavior: HitTestBehavior.opaque,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? const Color(0xFF7B2FFF).withValues(alpha: 0.22)
+                                : Colors.white.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isActive
+                                  ? const Color(0xFF00E5FF).withValues(alpha: 0.55)
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38, height: 38,
+                                decoration: BoxDecoration(
+                                  color: isActive
+                                      ? const Color(0xFF7B2FFF).withValues(alpha: 0.35)
+                                      : Colors.white.withValues(alpha: 0.08),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  track['icon'] as IconData,
+                                  color: isActive ? const Color(0xFF00E5FF) : Colors.white54,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: dm(
+                                        sz: 13,
+                                        w: isActive ? FontWeight.w700 : FontWeight.w500,
+                                        c: isActive ? Colors.white : Colors.white70,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${track['artist']}  •  ${track['duration']}',
+                                      style: dm(sz: 10, c: Colors.white38),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isActive)
+                                const Icon(Icons.check_circle, color: Color(0xFF00E5FF), size: 18),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+
+                    const SizedBox(height: 16),
+
+                    // Confirm button
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.mediumImpact();
+                        Navigator.pop(ctx);
+                        setState(() => _selectedMusicTrack = localSelected);
+                        if (localSelected != null) {
+                          _showToast('🎵 Now playing: $localSelected');
+                        } else {
+                          _showToast('Music removed from stream');
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          gradient: localSelected != null
+                              ? const LinearGradient(
+                                  colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF)],
+                                )
+                              : null,
+                          color: localSelected == null ? Colors.white10 : null,
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Center(
+                          child: Text(
+                            localSelected != null ? 'Set "$localSelected"' : 'No music selected',
+                            style: syne(
+                              sz: 13,
+                              w: FontWeight.w800,
+                              c: localSelected != null ? Colors.black : Colors.white38,
+                              ls: 0.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _closeLiveStudio() async {
@@ -1557,17 +1848,27 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
                       // Pin Button
                       GestureDetector(
-                        onTap: () => _showToast('Studio settings pinned'),
+                        onTap: _togglePinStudio,
                         child: Container(
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.55),
+                            color: _isStudioPinned
+                                ? const Color(0xFF00E5FF).withValues(alpha: 0.18)
+                                : Colors.black.withValues(alpha: 0.55),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                            border: Border.all(
+                              color: _isStudioPinned
+                                  ? const Color(0xFF00E5FF)
+                                  : Colors.white.withValues(alpha: 0.12),
+                            ),
                           ),
                           alignment: Alignment.center,
-                          child: const Icon(Icons.push_pin_outlined, color: Colors.white, size: 20),
+                          child: Icon(
+                            _isStudioPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                            color: _isStudioPinned ? const Color(0xFF00E5FF) : Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -1597,7 +1898,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       // Top Gifter Pill
                       Expanded(
                         child: GestureDetector(
-                          onTap: _showLiveAudience,
+                          onTap: () {
+                            if (topGifterName == null || topGifterName.isEmpty) {
+                              _showToast('Top supporter will be highlighted here in real-time');
+                            } else {
+                              _showLiveAudience();
+                            }
+                          },
                           child: Container(
                             height: 48,
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -1699,29 +2006,43 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
                   // Row 3: Add music & get gifts banner
                   GestureDetector(
-                    onTap: () => _showToast('Background music: Pick trending tracks for your live'),
+                    onTap: _openMusicPickerSheet,
                     child: Container(
                       height: 50,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
+                        color: _selectedMusicTrack != null
+                            ? const Color(0xFF7B2FFF).withValues(alpha: 0.2)
+                            : Colors.black.withValues(alpha: 0.55),
                         borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                        border: Border.all(
+                          color: _selectedMusicTrack != null
+                              ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
+                              : Colors.white.withValues(alpha: 0.12),
+                        ),
                       ),
                       child: Row(
                         children: [
                           Container(
                             width: 34,
                             height: 34,
-                            decoration: const BoxDecoration(
+                            decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: LinearGradient(
-                                colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF)],
+                                colors: _selectedMusicTrack != null
+                                    ? [const Color(0xFF00E5FF), const Color(0xFFFF176B)]
+                                    : [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                               ),
                             ),
-                            child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 18),
+                            child: Icon(
+                              _selectedMusicTrack != null
+                                  ? Icons.graphic_eq_rounded
+                                  : Icons.music_note_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
@@ -1730,12 +2051,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  'Add music & get gifts',
+                                  _selectedMusicTrack ?? 'Add music & get gifts',
                                   style: syne(sz: 12, w: FontWeight.w700, c: Colors.white),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 1),
                                 Text(
-                                  'Trending sounds. More viewers. Bigger rewards.',
+                                  _selectedMusicTrack != null
+                                      ? 'Background track active • Tap to change'
+                                      : 'Trending sounds. More viewers. Bigger rewards.',
                                   style: dm(sz: 9.5, c: Colors.white60),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -1743,7 +2068,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded, color: Colors.white60, size: 20),
+                          Icon(
+                            _selectedMusicTrack != null ? Icons.tune_rounded : Icons.chevron_right_rounded,
+                            color: Colors.white60,
+                            size: 20,
+                          ),
                         ],
                       ),
                     ),
@@ -1771,10 +2100,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       Positioned.fill(
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            _resetCameraHardwareZoom();
-                            _showToast('Camera focused and ready');
-                          },
+                          onTap: _triggerFocusCamera,
                           child: const SizedBox.expand(),
                         ),
                       ),
@@ -1867,11 +2193,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       // Center Reticle Viewfinder
                       Center(
                         child: GestureDetector(
-                          onTap: () {
-                            _resetCameraHardwareZoom();
-                            _showToast('Camera focused and ready');
-                          },
-                          child: const _ReticleViewfinder(),
+                          onTap: _triggerFocusCamera,
+                          child: _ReticleViewfinder(isFocusing: _isFocusingCamera),
                         ),
                       ),
 
@@ -1945,6 +2268,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       index: 1,
                                       icon: Icons.videocam_outlined,
                                       label: 'Camera',
+                                      onTap: () => _selectGreenRoomMode(1),
                                     ),
                                   ),
 
@@ -1954,6 +2278,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       index: 2,
                                       icon: Icons.mic_none_outlined,
                                       label: 'Voice',
+                                      onTap: () => _selectGreenRoomMode(2),
                                     ),
                                   ),
 
@@ -1972,6 +2297,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       icon: Icons.sports_esports_outlined,
                                       label: 'Gaming',
                                       badge: 'Beta',
+                                      onTap: () => _selectGreenRoomMode(3),
                                     ),
                                   ),
                                 ],
@@ -2151,10 +2477,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     required IconData icon,
     required String label,
     String? badge,
+    VoidCallback? onTap,
   }) {
     final active = _greenRoomModeIndex == index;
     return GestureDetector(
-      onTap: () => setState(() => _greenRoomModeIndex = index),
+      onTap: onTap ?? () => setState(() => _greenRoomModeIndex = index),
       behavior: HitTestBehavior.opaque,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -6221,57 +6548,108 @@ class _GridPainter extends CustomPainter {
 }
 
 class _ReticleViewfinder extends StatelessWidget {
-  const _ReticleViewfinder();
+  const _ReticleViewfinder({this.isFocusing = false});
+
+  final bool isFocusing;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 175,
-      height: 160,
-      decoration: const BoxDecoration(
-        color: Colors.transparent,
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // 4 corner L-brackets
-          Positioned(top: 0, left: 0, child: _corner(top: true, left: true)),
-          Positioned(top: 0, right: 0, child: _corner(top: true, left: false)),
-          Positioned(bottom: 0, left: 0, child: _corner(top: false, left: true)),
-          Positioned(bottom: 0, right: 0, child: _corner(top: false, left: false)),
-
-          // Center content
-          Column(
-            mainAxisSize: MainAxisSize.min,
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1.0, end: isFocusing ? 0.4 : 1.0),
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
+      builder: (_, opacity, child) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          width: isFocusing ? 145 : 175,
+          height: isFocusing ? 130 : 160,
+          decoration: const BoxDecoration(color: Colors.transparent),
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              const Icon(Icons.camera_alt_outlined, color: Colors.white, size: 28),
-              const SizedBox(height: 8),
-              Text(
-                'Camera ready',
-                style: dm(sz: 12, w: FontWeight.w700, c: Colors.white),
+              // 4 corner L-brackets — cyan when focusing
+              Positioned(
+                top: 0, left: 0,
+                child: _corner(top: true, left: true, isFocusing: isFocusing),
               ),
-              const SizedBox(height: 2),
-              Text(
-                'Tap to focus',
-                style: dm(sz: 10, c: Colors.white70),
+              Positioned(
+                top: 0, right: 0,
+                child: _corner(top: true, left: false, isFocusing: isFocusing),
+              ),
+              Positioned(
+                bottom: 0, left: 0,
+                child: _corner(top: false, left: true, isFocusing: isFocusing),
+              ),
+              Positioned(
+                bottom: 0, right: 0,
+                child: _corner(top: false, left: false, isFocusing: isFocusing),
+              ),
+
+              // Center content
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: isFocusing
+                    ? Column(
+                        key: const ValueKey('focusing'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.center_focus_strong_outlined,
+                            color: Color(0xFF00E5FF),
+                            size: 28,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Focusing...',
+                            style: dm(
+                              sz: 12,
+                              w: FontWeight.w700,
+                              c: const Color(0xFF00E5FF),
+                            ),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        key: const ValueKey('ready'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.camera_alt_outlined,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Camera ready',
+                            style: dm(sz: 12, w: FontWeight.w700, c: Colors.white),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Tap to focus',
+                            style: dm(sz: 10, c: Colors.white70),
+                          ),
+                        ],
+                      ),
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _corner({required bool top, required bool left}) {
-    return Container(
+  Widget _corner({required bool top, required bool left, required bool isFocusing}) {
+    final color = isFocusing ? const Color(0xFF00E5FF) : Colors.white;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
       width: 24,
       height: 24,
       decoration: BoxDecoration(
         border: Border(
-          top: top ? const BorderSide(color: Colors.white, width: 2.2) : BorderSide.none,
-          bottom: !top ? const BorderSide(color: Colors.white, width: 2.2) : BorderSide.none,
-          left: left ? const BorderSide(color: Colors.white, width: 2.2) : BorderSide.none,
-          right: !left ? const BorderSide(color: Colors.white, width: 2.2) : BorderSide.none,
+          top: top ? BorderSide(color: color, width: 2.2) : BorderSide.none,
+          bottom: !top ? BorderSide(color: color, width: 2.2) : BorderSide.none,
+          left: left ? BorderSide(color: color, width: 2.2) : BorderSide.none,
+          right: !left ? BorderSide(color: color, width: 2.2) : BorderSide.none,
         ),
         borderRadius: BorderRadius.only(
           topLeft: top && left ? const Radius.circular(8) : Radius.zero,
@@ -6283,6 +6661,7 @@ class _ReticleViewfinder extends StatelessWidget {
     );
   }
 }
+
 
 
 
