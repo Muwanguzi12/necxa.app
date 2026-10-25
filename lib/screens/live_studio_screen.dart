@@ -122,6 +122,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   double _beautySmoothing = 0.0; // 0..1
   double _beautyWhitening = 0.0; // 0..1
   double _faceSymmetry = 0.0; // 0..1
+  bool _symmetryMirrorLeft = true; // true = mirror left side onto right, false = right onto left
+  bool _showSymmetryGuide = true; // show alignment axis when symmetry > 0
   bool _mirrorMode = false;
   bool _showGrid = false;
   bool _noiseSuppression = true;
@@ -2866,6 +2868,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       _beautySmoothing = 0;
                       _beautyWhitening = 0;
                       _faceSymmetry = 0;
+                      _symmetryMirrorLeft = true;
+                      _showSymmetryGuide = true;
                     });
                   },
                   child: Text('Reset', style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600)),
@@ -3008,6 +3012,85 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               value: _faceSymmetry,
               onChanged: (v) => update(() => _faceSymmetry = v),
             ),
+            if (_faceSymmetry > 0) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 30),
+                child: Row(
+                  children: [
+                    Text('Balance: ', style: dm(sz: 10, c: Colors.white60)),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        update(() => _symmetryMirrorLeft = true);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _symmetryMirrorLeft ? C.brand : Colors.white10,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Left Side',
+                          style: dm(
+                            sz: 9,
+                            w: FontWeight.w700,
+                            c: _symmetryMirrorLeft ? Colors.black : Colors.white70,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        update(() => _symmetryMirrorLeft = false);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: !_symmetryMirrorLeft ? C.brand : Colors.white10,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Right Side',
+                          style: dm(
+                            sz: 9,
+                            w: FontWeight.w700,
+                            c: !_symmetryMirrorLeft ? Colors.black : Colors.white70,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        update(() => _showSymmetryGuide = !_showSymmetryGuide);
+                      },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _showSymmetryGuide ? Icons.visibility : Icons.visibility_off,
+                            size: 13,
+                            color: _showSymmetryGuide ? C.brand : Colors.white38,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Guide',
+                            style: dm(
+                              sz: 10,
+                              c: _showSymmetryGuide ? C.brand : Colors.white38,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -3264,30 +3347,73 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       filterMatrix = legacyMatrix;
     }
 
-    final combinedMatrix = _previewOriginal
-        ? filterMatrix
-        : _mergeColorMatrices(filterMatrix, _beautyMatrix());
-
-    Widget video = _buildVideoView();
-
-    // Mirror
-    if (_mirrorMode) {
-      video = Transform(
-        alignment: Alignment.center,
-        transform: Matrix4.diagonal3Values(-1, 1, 1),
-        child: video,
-      );
-    }
-
-    // Colour filter (Normal/none = identity so free when inactive)
     final hasActiveFilter = (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
         _activeFilterIndex != 0 ||
         _beautyWhitening > 0;
 
-    if (!_previewOriginal && hasActiveFilter) {
-      video = ColorFiltered(
-        colorFilter: ColorFilter.matrix(combinedMatrix),
-        child: video,
+    final combinedMatrix = _previewOriginal
+        ? filterMatrix
+        : _mergeColorMatrices(filterMatrix, _beautyMatrix());
+
+    Widget video = _buildBaseVideoLayer(
+      combinedMatrix: combinedMatrix,
+      hasActiveFilter: hasActiveFilter,
+    );
+
+    // Facial Symmetry: bilateral balance across vertical center
+    if (!_previewOriginal && _faceSymmetry > 0.01) {
+      final mirrorLeft = _symmetryMirrorLeft;
+      video = LayoutBuilder(
+        builder: (context, constraints) {
+          final halfWidth = constraints.maxWidth / 2;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              video,
+              // Mirrored half overlay
+              Positioned(
+                top: 0,
+                bottom: 0,
+                left: mirrorLeft ? halfWidth : 0,
+                right: mirrorLeft ? 0 : halfWidth,
+                child: IgnorePointer(
+                  child: ClipRect(
+                    child: Opacity(
+                      opacity: _faceSymmetry.clamp(0.0, 1.0),
+                      child: Align(
+                        alignment: mirrorLeft
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        widthFactor: 0.5,
+                        child: Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.diagonal3Values(-1, 1, 1),
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            child: _buildBaseVideoLayer(
+                              combinedMatrix: combinedMatrix,
+                              hasActiveFilter: hasActiveFilter,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Facial Symmetry alignment guide (vertical axis & facial landmark balance markers)
+              if (_showSymmetryGuide && _faceSymmetry > 0.05)
+                Positioned.fill(
+                  child: _FacialSymmetryGuideOverlay(
+                    intensity: _faceSymmetry,
+                    mirrorLeft: mirrorLeft,
+                  ),
+                ),
+            ],
+          );
+        },
       );
     }
 
@@ -3318,6 +3444,33 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           video,
           const Positioned.fill(child: _GridOverlay()),
         ],
+      );
+    }
+
+    return video;
+  }
+
+  /// Builds base video with mirror and active color/catalogue filters applied.
+  Widget _buildBaseVideoLayer({
+    required List<double> combinedMatrix,
+    required bool hasActiveFilter,
+  }) {
+    Widget video = _buildVideoView();
+
+    // Mirror
+    if (_mirrorMode) {
+      video = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(-1, 1, 1),
+        child: video,
+      );
+    }
+
+    // Colour filter (Normal/none = identity so free when inactive)
+    if (!_previewOriginal && hasActiveFilter) {
+      video = ColorFiltered(
+        colorFilter: ColorFilter.matrix(combinedMatrix),
+        child: video,
       );
     }
 
@@ -6545,6 +6698,115 @@ class _GridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GridPainter old) => false;
+}
+
+/// Bilateral Facial Symmetry alignment guide and landmark balance overlay.
+class _FacialSymmetryGuideOverlay extends StatelessWidget {
+  final double intensity;
+  final bool mirrorLeft;
+
+  const _FacialSymmetryGuideOverlay({
+    required this.intensity,
+    required this.mirrorLeft,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _FacialSymmetryPainter(
+          intensity: intensity,
+          mirrorLeft: mirrorLeft,
+        ),
+      ),
+    );
+  }
+}
+
+class _FacialSymmetryPainter extends CustomPainter {
+  final double intensity;
+  final bool mirrorLeft;
+
+  _FacialSymmetryPainter({
+    required this.intensity,
+    required this.mirrorLeft,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final alpha = (intensity * 0.7).clamp(0.18, 0.75);
+
+    // Glowing vertical center axis
+    final glowPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: alpha * 0.35)
+      ..strokeWidth = 3.0
+      ..style = PaintingStyle.stroke;
+
+    final linePaint = Paint()
+      ..color = Colors.white.withValues(alpha: alpha)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    // Dashed center line
+    const dashHeight = 8.0;
+    const dashSpace = 6.0;
+    double startY = size.height * 0.12;
+    final endY = size.height * 0.88;
+
+    while (startY < endY) {
+      final segEnd = (startY + dashHeight).clamp(0.0, endY);
+      canvas.drawLine(Offset(cx, startY), Offset(cx, segEnd), glowPaint);
+      canvas.drawLine(Offset(cx, startY), Offset(cx, segEnd), linePaint);
+      startY += dashHeight + dashSpace;
+    }
+
+    // Facial landmark reference cross-ticks
+    final markerPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: alpha)
+      ..strokeWidth = 1.4
+      ..style = PaintingStyle.stroke;
+
+    // Eye level tick & balance dots (y = 0.38)
+    final eyeY = size.height * 0.38;
+    canvas.drawLine(Offset(cx - 24, eyeY), Offset(cx + 24, eyeY), markerPaint);
+    final dotPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: alpha * 0.85)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(cx - 55, eyeY), 2.5, dotPaint);
+    canvas.drawCircle(Offset(cx + 55, eyeY), 2.5, dotPaint);
+
+    // Nose level tick (y = 0.48)
+    final noseY = size.height * 0.48;
+    canvas.drawLine(Offset(cx - 10, noseY), Offset(cx + 10, noseY), markerPaint);
+
+    // Lip level tick (y = 0.58)
+    final lipY = size.height * 0.58;
+    canvas.drawLine(Offset(cx - 18, lipY), Offset(cx + 18, lipY), markerPaint);
+
+    // Chin level tick (y = 0.68)
+    final chinY = size.height * 0.68;
+    canvas.drawLine(Offset(cx - 12, chinY), Offset(cx + 12, chinY), markerPaint);
+
+    // Direction indicator near upper axis (L ➔ R or R ➔ L)
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: mirrorLeft ? 'L ➔ R' : 'R ➔ L',
+        style: TextStyle(
+          color: const Color(0xFF00E5FF).withValues(alpha: alpha),
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.8,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(canvas, Offset(cx - textPainter.width / 2, size.height * 0.26));
+  }
+
+  @override
+  bool shouldRepaint(_FacialSymmetryPainter old) =>
+      old.intensity != intensity || old.mirrorLeft != mirrorLeft;
 }
 
 class _ReticleViewfinder extends StatelessWidget {
