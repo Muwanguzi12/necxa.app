@@ -53,6 +53,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   int _automaticAuthRetries = 0;
   static const int _maxAutomaticAuthRetries = 1;
   late String _channelName;
+  bool _greenRoomNormalZoom = true;
 
   String get _hostDisplayName {
     final backendName = _liveSummary['hostName']?.toString().trim() ?? '';
@@ -988,6 +989,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         _localUserJoined = true;
         _hostInGreenRoom = widget.isHost;
       });
+      if (widget.isHost) unawaited(_resetCameraHardwareZoom());
       if (!widget.isHost) {
         _startChannelSync();
         await _syncLiveState();
@@ -1317,9 +1319,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       final nextPosition =
           _isFrontCamera ? CameraPosition.back : CameraPosition.front;
       await videoTrack.setCameraPosition(nextPosition);
-      if (mounted) setState(() => _isFrontCamera = !_isFrontCamera);
+      if (mounted) {
+        setState(() => _isFrontCamera = !_isFrontCamera);
+        unawaited(_resetCameraHardwareZoom());
+      }
     } catch (e) {
       debugPrint('Necxa Live: camera flip failed: $e');
+    }
+  }
+
+  Future<void> _resetCameraHardwareZoom() async {
+    try {
+      final local = widget.state.live.room?.localParticipant;
+      final videoTrack = local?.videoTrackPublications.firstOrNull?.track;
+      if (videoTrack != null) {
+        await (videoTrack.mediaStreamTrack as dynamic).setZoom(1.0);
+      }
+    } catch (e) {
+      debugPrint('[LiveStudio] setZoom(1.0) failed or unsupported: $e');
     }
   }
 
@@ -1529,6 +1546,18 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _buildSideActionButton(
+                    icon: _greenRoomNormalZoom
+                        ? Icons.aspect_ratio_rounded
+                        : Icons.fullscreen_exit_rounded,
+                    label: _greenRoomNormalZoom ? '1x Normal' : 'Fit: Fill',
+                    isActive: _greenRoomNormalZoom,
+                    activeColor: C.brand,
+                    onTap: () {
+                      setState(() => _greenRoomNormalZoom = !_greenRoomNormalZoom);
+                      _resetCameraHardwareZoom();
+                    },
+                  ),
                   _buildSideActionButton(
                     icon: Icons.calendar_month_outlined,
                     label: _plannedBroadcastTime != null ? 'Scheduled' : 'Schedule',
@@ -2383,6 +2412,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
     }
 
+    if (widget.isHost && _hostInGreenRoom && _greenRoomNormalZoom) {
+      final screenHeight = MediaQuery.sizeOf(context).height;
+      final sheetHeight = screenHeight * 0.27;
+      video = Padding(
+        padding: EdgeInsets.only(bottom: sheetHeight),
+        child: video,
+      );
+    }
+
     return video;
   }
 
@@ -3119,7 +3157,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           fit: StackFit.expand,
           children: [
             if (videoTrack is VideoTrack)
-              VideoTrackRenderer(videoTrack, fit: VideoViewFit.cover)
+              VideoTrackRenderer(
+                videoTrack,
+                fit: (_hostInGreenRoom && _greenRoomNormalZoom)
+                    ? VideoViewFit.contain
+                    : VideoViewFit.cover,
+              )
             else
               ColoredBox(
                 color: Color(0xFF17151F),
