@@ -1419,355 +1419,680 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   Widget _buildHostGreenRoom() {
     final avatar = _hostAvatar;
-    final screenHeight = MediaQuery.sizeOf(context).height;
+    final topPadding = MediaQuery.paddingOf(context).top;
+
+    final topGifter = _topGifter;
+    final giftTotal = (_giftSummary['totalAmount'] as num?)?.toInt() ?? 0;
+    final giftGoal = (_giftSummary['goalTarget'] as num?)?.toInt() ?? 100;
+    final goalProgress = giftGoal <= 0
+        ? 0.0
+        : (giftTotal / giftGoal).clamp(0.0, 1.0);
+    final topGifterName = topGifter?['senderName']?.toString().trim();
+    final topGifterAmount = (topGifter?['amount'] as num?) ?? 0;
 
     return Positioned.fill(
       child: Material(
         color: Colors.transparent,
-        child: Stack(
+        child: Column(
           children: [
-            // ── TOP BAR: Close 'X' and 'Your Live' Capsule Card ──
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            // ── TOP SECTION: Status HUD (Host pill, LIVE, Pin, Close, Top Gifter, Goal, Music) ──
+            Container(
+              padding: EdgeInsets.fromLTRB(14, topPadding + 6, 14, 10),
+              color: const Color(0xFF090D16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Row 1: Host identity capsule | LIVE pill | Pin | Exit X
+                  Row(
                     children: [
-                      // Close 'X'
-                      GestureDetector(
-                        onTap: _startingBroadcast ? null : _closeLiveStudio,
+                      // Host identity capsule
+                      Expanded(
                         child: Container(
-                          width: 38,
-                          height: 38,
-                          alignment: Alignment.centerLeft,
-                          child: const Icon(Icons.close, color: Colors.white, size: 28),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      // 'Your Live' Capsule Card
-                      GestureDetector(
-                        onTap: _openTitleEditSheet,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                          height: 44,
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.55),
-                            borderRadius: BorderRadius.circular(24),
+                            borderRadius: BorderRadius.circular(22),
                             border: Border.all(
-                              color: const Color(0xFF2979FF).withValues(alpha: 0.45),
-                              width: 1.2,
+                              color: Colors.white.withValues(alpha: 0.12),
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF2979FF).withValues(alpha: 0.16),
-                                blurRadius: 18,
-                                spreadRadius: -2,
-                              ),
-                            ],
                           ),
                           child: Row(
                             children: [
-                              // Avatar with glowing neon cyan ring
+                              // Avatar with glowing/gradient ring
                               Container(
-                                padding: const EdgeInsets.all(2),
-                                decoration: BoxDecoration(
+                                width: 34,
+                                height: 34,
+                                padding: const EdgeInsets.all(1.5),
+                                decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: const Color(0xFF00E5FF), width: 1.5),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
-                                      blurRadius: 8,
-                                    ),
-                                  ],
+                                  gradient: LinearGradient(
+                                    colors: [Color(0xFFFF176B), Color(0xFF00E5FF)],
+                                  ),
                                 ),
                                 child: CircleAvatar(
-                                  radius: 17,
                                   backgroundColor: const Color(0xFF242738),
                                   backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
-                                  child: avatar.isEmpty ? const Icon(Icons.person, size: 16, color: Colors.white70) : null,
+                                  child: avatar.isEmpty
+                                      ? Text(
+                                          _hostDisplayName.isNotEmpty ? _hostDisplayName[0].toUpperCase() : 'H',
+                                          style: dm(sz: 11, w: FontWeight.w900, c: Colors.white),
+                                        )
+                                      : null,
                                 ),
                               ),
-                              const SizedBox(width: 10),
-
-                              // Title + Subtitle
+                              const SizedBox(width: 8),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Row(
                                       children: [
                                         Flexible(
                                           child: Text(
-                                            _liveTitleController.text.trim().isNotEmpty
-                                                ? _liveTitleController.text.trim()
-                                                : (_hostDisplayName.isNotEmpty ? _hostDisplayName : 'Your Live'),
-                                            style: syne(sz: 13, w: FontWeight.w700, c: Colors.white),
+                                            _hostDisplayName.isNotEmpty ? _hostDisplayName : 'Your Live',
+                                            style: syne(sz: 12, w: FontWeight.w800, c: Colors.white),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
-                                        const SizedBox(width: 6),
-                                        const Icon(Icons.edit_outlined, size: 13, color: Colors.white70),
+                                        const SizedBox(width: 4),
+                                        const Icon(
+                                          Icons.verified_rounded,
+                                          color: Color(0xFF00E5FF),
+                                          size: 13,
+                                        ),
                                       ],
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      _liveTitleController.text.trim().isNotEmpty
-                                          ? 'Tap to change title'
-                                          : 'Add a catchy title...',
-                                      style: dm(sz: 11, c: Colors.white54),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                    const SizedBox(height: 1),
+                                    Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.visibility_outlined,
+                                          color: Colors.white54,
+                                          size: 11,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          '$_viewerCount viewers',
+                                          style: dm(sz: 9, c: Colors.white54),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 22),
-                              const SizedBox(width: 2),
                             ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Pink LIVE pill button
+                      GestureDetector(
+                        onTap: _startingBroadcast ? null : _startBroadcast,
+                        child: Container(
+                          height: 44,
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF176B),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFFF176B).withValues(alpha: 0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            'LIVE',
+                            style: syne(sz: 13, w: FontWeight.w900, c: Colors.white, ls: 0.5),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Pin Button
+                      GestureDetector(
+                        onTap: () => _showToast('Studio settings pinned'),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.push_pin_outlined, color: Colors.white, size: 20),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Exit X Button
+                      GestureDetector(
+                        onTap: _startingBroadcast ? null : _closeLiveStudio,
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.close, color: Colors.white, size: 22),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Row 2: Top Gifter Pill & Goal Pill
+                  Row(
+                    children: [
+                      // Top Gifter Pill
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _showLiveAudience,
+                          child: Container(
+                            height: 48,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.local_fire_department_rounded, color: Color(0xFFFF9100), size: 22),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        'TOP GIFTER',
+                                        style: dm(sz: 8.5, w: FontWeight.w700, c: Colors.white54, ls: 0.4),
+                                      ),
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        topGifterName != null && topGifterName.isNotEmpty
+                                            ? '$topGifterName ($topGifterAmount)'
+                                            : 'No gifts yet',
+                                        style: syne(sz: 11, w: FontWeight.w600, c: Colors.white),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Goal Pill
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _openGoalDialog,
+                          child: Container(
+                            height: 48,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.card_giftcard_rounded, color: Color(0xFFFFD700), size: 17),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'GOAL',
+                                            style: dm(sz: 8.5, w: FontWeight.w700, c: Colors.white54, ls: 0.4),
+                                          ),
+                                          Text(
+                                            '$giftTotal / $giftGoal NCX',
+                                            style: syne(sz: 10.5, w: FontWeight.w700, c: Colors.white),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(2),
+                                  child: LinearProgressIndicator(
+                                    value: goalProgress,
+                                    minHeight: 2.5,
+                                    backgroundColor: Colors.white12,
+                                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7B2FFF)),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-            ),
+                  const SizedBox(height: 8),
 
-            // ── CENTER VIEWPORT: Reticle / Focus Viewfinder ──
-            Center(
-              child: GestureDetector(
-                onTap: () {
-                  _resetCameraHardwareZoom();
-                  _showToast('Camera focused and ready');
-                },
-                child: const _ReticleViewfinder(),
-              ),
-            ),
-
-            // ── RIGHT VERTICAL ACTION RAIL: Camera Flip, Filters, Beauty, More ──
-            Positioned(
-              top: screenHeight * 0.28,
-              right: 14,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 1. Camera Flip
-                  _buildImageRailButton(
-                    icon: Icons.cameraswitch_outlined,
-                    label: 'Camera\nFlip',
-                    hasGlow: true,
-                    onTap: _flipCamera,
-                  ),
-                  const SizedBox(height: 14),
-
-                  // 2. Filters
-                  _buildImageRailButton(
-                    icon: Icons.auto_fix_high_rounded,
-                    label: 'Filters',
-                    onTap: () => _openLiveEffectsSheet(initialTab: 0),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // 3. Beauty
-                  _buildImageRailButton(
-                    icon: Icons.tune_rounded,
-                    label: 'Beauty',
-                    onTap: () => _openLiveEffectsSheet(initialTab: 1),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // 4. More
-                  _buildImageRailButton(
-                    icon: Icons.more_horiz_rounded,
-                    label: 'More',
-                    onTap: _openMoreSheet,
+                  // Row 3: Add music & get gifts banner
+                  GestureDetector(
+                    onTap: () => _showToast('Background music: Pick trending tracks for your live'),
+                    child: Container(
+                      height: 50,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 34,
+                            height: 34,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Add music & get gifts',
+                                  style: syne(sz: 12, w: FontWeight.w700, c: Colors.white),
+                                ),
+                                const SizedBox(height: 1),
+                                Text(
+                                  'Trending sounds. More viewers. Bigger rewards.',
+                                  style: dm(sz: 9.5, c: Colors.white60),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded, color: Colors.white60, size: 20),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
 
-            // ── BOTTOM CONTROLS: Mode Switcher, Go LIVE, Bottom Quick Bar ──
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Mode Switcher Capsule (Camera | Voice | Gaming Beta)
-                    Container(
-                      height: 52,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(26),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black45, blurRadius: 16, offset: Offset(0, 4)),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          // Camera
-                          Expanded(
-                            child: _modeCapsuleItem(
-                              index: 1,
-                              icon: Icons.videocam_outlined,
-                              label: 'Camera',
-                            ),
-                          ),
-
-                          // Voice
-                          Expanded(
-                            child: _modeCapsuleItem(
-                              index: 2,
-                              icon: Icons.mic_none_outlined,
-                              label: 'Voice',
-                            ),
-                          ),
-
-                          // Divider
-                          Container(
-                            width: 1,
-                            height: 22,
-                            color: Colors.white24,
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                          ),
-
-                          // Gaming
-                          Expanded(
-                            child: _modeCapsuleItem(
-                              index: 3,
-                              icon: Icons.sports_esports_outlined,
-                              label: 'Gaming',
-                              badge: 'Beta',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // Prominent Gradient "Go LIVE" Button
-                    GestureDetector(
-                      onTap: _startingBroadcast ? null : _startBroadcast,
-                      child: Container(
-                        height: 52,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: _startingBroadcast
-                                ? [Colors.grey.shade700, Colors.grey.shade600]
-                                : [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)],
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                          ),
-                          borderRadius: BorderRadius.circular(26),
-                          boxShadow: [
-                            if (!_startingBroadcast)
-                              BoxShadow(
-                                color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
-                                blurRadius: 18,
-                                spreadRadius: 1,
-                                offset: const Offset(0, 4),
-                              ),
-                          ],
+            // ── MAIN VIEWPORT CARD (Camera Preview Window + Overlay Controls) ──
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(
+                    color: const Color(0xFF2979FF).withValues(alpha: 0.35),
+                    width: 1.2,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(25),
+                  child: Stack(
+                    children: [
+                      // Camera focus touch target
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            _resetCameraHardwareZoom();
+                            _showToast('Camera focused and ready');
+                          },
+                          child: const SizedBox.expand(),
                         ),
-                        child: Center(
-                          child: _startingBroadcast
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
-                                )
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.wifi_tethering_rounded, color: Colors.white, size: 22),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Go LIVE',
-                                      style: syne(sz: 16, w: FontWeight.w900, c: Colors.white, ls: 0.8),
+                      ),
+
+                      // Card Top Row: Top-left 'X' & Top-right 'Your Live' Capsule
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        right: 12,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Top-left 'X' inside card
+                            GestureDetector(
+                              onTap: _startingBroadcast ? null : _closeLiveStudio,
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.45),
+                                  shape: BoxShape.circle,
+                                ),
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.close, color: Colors.white, size: 22),
+                              ),
+                            ),
+
+                            // Top-right 'Your Live ✏️ ⌵' capsule card
+                            GestureDetector(
+                              onTap: _openTitleEditSheet,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: const Color(0xFF2979FF).withValues(alpha: 0.45),
+                                    width: 1.1,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF2979FF).withValues(alpha: 0.16),
+                                      blurRadius: 10,
                                     ),
                                   ],
                                 ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Avatar / Gradient orb
+                                    Container(
+                                      width: 22,
+                                      height: 22,
+                                      padding: const EdgeInsets.all(1.5),
+                                      decoration: const BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: LinearGradient(
+                                          colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF)],
+                                        ),
+                                      ),
+                                      child: CircleAvatar(
+                                        backgroundColor: const Color(0xFF242738),
+                                        backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
+                                        child: avatar.isEmpty
+                                            ? const Icon(Icons.person, size: 12, color: Colors.white70)
+                                            : null,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Text(
+                                      _liveTitleController.text.trim().isNotEmpty
+                                          ? _liveTitleController.text.trim()
+                                          : 'Your Live',
+                                      style: syne(sz: 12, w: FontWeight.w700, c: Colors.white),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    const Icon(Icons.edit_outlined, size: 12, color: Colors.white70),
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 18),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
 
-                    const SizedBox(height: 8),
-
-                    // Bottom Quick Bar: Effects > | Schedule >
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white60, size: 18),
-                        const SizedBox(height: 2),
-                        Container(
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.55),
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
-                          ),
-                          child: Row(
-                            children: [
-                              // Effects >
-                              Expanded(
-                                child: InkWell(
-                                  onTap: () => _openLiveEffectsSheet(),
-                                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(22)),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.auto_awesome, color: C.brand, size: 15),
-                                      const SizedBox(width: 6),
-                                      Text('Effects', style: dm(sz: 12, w: FontWeight.w600, c: Colors.white)),
-                                      const SizedBox(width: 4),
-                                      const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
-                                    ],
-                                  ),
-                                ),
-                              ),
-
-                              Container(width: 1, height: 20, color: Colors.white24),
-
-                              // Schedule >
-                              Expanded(
-                                child: InkWell(
-                                  onTap: _pickBroadcastTime,
-                                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(22)),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.calendar_month_outlined, color: Colors.white, size: 15),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _plannedBroadcastTime != null ? _plannedBroadcastLabel() : 'Schedule',
-                                        style: dm(sz: 12, w: FontWeight.w600, c: Colors.white),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                      // Center Reticle Viewfinder
+                      Center(
+                        child: GestureDetector(
+                          onTap: () {
+                            _resetCameraHardwareZoom();
+                            _showToast('Camera focused and ready');
+                          },
+                          child: const _ReticleViewfinder(),
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+
+                      // Right Vertical Rail: Camera Flip (kept where it is!), Filters, Beauty, More
+                      Positioned(
+                        top: 70,
+                        right: 12,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // 1. Camera Flip (user specifically mandated: keep flip button where it is!)
+                            _buildImageRailButton(
+                              icon: Icons.cameraswitch_outlined,
+                              label: 'Camera\nFlip',
+                              hasGlow: true,
+                              onTap: _flipCamera,
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 2. Filters
+                            _buildImageRailButton(
+                              icon: Icons.auto_fix_high_rounded,
+                              label: 'Filters',
+                              onTap: () => _openLiveEffectsSheet(initialTab: 0),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 3. Beauty
+                            _buildImageRailButton(
+                              icon: Icons.face_retouching_natural,
+                              label: 'Beauty',
+                              onTap: () => _openLiveEffectsSheet(initialTab: 1),
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 4. More
+                            _buildImageRailButton(
+                              icon: Icons.more_horiz_rounded,
+                              label: 'More',
+                              onTap: _openMoreSheet,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Bottom Controls: Mode Switcher, Go LIVE, Quick Bar
+                      Positioned(
+                        left: 14,
+                        right: 14,
+                        bottom: 12,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Mode Switcher Capsule (Camera | Voice | Gaming Beta)
+                            Container(
+                              height: 48,
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.65),
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+                                boxShadow: const [
+                                  BoxShadow(color: Colors.black45, blurRadius: 14, offset: Offset(0, 3)),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  // Camera
+                                  Expanded(
+                                    child: _modeCapsuleItem(
+                                      index: 1,
+                                      icon: Icons.videocam_outlined,
+                                      label: 'Camera',
+                                    ),
+                                  ),
+
+                                  // Voice
+                                  Expanded(
+                                    child: _modeCapsuleItem(
+                                      index: 2,
+                                      icon: Icons.mic_none_outlined,
+                                      label: 'Voice',
+                                    ),
+                                  ),
+
+                                  // Divider
+                                  Container(
+                                    width: 1,
+                                    height: 20,
+                                    color: Colors.white24,
+                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  ),
+
+                                  // Gaming
+                                  Expanded(
+                                    child: _modeCapsuleItem(
+                                      index: 3,
+                                      icon: Icons.sports_esports_outlined,
+                                      label: 'Gaming',
+                                      badge: 'Beta',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            // Prominent Gradient "Go LIVE" Button
+                            GestureDetector(
+                              onTap: _startingBroadcast ? null : _startBroadcast,
+                              child: Container(
+                                height: 50,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: _startingBroadcast
+                                        ? [Colors.grey.shade700, Colors.grey.shade600]
+                                        : [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)],
+                                    begin: Alignment.centerLeft,
+                                    end: Alignment.centerRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(25),
+                                  boxShadow: [
+                                    if (!_startingBroadcast)
+                                      BoxShadow(
+                                        color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                                        blurRadius: 18,
+                                        spreadRadius: 1,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: _startingBroadcast
+                                      ? const SizedBox(
+                                          width: 22,
+                                          height: 22,
+                                          child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
+                                        )
+                                      : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.wifi_tethering_rounded, color: Colors.white, size: 22),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Go LIVE',
+                                              style: syne(sz: 16, w: FontWeight.w900, c: Colors.white, ls: 0.8),
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            // Bottom Quick Bar: Effects > | Schedule >
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white60, size: 18),
+                                const SizedBox(height: 2),
+                                Container(
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.65),
+                                    borderRadius: BorderRadius.circular(21),
+                                    border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Effects >
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: () => _openLiveEffectsSheet(),
+                                          borderRadius: const BorderRadius.horizontal(left: Radius.circular(21)),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              const Icon(Icons.auto_awesome, color: C.brand, size: 15),
+                                              const SizedBox(width: 6),
+                                              Text('Effects', style: dm(sz: 12, w: FontWeight.w600, c: Colors.white)),
+                                              const SizedBox(width: 4),
+                                              const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+
+                                      Container(width: 1, height: 20, color: Colors.white24),
+
+                                      // Schedule >
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: _pickBroadcastTime,
+                                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(21)),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              const Icon(Icons.calendar_month_outlined, color: Colors.white, size: 15),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                _plannedBroadcastTime != null ? _plannedBroadcastLabel() : 'Schedule',
+                                                style: dm(sz: 12, w: FontWeight.w600, c: Colors.white),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2533,7 +2858,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             _buildReactionBurst(_reactionBursts[i], i),
 
           // -- Glass Overlay Layer --
-          _buildCompactHUD(),
+          if (!_hostInGreenRoom) _buildCompactHUD(),
 
           if (widget.isHost && _hostInGreenRoom) _buildHostGreenRoom(),
 
