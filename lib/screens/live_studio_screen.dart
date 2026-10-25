@@ -122,6 +122,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   double _beautySmoothing = 0.0; // 0..1
   int _skinSmoothingMode = 0; // 0=Natural, 1=Radiant, 2=Matte
   double _beautyWhitening = 0.0; // 0..1
+  int _skinBrighteningTone = 0; // 0=Warm Glow, 1=Cool Porcelain, 2=Natural Fresh
+  int _makeupGender = 0; // 0=Off, 1=Women, 2=Men
+  int _makeupStyle = 0; // 0=Natural/Groomed, 1=Radiant/Contour, 2=Glam/SunKissed
+  double _makeupIntensity = 0.6; // 0..1
   double _faceSymmetry = 0.0; // 0..1
   bool _symmetryMirrorLeft = true; // true = mirror left side onto right, false = right onto left
   bool _showSymmetryGuide = true; // show alignment axis when symmetry > 0
@@ -2860,7 +2864,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 ),
               ),
               const Spacer(),
-              if (_activeCatalogueFilter != null || _beautySmoothing > 0 || _beautyWhitening > 0 || _faceSymmetry > 0)
+              if (_activeCatalogueFilter != null || _beautySmoothing > 0 || _beautyWhitening > 0 || _faceSymmetry > 0 || _makeupGender > 0)
                 GestureDetector(
                   onTap: () {
                     update(() {
@@ -2869,9 +2873,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       _beautySmoothing = 0;
                       _skinSmoothingMode = 0;
                       _beautyWhitening = 0;
+                      _skinBrighteningTone = 0;
                       _faceSymmetry = 0;
                       _symmetryMirrorLeft = true;
                       _showSymmetryGuide = true;
+                      _makeupGender = 0;
+                      _makeupStyle = 0;
+                      _makeupIntensity = 0.6;
                     });
                   },
                   child: Text('Reset', style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600)),
@@ -3042,6 +3050,41 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               value: _beautyWhitening,
               onChanged: (v) => update(() => _beautyWhitening = v),
             ),
+            if (_beautyWhitening > 0) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 30),
+                child: Row(
+                  children: [
+                    Text('Tone: ', style: dm(sz: 10, c: Colors.white60)),
+                    for (final item in [(0, 'Warm Glow'), (1, 'Porcelain'), (2, 'Natural')]) ...[
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          update(() => _skinBrighteningTone = item.$1);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: _skinBrighteningTone == item.$1 ? C.brand : Colors.white10,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            item.$2,
+                            style: dm(
+                              sz: 9,
+                              w: FontWeight.w700,
+                              c: _skinBrighteningTone == item.$1 ? Colors.black : Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             _beautySliderRow(
               icon: Icons.center_focus_strong_outlined,
@@ -3122,6 +3165,120 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Container(height: 1, color: Colors.white10),
+            const SizedBox(height: 10),
+
+            // Studio Makeup (Women & Men)
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome, color: Color(0xFF00E5FF), size: 16),
+                const SizedBox(width: 8),
+                Text('Studio Makeup', style: syne(sz: 12, w: FontWeight.w800, c: Colors.white)),
+                const Spacer(),
+                for (final item in [(0, 'None'), (1, 'Women'), (2, 'Men')]) ...[
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      update(() {
+                        _makeupGender = item.$1;
+                        if (_makeupGender > 0 && _makeupIntensity <= 0.05) {
+                          _makeupIntensity = 0.6;
+                        }
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      margin: const EdgeInsets.only(left: 5),
+                      decoration: BoxDecoration(
+                        color: _makeupGender == item.$1 ? C.brand : Colors.white10,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        item.$2,
+                        style: dm(
+                          sz: 10,
+                          w: FontWeight.w700,
+                          c: _makeupGender == item.$1 ? Colors.black : Colors.white70,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+
+            if (_makeupGender > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const SizedBox(width: 24),
+                  Text('Look: ', style: dm(sz: 10, c: Colors.white60)),
+                  for (final item in (_makeupGender == 1
+                      ? [(0, 'Rosy Glow'), (1, 'Natural Nude'), (2, 'Sunset Glam')]
+                      : [(0, 'Clean Groomed'), (1, 'Sharp Contour'), (2, 'Sun-Kissed')])) ...[
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        update(() => _makeupStyle = item.$1);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: _makeupStyle == item.$1
+                              ? (_makeupGender == 1 ? const Color(0xFFFF4081) : const Color(0xFF00E5FF))
+                              : Colors.white10,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          item.$2,
+                          style: dm(
+                            sz: 9,
+                            w: FontWeight.w700,
+                            c: _makeupStyle == item.$1 ? Colors.black : Colors.white70,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 24),
+                child: Row(
+                  children: [
+                    Text('Intensity', style: dm(sz: 11, c: Colors.white70)),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          activeTrackColor: _makeupGender == 1 ? const Color(0xFFFF4081) : const Color(0xFF00E5FF),
+                          inactiveTrackColor: Colors.white12,
+                          thumbColor: Colors.white,
+                          overlayColor: C.brand.withValues(alpha: 0.2),
+                          trackHeight: 2,
+                        ),
+                        child: Slider(
+                          value: _makeupIntensity,
+                          min: 0,
+                          max: 1,
+                          onChanged: (v) => update(() => _makeupIntensity = v),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${(_makeupIntensity * 100).round()}%',
+                      style: dm(
+                        sz: 11,
+                        c: _makeupGender == 1 ? const Color(0xFFFF4081) : const Color(0xFF00E5FF),
+                        w: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -3354,22 +3511,104 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     ]),
   ];
 
-  // Build a combined ColorMatrix for beauty (whitening = brightness lift,
-  // Build a combined ColorMatrix for beauty (whitening = brightness lift,
-  // smoothing = micro-contrast softening and warm skin-tone lift)
+  // Build a combined ColorMatrix for beauty (whitening/brightening = tone-adaptive luminance lift,
+  // smoothing = micro-contrast softening and warm skin-tone lift, makeup = gender-adaptive palette)
   List<double> _beautyMatrix() {
     final w = _beautyWhitening * 0.25; // max +0.25 brightness offset
     final s = _beautySmoothing.clamp(0.0, 1.0);
 
+    // Tone-adaptive Skin Brightening:
+    // 0 = Warm Glow (golden sunny warmth, lifts R and G)
+    // 1 = Cool Porcelain (bright, clears yellowish sallowness, lifts B and R)
+    // 2 = Natural Fresh (balanced studio daylight)
+    final double rBright;
+    final double gBright;
+    final double bBright;
+    switch (_skinBrighteningTone) {
+      case 0:
+        rBright = w * 1.14;
+        gBright = w * 1.04;
+        bBright = w * 0.88;
+      case 1:
+        rBright = w * 1.06;
+        gBright = w * 0.98;
+        bBright = w * 1.18;
+      default:
+        rBright = w;
+        gBright = w;
+        bBright = w;
+    }
+
     // Micro-contrast softening: gently compresses blemish contrast in skin midtones
-    final contrast = 1.0 - (s * 0.06);
-    final contrastOffset = 0.5 * (1.0 - contrast);
+    double contrast = 1.0 - (s * 0.06);
+    double contrastOffset = 0.5 * (1.0 - contrast);
     final skinToneLift = s * 0.02;
 
+    double rScale = contrast;
+    double gScale = contrast;
+    double bScale = contrast;
+    double rOffset = rBright + contrastOffset + skinToneLift;
+    double gOffset = gBright + contrastOffset + (skinToneLift * 0.6);
+    double bOffset = bBright + contrastOffset;
+
+    // Studio Makeup Palette (Women & Men):
+    if (_makeupGender > 0 && _makeupIntensity > 0.01) {
+      final m = _makeupIntensity.clamp(0.0, 1.0);
+      if (_makeupGender == 1) {
+        // Women (Feminine):
+        switch (_makeupStyle) {
+          case 0: // Rosy Glow (petal pink lip & cheek radiance)
+            rScale += m * 0.06;
+            gScale -= m * 0.02;
+            bScale += m * 0.03;
+            rOffset += m * 0.035;
+            bOffset += m * 0.012;
+          case 1: // Natural Nude (soft peach warmth, luminous skin)
+            rScale += m * 0.05;
+            gScale += m * 0.02;
+            bScale -= m * 0.02;
+            rOffset += m * 0.028;
+            gOffset += m * 0.014;
+          case 2: // Sunset Glam (rich berry lips & contoured cheek warmth)
+            rScale += m * 0.08;
+            gScale -= m * 0.03;
+            bScale += m * 0.04;
+            rOffset += m * 0.045;
+            bOffset += m * 0.018;
+            contrast += m * 0.03;
+        }
+      } else {
+        // Men (Masculine):
+        switch (_makeupStyle) {
+          case 0: // Clean Groomed (evens complexion, conceals under-eye shadows, sharpens brows)
+            contrast += m * 0.04;
+            contrastOffset = 0.5 * (1.0 - contrast);
+            rScale = contrast + (m * 0.02);
+            gScale = contrast + (m * 0.02);
+            bScale = contrast - (m * 0.02);
+            rOffset += m * 0.018;
+            gOffset += m * 0.018;
+          case 1: // Sharp Contour (chisels jawline & cheekbone structure, reduces oily glare)
+            contrast += m * 0.07;
+            contrastOffset = 0.5 * (1.0 - contrast);
+            rScale = contrast + (m * 0.03);
+            gScale = contrast - (m * 0.02);
+            bScale = contrast - (m * 0.02);
+            rOffset += m * 0.012;
+          case 2: // Sun-Kissed (athletic, healthy bronzed vitality)
+            rScale += m * 0.07;
+            gScale += m * 0.03;
+            bScale -= m * 0.05;
+            rOffset += m * 0.032;
+            gOffset += m * 0.018;
+        }
+      }
+    }
+
     return [
-      contrast, 0, 0, 0, w + contrastOffset + skinToneLift,
-      0, contrast, 0, 0, w + contrastOffset + (skinToneLift * 0.6),
-      0, 0, contrast, 0, w + contrastOffset,
+      rScale, 0, 0, 0, rOffset,
+      0, gScale, 0, 0, gOffset,
+      0, 0, bScale, 0, bOffset,
       0, 0, 0, 1, 0,
     ];
   }
@@ -3396,7 +3635,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final hasActiveFilter = (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
         _activeFilterIndex != 0 ||
         _beautyWhitening > 0 ||
-        _beautySmoothing > 0;
+        _beautySmoothing > 0 ||
+        (_makeupGender > 0 && _makeupIntensity > 0.01);
 
     final combinedMatrix = _previewOriginal
         ? filterMatrix
@@ -3503,6 +3743,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   ),
                 ),
               ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Studio Makeup (Women & Men): subtle blush, lip tint, contour, and brow definition
+    if (!_previewOriginal && _makeupGender > 0 && _makeupIntensity > 0.05) {
+      video = Stack(
+        fit: StackFit.expand,
+        children: [
+          video,
+          Positioned.fill(
+            child: _StudioMakeupOverlay(
+              gender: _makeupGender,
+              style: _makeupStyle,
+              intensity: _makeupIntensity,
             ),
           ),
         ],
@@ -6880,6 +7137,145 @@ class _FacialSymmetryPainter extends CustomPainter {
   @override
   bool shouldRepaint(_FacialSymmetryPainter old) =>
       old.intensity != intensity || old.mirrorLeft != mirrorLeft;
+}
+
+/// Real-time Studio Makeup overlay for women and men.
+class _StudioMakeupOverlay extends StatelessWidget {
+  final int gender; // 1 = Women, 2 = Men
+  final int style;
+  final double intensity;
+
+  const _StudioMakeupOverlay({
+    required this.gender,
+    required this.style,
+    required this.intensity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _StudioMakeupPainter(
+          gender: gender,
+          style: style,
+          intensity: intensity,
+        ),
+      ),
+    );
+  }
+}
+
+class _StudioMakeupPainter extends CustomPainter {
+  final int gender;
+  final int style;
+  final double intensity;
+
+  _StudioMakeupPainter({
+    required this.gender,
+    required this.style,
+    required this.intensity,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final m = intensity.clamp(0.0, 1.0);
+
+    if (gender == 1) {
+      // ── Women: Soft Cheek Blush & Hydrating Lip Tint ─────────
+      final blushColor = style == 0
+          ? const Color(0xFFFF5277) // Rosy Glow (petal rose)
+          : style == 1
+              ? const Color(0xFFFF8A65) // Natural Nude (soft peach)
+              : const Color(0xFFE91E63); // Sunset Glam (berry blush)
+
+      final blushAlpha = (m * 0.17).clamp(0.0, 0.22);
+      final blushRadius = size.width * 0.22;
+
+      // Left cheek blush
+      final leftCheek = Offset(cx - (size.width * 0.20), size.height * 0.44);
+      final leftBlushPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            blushColor.withValues(alpha: blushAlpha),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: leftCheek, radius: blushRadius));
+      canvas.drawCircle(leftCheek, blushRadius, leftBlushPaint);
+
+      // Right cheek blush
+      final rightCheek = Offset(cx + (size.width * 0.20), size.height * 0.44);
+      final rightBlushPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            blushColor.withValues(alpha: blushAlpha),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: rightCheek, radius: blushRadius));
+      canvas.drawCircle(rightCheek, blushRadius, rightBlushPaint);
+
+      // Lip hydration & tint
+      final lipCenter = Offset(cx, size.height * 0.58);
+      final lipRadius = size.width * 0.11;
+      final lipAlpha = (m * 0.15).clamp(0.0, 0.20);
+      final lipPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            blushColor.withValues(alpha: lipAlpha),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: lipCenter, radius: lipRadius));
+      canvas.drawCircle(lipCenter, lipRadius, lipPaint);
+    } else if (gender == 2) {
+      // ── Men: Groomed Jaw Contour & Brow Framing ───────────────
+      final contourAlpha = (m * 0.14).clamp(0.0, 0.18);
+      final contourColor = style == 2
+          ? const Color(0xFF6D4C41) // Sun-Kissed bronze
+          : const Color(0xFF37474F); // Clean / Sharp sculpted contour
+
+      // Jawline shading: subtle shadow gradient along jaw contour
+      final jawPath = Path()
+        ..moveTo(cx - (size.width * 0.35), size.height * 0.56)
+        ..quadraticBezierTo(
+          cx - (size.width * 0.26), size.height * 0.70,
+          cx, size.height * 0.73,
+        )
+        ..quadraticBezierTo(
+          cx + (size.width * 0.26), size.height * 0.70,
+          cx + (size.width * 0.35), size.height * 0.56,
+        );
+
+      final jawPaint = Paint()
+        ..color = contourColor.withValues(alpha: contourAlpha)
+        ..strokeWidth = size.width * 0.08
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
+
+      canvas.drawPath(jawPath, jawPaint);
+
+      // Brow definition accent: subtle contrast enhancement
+      final browPaint = Paint()
+        ..color = Colors.black.withValues(alpha: contourAlpha * 0.6)
+        ..strokeWidth = size.width * 0.04
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+
+      canvas.drawLine(
+        Offset(cx - (size.width * 0.22), size.height * 0.35),
+        Offset(cx - (size.width * 0.06), size.height * 0.34),
+        browPaint,
+      );
+      canvas.drawLine(
+        Offset(cx + (size.width * 0.06), size.height * 0.34),
+        Offset(cx + (size.width * 0.22), size.height * 0.35),
+        browPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StudioMakeupPainter old) =>
+      old.gender != gender || old.style != style || old.intensity != intensity;
 }
 
 class _ReticleViewfinder extends StatelessWidget {
