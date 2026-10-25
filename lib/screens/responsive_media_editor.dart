@@ -2,7 +2,6 @@ import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models/music_models.dart';
-import 'pro_media_editor_screen.dart';
 import 'mobile_media_editor.dart';
 import '../models/edit_models.dart';
 import '../services/timeline_playback_controller.dart';
@@ -117,36 +116,14 @@ class _ResponsiveMediaEditorState extends State<ResponsiveMediaEditor> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final screenWidth = constraints.maxWidth;
-        final screenHeight = constraints.maxHeight;
-        final isLandscape = screenWidth > screenHeight;
-        final isTablet = screenWidth > 600;
-
-        // Desktop or landscape tablet: use full editor
-        if (isLandscape || isTablet) {
-          return ProMediaEditorScreen(
-            state: widget.state,
-            initialImage: widget.initialImage,
-            initialVideo: widget.initialVideo,
-            initialTrack: widget.initialTrack,
-            multiFiles: widget.multiFiles,
-            isFastSync: widget.isFastSync,
-            projectController: _project,
-          );
-        }
-
-        // Mobile portrait: use mobile editor
-        return MobileMediaEditor(
-          state: widget.state,
-          initialMedia: widget.initialVideo ?? widget.initialImage,
-          initialTrack: widget.initialTrack,
-          multiFiles: widget.multiFiles,
-          isFastSync: widget.isFastSync,
-          projectController: _project,
-        );
-      },
+    // Unified mobile-first media editor across all device sizes and orientations
+    return MobileMediaEditor(
+      state: widget.state,
+      initialMedia: widget.initialVideo ?? widget.initialImage,
+      initialTrack: widget.initialTrack,
+      multiFiles: widget.multiFiles,
+      isFastSync: widget.isFastSync,
+      projectController: _project,
     );
   }
 }

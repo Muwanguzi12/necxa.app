@@ -388,6 +388,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   bool _isExporting = false;
   String _exportStatus = 'Ready';
 
+  // ── Color Grading & Shader State (GPU) ──────────────────────
+  ui.FragmentProgram? _shaderProgram;
+  double _brightness = 0.0;
+  double _contrast = 1.0;
+  double _saturation = 1.0;
+  double _hue = 0.0;
+  double _effectVignette = 0.0;
+  double _effectGrain = 0.0;
+  double _effectBlur = 0.0;
+
+  // ── Audio Mixer State ─────────────────────────────────────────
+  double _originalVideoVolume = 1.0;
+  double _bgmVolume = 0.8;
+  double _voiceVolume = 0.9;
+
   // ── Shared Effects State ──────────────────────────────────
   final List<EffectPreset> _effectPresets = EffectPreset.presets;
   String _effectsSearchQuery = '';
@@ -436,12 +451,60 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _playback.addListener(_onPlaybackStateChanged);
     _playback.updateProject(_tracks);
     _loadProState();
+    _loadShaders();
+    _triggerInitialProxies();
   }
 
   Future<void> _loadProState() async {
     final isPro = await EditorSubscriptionService.isProEnabled();
     if (!mounted) return;
     setState(() => _isProEnabled = isPro);
+  }
+
+  Future<void> _loadShaders() async {
+    try {
+      final program = await ui.FragmentProgram.fromAsset(
+        'assets/shaders/color_grading.frag',
+      );
+      if (mounted) setState(() => _shaderProgram = program);
+    } catch (e) {
+      debugPrint("Error loading shaders: $e");
+    }
+  }
+
+  void _triggerInitialProxies() {
+    for (final track in _tracks) {
+      if (track.type == TrackType.video) {
+        for (final clip in track.clips) {
+          if (clip.file != null && !clip.isProxyReady) {
+            _generateProxyForClip(clip);
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _generateProxyForClip(TimelineClip clip) async {
+    if (clip.file == null || clip.isProxyReady) return;
+    try {
+      final size = await clip.file!.length();
+      if (size < 5 * 1024 * 1024) return;
+    } catch (_) {}
+
+    try {
+      final proxy = await _videoEnhancementService.generateProxy(clip.file!);
+      if (proxy.path != clip.file!.path && mounted) {
+        setState(() {
+          clip.proxyFile = proxy;
+          clip.isProxyReady = true;
+        });
+        if (_compositionVisualClip?.id == clip.id) {
+          _loadClip(clip);
+        }
+      }
+    } catch (e) {
+      debugPrint("Proxy generation error: $e");
+    }
   }
 
   void _initializeEditor() {
@@ -561,7 +624,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       await oldCtrl.dispose();
     }
 
-    final controller = VideoPlayerController.file(clip.file!);
+    final mediaFile = (clip.isProxyReady &&
+            clip.proxyFile != null &&
+            clip.proxyFile!.existsSync())
+        ? clip.proxyFile!
+        : clip.file!;
+    final controller = VideoPlayerController.file(mediaFile);
+    if (!clip.isProxyReady) {
+      _generateProxyForClip(clip);
+    }
     _videoController = controller;
     try {
       await controller.initialize().timeout(const Duration(seconds: 20));
@@ -1221,6 +1292,70 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         child: result,
       );
     }
+
+    // GPU Color Grading Shader
+    if (_shaderProgram != null &&
+        (_brightness != 0.0 ||
+            _contrast != 1.0 ||
+            _saturation != 1.0 ||
+            _hue != 0.0)) {
+      result = CustomPaint(
+        painter: ShaderPainter(
+          shader: _shaderProgram!.fragmentShader(),
+          brightness: _brightness,
+          contrast: _contrast,
+          saturation: _saturation,
+          hue: _hue,
+        ),
+        child: result,
+      );
+    }
+
+    if (_effectBlur > 0) {
+      result = ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(
+          sigmaX: _effectBlur,
+          sigmaY: _effectBlur,
+        ),
+        child: result,
+      );
+    }
+
+    if (_effectVignette > 0 || _effectGrain > 0) {
+      result = Stack(
+        fit: StackFit.passthrough,
+        children: [
+          result,
+          if (_effectVignette > 0)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withOpacity(
+                          (0.72 * _effectVignette).clamp(0.0, 1.0),
+                        ),
+                      ],
+                      stops: const [0.55, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (_effectGrain > 0)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: GrainPainter(intensity: _effectGrain),
+                ),
+              ),
+            ),
+        ],
+      );
+    }
+
     return result;
   }
 
@@ -3011,12 +3146,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showAspectRatioMenu() {
-    _showSelectionSheet('Aspect ratio', [
-      '9:16',
-      '16:9',
-      '1:1',
-      '4:5',
-    ], (value) => setState(() => _selectedAspectRatio = value));
+    _showCropSheet();
   }
 
   void _showSelectionSheet(
@@ -3293,7 +3423,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         (
           'Add sticker',
           Icons.emoji_emotions_outlined,
-          () => _insertTextLayer('✨'),
+          _showStickerSheet,
         ),
         (
           'Add logo',
@@ -3304,6 +3434,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       TrackType.effects => [
         ('Add effect', Icons.auto_awesome_outlined, _showEffectLibrarySheet),
         ('Add filter', Icons.filter_alt_outlined, _showEffectLibrarySheet),
+        ('Color grading (GPU)', Icons.tune_outlined, _showAdjustSheet),
         ('Add adjustment layer', Icons.tune_outlined, _showEffectEditorSheet),
       ],
     };
@@ -6064,6 +6195,483 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
+  void _showAdjustSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: C.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: C.dim),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'COLOR GRADING (GPU)',
+                style: syne(sz: 14, w: FontWeight.w900, ls: 2),
+              ),
+              const SizedBox(height: 20),
+              _buildAdjustSlider('Brightness', _brightness, -0.5, 0.5, (v) {
+                setModalState(() => _brightness = v);
+                setState(() => _brightness = v);
+              }),
+              _buildAdjustSlider('Contrast', _contrast, 0.5, 1.5, (v) {
+                setModalState(() => _contrast = v);
+                setState(() => _contrast = v);
+              }),
+              _buildAdjustSlider('Saturation', _saturation, 0.0, 2.0, (v) {
+                setModalState(() => _saturation = v);
+                setState(() => _saturation = v);
+              }),
+              _buildAdjustSlider('Hue', _hue, -3.14, 3.14, (v) {
+                setModalState(() => _hue = v);
+                setState(() => _hue = v);
+              }),
+              _buildAdjustSlider('Vignette', _effectVignette, 0.0, 1.0, (v) {
+                setModalState(() => _effectVignette = v);
+                setState(() => _effectVignette = v);
+              }),
+              _buildAdjustSlider('Grain', _effectGrain, 0.0, 1.0, (v) {
+                setModalState(() => _effectGrain = v);
+                setState(() => _effectGrain = v);
+              }),
+              _buildAdjustSlider('Blur', _effectBlur, 0.0, 10.0, (v) {
+                setModalState(() => _effectBlur = v);
+                setState(() => _effectBlur = v);
+              }),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () {
+                  setModalState(() {
+                    _brightness = 0.0;
+                    _contrast = 1.0;
+                    _saturation = 1.0;
+                    _hue = 0.0;
+                    _effectVignette = 0.0;
+                    _effectGrain = 0.0;
+                    _effectBlur = 0.0;
+                  });
+                  setState(() {
+                    _brightness = 0.0;
+                    _contrast = 1.0;
+                    _saturation = 1.0;
+                    _hue = 0.0;
+                    _effectVignette = 0.0;
+                    _effectGrain = 0.0;
+                    _effectBlur = 0.0;
+                  });
+                },
+                child: Text(
+                  'RESET ALL',
+                  style: syne(sz: 11, w: FontWeight.w900, c: C.brand),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdjustSlider(
+    String label,
+    double value,
+    double min,
+    double max,
+    ValueChanged<double> onChanged,
+  ) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: dm(sz: 11, c: C.sub)),
+            Text(value.toStringAsFixed(2), style: dm(sz: 11, c: C.brand)),
+          ],
+        ),
+        Slider(
+          value: value.clamp(min, max),
+          min: min,
+          max: max,
+          activeColor: C.brand,
+          inactiveColor: C.dim.withOpacity(0.3),
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  void _showCropSheet([TimelineClip? targetClip]) {
+    final clip = targetClip ?? _selectedClip ?? _compositionVisualClip;
+    final ratios = ['Original', '9:16', '1:1', '4:5', '16:9'];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.95),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: C.dim),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 8, bottom: 16),
+              child: Text(
+                'ASPECT RATIO / CROP',
+                style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: ratios.map((r) {
+                final current = clip?.cropAspectRatio ?? _selectedAspectRatio;
+                final isSelected = current == r;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (clip != null) {
+                        clip.cropAspectRatio = r;
+                      }
+                      if (r != 'Original') {
+                        _selectedAspectRatio = r;
+                      }
+                    });
+                    _playback.updateProject(_tracks);
+                    Navigator.pop(context);
+                    _showSnack('Crop set to $r');
+                  },
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? C.brand.withOpacity(0.2)
+                              : C.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected ? C.brand : C.border,
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.crop,
+                          color: isSelected ? C.brand : C.dim,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        r,
+                        style: syne(
+                          sz: 11,
+                          w: FontWeight.w700,
+                          c: isSelected ? C.brand : C.dim,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFadeSheet([TimelineClip? targetClip]) {
+    final clip = targetClip ?? _selectedClip ?? _compositionVisualClip;
+    if (clip == null) {
+      _showSnack('Select a clip first');
+      return;
+    }
+    final options = [
+      'None',
+      'Fade',
+      'Dissolve',
+      'Crossfade',
+      'Slide',
+      'Wipe',
+      'Zoom',
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.94),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: C.dim),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'FADE & TRANSITION',
+              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: options.map((option) {
+                return GestureDetector(
+                  onTap: () {
+                    if (option == 'None') {
+                      _showSnack('Transition cleared');
+                    } else {
+                      final transClip = TimelineClip(
+                        id: 'trans-${DateTime.now().millisecondsSinceEpoch}',
+                        start: clip.start,
+                        duration: const Duration(milliseconds: 600),
+                        operation: TransitionOperation(
+                          presetId: option.toLowerCase(),
+                          presetName: option,
+                          category: 'Fade',
+                          icon: '✨',
+                        ),
+                      );
+                      TimelineModelUtils.insertClip(
+                        _tracks,
+                        transClip,
+                        TrackType.effects,
+                      );
+                      _playback.updateProject(_tracks);
+                      setState(() {});
+                      _showSnack('$option applied');
+                    }
+                    Navigator.pop(context);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: C.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: C.border),
+                    ),
+                    child: Text(
+                      option,
+                      style: syne(sz: 12, w: FontWeight.w700, c: C.text),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showStickerSheet() {
+    final stickers = [
+      'STAR',
+      'SALE',
+      'NEW',
+      'LIVE',
+      'HOT',
+      'CHECK',
+      '❤️',
+      '🔥',
+      '✨',
+      '⚡',
+      '🎉',
+      '👏',
+      '🎬',
+      '💯',
+      '🚀',
+      '👀',
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.94),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: C.dim),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'STICKERS',
+              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: stickers.map((sticker) {
+                return GestureDetector(
+                  onTap: () {
+                    final isWord = sticker.length > 2;
+                    final overlay = OverlayOperation(
+                      kind: 'sticker',
+                      text: sticker,
+                      fontSize: isWord ? 22.0 : 42.0,
+                      color: isWord ? Colors.black : C.text,
+                      background: isWord ? C.brand : Colors.transparent,
+                      backgroundOpacity: isWord ? 1.0 : 0.0,
+                      stroke: !isWord,
+                      shadow: true,
+                    );
+                    final clip = TimelineClip(
+                      id:
+                          'overlay-sticker-${DateTime.now().millisecondsSinceEpoch}',
+                      start: _currentTime,
+                      duration: const Duration(seconds: 4),
+                      operation: overlay,
+                    );
+                    TimelineModelUtils.insertClip(
+                      _tracks,
+                      clip,
+                      TrackType.overlay,
+                    );
+                    _playback.updateProject(_tracks);
+                    setState(() {});
+                    Navigator.pop(context);
+                    _showSnack('Sticker added to timeline');
+                  },
+                  child: Container(
+                    width: 76,
+                    height: 54,
+                    decoration: BoxDecoration(
+                      color: C.text.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: C.dim),
+                    ),
+                    child: Center(
+                      child: Text(
+                        sticker,
+                        style: syne(
+                          sz: sticker.length > 2 ? 13 : 24,
+                          w: FontWeight.w900,
+                          c: C.text,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAudioMixerSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.95),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            border: Border.all(color: C.dim),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'AUDIO MIXER',
+                style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+              ),
+              const SizedBox(height: 24),
+              _buildMixerSlider('Original Video', _originalVideoVolume, (v) {
+                setModalState(() => _originalVideoVolume = v);
+                setState(() => _originalVideoVolume = v);
+                _videoController?.setVolume(v);
+                for (final track in _tracks) {
+                  if (track.type == TrackType.video) {
+                    for (final clip in track.clips) {
+                      clip.volume = v;
+                    }
+                  }
+                }
+              }),
+              const SizedBox(height: 14),
+              _buildMixerSlider('Background Music', _bgmVolume, (v) {
+                setModalState(() => _bgmVolume = v);
+                setState(() => _bgmVolume = v);
+                for (final player in _timelineAudioPlayers.values) {
+                  player.setVolume(v);
+                }
+                for (final track in _tracks) {
+                  if (track.type == TrackType.music) {
+                    for (final clip in track.clips) {
+                      clip.volume = v;
+                    }
+                  }
+                }
+              }),
+              const SizedBox(height: 14),
+              _buildMixerSlider('Voiceover', _voiceVolume, (v) {
+                setModalState(() => _voiceVolume = v);
+                setState(() => _voiceVolume = v);
+                for (final track in _tracks) {
+                  if (track.type == TrackType.voiceOver) {
+                    for (final clip in track.clips) {
+                      clip.volume = v;
+                    }
+                  }
+                }
+              }),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMixerSlider(
+    String label,
+    double val,
+    ValueChanged<double> onChanged,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: dm(sz: 11, c: C.sub)),
+            Text('${(val * 100).round()}%', style: dm(sz: 11, c: C.brand)),
+          ],
+        ),
+        Slider(
+          value: val.clamp(0.0, 1.0),
+          onChanged: onChanged,
+          activeColor: C.brand,
+          inactiveColor: C.dim.withOpacity(0.3),
+        ),
+      ],
+    );
+  }
+
   void _showClipActions(TimelineTrack track, TimelineClip clip) {
     showModalBottomSheet<void>(
       context: context,
@@ -6091,6 +6699,30 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                   _buildClipActionChip('Trim', () {
                     Navigator.pop(context);
                     _trimClip();
+                  }),
+                  _buildClipActionChip('Crop', () {
+                    Navigator.pop(context);
+                    _showCropSheet(clip);
+                  }),
+                  _buildClipActionChip('Adjust', () {
+                    Navigator.pop(context);
+                    _showAdjustSheet();
+                  }),
+                  _buildClipActionChip('Fade', () {
+                    Navigator.pop(context);
+                    _showFadeSheet(clip);
+                  }),
+                  _buildClipActionChip('Transform', () {
+                    Navigator.pop(context);
+                    _showTransformEditorSheet();
+                  }),
+                  _buildClipActionChip('Stickers', () {
+                    Navigator.pop(context);
+                    _showStickerSheet();
+                  }),
+                  _buildClipActionChip('Audio Mixer', () {
+                    Navigator.pop(context);
+                    _showAudioMixerSheet();
                   }),
                   _buildClipActionChip('Duplicate', () {
                     Navigator.pop(context);
@@ -6353,4 +6985,64 @@ class _WaveformPainter extends CustomPainter {
   bool shouldRepaint(covariant _WaveformPainter oldDelegate) {
     return oldDelegate.color != color || oldDelegate.seed != seed;
   }
+}
+
+class ShaderPainter extends CustomPainter {
+  final ui.FragmentShader shader;
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double hue;
+
+  ShaderPainter({
+    required this.shader,
+    required this.brightness,
+    required this.contrast,
+    required this.saturation,
+    required this.hue,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    shader.setFloat(0, size.width);
+    shader.setFloat(1, size.height);
+    shader.setFloat(2, brightness);
+    shader.setFloat(3, contrast);
+    shader.setFloat(4, saturation);
+    shader.setFloat(5, hue);
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..shader = shader,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant ShaderPainter oldDelegate) =>
+      oldDelegate.brightness != brightness ||
+      oldDelegate.contrast != contrast ||
+      oldDelegate.saturation != saturation ||
+      oldDelegate.hue != hue;
+}
+
+class GrainPainter extends CustomPainter {
+  final double intensity;
+  final math.Random _rand = math.Random();
+
+  GrainPainter({required this.intensity});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(
+        (0.12 * intensity).clamp(0.0, 1.0),
+      );
+    for (int i = 0; i < 1500 * intensity; i++) {
+      final x = _rand.nextDouble() * size.width;
+      final y = _rand.nextDouble() * size.height;
+      canvas.drawCircle(Offset(x, y), _rand.nextDouble() * 0.8, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant GrainPainter oldDelegate) => false;
 }

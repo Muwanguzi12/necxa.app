@@ -739,6 +739,8 @@ class TimelineClip {
   FilterOperation? filter;
   bool
   isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  File? proxyFile;
+  bool isProxyReady;
 
   TimelineClip({
     required this.id,
@@ -746,6 +748,8 @@ class TimelineClip {
     required this.duration,
     required this.operation,
     this.file,
+    this.proxyFile,
+    this.isProxyReady = false,
     this.sourceStart = Duration.zero,
     this.sourceEnd,
     this.speed = 1.0,
@@ -763,6 +767,8 @@ class TimelineClip {
     Duration? duration,
     EditOperation? operation,
     File? file,
+    File? proxyFile,
+    bool? isProxyReady,
     Duration? sourceStart,
     Duration? sourceEnd,
     double? speed,
@@ -779,6 +785,8 @@ class TimelineClip {
       duration: duration ?? this.duration,
       operation: operation ?? this.operation,
       file: file ?? this.file,
+      proxyFile: proxyFile ?? this.proxyFile,
+      isProxyReady: isProxyReady ?? this.isProxyReady,
       sourceStart: sourceStart ?? this.sourceStart,
       sourceEnd: sourceEnd ?? this.sourceEnd,
       speed: speed ?? this.speed,
