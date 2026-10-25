@@ -238,6 +238,8 @@ class TimelineHistoryController {
         ? null
         : FilterOperation(filterName: clip.filter!.filterName),
     isHidden: clip.isHidden,
+    proxyFile: clip.proxyFile,
+    isProxyReady: clip.isProxyReady,
   );
 
   static EditOperation _cloneOperation(EditOperation operation) {
