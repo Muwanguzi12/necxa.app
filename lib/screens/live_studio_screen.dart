@@ -120,6 +120,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   // ── Green Room Effects & Smart Filter Catalogue ───────────────────────────
   int _activeFilterIndex = 0; // 0 = Normal (no tint)
   double _beautySmoothing = 0.0; // 0..1
+  int _skinSmoothingMode = 0; // 0=Natural, 1=Radiant, 2=Matte
   double _beautyWhitening = 0.0; // 0..1
   double _faceSymmetry = 0.0; // 0..1
   bool _symmetryMirrorLeft = true; // true = mirror left side onto right, false = right onto left
@@ -2866,6 +2867,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       _activeCatalogueFilter = null;
                       _activeFilterIndex = 0;
                       _beautySmoothing = 0;
+                      _skinSmoothingMode = 0;
                       _beautyWhitening = 0;
                       _faceSymmetry = 0;
                       _symmetryMirrorLeft = true;
@@ -2998,6 +3000,41 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               value: _beautySmoothing,
               onChanged: (v) => update(() => _beautySmoothing = v),
             ),
+            if (_beautySmoothing > 0) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 30),
+                child: Row(
+                  children: [
+                    Text('Finish: ', style: dm(sz: 10, c: Colors.white60)),
+                    for (final item in [(0, 'Natural'), (1, 'Radiant'), (2, 'Matte')]) ...[
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          update(() => _skinSmoothingMode = item.$1);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: _skinSmoothingMode == item.$1 ? C.brand : Colors.white10,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            item.$2,
+                            style: dm(
+                              sz: 9,
+                              w: FontWeight.w700,
+                              c: _skinSmoothingMode == item.$1 ? Colors.black : Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             _beautySliderRow(
               icon: Icons.wb_sunny_outlined,
@@ -3318,13 +3355,22 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   ];
 
   // Build a combined ColorMatrix for beauty (whitening = brightness lift,
-  // smoothing = subtle desaturation-free softening via a slight blur on the
-  // colour layer)
+  // Build a combined ColorMatrix for beauty (whitening = brightness lift,
+  // smoothing = micro-contrast softening and warm skin-tone lift)
   List<double> _beautyMatrix() {
     final w = _beautyWhitening * 0.25; // max +0.25 brightness offset
-    // Smoothing is applied separately as a BackdropFilter blur
+    final s = _beautySmoothing.clamp(0.0, 1.0);
+
+    // Micro-contrast softening: gently compresses blemish contrast in skin midtones
+    final contrast = 1.0 - (s * 0.06);
+    final contrastOffset = 0.5 * (1.0 - contrast);
+    final skinToneLift = s * 0.02;
+
     return [
-      1,0,0,0,w, 0,1,0,0,w, 0,0,1,0,w, 0,0,0,1,0,
+      contrast, 0, 0, 0, w + contrastOffset + skinToneLift,
+      0, contrast, 0, 0, w + contrastOffset + (skinToneLift * 0.6),
+      0, 0, contrast, 0, w + contrastOffset,
+      0, 0, 0, 1, 0,
     ];
   }
 
@@ -3349,7 +3395,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
     final hasActiveFilter = (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
         _activeFilterIndex != 0 ||
-        _beautyWhitening > 0;
+        _beautyWhitening > 0 ||
+        _beautySmoothing > 0;
 
     final combinedMatrix = _previewOriginal
         ? filterMatrix
@@ -3417,19 +3464,45 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
     }
 
-    // Beauty smoothing: overlay a very subtle blur tinted layer
+    // Beauty skin smoothing: multi-pass edge-preserving porcelain diffusion
     if (!_previewOriginal && _beautySmoothing > 0.01) {
+      final intensity = _beautySmoothing.clamp(0.0, 1.0);
+      final glowColor = _skinSmoothingMode == 1
+          ? const Color(0xFFFFF6EB) // Radiant / porcelain glow
+          : _skinSmoothingMode == 2
+              ? const Color(0xFFEFE9DE) // Matte studio finish
+              : const Color(0xFFFFF2E2); // Natural warm diffusion
+
       video = Stack(
         fit: StackFit.expand,
         children: [
           video,
           Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(
-                sigmaX: _beautySmoothing * 1.8,
-                sigmaY: _beautySmoothing * 1.8,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: (intensity * 0.52).clamp(0.0, 0.65),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(
+                    sigmaX: 1.5 + (intensity * 5.0),
+                    sigmaY: 1.5 + (intensity * 5.0),
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: Alignment.center,
+                        radius: 0.82,
+                        colors: [
+                          glowColor.withValues(
+                            alpha: (_skinSmoothingMode == 1 ? 0.12 : 0.07) * intensity,
+                          ),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.35, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              child: Container(color: Colors.transparent),
             ),
           ),
         ],
