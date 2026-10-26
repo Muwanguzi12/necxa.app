@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -103,6 +104,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   bool _isRippleMode = false; // when true, edits ripple following clips
   bool _isStretchMode = false; // when true, resize changes speed (stretch)
   bool _isSnappingEnabled = true;
+  bool _showSymmetryGuide = false;
+  bool _previewOriginal = false;
 
   // Timeline pinch/zoom helpers
   double? _timelineScaleStartZoom;
@@ -1285,11 +1288,109 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ),
       ),
     );
-    final matrix = _filterMatrix(clip.filter?.filterName);
-    if (matrix != null) {
+    final filterMatrix = _filterMatrix(clip.filter?.filterName);
+    final beautyMatrix = !_previewOriginal ? _clipBeautyMatrix(clip) : null;
+    final combinedMatrix = beautyMatrix != null
+        ? (filterMatrix != null
+            ? _mergeColorMatrices(filterMatrix, beautyMatrix)
+            : beautyMatrix)
+        : filterMatrix;
+
+    if (combinedMatrix != null) {
       result = ColorFiltered(
-        colorFilter: ColorFilter.matrix(matrix),
+        colorFilter: ColorFilter.matrix(combinedMatrix),
         child: result,
+      );
+    }
+
+    // Edge-Preserving Skin Smoothing & Porcelain Finish
+    if (!_previewOriginal && clip.skinSmoothing > 0.01) {
+      final sigma = (clip.skinSmoothing * 2.2).clamp(0.2, 3.5);
+      final diffusionAlpha = (clip.skinSmoothing * (clip.smoothingMode == 1 ? 0.42 : 0.32)).clamp(0.0, 0.50);
+      result = Stack(
+        fit: StackFit.passthrough,
+        children: [
+          result,
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: diffusionAlpha,
+                child: ImageFiltered(
+                  imageFilter: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+                  child: result,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Bilateral Facial Symmetry
+    if (!_previewOriginal && clip.faceSymmetry > 0.01) {
+      final mirrorLeft = clip.symmetryMirrorLeft;
+      result = LayoutBuilder(
+        builder: (context, constraints) {
+          final halfWidth = constraints.maxWidth / 2;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              result,
+              Positioned(
+                top: 0,
+                bottom: 0,
+                left: mirrorLeft ? halfWidth : 0,
+                right: mirrorLeft ? 0 : halfWidth,
+                child: IgnorePointer(
+                  child: ClipRect(
+                    child: Opacity(
+                      opacity: clip.faceSymmetry.clamp(0.0, 1.0),
+                      child: Align(
+                        alignment: mirrorLeft
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        widthFactor: 0.5,
+                        child: Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.diagonal3Values(-1, 1, 1),
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            child: result,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (_showSymmetryGuide && clip.faceSymmetry > 0.05)
+                Positioned.fill(
+                  child: _FacialSymmetryGuideOverlay(
+                    intensity: clip.faceSymmetry,
+                    mirrorLeft: mirrorLeft,
+                  ),
+                ),
+            ],
+          );
+        },
+      );
+    }
+
+    // Studio Makeup Overlay (Women & Men)
+    if (!_previewOriginal && clip.makeupGender > 0 && clip.makeupIntensity > 0.05) {
+      result = Stack(
+        fit: StackFit.passthrough,
+        children: [
+          result,
+          Positioned.fill(
+            child: _StudioMakeupOverlay(
+              gender: clip.makeupGender,
+              style: clip.makeupStyle,
+              intensity: clip.makeupIntensity,
+            ),
+          ),
+        ],
       );
     }
 
@@ -1433,30 +1534,212 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       case 'blackandwhite':
       case 'noir':
         return const <double>[
-          0.2126,
-          0.7152,
-          0.0722,
-          0,
-          0,
-          0.2126,
-          0.7152,
-          0.0722,
-          0,
-          0,
-          0.2126,
-          0.7152,
-          0.0722,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          0,
+          0.2126, 0.7152, 0.0722, 0, 0,
+          0.2126, 0.7152, 0.0722, 0, 0,
+          0.2126, 0.7152, 0.0722, 0, 0,
+          0, 0, 0, 1, 0,
+        ];
+      case 'teal & orange':
+      case 'tealorange':
+        return const <double>[
+          1.15, 0.02, -0.05, 0, 12,
+          -0.02, 1.05, 0.05, 0, 2,
+          -0.12, 0.08, 1.25, 0, -8,
+          0, 0, 0, 1, 0,
+        ];
+      case 'kodak gold':
+      case 'kodak':
+        return const <double>[
+          1.12, 0.04, -0.02, 0, 10,
+          0.02, 1.08, 0.02, 0, 6,
+          -0.04, 0.02, 0.88, 0, -4,
+          0, 0, 0, 1, 0,
+        ];
+      case 'fuji chrome':
+      case 'fuji':
+        return const <double>[
+          0.96, 0.02, 0.04, 0, -2,
+          0.02, 1.14, 0.02, 0, 8,
+          0.02, 0.04, 1.20, 0, 12,
+          0, 0, 0, 1, 0,
+        ];
+      case 'moody emerald':
+      case 'emerald':
+        return const <double>[
+          0.88, 0.04, -0.02, 0, -6,
+          0.04, 1.18, 0.04, 0, 10,
+          -0.02, 0.04, 0.94, 0, -2,
+          0, 0, 0, 1, 0,
+        ];
+      case 'cyberpunk neon':
+      case 'cyberpunk':
+        return const <double>[
+          1.28, -0.08, 0.12, 0, 16,
+          -0.06, 0.94, 0.16, 0, -4,
+          0.12, 0.04, 1.35, 0, 20,
+          0, 0, 0, 1, 0,
+        ];
+      case 'silver noir':
+      case 'silver':
+        return const <double>[
+          0.30, 0.59, 0.11, 0, -10,
+          0.30, 0.59, 0.11, 0, -10,
+          0.30, 0.59, 0.11, 0, -10,
+          0, 0, 0, 1, 0,
+        ];
+      case 'golden hour':
+      case 'goldenhour':
+        return const <double>[
+          1.22, 0.06, -0.04, 0, 18,
+          0.04, 1.10, -0.02, 0, 10,
+          -0.08, -0.04, 0.82, 0, -12,
+          0, 0, 0, 1, 0,
+        ];
+      case 'porcelain studio':
+      case 'porcelain':
+        return const <double>[
+          1.06, 0.02, 0.02, 0, 6,
+          0.02, 1.04, 0.02, 0, 4,
+          0.02, 0.02, 1.02, 0, 2,
+          0, 0, 0, 1, 0,
         ];
       default:
         return null;
     }
+  }
+
+  static List<double> _mergeColorMatrices(List<double> a, List<double> b) {
+    final result = List<double>.filled(20, 0.0);
+    for (int y = 0; y < 4; y++) {
+      for (int x = 0; x < 4; x++) {
+        double sum = 0.0;
+        for (int i = 0; i < 4; i++) {
+          sum += a[y * 5 + i] * b[i * 5 + x];
+        }
+        result[y * 5 + x] = sum;
+      }
+      result[y * 5 + 4] = a[y * 5 + 4] + b[y * 5 + 4];
+    }
+    return result;
+  }
+
+  List<double>? _clipBeautyMatrix(TimelineClip clip) {
+    if (clip.skinBrightening <= 0.01 &&
+        clip.skinSmoothing <= 0.01 &&
+        (clip.makeupGender == 0 || clip.makeupIntensity <= 0.01)) {
+      return null;
+    }
+    final w = (clip.skinBrightening * 28.0).clamp(0.0, 38.0);
+    final s = clip.skinSmoothing.clamp(0.0, 1.0);
+
+    // Tone-adaptive Skin Brightening:
+    // 0 = Neutral (pure daylight luminance)
+    // 1 = Warm Peach (lifts R and G)
+    // 2 = Cool Rose (clears yellow sallow tones, lifts B and R)
+    // 3 = Golden Glow (sunlit bronze radiance)
+    final double rBright;
+    final double gBright;
+    final double bBright;
+    switch (clip.skinToneMode) {
+      case 1: // Warm Peach
+        rBright = w * 1.15;
+        gBright = w * 1.05;
+        bBright = w * 0.88;
+        break;
+      case 2: // Cool Rose
+        rBright = w * 1.06;
+        gBright = w * 0.98;
+        bBright = w * 1.18;
+        break;
+      case 3: // Golden Glow
+        rBright = w * 1.20;
+        gBright = w * 1.10;
+        bBright = w * 0.82;
+        break;
+      default: // Neutral
+        rBright = w;
+        gBright = w;
+        bBright = w;
+    }
+
+    // Micro-contrast softening: gently compresses blemish contrast in skin midtones
+    double contrast = 1.0 - (s * 0.06);
+    double contrastOffset = (1.0 - contrast) * 128.0;
+    final skinToneLift = s * 6.0;
+
+    double rScale = contrast;
+    double gScale = contrast;
+    double bScale = contrast;
+    double rOffset = rBright + contrastOffset + skinToneLift;
+    double gOffset = gBright + contrastOffset + (skinToneLift * 0.6);
+    double bOffset = bBright + contrastOffset;
+
+    // Studio Makeup Palette (Women & Men):
+    if (clip.makeupGender > 0 && clip.makeupIntensity > 0.01) {
+      final m = clip.makeupIntensity.clamp(0.0, 1.0);
+      if (clip.makeupGender == 1) {
+        // Women (Feminine):
+        switch (clip.makeupStyle) {
+          case 0: // Rosy Glow (petal pink lip & cheek radiance)
+            rScale += m * 0.06;
+            gScale -= m * 0.02;
+            bScale += m * 0.03;
+            rOffset += m * 14.0;
+            bOffset += m * 5.0;
+            break;
+          case 1: // Natural Nude (soft peach warmth, luminous skin)
+            rScale += m * 0.05;
+            gScale += m * 0.02;
+            bScale -= m * 0.02;
+            rOffset += m * 10.0;
+            gOffset += m * 5.0;
+            break;
+          case 2: // Sunset Glam (rich berry lips & contoured cheek warmth)
+            rScale += m * 0.08;
+            gScale -= m * 0.03;
+            bScale += m * 0.04;
+            rOffset += m * 18.0;
+            bOffset += m * 7.0;
+            contrast += m * 0.03;
+            break;
+        }
+      } else {
+        // Men (Masculine):
+        switch (clip.makeupStyle) {
+          case 0: // Clean Groomed (evens complexion, conceals shadows)
+            contrast += m * 0.04;
+            contrastOffset = (1.0 - contrast) * 128.0;
+            rScale = contrast + (m * 0.02);
+            gScale = contrast + (m * 0.02);
+            bScale = contrast - (m * 0.02);
+            rOffset += m * 7.0;
+            gOffset += m * 7.0;
+            break;
+          case 1: // Sharp Contour (chisels jawline & cheekbones, reduces glare)
+            contrast += m * 0.07;
+            contrastOffset = (1.0 - contrast) * 128.0;
+            rScale = contrast + (m * 0.03);
+            gScale = contrast - (m * 0.02);
+            bScale = contrast - (m * 0.02);
+            rOffset += m * 5.0;
+            break;
+          case 2: // Sun-Kissed (athletic, healthy bronzed vitality)
+            rScale += m * 0.07;
+            gScale += m * 0.03;
+            bScale -= m * 0.05;
+            rOffset += m * 12.0;
+            gOffset += m * 6.0;
+            break;
+        }
+      }
+    }
+
+    return [
+      rScale, 0, 0, 0, rOffset,
+      0, gScale, 0, 0, gOffset,
+      0, 0, bScale, 0, bOffset,
+      0, 0, 0, 1, 0,
+    ];
   }
 
   List<Widget> _buildEffectOverlayWidgets() {
@@ -2373,11 +2656,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return Container(
       decoration: BoxDecoration(
         color: baseColor,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isSelected ? C.brand : Colors.transparent,
-          width: 2,
+          color: isSelected ? C.brand : Colors.white.withOpacity(0.08),
+          width: isSelected ? 2.5 : 1,
         ),
+        boxShadow: isSelected
+            ? [
+                BoxShadow(
+                  color: C.brand.withOpacity(0.35),
+                  blurRadius: 6,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
       ),
       clipBehavior: Clip.antiAlias,
       child: content,
@@ -2387,25 +2679,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Color _trackColorForType(TrackType type) {
     switch (type) {
       case TrackType.video:
-        return const Color(0xFF4F46E5);
-      case TrackType.audio:
-        return const Color(0xFF0891B2);
-      case TrackType.text:
-        return const Color(0xFFF59E0B);
+        return const Color(0xFF1E293B); // Deep Cinematic Slate
       case TrackType.images:
-        return const Color(0xFF14B8A6);
-      case TrackType.captions:
-        return const Color(0xFF06B6D4);
-      case TrackType.overlay:
-        return const Color(0xFFF472B6);
-      case TrackType.effects:
-        return const Color(0xFFEC4899);
+        return const Color(0xFF0F766E); // Deep Teal
+      case TrackType.audio:
+        return const Color(0xFF065F46); // Forest Green
       case TrackType.music:
-        return const Color(0xFF8B5CF6);
+        return const Color(0xFF047857); // Studio Emerald Green
       case TrackType.voiceOver:
-        return const Color(0xFF22C55E);
+        return const Color(0xFF059669); // Radiant Mint
       case TrackType.soundEffects:
-        return const Color(0xFFF59E0B);
+        return const Color(0xFFD97706); // Warm Amber
+      case TrackType.text:
+        return const Color(0xFFB45309); // Royal Gold
+      case TrackType.captions:
+        return const Color(0xFF92400E); // Deep Gold
+      case TrackType.overlay:
+        return const Color(0xFFBE185D); // Vivid Magenta
+      case TrackType.effects:
+        return const Color(0xFF6D28D9); // Amethyst Purple
     }
   }
 
@@ -2800,7 +3092,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return const SizedBox.shrink();
     }
     return Container(
-      height: 64,
+      height: 68,
       decoration: BoxDecoration(
         color: C.card,
         border: Border(top: BorderSide(color: C.border)),
@@ -2834,39 +3126,42 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     switch (_activeToolPanel) {
       case 1:
         return [
-          _buildToolButton('Media', () => _pickMediaFromLibrary()),
-          _buildToolButton('Trim', () => _trimClip()),
-          _buildToolButton('Crop', _cropClip),
-          _buildToolButton('Speed', () => _adjustSpeed()),
-          _buildToolButton('Volume', _adjustVolume),
-          _buildToolButton('Reverse', _toggleReverse),
+          _buildToolButton('Media', () => _pickMediaFromLibrary(), Icons.video_library),
+          _buildToolButton('Trim', () => _trimClip(), Icons.content_cut),
+          _buildToolButton('Crop', _cropClip, Icons.crop),
+          _buildToolButton('Speed', () => _adjustSpeed(), Icons.speed),
+          _buildToolButton('Volume', _adjustVolume, Icons.graphic_eq),
+          _buildToolButton('Reverse', _toggleReverse, Icons.swap_horizontal_circle_outlined),
         ];
       case 2:
         return [
-          _buildToolButton('Music', () => _showAudioPicker()),
-          _buildToolButton('Voice', _showVoiceoverRecorder),
-          _buildToolButton('SFX', () => _addSoundEffect()),
-          _buildToolButton('Volume', () => _adjustVolume()),
+          _buildToolButton('Music', () => _showAudioPicker(), Icons.music_note),
+          _buildToolButton('Voice', _showVoiceoverRecorder, Icons.mic),
+          _buildToolButton('SFX', () => _addSoundEffect(), Icons.surround_sound),
+          _buildToolButton('Mixer', _showAudioMixerSheet, Icons.graphic_eq),
+          _buildToolButton('Volume', () => _adjustVolume(), Icons.volume_up),
         ];
       case 3:
         return [
-          _buildToolButton('Text Hub', () => _showTextHubSheet()),
-          _buildToolButton('Edit', () => _showTextEditorSheet()),
-          _buildToolButton('Font', () => _showTextEditorSheet()),
-          _buildToolButton('Color', () => _showTextEditorSheet()),
+          _buildToolButton('Text Hub', () => _showTextHubSheet(), Icons.dashboard_customize),
+          _buildToolButton('Edit', () => _showTextEditorSheet(), Icons.edit),
+          _buildToolButton('Font', () => _showTextEditorSheet(), Icons.font_download),
+          _buildToolButton('Color', () => _showTextEditorSheet(), Icons.palette),
         ];
       case 4:
         return [
-          _buildToolButton('Library', () => _toggleEffectLibrary()),
-          _buildToolButton('Intensity', () => _showEffectEditorSheet()),
-          _buildToolButton('Apply', () => _applySelectedEffect()),
+          _buildToolButton('Library', () => _toggleEffectLibrary(), Icons.auto_awesome_motion),
+          _buildToolButton('Adjust', _showAdjustSheet, Icons.tune),
+          _buildToolButton('LUTs', _showFilterSheet, Icons.movie_filter),
+          _buildToolButton('Intensity', () => _showEffectEditorSheet(), Icons.tune),
+          _buildToolButton('Apply', () => _applySelectedEffect(), Icons.check_circle_outline),
         ];
       default:
         return [
-          _buildToolButton('Split', () => _splitClip()),
-          _buildToolButton('Trim', () => _trimClip()),
-          _buildToolButton('Lock', () => _showSnack('Track locked')),
-          _buildToolButton('Hide', () => _showSnack('Track hidden')),
+          _buildToolButton('Split', () => _splitClip(), Icons.call_split),
+          _buildToolButton('Trim', () => _trimClip(), Icons.content_cut),
+          _buildToolButton('Lock', () => _showSnack('Track locked'), Icons.lock_outline),
+          _buildToolButton('Hide', () => _showSnack('Track hidden'), Icons.visibility_off_outlined),
         ];
     }
   }
@@ -2881,52 +3176,71 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       );
       if (selectedTrack.type == TrackType.video) {
         tools.addAll([
-          _buildToolButton('Split', () => _splitClip()),
-          _buildToolButton('Trim', () => _trimClip()),
-          _buildToolButton('Crop', _cropClip),
-          _buildToolButton('Transform', _showTransformEditorSheet),
-          _buildToolButton('Speed', () => _adjustSpeed()),
-          _buildToolButton('Opacity', () => _adjustOpacity()),
-          _buildToolButton('Filter', _showFilterSheet),
-          _buildToolButton('Face', _showFaceEngineSheet),
-          _buildToolButton('Volume', _adjustVolume),
-          _buildToolButton('Reverse', _toggleReverse),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _buildToolButton('Split', () => _splitClip(), Icons.call_split),
+          _buildToolButton('Trim', () => _trimClip(), Icons.content_cut),
+          _buildToolButton('Velocity', () => _adjustSpeed(), Icons.speed),
+          _buildToolButton('Crop', _cropClip, Icons.crop),
+          _buildToolButton('Adjust', _showAdjustSheet, Icons.tune),
+          _buildToolButton('LUTs', _showFilterSheet, Icons.movie_filter),
+          _buildToolButton('Fade', () => _showFadeSheet(clip), Icons.animation),
+          _buildToolButton('Beauty', _showBeautyStudioSheet, Icons.face_retouching_natural),
+          _buildToolButton('Presets', _showFaceEngineSheet, Icons.auto_fix_high),
+          _buildToolButton('Mixer', _showAudioMixerSheet, Icons.graphic_eq),
+          _buildToolButton('Transform', _showTransformEditorSheet, Icons.transform),
+          _buildToolButton('Opacity', () => _adjustOpacity(), Icons.opacity),
+          _buildToolButton('Stickers', _showStickerSheet, Icons.auto_awesome),
+          _buildToolButton('Reverse', _toggleReverse, Icons.swap_horizontal_circle_outlined),
+          _buildToolButton('Duplicate', () {
+            _captureTimeline();
+            final dup = clip.copyWith(
+              id: '${clip.id}-dup-${DateTime.now().millisecondsSinceEpoch}',
+            );
+            dup.start = clip.start + clip.duration;
+            TimelineModelUtils.insertClip(_tracks, dup, TrackType.video);
+            _playback.updateProject(_tracks);
+            setState(() {});
+            _showSnack('Clip duplicated');
+          }, Icons.content_copy),
+          _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       } else if (selectedTrack.type == TrackType.text ||
           selectedTrack.type == TrackType.captions) {
         tools.addAll([
-          _buildToolButton('Edit', () => _showTextEditorSheet()),
-          _buildToolButton('Font', () => _showTextEditorSheet()),
-          _buildToolButton('Size', () => _showTextEditorSheet()),
-          _buildToolButton('Color', () => _showTextEditorSheet()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _buildToolButton('Edit', () => _showTextEditorSheet(), Icons.edit),
+          _buildToolButton('Font', () => _showTextEditorSheet(), Icons.font_download),
+          _buildToolButton('Size', () => _showTextEditorSheet(), Icons.format_size),
+          _buildToolButton('Color', () => _showTextEditorSheet(), Icons.palette),
+          _buildToolButton('Style', () => _showTextHubSheet(), Icons.animation),
+          _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       } else if (selectedTrack.type == TrackType.audio ||
           selectedTrack.type == TrackType.music ||
           selectedTrack.type == TrackType.voiceOver ||
           selectedTrack.type == TrackType.soundEffects) {
         tools.addAll([
-          _buildToolButton('Split', _splitClip),
-          _buildToolButton('Trim', _trimClip),
-          _buildToolButton('Speed', _adjustSpeed),
-          _buildToolButton('Volume', () => _adjustVolume()),
-          _buildToolButton('Reverse', _toggleReverse),
-          _buildToolButton('Fade', () => _addFade()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _buildToolButton('Split', _splitClip, Icons.call_split),
+          _buildToolButton('Trim', _trimClip, Icons.content_cut),
+          _buildToolButton('Speed', _adjustSpeed, Icons.speed),
+          _buildToolButton('Mixer', _showAudioMixerSheet, Icons.graphic_eq),
+          _buildToolButton('Volume', () => _adjustVolume(), Icons.volume_up),
+          _buildToolButton('Fade', () => _addFade(), Icons.animation),
+          _buildToolButton('Reverse', _toggleReverse, Icons.swap_horizontal_circle_outlined),
+          _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       } else if (selectedTrack.type == TrackType.effects) {
         tools.addAll([
-          _buildToolButton('Intensity', () => _showEffectEditorSheet()),
-          _buildToolButton('Opacity', () => _showEffectEditorSheet()),
-          _buildToolButton('Blend', () => _showEffectEditorSheet()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _buildToolButton('Adjust', _showAdjustSheet, Icons.tune),
+          _buildToolButton('LUTs', _showFilterSheet, Icons.movie_filter),
+          _buildToolButton('Intensity', () => _showEffectEditorSheet(), Icons.tune),
+          _buildToolButton('Opacity', () => _showEffectEditorSheet(), Icons.opacity),
+          _buildToolButton('Blend', () => _showEffectEditorSheet(), Icons.blur_linear),
+          _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       } else {
         tools.addAll([
-          _buildToolButton('Resize', () => _showSnack('Resize clip')),
-          _buildToolButton('Opacity', () => _adjustOpacity()),
-          _buildToolButton('Delete', () => _deleteClip()),
+          _buildToolButton('Resize', () => _showSnack('Resize clip'), Icons.aspect_ratio),
+          _buildToolButton('Opacity', () => _adjustOpacity(), Icons.opacity),
+          _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       }
     }
@@ -2934,25 +3248,113 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return tools;
   }
 
-  Widget _buildToolButton(String label, VoidCallback onTap) {
+  Widget _buildToolButton(String label, VoidCallback onTap, [IconData? icon]) {
+    final resolvedIcon = icon ?? _defaultIconForTool(label);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
       child: Material(
-        color: C.surface,
-        borderRadius: BorderRadius.circular(6),
+        color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Text(
-              label,
-              style: dm(sz: 10, c: C.brand, w: FontWeight.w600),
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onTap();
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 54),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: C.surface.withOpacity(0.85),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: C.border.withOpacity(0.5)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(resolvedIcon, size: 20, color: C.brand),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: dm(sz: 10, c: C.text, w: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  IconData _defaultIconForTool(String label) {
+    switch (label.toLowerCase()) {
+      case 'split':
+        return Icons.call_split;
+      case 'trim':
+        return Icons.content_cut;
+      case 'crop':
+        return Icons.crop;
+      case 'speed':
+      case 'velocity':
+        return Icons.speed;
+      case 'volume':
+      case 'mixer':
+        return Icons.graphic_eq;
+      case 'reverse':
+        return Icons.swap_horizontal_circle_outlined;
+      case 'delete':
+        return Icons.delete_outline;
+      case 'duplicate':
+        return Icons.content_copy;
+      case 'transform':
+        return Icons.transform;
+      case 'filter':
+      case 'filters':
+      case 'luts':
+        return Icons.movie_filter;
+      case 'adjust':
+        return Icons.tune;
+      case 'fade':
+        return Icons.animation;
+      case 'face':
+        return Icons.face_retouching_natural;
+      case 'stickers':
+        return Icons.auto_awesome;
+      case 'music':
+        return Icons.music_note;
+      case 'voice':
+        return Icons.mic;
+      case 'sfx':
+        return Icons.surround_sound;
+      case 'edit':
+        return Icons.edit;
+      case 'font':
+        return Icons.font_download;
+      case 'size':
+        return Icons.format_size;
+      case 'color':
+        return Icons.palette;
+      case 'text hub':
+        return Icons.dashboard_customize;
+      case 'opacity':
+        return Icons.opacity;
+      case 'library':
+        return Icons.auto_awesome_motion;
+      case 'intensity':
+        return Icons.tune;
+      case 'apply':
+        return Icons.check_circle_outline;
+      case 'lock':
+        return Icons.lock_outline;
+      case 'hide':
+        return Icons.visibility_off_outlined;
+      case 'media':
+        return Icons.video_library;
+      default:
+        return Icons.widgets_outlined;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -2997,7 +3399,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 );
               } else if (index == 5) {
                 WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _showFaceEngineSheet(),
+                  (_) => _showBeautyStudioSheet(),
                 );
               } else if (index == 6) {
                 WidgetsBinding.instance.addPostFrameCallback(
@@ -3542,6 +3944,696 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     });
     _playback.updateProject(_tracks);
     _queueCompositionSync();
+  }
+
+  void _showBeautyStudioSheet() {
+    TimelineTrack? targetTrack;
+    TimelineClip? targetClip;
+
+    for (final track in _tracks) {
+      if (track.type != TrackType.video) continue;
+      for (final clip in track.clips) {
+        if (clip.id == _selectedClip?.id) {
+          targetTrack = track;
+          targetClip = clip;
+          break;
+        }
+        targetTrack ??= track;
+        targetClip ??= clip;
+      }
+      if (targetClip?.id == _selectedClip?.id) break;
+    }
+
+    if (targetTrack == null || targetClip == null) {
+      _showSnack('Add or select a video to use Beauty Studio');
+      return;
+    }
+
+    setState(() {
+      _selectedClip = targetClip;
+      _selectedClipIds
+        ..clear()
+        ..add(targetClip!.id);
+      _selectedTrackId = targetTrack!.id;
+      _selectedTrackIndex = _tracks.indexOf(targetTrack);
+    });
+
+    _captureTimeline();
+    int activeTab = 0; // 0: Brighten, 1: Smooth, 2: Symmetry, 3: Makeup
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final clip = targetClip!;
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.58,
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.96),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: C.dim.withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: C.dim.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'AI BEAUTY & RETOUCH STUDIO',
+                          style: syne(sz: 13, w: FontWeight.w900, c: C.text, ls: 1.5),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Skin Lighting • Smoothing • Symmetry • Makeup',
+                          style: dm(sz: 10, c: C.dim),
+                        ),
+                      ],
+                    ),
+                    GestureDetector(
+                      onTapDown: (_) {
+                        HapticFeedback.lightImpact();
+                        setState(() => _previewOriginal = true);
+                        setModalState(() {});
+                      },
+                      onTapUp: (_) {
+                        HapticFeedback.lightImpact();
+                        setState(() => _previewOriginal = false);
+                        setModalState(() {});
+                      },
+                      onTapCancel: () {
+                        setState(() => _previewOriginal = false);
+                        setModalState(() {});
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _previewOriginal ? C.brand : C.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: _previewOriginal ? C.brand : C.dim.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.compare_arrows,
+                              size: 14,
+                              color: _previewOriginal ? Colors.black : C.text,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _previewOriginal ? 'ORIGINAL' : 'COMPARE',
+                              style: dm(
+                                sz: 9.5,
+                                w: FontWeight.w800,
+                                c: _previewOriginal ? Colors.black : C.text,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: C.surface.withValues(alpha: 0.8),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      _buildBeautyCategoryTab('Brighten', Icons.wb_sunny_outlined, activeTab == 0, () {
+                        HapticFeedback.selectionClick();
+                        setModalState(() => activeTab = 0);
+                      }),
+                      _buildBeautyCategoryTab('Smooth', Icons.auto_awesome, activeTab == 1, () {
+                        HapticFeedback.selectionClick();
+                        setModalState(() => activeTab = 1);
+                      }),
+                      _buildBeautyCategoryTab('Symmetry', Icons.filter_b_and_w, activeTab == 2, () {
+                        HapticFeedback.selectionClick();
+                        setModalState(() => activeTab = 2);
+                      }),
+                      _buildBeautyCategoryTab('Makeup', Icons.face, activeTab == 3, () {
+                        HapticFeedback.selectionClick();
+                        setModalState(() => activeTab = 3);
+                      }),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: activeTab == 0
+                        ? _buildBrightenTab(clip, setModalState)
+                        : activeTab == 1
+                            ? _buildSmoothTab(clip, setModalState)
+                            : activeTab == 2
+                                ? _buildSymmetryTab(clip, setModalState)
+                                : _buildMakeupTab(clip, setModalState),
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        setState(() {
+                          clip.skinBrightening = 0.0;
+                          clip.skinToneMode = 0;
+                          clip.skinSmoothing = 0.0;
+                          clip.smoothingMode = 0;
+                          clip.faceSymmetry = 0.0;
+                          clip.symmetryMirrorLeft = true;
+                          clip.makeupGender = 0;
+                          clip.makeupStyle = 0;
+                          clip.makeupIntensity = 0.7;
+                          _showSymmetryGuide = false;
+                        });
+                        setModalState(() {});
+                        _refreshComposition();
+                        _showSnack('Beauty effects reset');
+                      },
+                      icon: Icon(Icons.restart_alt, size: 16, color: C.dim),
+                      label: Text('Reset', style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: C.brand,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      ),
+                      onPressed: () {
+                        setState(() => _showSymmetryGuide = false);
+                        Navigator.pop(context);
+                      },
+                      child: Text('Done', style: syne(sz: 12, w: FontWeight.w800)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    ).then((_) {
+      if (mounted) setState(() => _showSymmetryGuide = false);
+    });
+  }
+
+  Widget _buildBeautyCategoryTab(String title, IconData icon, bool active, VoidCallback onTap) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            color: active ? C.brand : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          alignment: Alignment.center,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 14, color: active ? Colors.black : C.dim),
+              const SizedBox(width: 4),
+              Text(
+                title,
+                style: syne(
+                  sz: 11,
+                  w: active ? FontWeight.w800 : FontWeight.w600,
+                  c: active ? Colors.black : C.text,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrightenTab(TimelineClip clip, StateSetter setModalState) {
+    final tones = [
+      ('Neutral', 'Studio Light', const Color(0xFFF8FAFC)),
+      ('Warm Peach', 'Sunlit Glow', const Color(0xFFFFB74D)),
+      ('Cool Rose', 'Porcelain Tint', const Color(0xFFF48FB1)),
+      ('Golden Glow', 'Bronze Radiance', const Color(0xFFFFD54F)),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Skin Brightening Intensity', style: dm(sz: 12, c: C.text, w: FontWeight.w600)),
+            Text('${(clip.skinBrightening * 100).round()}%', style: dm(sz: 12, c: C.brand, w: FontWeight.w800)),
+          ],
+        ),
+        Slider(
+          value: clip.skinBrightening.clamp(0.0, 1.0),
+          min: 0.0,
+          max: 1.0,
+          activeColor: C.brand,
+          inactiveColor: C.surface,
+          onChanged: (v) {
+            setModalState(() => clip.skinBrightening = v);
+            setState(() => clip.skinBrightening = v);
+            _refreshComposition();
+          },
+        ),
+        const SizedBox(height: 12),
+        Text('Undertone Luminance Mode', style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Row(
+          children: List.generate(tones.length, (idx) {
+            final t = tones[idx];
+            final sel = clip.skinToneMode == idx;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setModalState(() => clip.skinToneMode = idx);
+                  setState(() => clip.skinToneMode = idx);
+                  _refreshComposition();
+                },
+                child: Container(
+                  margin: EdgeInsets.only(right: idx < tones.length - 1 ? 6 : 0),
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: sel ? C.brand.withValues(alpha: 0.2) : C.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: sel ? C.brand : C.dim.withValues(alpha: 0.3),
+                      width: sel ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: t.$3,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white24, width: 1),
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        t.$1,
+                        style: syne(sz: 9.5, w: FontWeight.w700, c: sel ? C.brand : C.text),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        t.$2,
+                        style: dm(sz: 7.5, c: C.dim),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSmoothTab(TimelineClip clip, StateSetter setModalState) {
+    final finishes = [
+      ('Natural', 'Micro-Texture', Icons.grain),
+      ('Porcelain', 'Diffusion Silk', Icons.auto_awesome),
+      ('Matte Velvet', 'Anti-Glare Studio', Icons.blur_linear),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Skin Smoothing Softness', style: dm(sz: 12, c: C.text, w: FontWeight.w600)),
+            Text('${(clip.skinSmoothing * 100).round()}%', style: dm(sz: 12, c: C.brand, w: FontWeight.w800)),
+          ],
+        ),
+        Slider(
+          value: clip.skinSmoothing.clamp(0.0, 1.0),
+          min: 0.0,
+          max: 1.0,
+          activeColor: C.brand,
+          inactiveColor: C.surface,
+          onChanged: (v) {
+            setModalState(() => clip.skinSmoothing = v);
+            setState(() => clip.skinSmoothing = v);
+            _refreshComposition();
+          },
+        ),
+        const SizedBox(height: 12),
+        Text('Skin Finish Mode', style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Row(
+          children: List.generate(finishes.length, (idx) {
+            final f = finishes[idx];
+            final sel = clip.smoothingMode == idx;
+            return Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setModalState(() => clip.smoothingMode = idx);
+                  setState(() => clip.smoothingMode = idx);
+                  _refreshComposition();
+                },
+                child: Container(
+                  margin: EdgeInsets.only(right: idx < finishes.length - 1 ? 8 : 0),
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                  decoration: BoxDecoration(
+                    color: sel ? C.brand.withValues(alpha: 0.2) : C.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: sel ? C.brand : C.dim.withValues(alpha: 0.3),
+                      width: sel ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(f.$3, size: 16, color: sel ? C.brand : C.dim),
+                      const SizedBox(height: 5),
+                      Text(
+                        f.$1,
+                        style: syne(sz: 10, w: FontWeight.w700, c: sel ? C.brand : C.text),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        f.$2,
+                        style: dm(sz: 8, c: C.dim),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSymmetryTab(TimelineClip clip, StateSetter setModalState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Facial Symmetry Blend', style: dm(sz: 12, c: C.text, w: FontWeight.w600)),
+            Text('${(clip.faceSymmetry * 100).round()}%', style: dm(sz: 12, c: const Color(0xFF00E5FF), w: FontWeight.w800)),
+          ],
+        ),
+        Slider(
+          value: clip.faceSymmetry.clamp(0.0, 1.0),
+          min: 0.0,
+          max: 1.0,
+          activeColor: const Color(0xFF00E5FF),
+          inactiveColor: C.surface,
+          onChanged: (v) {
+            setModalState(() {
+              clip.faceSymmetry = v;
+              if (v > 0.05 && !_showSymmetryGuide) _showSymmetryGuide = true;
+            });
+            setState(() {
+              clip.faceSymmetry = v;
+              if (v > 0.05 && !_showSymmetryGuide) _showSymmetryGuide = true;
+            });
+            _refreshComposition();
+          },
+        ),
+        const SizedBox(height: 12),
+        Text('Mirror Orientation', style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setModalState(() => clip.symmetryMirrorLeft = true);
+                  setState(() => clip.symmetryMirrorLeft = true);
+                  _refreshComposition();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: clip.symmetryMirrorLeft ? const Color(0xFF00E5FF).withValues(alpha: 0.2) : C.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: clip.symmetryMirrorLeft ? const Color(0xFF00E5FF) : C.dim.withValues(alpha: 0.3),
+                      width: clip.symmetryMirrorLeft ? 1.5 : 1,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    'L ➔ R (Mirror Left Side)',
+                    style: syne(
+                      sz: 10,
+                      w: FontWeight.w700,
+                      c: clip.symmetryMirrorLeft ? const Color(0xFF00E5FF) : C.text,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setModalState(() => clip.symmetryMirrorLeft = false);
+                  setState(() => clip.symmetryMirrorLeft = false);
+                  _refreshComposition();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: !clip.symmetryMirrorLeft ? const Color(0xFF00E5FF).withValues(alpha: 0.2) : C.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: !clip.symmetryMirrorLeft ? const Color(0xFF00E5FF) : C.dim.withValues(alpha: 0.3),
+                      width: !clip.symmetryMirrorLeft ? 1.5 : 1,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    'R ➔ L (Mirror Right Side)',
+                    style: syne(
+                      sz: 10,
+                      w: FontWeight.w700,
+                      c: !clip.symmetryMirrorLeft ? const Color(0xFF00E5FF) : C.text,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: C.surface,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.straighten, size: 16, color: Color(0xFF00E5FF)),
+                  const SizedBox(width: 8),
+                  Text('Facial Landmark Alignment Axis', style: dm(sz: 11, c: C.text, w: FontWeight.w600)),
+                ],
+              ),
+              Switch.adaptive(
+                value: _showSymmetryGuide,
+                activeColor: const Color(0xFF00E5FF),
+                onChanged: (v) {
+                  setModalState(() => _showSymmetryGuide = v);
+                  setState(() => _showSymmetryGuide = v);
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMakeupTab(TimelineClip clip, StateSetter setModalState) {
+    final womenStyles = [
+      ('Rosy Glow', 'Petal Blush & Tint', Icons.favorite, const Color(0xFFFF5277)),
+      ('Natural Nude', 'Soft Peach Radiance', Icons.spa, const Color(0xFFFF8A65)),
+      ('Sunset Glam', 'Berry Lip & Cheek', Icons.nights_stay, const Color(0xFFE91E63)),
+    ];
+
+    final menStyles = [
+      ('Clean Groomed', 'Even Complexion', Icons.face_retouching_natural, const Color(0xFF38BDF8)),
+      ('Sharp Contour', 'Chiseled Jawline', Icons.square_foot, const Color(0xFF37474F)),
+      ('Sun-Kissed', 'Athletic Bronze', Icons.wb_sunny, const Color(0xFF6D4C41)),
+    ];
+
+    final activeStyles = clip.makeupGender == 1 ? womenStyles : menStyles;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Subject:', style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
+            const SizedBox(width: 8),
+            _buildGenderPill('Off', clip.makeupGender == 0, () {
+              HapticFeedback.selectionClick();
+              setModalState(() => clip.makeupGender = 0);
+              setState(() => clip.makeupGender = 0);
+              _refreshComposition();
+            }),
+            const SizedBox(width: 6),
+            _buildGenderPill('Women 🌸', clip.makeupGender == 1, () {
+              HapticFeedback.selectionClick();
+              setModalState(() => clip.makeupGender = 1);
+              setState(() => clip.makeupGender = 1);
+              _refreshComposition();
+            }),
+            const SizedBox(width: 6),
+            _buildGenderPill('Men 💈', clip.makeupGender == 2, () {
+              HapticFeedback.selectionClick();
+              setModalState(() => clip.makeupGender = 2);
+              setState(() => clip.makeupGender = 2);
+              _refreshComposition();
+            }),
+          ],
+        ),
+        if (clip.makeupGender > 0) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Makeup Intensity', style: dm(sz: 12, c: C.text, w: FontWeight.w600)),
+              Text('${(clip.makeupIntensity * 100).round()}%', style: dm(sz: 12, c: C.brand, w: FontWeight.w800)),
+            ],
+          ),
+          Slider(
+            value: clip.makeupIntensity.clamp(0.0, 1.0),
+            min: 0.0,
+            max: 1.0,
+            activeColor: C.brand,
+            inactiveColor: C.surface,
+            onChanged: (v) {
+              setModalState(() => clip.makeupIntensity = v);
+              setState(() => clip.makeupIntensity = v);
+              _refreshComposition();
+            },
+          ),
+          const SizedBox(height: 8),
+          Text('Curated Studio Looks', style: dm(sz: 11, c: C.dim, w: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(activeStyles.length, (idx) {
+              final s = activeStyles[idx];
+              final sel = clip.makeupStyle == idx;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setModalState(() => clip.makeupStyle = idx);
+                    setState(() => clip.makeupStyle = idx);
+                    _refreshComposition();
+                  },
+                  child: Container(
+                    margin: EdgeInsets.only(right: idx < activeStyles.length - 1 ? 8 : 0),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                    decoration: BoxDecoration(
+                      color: sel ? s.$4.withValues(alpha: 0.25) : C.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: sel ? s.$4 : C.dim.withValues(alpha: 0.3),
+                        width: sel ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(s.$3, size: 20, color: s.$4),
+                        const SizedBox(height: 6),
+                        Text(
+                          s.$1,
+                          style: syne(sz: 9.5, w: FontWeight.w800, c: sel ? s.$4 : C.text),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          s.$2,
+                          style: dm(sz: 8, c: C.dim),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildGenderPill(String title, bool sel, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: sel ? C.brand : C.surface,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          title,
+          style: syne(
+            sz: 10,
+            w: FontWeight.w700,
+            c: sel ? Colors.black : C.text,
+          ),
+        ),
+      ),
+    );
   }
 
   void _showFaceEngineSheet() {
@@ -4143,6 +5235,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           (remaining / operation.fadeOut).clamp(0.0, 1.0),
         );
       }
+
+      // Smart Auto-Ducking: Automatically ducks background music when voiceover is active
+      if (operation.sourceType == 'music') {
+        final isVoiceOverActive = _tracks.any((track) =>
+            track.type == TrackType.voiceOver &&
+            track.clips.any((c) =>
+                !c.isHidden &&
+                c.start <= timelineTime &&
+                c.start + c.duration >= timelineTime));
+        if (isVoiceOverActive) {
+          envelope *= 0.30; // -10.5 dB automatic music ducking
+        }
+      }
     }
     return (clip.volume * envelope).clamp(0.0, 1.0);
   }
@@ -4351,45 +5456,191 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _adjustSpeed() {
-    final clip = _selectedClip;
+    final clip = _selectedClip ?? _compositionVisualClip;
     if (clip == null) return;
     _captureTimeline();
-    _showClipSlider(
-      title: 'Playback speed',
-      value: clip.speed,
-      min: 0.25,
-      max: 4.0,
-      divisions: 15,
-      label: (value) => '${value.toStringAsFixed(2)}x',
-      onChanged: (value) {
-        final sourceDuration = clip.sourceDuration;
-        setState(() {
-          clip.speed = value;
-          clip.duration = Duration(
-            milliseconds: (sourceDuration.inMilliseconds / value).round(),
-          );
-          if (clip.operation is AudioClipOperation) {
-            (clip.operation as AudioClipOperation).speed = value;
+
+    final speedCurves = [
+      ('Standard', '1.0x Flat', 1.0, Icons.linear_scale),
+      ('Hero', '2.5x > 0.3x > 2.0x', 0.85, Icons.trending_down),
+      ('Bullet Time', '1.0x > 0.15x > 3.0x', 0.65, Icons.slow_motion_video),
+      ('Montage', '3.0x > 0.5x > 3.0x', 1.6, Icons.waves),
+      ('Jump Cut', '4.0x > 1.0x > 4.0x', 2.2, Icons.fast_forward),
+      ('Flash In', '0.2x > 3.0x', 1.4, Icons.flash_on),
+      ('Flash Out', '3.0x > 0.3x', 0.9, Icons.flash_off),
+    ];
+
+    double currentSpeed = clip.speed;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          void applySpeed(double speedVal) {
+            final sourceDuration = clip.sourceDuration;
+            setState(() {
+              clip.speed = speedVal;
+              clip.duration = Duration(
+                milliseconds: (sourceDuration.inMilliseconds / speedVal).round(),
+              );
+              if (clip.operation is AudioClipOperation) {
+                (clip.operation as AudioClipOperation).speed = speedVal;
+              }
+            });
+            _refreshComposition();
+            if (clip.id == _activeVisualClipId) {
+              _videoController?.setPlaybackSpeed(speedVal.clamp(0.25, 2.0));
+            }
           }
-        });
-        _refreshComposition();
-        if (clip.id == _activeVisualClipId) {
-          _videoController?.setPlaybackSpeed(value);
-        }
-      },
+
+          return Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.95),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: C.dim),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'VELOCITY SPEED CURVES',
+                      style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: C.brand.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${currentSpeed.toStringAsFixed(2)}x',
+                        style: dm(sz: 12, c: C.brand, w: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'CURVE PRESETS',
+                  style: dm(sz: 10, c: C.sub, w: FontWeight.w700, ls: 1.2),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 90,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: speedCurves.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, index) {
+                      final curve = speedCurves[index];
+                      final isSelected = (currentSpeed - curve.$3).abs() < 0.05;
+                      return GestureDetector(
+                        onTap: () {
+                          HapticFeedback.mediumImpact();
+                          setModalState(() => currentSpeed = curve.$3);
+                          applySpeed(curve.$3);
+                        },
+                        child: Container(
+                          width: 105,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? C.brand.withOpacity(0.2)
+                                : C.surface.withOpacity(0.8),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? C.brand : C.border.withOpacity(0.5),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(curve.$4, color: isSelected ? C.brand : C.dim, size: 20),
+                              const SizedBox(height: 6),
+                              Text(
+                                curve.$1,
+                                style: syne(
+                                  sz: 11,
+                                  w: FontWeight.w800,
+                                  c: isSelected ? C.brand : C.text,
+                                ),
+                              ),
+                              Text(
+                                '${curve.$3}x',
+                                style: dm(sz: 9, c: C.sub),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'SMOOTH PLAYBACK VELOCITY',
+                  style: dm(sz: 10, c: C.sub, w: FontWeight.w700, ls: 1.2),
+                ),
+                Slider(
+                  value: currentSpeed.clamp(0.1, 8.0),
+                  min: 0.1,
+                  max: 8.0,
+                  divisions: 79,
+                  activeColor: C.brand,
+                  inactiveColor: C.dim.withOpacity(0.3),
+                  onChanged: (val) {
+                    setModalState(() => currentSpeed = val);
+                    applySpeed(val);
+                  },
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [0.25, 0.5, 1.0, 1.5, 2.0, 4.0, 8.0].map((s) {
+                    final selected = (currentSpeed - s).abs() < 0.05;
+                    return GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setModalState(() => currentSpeed = s);
+                        applySpeed(s);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: selected ? C.brand : C.surface,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${s}x',
+                          style: dm(
+                            sz: 10,
+                            c: selected ? Colors.black : C.text,
+                            w: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
   void _cropClip() {
-    final clip = _selectedClip;
-    if (clip == null) return;
-    _captureTimeline();
-    _showSelectionSheet('Crop', ['Original', '9:16', '16:9', '1:1', '4:5'], (
-      value,
-    ) {
-      setState(() => clip.cropAspectRatio = value);
-      _refreshComposition();
-    });
+    _showCropSheet(_selectedClip);
   }
 
   void _toggleReverse() {
@@ -4555,20 +5806,137 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showFilterSheet() {
-    final clip = _selectedClip;
-    if (clip == null) return;
+    final clip = _selectedClip ?? _compositionVisualClip;
+    if (clip == null) {
+      _showSnack('Select a clip first');
+      return;
+    }
     _captureTimeline();
-    _showSelectionSheet(
-      'Filter',
-      const ['None', 'Warm', 'Cool', 'Vivid', 'Noir'],
-      (value) {
-        setState(() {
-          clip.filter = value == 'None'
-              ? null
-              : FilterOperation(filterName: value);
-        });
-        _refreshComposition();
-      },
+
+    final filters = [
+      ('None', 'Original', Icons.block, const Color(0xFF64748B)),
+      ('Teal & Orange', 'Hollywood', Icons.movie_filter, const Color(0xFF0284C7)),
+      ('Kodak Gold', '35mm Film', Icons.camera_roll, const Color(0xFFD97706)),
+      ('Fuji Chrome', 'Vivid Film', Icons.landscape, const Color(0xFF059669)),
+      ('Moody Emerald', 'Nordic Tone', Icons.forest, const Color(0xFF047857)),
+      ('Cyberpunk Neon', 'Neo Violet', Icons.bolt, const Color(0xFF9333EA)),
+      ('Silver Noir', 'Classic B&W', Icons.contrast, const Color(0xFF475569)),
+      ('Golden Hour', 'Sunset Glow', Icons.wb_sunny, const Color(0xFFEA580C)),
+      ('Porcelain Studio', 'Clean Skin', Icons.auto_awesome, const Color(0xFFDB2777)),
+      ('Warm', 'Cozy Ambience', Icons.fireplace, const Color(0xFFB45309)),
+      ('Cool', 'Crisp Minimal', Icons.ac_unit, const Color(0xFF06B6D4)),
+      ('Vivid', 'Punchy Pop', Icons.flare, const Color(0xFF2563EB)),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final current = clip.filter?.filterName ?? 'None';
+          return Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.95),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: C.dim),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'CINEMATIC FILM LUTS',
+                      style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+                    ),
+                    Text(
+                      current,
+                      style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  height: 120,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: filters.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (context, index) {
+                      final item = filters[index];
+                      final isSelected = current.toLowerCase() == item.$1.toLowerCase();
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() {});
+                          setState(() {
+                            clip.filter = item.$1 == 'None'
+                                ? null
+                                : FilterOperation(filterName: item.$1);
+                          });
+                          _refreshComposition();
+                          HapticFeedback.selectionClick();
+                        },
+                        child: Container(
+                          width: 86,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? item.$4.withOpacity(0.35)
+                                : C.surface.withOpacity(0.8),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isSelected ? C.brand : C.border.withOpacity(0.5),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: item.$4.withOpacity(0.25),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(item.$3, color: item.$4, size: 20),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                item.$1,
+                                style: syne(
+                                  sz: 9.5,
+                                  w: FontWeight.w800,
+                                  c: isSelected ? C.brand : C.text,
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.$2,
+                                style: dm(sz: 8, c: C.dim),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -7045,4 +8413,252 @@ class GrainPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GrainPainter oldDelegate) => false;
+}
+
+/// Bilateral Facial Symmetry alignment guide and landmark balance overlay.
+class _FacialSymmetryGuideOverlay extends StatelessWidget {
+  final double intensity;
+  final bool mirrorLeft;
+
+  const _FacialSymmetryGuideOverlay({
+    required this.intensity,
+    required this.mirrorLeft,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _FacialSymmetryPainter(
+          intensity: intensity,
+          mirrorLeft: mirrorLeft,
+        ),
+      ),
+    );
+  }
+}
+
+class _FacialSymmetryPainter extends CustomPainter {
+  final double intensity;
+  final bool mirrorLeft;
+
+  _FacialSymmetryPainter({
+    required this.intensity,
+    required this.mirrorLeft,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final alpha = (intensity * 0.7).clamp(0.18, 0.75);
+
+    // Glowing vertical center axis
+    final glowPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: alpha * 0.35)
+      ..strokeWidth = 3.0
+      ..style = PaintingStyle.stroke;
+
+    final linePaint = Paint()
+      ..color = Colors.white.withValues(alpha: alpha)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    // Dashed center line
+    const dashHeight = 8.0;
+    const dashSpace = 6.0;
+    double startY = size.height * 0.12;
+    final endY = size.height * 0.88;
+
+    while (startY < endY) {
+      final segEnd = (startY + dashHeight).clamp(0.0, endY);
+      canvas.drawLine(Offset(cx, startY), Offset(cx, segEnd), glowPaint);
+      canvas.drawLine(Offset(cx, startY), Offset(cx, segEnd), linePaint);
+      startY += dashHeight + dashSpace;
+    }
+
+    // Facial landmark reference cross-ticks
+    final markerPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: alpha)
+      ..strokeWidth = 1.4
+      ..style = PaintingStyle.stroke;
+
+    // Eye level tick & balance dots (y = 0.38)
+    final eyeY = size.height * 0.38;
+    canvas.drawLine(Offset(cx - 24, eyeY), Offset(cx + 24, eyeY), markerPaint);
+    final dotPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: alpha * 0.85)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(cx - 55, eyeY), 2.5, dotPaint);
+    canvas.drawCircle(Offset(cx + 55, eyeY), 2.5, dotPaint);
+
+    // Nose level tick (y = 0.48)
+    final noseY = size.height * 0.48;
+    canvas.drawLine(Offset(cx - 10, noseY), Offset(cx + 10, noseY), markerPaint);
+
+    // Lip level tick (y = 0.58)
+    final lipY = size.height * 0.58;
+    canvas.drawLine(Offset(cx - 18, lipY), Offset(cx + 18, lipY), markerPaint);
+
+    // Chin level tick (y = 0.68)
+    final chinY = size.height * 0.68;
+    canvas.drawLine(Offset(cx - 12, chinY), Offset(cx + 12, chinY), markerPaint);
+
+    // Direction indicator near upper axis (L ➔ R or R ➔ L)
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: mirrorLeft ? 'L ➔ R' : 'R ➔ L',
+        style: TextStyle(
+          color: const Color(0xFF00E5FF).withValues(alpha: alpha),
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.8,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(canvas, Offset(cx - textPainter.width / 2, size.height * 0.26));
+  }
+
+  @override
+  bool shouldRepaint(_FacialSymmetryPainter old) =>
+      old.intensity != intensity || old.mirrorLeft != mirrorLeft;
+}
+
+/// Real-time Studio Makeup overlay for women and men.
+class _StudioMakeupOverlay extends StatelessWidget {
+  final int gender; // 1 = Women, 2 = Men
+  final int style;
+  final double intensity;
+
+  const _StudioMakeupOverlay({
+    required this.gender,
+    required this.style,
+    required this.intensity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _StudioMakeupPainter(
+          gender: gender,
+          style: style,
+          intensity: intensity,
+        ),
+      ),
+    );
+  }
+}
+
+class _StudioMakeupPainter extends CustomPainter {
+  final int gender;
+  final int style;
+  final double intensity;
+
+  _StudioMakeupPainter({
+    required this.gender,
+    required this.style,
+    required this.intensity,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final m = intensity.clamp(0.0, 1.0);
+
+    if (gender == 1) {
+      // ── Women: Soft Cheek Blush & Hydrating Lip Tint ─────────
+      final blushColor = style == 0
+          ? const Color(0xFFFF5277) // Rosy Glow (petal rose)
+          : style == 1
+              ? const Color(0xFFFF8A65) // Natural Nude (soft peach)
+              : const Color(0xFFE91E63); // Sunset Glam (berry blush)
+
+      final blushAlpha = (m * 0.17).clamp(0.0, 0.22);
+      final blushRadius = size.width * 0.22;
+
+      // Left cheek blush
+      final leftCheek = Offset(cx - (size.width * 0.20), size.height * 0.44);
+      final leftBlushPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            blushColor.withValues(alpha: blushAlpha),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: leftCheek, radius: blushRadius));
+      canvas.drawCircle(leftCheek, blushRadius, leftBlushPaint);
+
+      // Right cheek blush
+      final rightCheek = Offset(cx + (size.width * 0.20), size.height * 0.44);
+      final rightBlushPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            blushColor.withValues(alpha: blushAlpha),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: rightCheek, radius: blushRadius));
+      canvas.drawCircle(rightCheek, blushRadius, rightBlushPaint);
+
+      // Lip hydration & tint
+      final lipCenter = Offset(cx, size.height * 0.58);
+      final lipRadius = size.width * 0.11;
+      final lipAlpha = (m * 0.15).clamp(0.0, 0.20);
+      final lipPaint = Paint()
+        ..shader = RadialGradient(
+          colors: [
+            blushColor.withValues(alpha: lipAlpha),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: lipCenter, radius: lipRadius));
+      canvas.drawCircle(lipCenter, lipRadius, lipPaint);
+    } else if (gender == 2) {
+      // ── Men: Groomed Jaw Contour & Brow Framing ───────────────
+      final contourAlpha = (m * 0.14).clamp(0.0, 0.18);
+      final contourColor = style == 2
+          ? const Color(0xFF6D4C41) // Sun-Kissed bronze
+          : const Color(0xFF37474F); // Clean / Sharp sculpted contour
+
+      // Jawline shading: subtle shadow gradient along jaw contour
+      final jawPath = Path()
+        ..moveTo(cx - (size.width * 0.35), size.height * 0.56)
+        ..quadraticBezierTo(
+          cx - (size.width * 0.26), size.height * 0.70,
+          cx, size.height * 0.73,
+        )
+        ..quadraticBezierTo(
+          cx + (size.width * 0.26), size.height * 0.70,
+          cx + (size.width * 0.35), size.height * 0.56,
+        );
+
+      final jawPaint = Paint()
+        ..color = contourColor.withValues(alpha: contourAlpha)
+        ..strokeWidth = size.width * 0.08
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
+
+      canvas.drawPath(jawPath, jawPaint);
+
+      // Brow definition accent: subtle contrast enhancement
+      final browPaint = Paint()
+        ..color = Colors.black.withValues(alpha: contourAlpha * 0.6)
+        ..strokeWidth = size.width * 0.04
+        ..style = PaintingStyle.stroke
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+
+      canvas.drawLine(
+        Offset(cx - (size.width * 0.22), size.height * 0.35),
+        Offset(cx - (size.width * 0.06), size.height * 0.34),
+        browPaint,
+      );
+      canvas.drawLine(
+        Offset(cx + (size.width * 0.06), size.height * 0.34),
+        Offset(cx + (size.width * 0.22), size.height * 0.35),
+        browPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StudioMakeupPainter old) =>
+      old.gender != gender || old.style != style || old.intensity != intensity;
 }

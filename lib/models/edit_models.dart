@@ -735,6 +735,15 @@ class TimelineClip {
   isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
   File? proxyFile;
   bool isProxyReady;
+  double faceSymmetry;
+  bool symmetryMirrorLeft;
+  double skinSmoothing;
+  int smoothingMode;
+  double skinBrightening;
+  int skinToneMode;
+  int makeupGender;
+  int makeupStyle;
+  double makeupIntensity;
 
   TimelineClip({
     required this.id,
@@ -744,6 +753,15 @@ class TimelineClip {
     this.file,
     this.proxyFile,
     this.isProxyReady = false,
+    this.faceSymmetry = 0.0,
+    this.symmetryMirrorLeft = true,
+    this.skinSmoothing = 0.0,
+    this.smoothingMode = 0,
+    this.skinBrightening = 0.0,
+    this.skinToneMode = 0,
+    this.makeupGender = 0,
+    this.makeupStyle = 0,
+    this.makeupIntensity = 0.7,
     this.sourceStart = Duration.zero,
     this.sourceEnd,
     this.speed = 1.0,
@@ -763,6 +781,15 @@ class TimelineClip {
     File? file,
     File? proxyFile,
     bool? isProxyReady,
+    double? faceSymmetry,
+    bool? symmetryMirrorLeft,
+    double? skinSmoothing,
+    int? smoothingMode,
+    double? skinBrightening,
+    int? skinToneMode,
+    int? makeupGender,
+    int? makeupStyle,
+    double? makeupIntensity,
     Duration? sourceStart,
     Duration? sourceEnd,
     double? speed,
@@ -781,6 +808,15 @@ class TimelineClip {
       file: file ?? this.file,
       proxyFile: proxyFile ?? this.proxyFile,
       isProxyReady: isProxyReady ?? this.isProxyReady,
+      faceSymmetry: faceSymmetry ?? this.faceSymmetry,
+      symmetryMirrorLeft: symmetryMirrorLeft ?? this.symmetryMirrorLeft,
+      skinSmoothing: skinSmoothing ?? this.skinSmoothing,
+      smoothingMode: smoothingMode ?? this.smoothingMode,
+      skinBrightening: skinBrightening ?? this.skinBrightening,
+      skinToneMode: skinToneMode ?? this.skinToneMode,
+      makeupGender: makeupGender ?? this.makeupGender,
+      makeupStyle: makeupStyle ?? this.makeupStyle,
+      makeupIntensity: makeupIntensity ?? this.makeupIntensity,
       sourceStart: sourceStart ?? this.sourceStart,
       sourceEnd: sourceEnd ?? this.sourceEnd,
       speed: speed ?? this.speed,
