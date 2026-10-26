@@ -19,7 +19,7 @@ class TimelineRulerView extends StatelessWidget {
     required this.totalDuration,
     required this.pixelsPerSecond,
     required this.zoom,
-    this.height = 28.0,
+    this.height = 22.0,
     this.width,
   });
 

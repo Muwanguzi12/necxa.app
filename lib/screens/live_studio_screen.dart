@@ -3647,42 +3647,49 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       hasActiveFilter: hasActiveFilter,
     );
 
-    // Facial Symmetry: bilateral balance across vertical center
+    // Facial Symmetry: bilateral balance guide overlay
+    // NOTE: We intentionally do NOT call _buildBaseVideoLayer() a second time
+    // here. Mounting two VideoTrackRenderer widgets for the same camera track
+    // causes a WebRTC native hardware-texture collision (EGL_BAD_ACCESS on
+    // Android, RTCCVPixelBuffer double-sink on iOS), which blacks out the feed
+    // and crashes LiveKit track management. The symmetry effect is therefore
+    // achieved via a pure-Flutter overlay (guide lines + shimmer tint) with
+    // zero additional native renderer allocations.
     if (!_previewOriginal && _faceSymmetry > 0.01) {
       final mirrorLeft = _symmetryMirrorLeft;
       video = LayoutBuilder(
         builder: (context, constraints) {
           final halfWidth = constraints.maxWidth / 2;
+          // Clamp so we never request infinite size in unconstrained parents
+          final safeW = constraints.maxWidth.isFinite
+              ? constraints.maxWidth
+              : 300.0;
           return Stack(
             fit: StackFit.expand,
             children: [
               video,
-              // Mirrored half overlay
+              // Symmetry balance shimmer tint on the weaker half
               Positioned(
                 top: 0,
                 bottom: 0,
                 left: mirrorLeft ? halfWidth : 0,
                 right: mirrorLeft ? 0 : halfWidth,
                 child: IgnorePointer(
-                  child: ClipRect(
-                    child: Opacity(
-                      opacity: _faceSymmetry.clamp(0.0, 1.0),
-                      child: Align(
-                        alignment: mirrorLeft
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        widthFactor: 0.5,
-                        child: Transform(
-                          alignment: Alignment.center,
-                          transform: Matrix4.diagonal3Values(-1, 1, 1),
-                          child: SizedBox(
-                            width: constraints.maxWidth,
-                            height: constraints.maxHeight,
-                            child: _buildBaseVideoLayer(
-                              combinedMatrix: combinedMatrix,
-                              hasActiveFilter: hasActiveFilter,
-                            ),
-                          ),
+                  child: Opacity(
+                    opacity: (_faceSymmetry * 0.18).clamp(0.0, 0.18),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: mirrorLeft
+                              ? Alignment.centerLeft
+                              : Alignment.centerRight,
+                          end: mirrorLeft
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          colors: const [
+                            Color(0xFF00E5FF),
+                            Colors.transparent,
+                          ],
                         ),
                       ),
                     ),
@@ -3690,7 +3697,21 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 ),
               ),
 
-              // Facial Symmetry alignment guide (vertical axis & facial landmark balance markers)
+              // Vertical centre axis
+              Positioned(
+                top: 0,
+                bottom: 0,
+                left: safeW / 2 - 0.5,
+                width: 1,
+                child: IgnorePointer(
+                  child: Opacity(
+                    opacity: (_faceSymmetry * 0.6).clamp(0.0, 0.6),
+                    child: Container(color: const Color(0xFF00E5FF)),
+                  ),
+                ),
+              ),
+
+              // Facial Symmetry alignment guide overlay
               if (_showSymmetryGuide && _faceSymmetry > 0.05)
                 Positioned.fill(
                   child: _FacialSymmetryGuideOverlay(
@@ -3703,6 +3724,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         },
       );
     }
+
 
     // Beauty skin smoothing: multi-pass edge-preserving porcelain diffusion
     if (!_previewOriginal && _beautySmoothing > 0.01) {

@@ -233,8 +233,8 @@ class _PlayheadPainter extends CustomPainter {
   static const Color _handleColor = C.brand;
   static const Color _snapColor = Color(0xFFFFE066);
   static const double _needleWidth = 2.0;
-  static const double _handleW = 20.0;
-  static const double _handleH = 28.0;
+  static const double _handleW = 14.0;
+  static const double _handleH = 22.0;
   static const double _handleRadius = 5.0;
 
   @override

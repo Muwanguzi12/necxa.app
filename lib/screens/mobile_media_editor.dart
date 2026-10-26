@@ -1879,40 +1879,42 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final height = 56.0;
 
     return Container(
-      height: height,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: C.card,
-        border: Border(bottom: BorderSide(color: C.border)),
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        color: Color(0xFF070D18),
+        border: Border(bottom: BorderSide(color: Color(0xFF131D2E))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             _formatDuration(_currentTime),
-            style: dm(sz: 12, w: FontWeight.w600, c: C.brand),
+            style: dm(sz: 15, w: FontWeight.w700, c: C.brand),
           ),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildPlaybackButton(Icons.skip_previous, () => _previousFrame()),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               _buildPlaybackButton(
                 _isPlaying ? Icons.pause : Icons.play_arrow,
                 () => _togglePlayback(),
                 isLarge: true,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               _buildPlaybackButton(Icons.skip_next, () => _nextFrame()),
-              const SizedBox(width: 8),
-              // Expand belongs directly after the forward control.
+              const SizedBox(width: 10),
               _buildPlaybackButton(
-                Icons.fullscreen_outlined,
+                Icons.crop_free,
                 () => setState(() => _showFullscreenPreview = true),
               ),
             ],
           ),
-          Text(_formatDuration(_totalDuration), style: dm(sz: 12, c: C.dim)),
+          Text(
+            _formatDuration(_totalDuration),
+            style: dm(sz: 15, c: const Color(0xFF94A3B8), w: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -1924,22 +1926,23 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     bool isLarge = false,
   }) {
     return Container(
-      width: isLarge ? 48 : 40,
-      height: isLarge ? 48 : 40,
+      width: isLarge ? 42 : 36,
+      height: isLarge ? 42 : 36,
       decoration: BoxDecoration(
-        color: isLarge ? C.brand : C.surface,
-        borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
-        border: Border.all(color: C.border),
+        color: isLarge ? C.brand : const Color(0xFF0F172A),
+        shape: isLarge ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: isLarge ? null : BorderRadius.circular(8),
+        border: isLarge ? null : Border.all(color: const Color(0xFF1E293B)),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
+          borderRadius: BorderRadius.circular(isLarge ? 21 : 8),
           child: Icon(
             icon,
-            size: isLarge ? 24 : 20,
-            color: isLarge ? Colors.white : C.brand,
+            size: isLarge ? 24 : 18,
+            color: isLarge ? Colors.black : C.brand,
           ),
         ),
       ),
@@ -2256,51 +2259,47 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
             child: Row(
               children: [
                 Text(
                   'Timeline',
-                  style: syne(sz: 12, w: FontWeight.w800, c: C.text),
+                  style: syne(sz: 16, w: FontWeight.w800, c: Colors.white),
                 ),
                 const Spacer(),
-                Material(
-                  color: C.brand.withOpacity(0.16),
-                  borderRadius: BorderRadius.circular(999),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(999),
-                    onTap: _showTimelineInsertMenu,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.add, size: 14, color: Colors.white),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Add',
-                            style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
-                          ),
-                        ],
-                      ),
+                GestureDetector(
+                  onTap: _showTimelineInsertMenu,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F1E2E),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.add, size: 14, color: C.brand),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Add',
+                          style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: C.brand.withOpacity(0.16),
-                    borderRadius: BorderRadius.circular(999),
+                    color: const Color(0xFF0F1E2E),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
                   ),
                   child: Text(
                     '${visibleTracks.length} Tracks',
-                    style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
+                    style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
                   ),
                 ),
               ],
@@ -2324,17 +2323,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 children: [
                   // Left Pane: Track Headers
                   Container(
-                    width: 56,
-                    decoration: BoxDecoration(
-                      color: C.surface,
-                      border: Border(right: BorderSide(color: C.border)),
+                    width: 52,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF070D18),
+                      border: Border(right: BorderSide(color: Color(0xFF131D2E))),
                     ),
                     child: ListView.builder(
                       controller: _sidebarScrollController,
                       padding: const EdgeInsets.only(
-                        top: 28,
+                        top: 22,
                         bottom: 8,
-                      ), // 28 is ruler height
+                      ), // 22 is ruler height
                       itemCount: visibleTracks.length,
                       itemBuilder: (context, index) {
                         final track = visibleTracks[index];
@@ -2347,11 +2346,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                             );
                           }),
                           child: Container(
-                            height: 72,
+                            height: 52,
                             margin: const EdgeInsets.only(bottom: 4),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? C.brand.withOpacity(0.1)
+                                  ? C.brand.withValues(alpha: 0.12)
                                   : Colors.transparent,
                               border: Border(
                                 left: BorderSide(
@@ -2365,23 +2364,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(
-                                  _getTrackIcon(track.type),
-                                  style: const TextStyle(fontSize: 18),
+                                const Icon(
+                                  Icons.movie_creation_outlined,
+                                  size: 18,
+                                  color: Color(0xFF94A3B8),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 3),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     _buildTrackButton(
-                                      Icons.visibility,
+                                      Icons.visibility_outlined,
                                       () => _toggleTrackVisibility(track),
-                                      size: 12,
+                                      size: 11,
                                     ),
+                                    const SizedBox(width: 4),
                                     _buildTrackButton(
-                                      Icons.lock,
+                                      Icons.lock_outline,
                                       () => _toggleTrackLock(track),
-                                      size: 12,
+                                      size: 11,
                                     ),
                                   ],
                                 ),
@@ -2463,8 +2464,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final scale = _pixelsPerSecond * _timelineZoom;
 
     return Container(
-      height: 72,
-      margin: const EdgeInsets.only(bottom: 4),
+      height: 52,
+      margin: const EdgeInsets.only(bottom: 2),
       decoration: BoxDecoration(color: C.surface.withAlpha(128)),
       child: Stack(
         children: track.clips.map((clip) {
@@ -2474,8 +2475,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
           return Positioned(
             left: left,
-            top: 4,
-            bottom: 4,
+            top: 2,
+            bottom: 2,
             width: width,
             child: GestureDetector(
               onTap: () => _selectClip(track, clip),
@@ -2502,11 +2503,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                           color: Colors.transparent,
                           child: Center(
                             child: Container(
-                              width: 6,
-                              height: 36,
+                              width: 4,
+                              height: 20,
                               decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
+                                color: const Color(0xFF94A3B8),
+                                borderRadius: BorderRadius.circular(2),
                               ),
                             ),
                           ),
@@ -2525,11 +2526,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                           color: Colors.transparent,
                           child: Center(
                             child: Container(
-                              width: 6,
-                              height: 36,
+                              width: 4,
+                              height: 20,
                               decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
+                                color: const Color(0xFF94A3B8),
+                                borderRadius: BorderRadius.circular(2),
                               ),
                             ),
                           ),
@@ -2545,7 +2546,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                       child: Center(
                         child: Container(
                           width: 2,
-                          height: 28,
+                          height: 20,
                           color: Colors.white12,
                         ),
                       ),
@@ -2570,31 +2571,47 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
     Widget content;
     if (track.type == TrackType.video) {
-      content = Stack(
-        fit: StackFit.expand,
+      content = Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _VideoClipThumbnails(
-            clip: clip,
-            width: width,
-            pixelsPerSecond: _pixelsPerSecond * _timelineZoom,
+          ClipRRect(
+            borderRadius:
+                const BorderRadius.horizontal(left: Radius.circular(8)),
+            child: SizedBox(
+              width: 46,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _VideoClipThumbnails(
+                    clip: clip,
+                    width: 46,
+                    pixelsPerSecond: _pixelsPerSecond * _timelineZoom,
+                  ),
+                  Container(color: Colors.black.withValues(alpha: 0.15)),
+                ],
+              ),
+            ),
           ),
-          Container(color: Colors.black.withOpacity(0.3)),
-          Padding(
-            padding: const EdgeInsets.all(4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  clip.file?.path.split('/').last ?? 'Video',
-                  style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  _formatDuration(clip.duration),
-                  style: dm(sz: 7, c: Colors.white70),
-                ),
-              ],
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    clip.file?.path.split('/').last ?? 'Video 1',
+                    style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _formatDuration(clip.duration),
+                    style: dm(sz: 8, c: Colors.white60),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -2607,7 +2624,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         children: [
           CustomPaint(
             painter: _WaveformPainter(
-              color: Colors.white.withOpacity(0.5),
+              color: Colors.white.withValues(alpha: 0.5),
               seed: clip.id.hashCode,
             ),
           ),
@@ -2655,16 +2672,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
     return Container(
       decoration: BoxDecoration(
-        color: baseColor,
-        borderRadius: BorderRadius.circular(8),
+        color: track.type == TrackType.video
+            ? const Color(0xFF0F172A)
+            : baseColor,
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: isSelected ? C.brand : Colors.white.withOpacity(0.08),
-          width: isSelected ? 2.5 : 1,
+          color: isSelected
+              ? const Color(0xFF00E5FF)
+              : Colors.white.withValues(alpha: 0.08),
+          width: isSelected ? 2.0 : 1.0,
         ),
         boxShadow: isSelected
             ? [
                 BoxShadow(
-                  color: C.brand.withOpacity(0.35),
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
                   blurRadius: 6,
                   spreadRadius: 1,
                 ),
