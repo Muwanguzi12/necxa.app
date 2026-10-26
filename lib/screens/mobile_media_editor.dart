@@ -114,6 +114,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   String? _ghostClipId;
   String? _ghostTrackId;
 
+  // Loop Region & In/Out points
+  Duration? _loopIn;
+  Duration? _loopOut;
+  bool _isLoopingEnabled = false;
+
   // Timeline pinch/zoom helpers
   double? _timelineScaleStartZoom;
   double _leftPaneWidth =
@@ -340,6 +345,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _onClipPanEnd(DragEndDetails details) {
+    final wasMove = _clipDragMode == _ClipDragMode.move;
+    final movedClipId = _activeDragClipId;
+
     _activeDragClipId = null;
     _clipDragMode = _ClipDragMode.none;
     _dragStartLocalX = null;
@@ -352,6 +360,24 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _ghostTrackId = null;
     _ghostStart = null;
     _ghostDuration = null;
+
+    // Playhead Parking: auto-park playhead at start of moved clip with smooth reposition
+    if (wasMove && movedClipId != null) {
+      TimelineClip? movedClip;
+      for (final t in _tracks) {
+        for (final c in t.clips) {
+          if (c.id == movedClipId) {
+            movedClip = c;
+            break;
+          }
+        }
+      }
+      if (movedClip != null) {
+        _playback.seek(movedClip.start, _tracks);
+        setState(() => _currentTime = movedClip!.start);
+        _ensureTimelinePosition();
+      }
+    }
     // finalize history capture already taken at start
   }
 
@@ -1914,15 +1940,23 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildPlaybackButton(Icons.skip_previous, () => _previousFrame()),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               _buildPlaybackButton(
                 _isPlaying ? Icons.pause : Icons.play_arrow,
                 () => _togglePlayback(),
                 isLarge: true,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               _buildPlaybackButton(Icons.skip_next, () => _nextFrame()),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
+              _buildPlaybackButton(
+                _isLoopingEnabled ? Icons.repeat_one : Icons.repeat,
+                () => _toggleLooping(),
+                activeColor:
+                    _isLoopingEnabled ? const Color(0xFF10B981) : null,
+                onLongPress: () => _showLoopContextMenu(),
+              ),
+              const SizedBox(width: 8),
               _buildPlaybackButton(
                 Icons.crop_free,
                 () => setState(() => _showFullscreenPreview = true),
@@ -1938,29 +1972,147 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
+  void _toggleLooping() {
+    setState(() {
+      _isLoopingEnabled = !_isLoopingEnabled;
+      if (_isLoopingEnabled &&
+          (_loopIn == null || _loopOut == null || _loopOut! <= _loopIn!)) {
+        if (_selectedClip != null) {
+          _loopIn = _selectedClip!.start;
+          _loopOut = _selectedClip!.start + _selectedClip!.duration;
+        } else {
+          final half = const Duration(seconds: 3);
+          _loopIn = _currentTime > half ? _currentTime - half : Duration.zero;
+          final proposedOut = _currentTime + half;
+          _loopOut = proposedOut < _totalDuration ? proposedOut : _totalDuration;
+        }
+      }
+    });
+    HapticFeedback.lightImpact();
+    _showSnack(_isLoopingEnabled ? 'Loop Region Active' : 'Loop Disabled');
+  }
+
+  void _showLoopContextMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Loop Region Options',
+                        style: dm(sz: 16, w: FontWeight.w700, c: Colors.white)),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.start, color: Color(0xFF10B981)),
+                  title: Text(
+                      'Set In Point [I] at ${_formatDuration(_currentTime)}',
+                      style: dm(sz: 13, c: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _loopIn = _currentTime;
+                      if (_loopOut != null && _loopOut! <= _loopIn!) {
+                        _loopOut = _totalDuration;
+                      }
+                      _isLoopingEnabled = true;
+                    });
+                    HapticFeedback.lightImpact();
+                    _showSnack('Loop In set');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.east, color: Color(0xFF10B981)),
+                  title: Text(
+                      'Set Out Point [O] at ${_formatDuration(_currentTime)}',
+                      style: dm(sz: 13, c: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _loopOut = _currentTime;
+                      if (_loopIn == null || _loopIn! >= _loopOut!) {
+                        _loopIn = Duration.zero;
+                      }
+                      _isLoopingEnabled = true;
+                    });
+                    HapticFeedback.lightImpact();
+                    _showSnack('Loop Out set');
+                  },
+                ),
+                if (_loopIn != null && _loopOut != null)
+                  ListTile(
+                    leading: const Icon(Icons.clear, color: Colors.redAccent),
+                    title: Text('Clear Loop Region',
+                        style: dm(sz: 13, c: Colors.redAccent)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _loopIn = null;
+                        _loopOut = null;
+                        _isLoopingEnabled = false;
+                      });
+                      HapticFeedback.lightImpact();
+                      _showSnack('Loop Region Cleared');
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildPlaybackButton(
     IconData icon,
     VoidCallback onTap, {
     bool isLarge = false,
+    Color? activeColor,
+    VoidCallback? onLongPress,
   }) {
+    final effectiveBg = activeColor != null
+        ? activeColor.withValues(alpha: 0.20)
+        : (isLarge ? C.brand : const Color(0xFF0F172A));
+    final iconColor = activeColor ?? (isLarge ? Colors.black : C.brand);
+    final borderColor = activeColor != null
+        ? activeColor.withValues(alpha: 0.6)
+        : const Color(0xFF1E293B);
+
     return Container(
       width: isLarge ? 42 : 36,
       height: isLarge ? 42 : 36,
       decoration: BoxDecoration(
-        color: isLarge ? C.brand : const Color(0xFF0F172A),
+        color: effectiveBg,
         shape: isLarge ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: isLarge ? null : BorderRadius.circular(8),
-        border: isLarge ? null : Border.all(color: const Color(0xFF1E293B)),
+        border: isLarge ? null : Border.all(color: borderColor),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           borderRadius: BorderRadius.circular(isLarge ? 21 : 8),
           child: Icon(
             icon,
             size: isLarge ? 24 : 18,
-            color: isLarge ? Colors.black : C.brand,
+            color: iconColor,
           ),
         ),
       ),
@@ -2458,6 +2610,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       pixelsPerSecond: _pixelsPerSecond,
       zoom: _timelineZoom,
       width: timelineWidth,
+      loopIn: _loopIn,
+      loopOut: _loopOut,
+      onRulerTap: (t) {
+        _playback.seek(t, _tracks);
+        setState(() => _currentTime = t);
+      },
     );
   }
 
@@ -5457,16 +5615,41 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final viewport = _timelineScrollController.position.viewportDimension;
     if (viewport <= 0) return;
     final offset = _timelineScrollController.offset;
-    const margin = 80.0;
-    final visibleStart = offset + margin;
-    final visibleEnd = offset + viewport - margin;
 
-    if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
-      final target = math.min(
-        math.max(playheadPosition - viewport / 2, 0.0),
+    // Loop region auto-loop check during active playback
+    if (_isPlaying &&
+        _isLoopingEnabled &&
+        _loopIn != null &&
+        _loopOut != null &&
+        _loopOut! > _loopIn!) {
+      if (_currentTime >= _loopOut!) {
+        _playback.seek(_loopIn!, _tracks);
+        setState(() => _currentTime = _loopIn!);
+        return;
+      }
+    }
+
+    if (_isPlaying) {
+      // Pro studio auto-scroll: keep playhead around 30% from the left edge of viewport
+      final target = (playheadPosition - viewport * 0.30).clamp(
+        0.0,
         _timelineScrollController.position.maxScrollExtent,
       );
-      _timelineScrollController.jumpTo(target);
+      if ((offset - target).abs() > 4.0) {
+        _timelineScrollController.jumpTo(target);
+      }
+    } else {
+      const margin = 80.0;
+      final visibleStart = offset + margin;
+      final visibleEnd = offset + viewport - margin;
+
+      if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
+        final target = (playheadPosition - viewport / 2).clamp(
+          0.0,
+          _timelineScrollController.position.maxScrollExtent,
+        );
+        _timelineScrollController.jumpTo(target);
+      }
     }
   }
 
