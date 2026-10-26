@@ -737,6 +737,7 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
+  TransitionOperation? transitionIn;
   bool
   isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
   File? proxyFile;
@@ -776,6 +777,7 @@ class TimelineClip {
     this.isReversed = false,
     TransformOperation? transform,
     this.filter,
+    this.transitionIn,
     this.isHidden = false,
   }) : transform = transform ?? TransformOperation();
 
@@ -804,6 +806,7 @@ class TimelineClip {
     bool? isReversed,
     TransformOperation? transform,
     FilterOperation? filter,
+    TransitionOperation? transitionIn,
     bool? isHidden,
   }) {
     return TimelineClip(
@@ -831,6 +834,7 @@ class TimelineClip {
       isReversed: isReversed ?? this.isReversed,
       transform: transform ?? this.transform,
       filter: filter ?? this.filter,
+      transitionIn: transitionIn ?? this.transitionIn,
       isHidden: isHidden ?? this.isHidden,
     );
   }
