@@ -107,6 +107,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   bool _showSymmetryGuide = false;
   bool _previewOriginal = false;
 
+  // Ghost trim preview — stored at drag-start so we can draw the original
+  // clip outline as a ghost while the user is resizing (amber dashed border).
+  Duration? _ghostStart;
+  Duration? _ghostDuration;
+  String? _ghostClipId;
+  String? _ghostTrackId;
+
   // Timeline pinch/zoom helpers
   double? _timelineScaleStartZoom;
   double _leftPaneWidth =
@@ -182,6 +189,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _clipDragMode = _ClipDragMode.move;
       }
     }
+
+    // Snapshot ghost position for trim outline preview
+    _ghostClipId = clip.id;
+    _ghostTrackId = track.id;
+    _ghostStart = clip.start;
+    _ghostDuration = clip.duration;
 
     // Capture timeline for undo
     _captureTimeline();
@@ -334,6 +347,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _dragOriginalDuration = null;
     _dragCumulativeDx = 0;
     _dragRippleOriginalStarts.clear();
+    // Clear ghost trim preview
+    _ghostClipId = null;
+    _ghostTrackId = null;
+    _ghostStart = null;
+    _ghostDuration = null;
     // finalize history capture already taken at start
   }
 
@@ -2462,155 +2480,262 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildTrackClips(TimelineTrack track) {
     final scale = _pixelsPerSecond * _timelineZoom;
+    final showGhost = _ghostClipId != null &&
+        _ghostTrackId == track.id &&
+        _ghostStart != null &&
+        _ghostDuration != null &&
+        (_clipDragMode == _ClipDragMode.resizeLeft ||
+            _clipDragMode == _ClipDragMode.resizeRight);
 
     return Container(
       height: 52,
       margin: const EdgeInsets.only(bottom: 2),
-      decoration: BoxDecoration(color: C.surface.withAlpha(128)),
+      decoration: BoxDecoration(color: C.surface.withValues(alpha: 0.5)),
       child: Stack(
-        children: track.clips.map((clip) {
-          final left = (clip.start.inMilliseconds / 1000.0) * scale;
-          final width = (clip.duration.inMilliseconds / 1000.0) * scale;
-          final isSelected = _selectedClipIds.contains(clip.id);
-
-          return Positioned(
-            left: left,
-            top: 2,
-            bottom: 2,
-            width: width,
-            child: GestureDetector(
-              onTap: () => _selectClip(track, clip),
-              onDoubleTap: () => _trimClip(),
-              onLongPress: () => _enterMultiSelect(track, clip),
-              onPanStart: (details) =>
-                  _onClipPanStart(track, clip, details, width),
-              onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
-              onPanEnd: (details) => _onClipPanEnd(details),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _buildClipContent(track, clip, width, isSelected),
-                  if (isSelected) ...[
-                    // left handle
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 4,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF94A3B8),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+        children: [
+          // ── Ghost trim outline ────────────────────────────────
+          if (showGhost)
+            Positioned(
+              left: (_ghostStart!.inMilliseconds / 1000.0) * scale,
+              top: 2,
+              bottom: 2,
+              width: (_ghostDuration!.inMilliseconds / 1000.0) * scale,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: const Color(0xFFFBBF24).withValues(alpha: 0.6),
+                      width: 1.5,
                     ),
-                    // right handle
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 4,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF94A3B8),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // center drag hint
-                    Positioned(
-                      left: width / 2 - 10,
-                      top: 0,
-                      bottom: 0,
-                      width: 20,
-                      child: Center(
-                        child: Container(
-                          width: 2,
-                          height: 20,
-                          color: Colors.white12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
               ),
             ),
-          );
-        }).toList(),
+
+          // ── Clips ─────────────────────────────────────────────
+          ...track.clips.map((clip) {
+            final left = (clip.start.inMilliseconds / 1000.0) * scale;
+            final width = (clip.duration.inMilliseconds / 1000.0) * scale;
+            final isSelected = _selectedClipIds.contains(clip.id);
+            final isTrimming = _activeDragClipId == clip.id &&
+                (_clipDragMode == _ClipDragMode.resizeLeft ||
+                    _clipDragMode == _ClipDragMode.resizeRight);
+            final isMoving = _activeDragClipId == clip.id &&
+                _clipDragMode == _ClipDragMode.move;
+            // Handle colour: amber while trimming, slate otherwise
+            final handleColor = isTrimming
+                ? const Color(0xFFFBBF24)
+                : const Color(0xFF94A3B8);
+
+            return Positioned(
+              left: left,
+              top: 2,
+              bottom: 2,
+              width: width,
+              // RepaintBoundary isolates each clip so playhead needle repaints
+              // don't trigger a relayout/repaint of every clip thumbnail.
+              child: RepaintBoundary(
+                child: GestureDetector(
+                  onTap: () => _selectClip(track, clip),
+                  onDoubleTap: () => _trimClip(),
+                  onLongPress: () => _enterMultiSelect(track, clip),
+                  onPanStart: (details) =>
+                      _onClipPanStart(track, clip, details, width),
+                  onPanUpdate: (details) =>
+                      _onClipPanUpdate(track, clip, details),
+                  onPanEnd: (details) => _onClipPanEnd(details),
+                  child: AnimatedScale(
+                    scale: isMoving ? 1.03 : 1.0,
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      curve: Curves.easeOutCubic,
+                      decoration: isMoving
+                          ? BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.45),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            )
+                          : null,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          _buildClipContent(
+                              track, clip, width, isSelected, isTrimming),
+                          if (isSelected || isTrimming) ...[
+                            // left trim handle
+                            Positioned(
+                              left: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: _clipHandleWidth,
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.resizeLeftRight,
+                                child: Container(
+                                  color: Colors.transparent,
+                                  child: Center(
+                                    child: Container(
+                                      width: 4,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: handleColor,
+                                        borderRadius:
+                                            BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // right trim handle
+                            Positioned(
+                              right: 0,
+                              top: 0,
+                              bottom: 0,
+                              width: _clipHandleWidth,
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.resizeLeftRight,
+                                child: Container(
+                                  color: Colors.transparent,
+                                  child: Center(
+                                    child: Container(
+                                      width: 4,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: handleColor,
+                                        borderRadius:
+                                            BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // center drag hint line
+                            Positioned(
+                              left: width / 2 - 10,
+                              top: 0,
+                              bottom: 0,
+                              width: 20,
+                              child: Center(
+                                child: Container(
+                                  width: 2,
+                                  height: 20,
+                                  color: Colors.white12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
       ),
     );
   }
+
 
   Widget _buildClipContent(
     TimelineTrack track,
     TimelineClip clip,
     double width,
     bool isSelected,
+    bool isTrimming,
   ) {
     final baseColor = _trackColorForType(track.type);
 
     Widget content;
     if (track.type == TrackType.video) {
-      content = Row(
+      // Pro video clip: thumbnail left + metadata + badge row + waveform footer
+      content = Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ClipRRect(
-            borderRadius:
-                const BorderRadius.horizontal(left: Radius.circular(8)),
-            child: SizedBox(
-              width: 46,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _VideoClipThumbnails(
-                    clip: clip,
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Left thumbnail panel
+                ClipRRect(
+                  borderRadius:
+                      const BorderRadius.horizontal(left: Radius.circular(8)),
+                  child: SizedBox(
                     width: 46,
-                    pixelsPerSecond: _pixelsPerSecond * _timelineZoom,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _VideoClipThumbnails(
+                          clip: clip,
+                          width: 46,
+                          pixelsPerSecond: _pixelsPerSecond * _timelineZoom,
+                        ),
+                        Container(
+                            color: Colors.black.withValues(alpha: 0.15)),
+                      ],
+                    ),
                   ),
-                  Container(color: Colors.black.withValues(alpha: 0.15)),
-                ],
-              ),
+                ),
+                // Metadata + badges
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(
+                        left: 8, right: 4, top: 5, bottom: 2),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                clip.file?.path.split('/').last ?? 'Video 1',
+                                style: dm(
+                                    sz: 10,
+                                    c: Colors.white,
+                                    w: FontWeight.w600),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            _ClipBadgeRow(clip: clip),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatDuration(clip.duration),
+                          style: dm(sz: 8, c: Colors.white60),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    clip.file?.path.split('/').last ?? 'Video 1',
-                    style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _formatDuration(clip.duration),
-                    style: dm(sz: 8, c: Colors.white60),
-                  ),
-                ],
+          // Mini waveform bar — 8px tall audio visualiser at clip bottom
+          SizedBox(
+            height: 8,
+            child: ClipRRect(
+              borderRadius:
+                  const BorderRadius.vertical(bottom: Radius.circular(8)),
+              child: CustomPaint(
+                painter: _WaveformPainter(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  seed: clip.id.hashCode,
+                ),
               ),
             ),
           ),
@@ -2670,22 +2795,28 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       );
     }
 
+    // Border / glow: amber when trimming, cyan when selected, dim otherwise
+    final borderColor = isTrimming
+        ? const Color(0xFFFBBF24)
+        : isSelected
+            ? const Color(0xFF00E5FF)
+            : Colors.white.withValues(alpha: 0.08);
+    final borderWidth = (isTrimming || isSelected) ? 2.0 : 1.0;
+    final glowColor = isTrimming
+        ? const Color(0xFFFBBF24).withValues(alpha: 0.35)
+        : const Color(0xFF00E5FF).withValues(alpha: 0.3);
+
     return Container(
       decoration: BoxDecoration(
         color: track.type == TrackType.video
             ? const Color(0xFF0F172A)
             : baseColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isSelected
-              ? const Color(0xFF00E5FF)
-              : Colors.white.withValues(alpha: 0.08),
-          width: isSelected ? 2.0 : 1.0,
-        ),
-        boxShadow: isSelected
+        border: Border.all(color: borderColor, width: borderWidth),
+        boxShadow: (isTrimming || isSelected)
             ? [
                 BoxShadow(
-                  color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
+                  color: glowColor,
                   blurRadius: 6,
                   spreadRadius: 1,
                 ),
@@ -2696,6 +2827,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: content,
     );
   }
+
 
   Color _trackColorForType(TrackType type) {
     switch (type) {
@@ -8182,6 +8314,94 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 // ══════════════════════════════════════════════════════════════
 
 int min(int a, int b) => a < b ? a : b;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _ClipBadgeRow
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Compact row of state-indicator pill badges shown on each timeline clip.
+/// Only renders when a badge condition is active — IDLE clips are badge-free.
+///
+/// Badges rendered (in order):
+///   • Speed  — amber pill (e.g. "2.0×") when playback speed ≠ 1.0
+///   • FX     — cyan sparkle icon when a colour filter is applied
+///   • Beauty — pink face icon when skin/makeup effects are active
+///   • Rev    — purple rewind icon when clip is reversed
+class _ClipBadgeRow extends StatelessWidget {
+  const _ClipBadgeRow({required this.clip});
+
+  final TimelineClip clip;
+
+  @override
+  Widget build(BuildContext context) {
+    final badges = <Widget>[];
+
+    // Speed badge (shown when not 1.0×)
+    if ((clip.speed - 1.0).abs() > 0.01) {
+      final label = '${clip.speed.toStringAsFixed(1)}×';
+      badges.add(_textBadge(label, const Color(0xFFFBBF24), Colors.black));
+    }
+
+    // FX badge (colour filter applied)
+    if (clip.filter != null) {
+      badges.add(_iconBadge(Icons.auto_fix_high, const Color(0xFF00E5FF)));
+    }
+
+    // Beauty badge (any skin/makeup effect active)
+    if (clip.skinSmoothing > 0.01 ||
+        clip.skinBrightening > 0.01 ||
+        clip.makeupIntensity > 0.01) {
+      badges.add(
+          _iconBadge(Icons.face_retouching_natural, const Color(0xFFEC4899)));
+    }
+
+    // Reversed badge
+    if (clip.isReversed) {
+      badges.add(_iconBadge(Icons.fast_rewind, const Color(0xFFA78BFA)));
+    }
+
+    if (badges.isEmpty) return const SizedBox.shrink();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < badges.length; i++) ...[
+          if (i > 0) const SizedBox(width: 2),
+          badges[i],
+        ],
+      ],
+    );
+  }
+
+  Widget _textBadge(String label, Color bg, Color fg) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 7,
+            fontWeight: FontWeight.w800,
+            color: fg,
+            height: 1.2,
+          ),
+        ),
+      );
+
+  Widget _iconBadge(IconData icon, Color color) => Container(
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+              color: color.withValues(alpha: 0.55), width: 0.5),
+        ),
+        child: Icon(icon, size: 9, color: color),
+      );
+}
 
 class _VideoClipThumbnails extends StatefulWidget {
   final TimelineClip clip;
