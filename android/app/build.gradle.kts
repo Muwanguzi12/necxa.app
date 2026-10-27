@@ -73,6 +73,9 @@ repositories {
 dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
     implementation("com.google.android.gms:play-services-mlkit-face-detection:17.1.0")
+    // FlutterWebRTC declares this as implementation, so app-side frame processors
+    // need the same WebRTC API on their compile classpath.
+    compileOnly("io.github.webrtc-sdk:android:144.7559.01")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     implementation(files("libs/ffmpeg-kit-min-gpl-6.0.3.aar"))
     implementation("com.arthenica:smart-exception-java:0.2.1")

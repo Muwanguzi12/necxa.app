@@ -116,6 +116,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _guestAudioEnabled = true;
   bool _hostInGreenRoom = false;
   bool _startingBroadcast = false;
+  bool _faceSymmetryProcessorAttached = false;
+  Timer? _faceSymmetryUpdateTimer;
+  static const MethodChannel _faceSymmetryChannel =
+      MethodChannel('com.necxa/live_beauty');
   bool _isFrontCamera = true; // green room starts front-facing
   // ── Green Room Effects & Smart Filter Catalogue ───────────────────────────
   int _activeFilterIndex = 0; // 0 = Normal (no tint)
@@ -1276,6 +1280,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   @override
   void dispose() {
+    _faceSymmetryUpdateTimer?.cancel();
+    final symmetryTrack = widget.state.live.room?.localParticipant
+        ?.videoTrackPublications.firstOrNull?.track;
+    if (_faceSymmetryProcessorAttached && symmetryTrack != null) {
+      unawaited(_faceSymmetryChannel.invokeMethod<void>('detach', {
+        'trackId': symmetryTrack.mediaStreamTrack.id,
+      }).catchError((Object error) {
+        debugPrint('Necxa Live: Face processor cleanup failed: $error');
+      }));
+    }
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
     _giftStatsTimer?.cancel();
@@ -1713,6 +1727,42 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     } finally {
       if (mounted) setState(() => _startingBroadcast = false);
     }
+  }
+
+  void _scheduleFaceSymmetryProcessing(double intensity) {
+    _faceSymmetryUpdateTimer?.cancel();
+    _faceSymmetryUpdateTimer = Timer(const Duration(milliseconds: 80), () async {
+      final track = widget.state.live.room?.localParticipant
+          ?.videoTrackPublications.firstOrNull?.track;
+      if (track == null) return;
+      final trackId = track.mediaStreamTrack.id;
+      try {
+        if (intensity <= 0.01) {
+          if (!_faceSymmetryProcessorAttached) return;
+          await _faceSymmetryChannel.invokeMethod<void>('detach', {
+            'trackId': trackId,
+          });
+          _faceSymmetryProcessorAttached = false;
+        } else if (_faceSymmetryProcessorAttached) {
+          await _faceSymmetryChannel.invokeMethod<void>('setIntensity', {
+            'trackId': trackId,
+            'intensity': intensity,
+          });
+        } else {
+          await _faceSymmetryChannel.invokeMethod<void>('attach', {
+            'trackId': trackId,
+            'intensity': intensity,
+          });
+          _faceSymmetryProcessorAttached = true;
+        }
+      } on PlatformException catch (error) {
+        debugPrint('Necxa Live: Face symmetry processor unavailable: ${error.message}');
+      } on MissingPluginException {
+        debugPrint('Necxa Live: Face symmetry processor is not available on this platform.');
+      } catch (error) {
+        debugPrint('Necxa Live: Could not update face symmetry: $error');
+      }
+    });
   }
 
   Widget _buildHostGreenRoom() {
@@ -2890,6 +2940,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       _makeupStyle = 0;
                       _makeupIntensity = 0.6;
                     });
+                    _scheduleFaceSymmetryProcessing(0);
                   },
                   child: Text('Reset', style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600)),
                 ),
@@ -3099,7 +3150,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               icon: Icons.center_focus_strong_outlined,
               label: 'Facial Symmetry',
               value: _faceSymmetry,
-              onChanged: (v) => update(() => _faceSymmetry = v),
+              onChanged: (v) {
+                update(() => _faceSymmetry = v);
+                _scheduleFaceSymmetryProcessing(v);
+              },
             ),
             if (_faceSymmetry > 0) ...[
               const SizedBox(height: 6),
