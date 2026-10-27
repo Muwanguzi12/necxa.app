@@ -2782,7 +2782,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-  Widget _buildEffectsAndBeautyTray({StateSetter? setSheetState}) {
+  Widget _buildEffectsAndBeautyTray({StateSetter? setSheetState, bool Function()? isSheetMounted}) {
     final categories = ['All', 'beauty', 'super_face', 'symmetry', 'glow', 'color', 'creative'];
     final filteredCatalogue = _activeCategoryTab == 'All'
         ? _catalogueFilters
@@ -2790,7 +2790,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
     void update(VoidCallback fn) {
       if (mounted) setState(fn);
-      setSheetState?.call(fn);
+      // Guard: only call setSheetState if the sheet is still mounted to prevent
+      // "setState() called after dispose()" crashes when the user moves the
+      // Facial Symmetry (or any beauty) slider while the sheet is animating closed.
+      if (setSheetState != null && (isSheetMounted == null || isSheetMounted())) {
+        try {
+          setSheetState(fn);
+        } catch (_) {
+          // Sheet was disposed mid-animation – silently swallow.
+        }
+      }
     }
 
     return Container(
@@ -3360,58 +3369,74 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   /// Opens the 3-quarters Effects & Beauty modal while live streaming.
   void _openLiveEffectsSheet({int initialTab = 0}) {
     setState(() => _effectsPanelTab = initialTab);
+    // Tracks whether the sheet's StatefulBuilder is still alive.
+    // Prevents "setState() called after dispose()" when a beauty/symmetry
+    // slider is still being dragged as the sheet animates closed.
+    bool sheetAlive = true;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (sheetCtx) => StatefulBuilder(
-        builder: (sheetCtx, setSheet) => Container(
-          height: MediaQuery.sizeOf(context).height * 0.75, // Exactly 3-quarters!
-          decoration: BoxDecoration(
-            color: const Color(0xF20D1017),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            border: Border.all(color: Colors.white12, width: 1.2),
-          ),
-          child: Column(
-            children: [
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 4,
-                  margin: const EdgeInsets.only(top: 10, bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+        builder: (sheetCtx, setSheet) {
+          return PopScope(
+            onPopInvokedWithResult: (_, __) => sheetAlive = false,
+            child: Container(
+              // Use sheetCtx (not outer context) to avoid stale BuildContext.
+              height: MediaQuery.sizeOf(sheetCtx).height * 0.75,
+              decoration: BoxDecoration(
+                color: const Color(0xF20D1017),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(color: Colors.white12, width: 1.2),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                child: Row(
-                  children: [
-                    const Icon(Icons.auto_awesome, color: C.brand, size: 20),
-                    const SizedBox(width: 8),
-                    Text('Studio Effects & Beauty', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.check, color: C.brand),
-                      onPressed: () => Navigator.pop(sheetCtx),
+              child: Column(
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 10, bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_awesome, color: C.brand, size: 20),
+                        const SizedBox(width: 8),
+                        Text('Studio Effects & Beauty', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.check, color: C.brand),
+                          onPressed: () {
+                            sheetAlive = false;
+                            Navigator.pop(sheetCtx);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: _buildEffectsAndBeautyTray(
+                        setSheetState: setSheet,
+                        isSheetMounted: () => sheetAlive,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: _buildEffectsAndBeautyTray(setSheetState: setSheet),
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
-    );
+    ).whenComplete(() => sheetAlive = false);
   }
 
 
