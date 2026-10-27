@@ -46,9 +46,14 @@ class MainActivity : FlutterFragmentActivity() {
             result.error("track_unavailable", "Live camera track is unavailable", null)
             return@setMethodCallHandler
           }
-          processors.remove(trackId)?.let(track::removeProcessor)
+          val old = processors.remove(trackId)
+          if (old != null) {
+            track.removeProcessor(old)
+            old.close()
+          }
           val processor = FaceBeautyFrameProcessor()
           processor.intensity = (call.argument<Double>("intensity") ?: 0.35).toFloat()
+          processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
           processors[trackId] = processor
           track.addProcessor(processor)
           result.success(true)
@@ -58,6 +63,9 @@ class MainActivity : FlutterFragmentActivity() {
           if (processor == null) result.error("not_attached", "Effect is not attached", null)
           else {
             processor.intensity = (call.argument<Double>("intensity") ?: 0.35).toFloat()
+            if (call.hasArgument("mirrorLeft")) {
+              processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
+            }
             result.success(true)
           }
         }

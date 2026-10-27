@@ -1747,11 +1747,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           await _faceSymmetryChannel.invokeMethod<void>('setIntensity', {
             'trackId': trackId,
             'intensity': intensity,
+            'mirrorLeft': _symmetryMirrorLeft,
           });
         } else {
           await _faceSymmetryChannel.invokeMethod<void>('attach', {
             'trackId': trackId,
             'intensity': intensity,
+            'mirrorLeft': _symmetryMirrorLeft,
           });
           _faceSymmetryProcessorAttached = true;
         }
@@ -3166,6 +3168,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       onTap: () {
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = true);
+                        if (_faceSymmetry > 0.01) {
+                          _scheduleFaceSymmetryProcessing(_faceSymmetry);
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3188,6 +3193,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       onTap: () {
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = false);
+                        if (_faceSymmetry > 0.01) {
+                          _scheduleFaceSymmetryProcessing(_faceSymmetry);
+                        }
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
