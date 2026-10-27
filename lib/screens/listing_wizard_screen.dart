@@ -439,18 +439,37 @@ class _ListingWizardState extends State<ListingWizardScreen> {
 
   Widget _buildStepHeader() {
     final s = _steps[_step];
+    final isHoldingStep = _step == 2 && widget.state.verificationSubStep == 2;
+    final title = isHoldingStep ? 'Identity verification' : s.$1;
+    final subtitle = isHoldingStep
+        ? 'Capture your ID and face to verify ownership.'
+        : s.$3;
+
+    final Widget iconWidget = isHoldingStep
+        ? Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: const Color(0xFF003847).withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF00E5FF), width: 1.5),
+            ),
+            child: const Icon(Icons.badge_outlined, color: Color(0xFF00E5FF), size: 22),
+          )
+        : Text(s.$2, style: const TextStyle(fontSize: 28));
+
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
       child: Row(
         children: [
-          Text(s.$2, style: const TextStyle(fontSize: 28)),
+          iconWidget,
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(s.$1, style: syne(sz: 18, w: FontWeight.w800)),
-                Text(s.$3, style: dm(sz: 11, c: C.dim)),
+                Text(title, style: syne(sz: 18, w: FontWeight.w800)),
+                Text(subtitle, style: dm(sz: 11, c: C.dim)),
               ],
             ),
           ),
@@ -1791,133 +1810,185 @@ class _Step3Identity extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (subStep == 2) {
-      // ── TRUE LANDSCAPE HOLD-ID LAYOUT ────────────────────────────────────
-      // Device stays in portrait; we create a wide landscape-feel camera zone.
-
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // ── CLEAN FULL-WIDTH PORTRAIT HOLD-ID LAYOUT (Matches Photo 2) ─────────
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Left side: wide camera ───────────────────────────────────────
-          Expanded(
-            flex: 3,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: _NeuralScannerOverlay(
-                key: scannerKey,
-                documentMode: false,
-                subStep: subStep,
-              ),
+          // 1. Full-width camera preview with rounded corners
+          ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: _NeuralScannerOverlay(
+              key: scannerKey,
+              documentMode: false,
+              subStep: subStep,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(height: 14),
 
-          // ── Right side: side panel for controls & instructions ────────────
-          Expanded(
-            flex: 1,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Top header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const _PulsingLight(),
-                    const SizedBox(width: 4),
-                    Text('LIVE', style: dm(sz: 10, c: C.brand, w: FontWeight.w900, ls: 0.8)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Capture button — right side, thumb-reachable
-                GestureDetector(
-                  onTap: loading ? null : onVerify,
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: loading ? Colors.grey : C.brand,
-                      boxShadow: [
-                        BoxShadow(color: C.brand.withOpacity(.45), blurRadius: 14, spreadRadius: 2),
-                      ],
-                    ),
-                    child: loading
-                        ? const Padding(
-                            padding: EdgeInsets.all(16),
-                            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
-                          )
-                        : const Icon(Icons.camera_alt, color: Colors.black, size: 26),
+          // 2. Dual guide indicator badges
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // ID pill badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141923),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFFFD54F),
+                    width: 1.4,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  loading ? 'WAIT' : 'CAPTURE',
-                  style: syne(sz: 9, c: loading ? Colors.grey : C.brand, w: FontWeight.w800, ls: 0.5),
-                ),
-                const SizedBox(height: 16),
-                
-                // Flip camera button
-                GestureDetector(
-                  onTap: () => scannerKey.currentState?.toggleCamera(),
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: C.text.withOpacity(.1),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: C.brand.withOpacity(.5)),
-                    ),
-                    child: const Icon(Icons.flip_camera_ios, color: C.brand, size: 20),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'FLIP',
-                  style: syne(sz: 8, c: C.brand, w: FontWeight.w800, ls: 0.5),
-                ),
-                
-                const SizedBox(height: 16),
-
-                // Area labels
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD54F).withOpacity(.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFFFD54F).withOpacity(.7), width: 1),
-                      ),
-                      child: Text('ID: Left hand', style: dm(sz: 9, c: const Color(0xFFFFD54F), w: FontWeight.bold), textAlign: TextAlign.center),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF00E5FF).withOpacity(.10),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF00E5FF).withOpacity(.7), width: 1),
-                      ),
-                      child: Text('Face: Center-right', style: dm(sz: 9, c: const Color(0xFF00E5FF), w: FontWeight.bold), textAlign: TextAlign.center),
+                    const Icon(Icons.badge_outlined, color: Color(0xFFFFD54F), size: 16),
+                    const SizedBox(width: 7),
+                    Text(
+                      'ID • Left hand',
+                      style: dm(sz: 11, c: const Color(0xFFFFD54F), w: FontWeight.w700),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-
-                // Error feedback
-                if (state.shieldFeedback != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(.10),
-                      borderRadius: BorderRadius.circular(8),
+              ),
+              const SizedBox(width: 10),
+              // Face pill badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF003847).withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFF00E5FF),
+                    width: 1.4,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.account_circle_outlined, color: Color(0xFF00E5FF), size: 16),
+                    const SizedBox(width: 7),
+                    Text(
+                      'Face • Center your face',
+                      style: dm(sz: 11, c: const Color(0xFF00E5FF), w: FontWeight.w700),
                     ),
-                    child: Text(state.shieldFeedback!, style: dm(sz: 9.5, c: Colors.redAccent), textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // 3. User guidance caption
+          Text(
+            'Keep both guides inside the frame and use good lighting.',
+            style: dm(sz: 11, c: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+
+          // 4. Centered capture & flip action controls
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Large Capture Button
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: loading ? null : onVerify,
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: loading ? Colors.grey : const Color(0xFF00E5FF),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00E5FF).withValues(alpha: 0.45),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: loading
+                          ? const Padding(
+                              padding: EdgeInsets.all(18),
+                              child: CircularProgressIndicator(
+                                color: Colors.black,
+                                strokeWidth: 2.8,
+                              ),
+                            )
+                          : const Icon(Icons.camera_alt, color: Colors.black, size: 28),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    loading ? 'WAIT' : 'CAPTURE',
+                    style: syne(
+                      sz: 10,
+                      c: loading ? Colors.grey : const Color(0xFF00E5FF),
+                      w: FontWeight.w800,
+                      ls: 0.8,
+                    ),
                   ),
                 ],
-              ],
-            ),
+              ),
+              const SizedBox(width: 32),
+
+              // Flip camera button
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: () => scannerKey.currentState?.toggleCamera(),
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF0D2533),
+                        border: Border.all(
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.7),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.flip_camera_ios,
+                        color: Color(0xFF00E5FF),
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'FLIP',
+                    style: syne(sz: 9.5, c: const Color(0xFF00E5FF), w: FontWeight.w800, ls: 0.8),
+                  ),
+                ],
+              ),
+            ],
           ),
+
+          // Error / feedback message if present
+          if (state.shieldFeedback != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.35)),
+              ),
+              child: Text(
+                state.shieldFeedback!,
+                style: dm(sz: 10.5, c: Colors.redAccent),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
         ],
       );
     }
@@ -2750,18 +2821,21 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       width: double.infinity,
       decoration: BoxDecoration(
         color: C.cardDk,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: C.brand.withOpacity(.7), width: 1.2),
+        borderRadius: BorderRadius.circular(isHolding ? 22 : 16),
+        border: Border.all(
+          color: isHolding ? const Color(0xFF00E5FF) : C.brand.withValues(alpha: .7),
+          width: isHolding ? 2.0 : 1.2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: C.brand.withOpacity(.12),
+            color: (isHolding ? const Color(0xFF00E5FF) : C.brand).withValues(alpha: isHolding ? .25 : .12),
             blurRadius: 20,
             spreadRadius: 1,
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(25),
+        borderRadius: BorderRadius.circular(isHolding ? 20 : 25),
         child: Stack(
           children: [
             if (cameraCtrl != null && cameraCtrl!.value.isInitialized)
@@ -2780,9 +2854,16 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
                             previewAspect = 1.0 / previewAspect;
                           }
 
-                          final coverScale = viewportAspect > previewAspect
+                          final rawCoverScale = viewportAspect > previewAspect
                               ? viewportAspect / previewAspect
                               : previewAspect / viewportAspect;
+
+                          // In holding ID mode, keep camera zoomed OUT so the entire
+                          // person and their held ID card fit in the frame comfortably
+                          final coverScale = isHolding
+                              ? rawCoverScale.clamp(1.0, 1.20)
+                              : rawCoverScale;
+
                           return ClipRect(
                             child: Transform.scale(
                               scale: coverScale,
@@ -2854,36 +2935,46 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
             // ── HOLDING ID: minimal in-camera HUD — NO overlapping text ──
             if (isHolding) ...[
               Positioned(
-                top: 8,
-                left: 10,
+                top: 12,
+                left: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(.5),
+                    color: Colors.black.withValues(alpha: .65),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: C.brand.withOpacity(.5), width: 1),
+                    border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .6), width: 1),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(width: 5, height: 5, decoration: BoxDecoration(color: C.brand, shape: BoxShape.circle)),
-                      const SizedBox(width: 5),
-                      Text('LIVE', style: dm(sz: 9, c: Colors.white, w: FontWeight.bold, ls: 0.5)),
+                      Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF00E676), shape: BoxShape.circle)),
+                      const SizedBox(width: 6),
+                      Text('LIVE', style: dm(sz: 10, c: Colors.white, w: FontWeight.w800, ls: 0.6)),
                     ],
                   ),
                 ),
               ),
               Positioned(
-                top: 8,
-                right: 10,
-                child: Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: C.text.withOpacity(.85),
-                    borderRadius: BorderRadius.circular(7),
+                top: 12,
+                right: 12,
+                child: GestureDetector(
+                  onTap: () {
+                    final ctrl = cameraCtrl;
+                    if (ctrl != null && ctrl.value.isInitialized) {
+                      final isOff = ctrl.value.flashMode == FlashMode.off;
+                      ctrl.setFlashMode(isOff ? FlashMode.torch : FlashMode.off).catchError((_) {});
+                    }
+                  },
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .65),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white.withValues(alpha: .25)),
+                    ),
+                    child: const Icon(Icons.bolt_outlined, color: Colors.white, size: 20),
                   ),
-                  child: Icon(Icons.bolt_outlined, color: C.bg, size: 18),
                 ),
               ),
             ],
@@ -3116,7 +3207,7 @@ class _NeuralScannerOverlayState extends State<_NeuralScannerOverlay>
       ),
     );
     return isHolding
-        ? AspectRatio(aspectRatio: 1.7, child: viewport)
+        ? AspectRatio(aspectRatio: 1.32, child: viewport)
         : SizedBox(height: widget.subStep == 3 ? 270 : 220, child: viewport);
   }
 
@@ -3869,20 +3960,19 @@ class _ScannerOverlayPainter extends CustomPainter {
       ..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
     if (holdingMode) {
-      // ── HOLDING MODE: ID guide on left, face guide on right ──
-      const topPad = 38.0;
-      const bottomPad = 42.0;
-      const sidePad = 12.0;
-      const gap = 12.0;
+      // ── HOLDING MODE: ID guide on left, face guide on right (Photo 2) ──
+      const topPad = 20.0;
+      const bottomPad = 20.0;
+      const sidePad = 14.0;
+      const gap = 16.0;
 
       final availableW = size.width - (sidePad * 2) - gap;
-      final faceW = availableW * 0.40;
-      final idW = availableW * 0.60;
+      final idW = availableW * 0.52;
+      final faceW = availableW * 0.48;
       final areaH = size.height - topPad - bottomPad;
 
-      // Keep both guides inside the shallow landscape viewport without
-      // cropping the face or the four edges of the document.
-      final faceH = areaH * 0.82;
+      // Face area (centered vertically, slightly taller)
+      final faceH = (areaH * 0.88).clamp(0.0, areaH);
       final faceTop = topPad + (areaH - faceH) / 2;
       final faceRect = Rect.fromLTWH(
         sidePad + idW + gap,
@@ -3892,12 +3982,13 @@ class _ScannerOverlayPainter extends CustomPainter {
       );
       final faceRRect = RRect.fromRectAndRadius(
         faceRect,
-        const Radius.circular(20),
+        const Radius.circular(22),
       );
 
-      // Left ID card area (landscape standard 1.55 ratio)
-      final idH = (idW / 1.55).clamp(0.0, areaH * 0.82);
-      final idTop = topPad + (areaH - idH) / 2;
+      // Left ID card area (standard landscape ID-1 card ratio: 1.586)
+      final idH = (idW / 1.586).clamp(0.0, areaH * 0.78);
+      // Positioned slightly lower to match natural hand holding
+      final idTop = topPad + (areaH - idH) * 0.58;
       final idRect = Rect.fromLTWH(sidePad, idTop, idW, idH);
       final idRRect = RRect.fromRectAndRadius(
         idRect,
@@ -3976,11 +4067,23 @@ class _ScannerOverlayPainter extends CustomPainter {
         faceBracketPaint,
       );
 
+      // Delicate cyan face oval inside brackets (matching Photo 2)
+      final faceOvalPaint = Paint()
+        ..color = const Color(0xFF00E5FF).withValues(alpha: 0.65)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+      final ovalRect = Rect.fromCenter(
+        center: fr.center,
+        width: fr.width * 0.82,
+        height: fr.height * 0.90,
+      );
+      canvas.drawOval(ovalRect, faceOvalPaint);
+
       // Yellow rounded rectangle border on ID area
       final idBorder = Paint()
         ..color = const Color(0xFFFFD54F)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.2;
+        ..strokeWidth = 2.4;
       canvas.drawRRect(idRRect, idBorder);
 
       return;
