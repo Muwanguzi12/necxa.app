@@ -138,13 +138,18 @@ class _GiftContainerState extends State<GiftContainer> {
     await SoundService().playGiftSound();
 
     // Guaranteed non-empty contextId and valid contextType
-    final effectiveContextType = widget.contextType ??
-        (widget.postId != null && widget.postId!.isNotEmpty
-            ? 'creator_post'
-            : 'direct');
-    final effectiveContextId = (widget.postId != null && widget.postId!.isNotEmpty)
-        ? widget.postId!
-        : 'community:$receiverId';
+    final uuidRegex = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    );
+    final hasValidPostUuid = widget.postId != null &&
+        uuidRegex.hasMatch(widget.postId!.trim());
+
+    final effectiveContextType = hasValidPostUuid
+        ? (widget.contextType ?? 'creator_post')
+        : 'direct';
+    final effectiveContextId = hasValidPostUuid
+        ? widget.postId!.trim()
+        : 'direct:$receiverId';
 
     try {
       final res = await widget.state.financeGifting.sendGift(

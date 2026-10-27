@@ -197,6 +197,7 @@ class SocialService {
             .select(
               'id, author_id, title, content, media_url, thumbnail_url, '
               'media_type, hls_url, created_at, likes_count, comments_count, '
+              'gifts_count, gifts_fiat_value, '
               'profiles:author_id(full_name, avatar_url, trust_score_tier)',
             )
             .inFilter('status', ['verified', 'pending', 'active'])
@@ -297,7 +298,7 @@ class SocialService {
     var query = client
         .from('community_posts')
         .select(
-          'id, author_id, title, content, media_url, thumbnail_url, media_type, hls_url, created_at, likes_count, comments_count, profiles:author_id(full_name, avatar_url, trust_score_tier)',
+          'id, author_id, title, content, media_url, thumbnail_url, media_type, hls_url, created_at, likes_count, comments_count, gifts_count, gifts_fiat_value, profiles:author_id(full_name, avatar_url, trust_score_tier)',
         )
         .inFilter('status', ['verified', 'pending', 'active'])
         .or('visibility.eq.public,visibility.is.null');

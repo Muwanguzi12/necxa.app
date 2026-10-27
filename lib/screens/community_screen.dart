@@ -2397,7 +2397,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.card_giftcard,
-                    label: 'Gift',
+                    label: (widget.post['gifts_count'] != null && (widget.post['gifts_count'] as num) > 0)
+                        ? kNum(widget.post['gifts_count'])
+                        : 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
                       final receiverId = widget.post['author_id']?.toString();
@@ -3841,7 +3843,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.card_giftcard,
-                    label: 'Gift',
+                    label: (widget.listing['gifts_count'] != null && (widget.listing['gifts_count'] as num) > 0)
+                        ? kNum(widget.listing['gifts_count'])
+                        : 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
                       if (authorId == widget.state.user?.id) {

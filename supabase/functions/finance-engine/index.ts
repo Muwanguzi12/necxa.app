@@ -2644,6 +2644,43 @@ serve(async (req) => {
       if (!receiverId || !giftItemId || !contextId || ncxAmount <= 0) {
         return json({ success: false, message: "Gift recipient, item, context, and amount are required." }, 400);
       }
+
+      // ── Server-Side Proof of Work (PoW) Verification ───────────────────────
+      const powProof = metadata.pow_proof as Record<string, unknown> | undefined;
+      if (powProof && typeof powProof.challenge === "string" && typeof powProof.nonce === "number") {
+        const difficulty = Number(powProof.difficulty) || 3;
+        const targetPrefix = "0".repeat(difficulty);
+        const claimedHash = String(powProof.hash ?? "");
+        const timestampMs = Number(powProof.timestamp_ms) || 0;
+        const now = Date.now();
+
+        // 1. Freshness check: proof must be within 5 minutes
+        if (Math.abs(now - timestampMs) > 5 * 60 * 1000) {
+          return json({ success: false, code: "pow_expired", message: "Cryptographic Proof of Work challenge expired." }, 403);
+        }
+
+        // 2. Difficulty prefix check
+        if (!claimedHash.startsWith(targetPrefix)) {
+          return json({ success: false, code: "pow_invalid_difficulty", message: "Proof of Work does not meet required difficulty." }, 403);
+        }
+
+        // 3. Re-calculate SHA-256 via Web Crypto
+        const inputStr = `${powProof.challenge}:${powProof.nonce}`;
+        const inputBytes = new TextEncoder().encode(inputStr);
+        const digestBuffer = await crypto.subtle.digest("SHA-256", inputBytes);
+        const computedHash = Array.from(new Uint8Array(digestBuffer))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+
+        if (computedHash !== claimedHash) {
+          return json({
+            success: false,
+            code: "pow_hash_mismatch",
+            message: "Cryptographic Proof of Work hash mismatch. Anti-fraud verification failed.",
+          }, 403);
+        }
+      }
+
       const isLiveGift = contextType === "live_stream" || contextType === "live";
       const { data: feeConfig } = await supabase
         .from("finance_config")
@@ -2738,7 +2775,8 @@ serve(async (req) => {
       }
       const financeGiftId = resData?.gift_id?.toString();
       let communitySync: Record<string, unknown> = { synced: false, reason: "not_supported_context" };
-      if ((contextType === "creator_post" || contextType === "listing") && contextId && financeGiftId && !contextId.startsWith("direct")) {
+      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+      if ((contextType === "creator_post" || contextType === "listing") && contextId && financeGiftId && uuidRegex.test(contextId)) {
         try {
           communitySync = await syncCommunityGiftToPrimary(
             financeGiftId,
