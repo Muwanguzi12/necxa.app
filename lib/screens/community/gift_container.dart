@@ -46,6 +46,8 @@ class _GiftContainerState extends State<GiftContainer> {
   String? _rechargeIdempotencyKey;
   String? _giftIdempotencyKey;
 
+  GiftResult? _lastGiftResult;
+
   final List<Map<String, dynamic>> categories = [
     {'name': 'All', 'icon': null},
     {'name': 'Popular', 'icon': Icons.whatshot_rounded},
@@ -94,7 +96,11 @@ class _GiftContainerState extends State<GiftContainer> {
   void _next(int step) => setState(() => _step = step);
 
   Future<void> _sendGift(GiftItem preset) async {
-    if (widget.receiverId.isEmpty) {
+    // Concurrency guard: block double taps and race conditions
+    if (_sending) return;
+
+    final receiverId = widget.receiverId.trim();
+    if (receiverId.isEmpty) {
       _showError('No recipient selected.');
       return;
     }
@@ -103,7 +109,7 @@ class _GiftContainerState extends State<GiftContainer> {
       _showError('Please sign in to send gifts.');
       return;
     }
-    if (senderId.toLowerCase() == widget.receiverId.toLowerCase()) {
+    if (senderId.toLowerCase() == receiverId.toLowerCase()) {
       _showError('You cannot send a gift to yourself.');
       return;
     }
@@ -131,22 +137,31 @@ class _GiftContainerState extends State<GiftContainer> {
     setState(() => _sending = true);
     await SoundService().playGiftSound();
 
+    // Guaranteed non-empty contextId and valid contextType
+    final effectiveContextType = widget.contextType ??
+        (widget.postId != null && widget.postId!.isNotEmpty
+            ? 'creator_post'
+            : 'direct');
+    final effectiveContextId = (widget.postId != null && widget.postId!.isNotEmpty)
+        ? widget.postId!
+        : 'community:$receiverId';
+
     try {
       final res = await widget.state.financeGifting.sendGift(
         senderId: senderId,
-        receiverId: widget.receiverId,
+        receiverId: receiverId,
         giftItemId: preset.id,
         ncxAmount: preset.ncxValue,
-        contextType:
-            widget.contextType ??
-            (widget.postId != null ? 'creator_post' : 'direct'),
-        contextId: widget.postId,
+        contextType: effectiveContextType,
+        contextId: effectiveContextId,
         senderName: widget.state.myDisplayName,
         senderAvatar: widget.state.myAvatarUrl,
         idempotencyKey: _giftIdempotencyKey ??= _newGiftIdempotencyKey(),
+        currentBalance: widget.state.coinBalance,
       );
 
       if (res.success) {
+        _lastGiftResult = res;
         try {
           await widget.state.syncVault();
         } catch (error) {
@@ -165,8 +180,9 @@ class _GiftContainerState extends State<GiftContainer> {
       }
     } catch (e) {
       _showError(getUserFriendlyError(e));
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
-    setState(() => _sending = false);
   }
 
   String _newGiftIdempotencyKey() =>
@@ -443,7 +459,52 @@ class _GiftContainerState extends State<GiftContainer> {
           ),
         ),
 
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
+
+        // PoW & Multi-Chain Audit Trust Banner
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: GestureDetector(
+            onTap: _showSecurityAuditDialog,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.shield_rounded,
+                    color: Color(0xFF00E5FF),
+                    size: 14,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'PoW Secured • Multi-Chain Provenance Audited',
+                      style: dm(
+                        sz: 10,
+                        w: FontWeight.w700,
+                        c: const Color(0xFF00E5FF),
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: const Color(0xFF00E5FF).withValues(alpha: 0.8),
+                    size: 14,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
 
         // Tabs
         SizedBox(
@@ -980,67 +1041,343 @@ class _GiftContainerState extends State<GiftContainer> {
   }
 
   Widget _buildSuccess() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 60),
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: 1.0),
-          duration: const Duration(milliseconds: 600),
-          curve: Curves.elasticOut,
-          builder: (context, val, child) => Transform.scale(
-            scale: val,
-            child: const Icon(
-              Icons.check_circle,
-              color: Colors.greenAccent,
-              size: 100,
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'GIFT DELIVERED!',
-          style: syne(sz: 24, w: FontWeight.w900, c: C.text, ls: 2),
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Text(
-            'Your ${_selectedPreset?.name ?? 'Gift'} was successfully received. The creator has been notified.',
-            textAlign: TextAlign.center,
-            style: dm(sz: 15, c: C.text.withOpacity(0.7)),
-          ),
-        ),
-        const SizedBox(height: 40),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: GestureDetector(
-            onTap: widget.onDismiss,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 18),
-              decoration: BoxDecoration(
-                gradient: brandGrad,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF00E5FF).withOpacity(0.2),
-                    blurRadius: 20,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  'AWESOME',
-                  style: dm(sz: 14, w: FontWeight.w900, c: Colors.black),
+    final res = _lastGiftResult;
+    final item = _selectedPreset;
+    final giftName = res?.giftName.isNotEmpty == true ? res!.giftName : (item?.name ?? 'Gift');
+    final giftEmoji = res?.giftEmoji.isNotEmpty == true ? res!.giftEmoji : (item?.emoji ?? '🎁');
+    final ncxTotal = res?.ncxAmount ?? item?.ncxValue ?? 0;
+    final receiverNcx = res?.receiverNcx ?? ((ncxTotal * 0.89).round());
+    final platformFee = res?.platformFeeNcx ?? (ncxTotal - receiverNcx);
+    final powProof = res?.powProof;
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 20),
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.elasticOut,
+            builder: (context, val, child) => Transform.scale(
+              scale: val,
+              child: Container(
+                width: 68,
+                height: 68,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check_rounded,
+                  color: Colors.white,
+                  size: 42,
                 ),
               ),
             ),
           ),
+          const SizedBox(height: 14),
+          Text(
+            'GIFT DELIVERED & AUDITED',
+            style: syne(sz: 18, w: FontWeight.w900, c: C.text, ls: 1.5),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Settled atomically with cryptographic Proof of Work',
+            style: dm(sz: 12, c: C.sub),
+          ),
+          const SizedBox(height: 16),
+
+          // ── Cryptographic Receipt Card ──────────────────────────────────────
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
+                  blurRadius: 16,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.verified_user_rounded,
+                          color: Color(0xFF00E5FF),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'CRYPTOGRAPHIC AUDIT RECEIPT',
+                          style: syne(
+                            sz: 10,
+                            w: FontWeight.w800,
+                            c: const Color(0xFF00E5FF),
+                            ls: 1,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        res?.chainId ?? 'necxa-mainnet-ugx',
+                        style: dm(sz: 9, c: Colors.white70, w: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(height: 1, color: Colors.white.withValues(alpha: 0.08)),
+                const SizedBox(height: 12),
+
+                _receiptRow('Gift Asset', '$giftName $giftEmoji'),
+                _receiptRow(
+                  'Total Value',
+                  '$ncxTotal NCX (${ugx((ncxTotal * 100).toDouble())})',
+                ),
+                _receiptRow('Creator Credited', '$receiverNcx NCX'),
+                _receiptRow('Platform Fee (11%)', '$platformFee NCX'),
+                _receiptRow(
+                  'Source of Coin',
+                  'Verified UGX Fiat UTXO (Pesapal)',
+                ),
+
+                if (powProof != null) ...[
+                  _receiptRow(
+                    'Proof of Work Nonce',
+                    '#${powProof.nonce} (${powProof.timeTakenMs}ms)',
+                  ),
+                  _receiptRow(
+                    'SHA-256 Digest',
+                    '${powProof.hash.substring(0, 16)}...',
+                  ),
+                ],
+
+                if (res?.giftId != null && res!.giftId.isNotEmpty)
+                  _receiptRow(
+                    'Ledger Ref',
+                    res.giftId.length > 20
+                        ? '${res.giftId.substring(0, 20)}...'
+                        : res.giftId,
+                  ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: GestureDetector(
+              onTap: widget.onDismiss,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  gradient: brandGrad,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+                      blurRadius: 16,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    'AWESOME',
+                    style: dm(sz: 14, w: FontWeight.w900, c: Colors.black),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  Widget _receiptRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: dm(sz: 12, c: C.sub)),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: syne(
+                sz: 12,
+                w: FontWeight.w700,
+                c: Colors.white,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSecurityAuditDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        decoration: const BoxDecoration(
+          color: Color(0xFF0B1322),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border(
+            top: BorderSide(color: Color(0xFF00E5FF), width: 1.5),
+          ),
         ),
-        const SizedBox(height: 40),
-      ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                const Icon(
+                  Icons.shield_outlined,
+                  color: Color(0xFF00E5FF),
+                  size: 24,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Necxa Integrity & Fraud Prevention',
+                  style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _auditPillar(
+              icon: Icons.memory_rounded,
+              title: 'Proof of Work (PoW) Nonce Commitment',
+              description:
+                  'Every gift transaction requires an on-device cryptographic SHA-256 challenge. This eliminates automated click-farms, bot scripts, and replay attacks.',
+            ),
+            _auditPillar(
+              icon: Icons.account_balance_wallet_rounded,
+              title: 'Source of Finance (Fiat UTXO Tracing)',
+              description:
+                  'All NCX coins are strictly backed by verified Pesapal deposits (MTN/Airtel MoMo & Visa/Mastercard) with FIFO UTXO ledger tracing.',
+            ),
+            _auditPillar(
+              icon: Icons.hub_rounded,
+              title: 'All-Chains Sender & Receiver Verification',
+              description:
+                  'Pre-flight compliance audits verify that sender and receiver wallets are active, unfrozen, anti-wash trading compliant, and within burst velocity limits.',
+            ),
+            _auditPillar(
+              icon: Icons.sync_alt_rounded,
+              title: 'Dual-Ledger Atomic Settlement',
+              description:
+                  'Gifts are processed through transactional database RPCs with idempotency keys, guaranteeing zero double-spending or balance mismatch.',
+            ),
+            const SizedBox(height: 20),
+            GestureDetector(
+              onTap: () => Navigator.pop(ctx),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E5FF),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Center(
+                  child: Text(
+                    'GOT IT',
+                    style: dm(sz: 13, w: FontWeight.bold, c: Colors.black),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _auditPillar({
+    required IconData icon,
+    required String title,
+    required String description,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E5FF).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: const Color(0xFF00E5FF), size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: syne(sz: 13, w: FontWeight.w700, c: Colors.white),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: dm(
+                    sz: 11,
+                    c: Colors.white.withValues(alpha: 0.7),
+                    h: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -2676,6 +2676,9 @@ serve(async (req) => {
               idempotency_key: idempotencyKey,
               sender_name: isAnonymous ? "Anonymous" : (metadata.sender_name || user.email || "Viewer"),
               sender_avatar: isAnonymous ? "" : (metadata.sender_avatar || ""),
+              pow_proof: metadata.pow_proof ?? null,
+              coin_provenance: metadata.coin_provenance ?? null,
+              chain_audit: metadata.chain_audit ?? null,
             },
           }
         : {
@@ -2694,6 +2697,9 @@ serve(async (req) => {
               idempotency_key: idempotencyKey,
               sender_name: isAnonymous ? "Anonymous" : (metadata.sender_name || user.email || "Viewer"),
               sender_avatar: isAnonymous ? "" : (metadata.sender_avatar || ""),
+              pow_proof: metadata.pow_proof ?? null,
+              coin_provenance: metadata.coin_provenance ?? null,
+              chain_audit: metadata.chain_audit ?? null,
             },
           };
 

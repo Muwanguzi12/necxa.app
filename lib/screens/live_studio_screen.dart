@@ -6251,6 +6251,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               contextNote: 'Live gift for $giftReceiverName: ${gift.name}',
               senderName: widget.state.myDisplayName ?? 'Viewer',
               senderAvatar: widget.state.myAvatarUrl,
+              currentBalance: widget.state.coinBalance,
             );
 
             if (!mounted) return;

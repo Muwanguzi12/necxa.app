@@ -1832,6 +1832,7 @@ class AppState extends ChangeNotifier {
           ncxAmount: price,
           contextType: contextType ?? 'direct',
           contextId: contextId ?? 'general_feed',
+          currentBalance: coinBalance,
         );
 
         if (result.success) {
