@@ -993,7 +993,7 @@ class _AppTabs extends StatelessWidget {
 
   List<(String, String?, String)> get _tabRoutes => [
     ('home', 'assets/images/property_icon.png', 'Property'),
-    ('list', 'assets/images/listing_icon.png', 'Property Listing'),
+    if (kIsWeb) ('list', 'assets/images/listing_icon.png', 'Property Listing'),
     if (!kIsWeb) ('transport', 'assets/images/transport_icon.png', 'Transport'),
     if (!kIsWeb) ('upload', 'assets/images/upload_icon.png', 'Upload'),
     if (kIsWeb) ('live', null, 'Live Stream'),
@@ -1156,19 +1156,20 @@ class _BottomNav extends StatelessWidget {
               current == 'live',
               () => onTap('live'),
             ),
-          _BotBtn(
-            Opacity(
-              opacity: current == 'list' ? 1.0 : 0.5,
-              child: Image.asset(
-                'assets/images/listing_icon.png',
-                width: 24,
-                height: 24,
+          if (kIsWeb)
+            _BotBtn(
+              Opacity(
+                opacity: current == 'list' ? 1.0 : 0.5,
+                child: Image.asset(
+                  'assets/images/listing_icon.png',
+                  width: 24,
+                  height: 24,
+                ),
               ),
+              'Property Listing', 
+              current == 'list', 
+              () => onTap('list'),
             ),
-            'Property Listing', 
-            current == 'list', 
-            () => onTap('list'),
-          ),
           _BotBtn(
             Opacity(
               opacity: (current == 'chat' || current == 'chat-list' || current == 'new-chat') ? 1.0 : 0.5,

@@ -59,19 +59,20 @@ class NecxaBottomNav extends StatelessWidget {
               state.screen == 'live',
               () => state.go('live'),
             ),
-          _BotBtn(
-            Opacity(
-              opacity: (state.screen == 'list' || state.screen == 'property_listing') ? 1.0 : 0.5,
-              child: Image.asset(
-                'assets/images/listing_icon.png',
-                width: 24,
-                height: 24,
+          if (kIsWeb)
+            _BotBtn(
+              Opacity(
+                opacity: (state.screen == 'list' || state.screen == 'property_listing') ? 1.0 : 0.5,
+                child: Image.asset(
+                  'assets/images/listing_icon.png',
+                  width: 24,
+                  height: 24,
+                ),
               ),
+              'Property Listing',
+              state.screen == 'list' || state.screen == 'property_listing',
+              () => state.go('list'),
             ),
-            'Property Listing',
-            state.screen == 'list' || state.screen == 'property_listing',
-            () => state.go('list'),
-          ),
           _BotBtn(
             Opacity(
               opacity: (state.screen == 'chat' || state.screen == 'chat-list' || state.screen == 'new-chat') ? 1.0 : 0.5,
