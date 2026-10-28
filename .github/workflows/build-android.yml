@@ -39,6 +39,8 @@ jobs:
     - name: Build Android Release APK
       env:
         GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
+        ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.0.12077973
+        ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/27.0.12077973
       run: flutter build apk --release --split-per-abi
 
     - name: Archive Android Release APKs

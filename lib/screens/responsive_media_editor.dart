@@ -15,6 +15,8 @@ import '../services/timeline_playback_controller.dart';
 // Desktop/Landscape → ProMediaEditorScreen (full desktop UI)
 // Mobile/Portrait → MobileMediaEditor (touch-optimized mobile UI)
 
+import '../services/filter_catalogue_service.dart';
+
 class ResponsiveMediaEditor extends StatefulWidget {
   final AppState state;
   final File? initialImage;
@@ -22,6 +24,8 @@ class ResponsiveMediaEditor extends StatefulWidget {
   final MusicTrack? initialTrack;
   final List<File>? multiFiles;
   final bool isFastSync;
+  final NecxaFilterMeta? initialFilter;
+  final double initialFilterIntensity;
 
   const ResponsiveMediaEditor({
     super.key,
@@ -31,6 +35,8 @@ class ResponsiveMediaEditor extends StatefulWidget {
     this.initialTrack,
     this.multiFiles,
     this.isFastSync = false,
+    this.initialFilter,
+    this.initialFilterIntensity = 1.0,
   });
 
   @override
@@ -59,19 +65,26 @@ class _ResponsiveMediaEditorState extends State<ResponsiveMediaEditor> {
       final duration = isVideo
           ? const Duration(seconds: 12)
           : const Duration(seconds: 4);
+      final clip = TimelineClip(
+        id: 'initial-$index-${file.path.hashCode}',
+        start: start,
+        duration: duration,
+        file: file,
+        operation: TrimOperation(
+          start: Duration.zero,
+          end: duration,
+          maxDuration: duration,
+        ),
+      );
+      if (widget.initialFilter != null && !widget.initialFilter!.isNone) {
+        clip.filter = FilterOperation(
+          filterName: widget.initialFilter!.displayName,
+          intensity: widget.initialFilterIntensity,
+        );
+      }
       TimelineModelUtils.insertClip(
         _project.tracks,
-        TimelineClip(
-          id: 'initial-${index}-${file.path.hashCode}',
-          start: start,
-          duration: duration,
-          file: file,
-          operation: TrimOperation(
-            start: Duration.zero,
-            end: duration,
-            maxDuration: duration,
-          ),
-        ),
+        clip,
         isVideo ? TrackType.video : TrackType.images,
       );
       start += duration;

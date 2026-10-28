@@ -2,6 +2,7 @@
 // NECXA � New Chat: Find users via email search, phone contacts, or saved contacts
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -103,6 +104,13 @@ class _NewChatScreenState extends State<NewChatScreen>
 
   // -- PHONE CONTACTS -------------------------------------------
   Future<void> _loadPhoneContacts() async {
+    if (kIsWeb) {
+      setState(() {
+        _contactsGranted = false;
+        _contactsLoading = false;
+      });
+      return;
+    }
     setState(() => _contactsLoading = true);
     final status = await Permission.contacts.request();
     if (!status.isGranted) {

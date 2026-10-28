@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../theme.dart';
 import '../app_state.dart';
 import '../widgets/vault_widget.dart';
@@ -88,7 +89,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ),
               SliverToBoxAdapter(child: _buildVendorDashboard()),
-                SliverToBoxAdapter(child: _MyPropertiesList(state: widget.state)),
+              // ── My Properties (private only) ──
+              // Smart-loaded: cached data first, lazy fetch, 5-min stale guard
+              SliverToBoxAdapter(child: _MyPropertiesList(state: widget.state)),
               _buildStickyTabs(),
               _buildTabContent(),
               const SliverPadding(padding: EdgeInsets.only(bottom: 100)),
@@ -747,12 +750,19 @@ class _ProfileScreenState extends State<ProfileScreen>
                     icon: Icons.home_filled,
                     onTap: () => widget.state.go('home'),
                   ),
-                  _NavBtn(
-                    icon: Icons.bolt,
-                    onTap: () => widget.state.go('community'),
-                  ),
-                  // Center Pulse
-                  _NavCenterBtn(onTap: () => widget.state.go('upload')),
+                  if (!kIsWeb)
+                    _NavBtn(
+                      icon: Icons.bolt,
+                      onTap: () => widget.state.go('community'),
+                    ),
+                  if (kIsWeb)
+                    _NavBtn(
+                      icon: Icons.live_tv_rounded,
+                      onTap: () => widget.state.go('live'),
+                    ),
+                  if (!kIsWeb)
+                    // Center Pulse
+                    _NavCenterBtn(onTap: () => widget.state.go('upload')),
                   _NavBtn(
                     icon: Icons.local_shipping_outlined,
                     onTap: () => widget.state.go('transport'),
@@ -1293,26 +1303,280 @@ class _MoreOptionsSheet extends StatelessWidget {
   }
 
   Future<void> _openSupportLink(BuildContext context) async {
-    final uri = await SupportService().createGooboxUri();
-    if (!context.mounted) return;
-    try {
-      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!opened && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to open Necxa Support right now.'),
-          ),
-        );
-      }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to open Necxa Support right now.'),
-          ),
-        );
-      }
-    }
+    // Show dual-path support sheet instead of immediately opening browser
+    await _showSupportSheet(context);
+  }
+
+  /// Shows the in-app support bottom sheet with two paths:
+  ///   1. Submit a ticket directly from within Necxa (opens support chat room)
+  ///   2. Open goobox.necxa.uk in the browser as fallback
+  Future<void> _showSupportSheet(BuildContext context) async {
+    final categories = [
+      ('Account & Login', Icons.person_outline, 'account'),
+      ('Orders & Payments', Icons.payment_outlined, 'payments'),
+      ('Listings & Products', Icons.storefront_outlined, 'listings'),
+      ('Content & Reports', Icons.flag_outlined, 'content'),
+      ('Technical Issue', Icons.build_outlined, 'technical'),
+      ('Other', Icons.help_outline, 'general'),
+    ];
+
+    final subjectCtrl = TextEditingController();
+    final messageCtrl = TextEditingController();
+    String selectedCategory = 'general';
+    bool submitting = false;
+    bool submitted = false;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          if (submitted) {
+            return Container(
+              height: 280,
+              decoration: BoxDecoration(
+                color: C.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle, color: C.brand, size: 56),
+                  const SizedBox(height: 16),
+                  Text('Request Sent!', style: syne(sz: 20, w: FontWeight.w700, c: C.text)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Our support team will respond in your Necxa chat.',
+                    style: dm(sz: 13, c: C.dim),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: Text('Close', style: dm(sz: 14, c: C.brand)),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Container(
+              decoration: BoxDecoration(
+                color: C.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle + header
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 12, bottom: 8),
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: C.dim.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                    child: Row(
+                      children: [
+                        Icon(Icons.support_agent_rounded, color: C.brand, size: 22),
+                        const SizedBox(width: 10),
+                        Text('Contact Necxa Support',
+                            style: syne(sz: 17, w: FontWeight.w700, c: C.text)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Category chips
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text('Category', style: dm(sz: 12, w: FontWeight.w600, c: C.dim)),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 38,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: categories.length,
+                      itemBuilder: (_, i) {
+                        final (label, icon, value) = categories[i];
+                        final active = selectedCategory == value;
+                        return GestureDetector(
+                          onTap: () => setSheet(() => selectedCategory = value),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: active ? C.brand : C.dim.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(icon, size: 13, color: active ? Colors.black : C.dim),
+                                const SizedBox(width: 5),
+                                Text(label,
+                                    style: syne(sz: 11, w: FontWeight.w600,
+                                        c: active ? Colors.black : C.dim)),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Subject
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextField(
+                      controller: subjectCtrl,
+                      style: dm(sz: 14, c: C.text),
+                      decoration: InputDecoration(
+                        hintText: 'Subject (optional)',
+                        hintStyle: dm(sz: 14, c: C.dim),
+                        filled: true,
+                        fillColor: C.dim.withValues(alpha: 0.1),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Message
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextField(
+                      controller: messageCtrl,
+                      style: dm(sz: 14, c: C.text),
+                      maxLines: 4,
+                      minLines: 3,
+                      decoration: InputDecoration(
+                        hintText: 'Describe your issue...',
+                        hintStyle: dm(sz: 14, c: C.dim),
+                        filled: true,
+                        fillColor: C.dim.withValues(alpha: 0.1),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Submit button
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: submitting ? null : () async {
+                          final msg = messageCtrl.text.trim();
+                          if (msg.isEmpty) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(content: Text('Please describe your issue.')),
+                            );
+                            return;
+                          }
+                          setSheet(() => submitting = true);
+                          final subject = subjectCtrl.text.trim().isEmpty
+                              ? 'Support Request'
+                              : subjectCtrl.text.trim();
+                          final res = await SupportService().submitSupportTicket(
+                            subject: subject,
+                            message: msg,
+                            category: selectedCategory,
+                          );
+                          setSheet(() {
+                            submitting = false;
+                            submitted = res['success'] == true;
+                          });
+                          if (res['success'] != true && ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(content: Text(
+                                res['error']?.toString() ?? 'Failed to send request. Try again.')),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: C.brand,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: submitting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.black,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text('Send to Support',
+                                style: syne(sz: 14, w: FontWeight.w700, c: Colors.black)),
+                      ),
+                    ),
+                  ),
+
+                  // Divider + external link fallback
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        Expanded(child: Divider(color: C.dim.withValues(alpha: 0.2))),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('or', style: dm(sz: 12, c: C.dim)),
+                        ),
+                        Expanded(child: Divider(color: C.dim.withValues(alpha: 0.2))),
+                      ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final uri = await SupportService().createGooboxUri();
+                      if (context.mounted) {
+                        try {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        } catch (_) {}
+                      }
+                    },
+                    icon: Icon(Icons.open_in_new, size: 14, color: C.dim),
+                    label: Text('Open goobox.necxa.uk',
+                        style: dm(sz: 13, c: C.dim)),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -1370,30 +1634,15 @@ class _MoreOptionsSheet extends StatelessWidget {
                         c: C.sub,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Light mode is available as an accessibility option.',
+                      style: syne(sz: 11, c: C.sub.withValues(alpha: .55)),
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _ThemeToggleBtn(
-                          label: 'Soft White',
-                          icon: Icons.light_mode,
-                          activeColor: Colors.yellow,
-                          isActive: state.themeMode == ThemeMode.light,
-                          onTap: () {
-                            state.setTheme(ThemeMode.light);
-                            Navigator.pop(context);
-                          },
-                        ),
-                        _ThemeToggleBtn(
-                          label: 'System',
-                          icon: Icons.settings_suggest,
-                          activeColor: Colors.cyan,
-                          isActive: state.themeMode == ThemeMode.system,
-                          onTap: () {
-                            state.setTheme(ThemeMode.system);
-                            Navigator.pop(context);
-                          },
-                        ),
                         _ThemeToggleBtn(
                           label: 'Dark',
                           icon: Icons.dark_mode,
@@ -1401,6 +1650,16 @@ class _MoreOptionsSheet extends StatelessWidget {
                           isActive: state.themeMode == ThemeMode.dark,
                           onTap: () {
                             state.setTheme(ThemeMode.dark);
+                            Navigator.pop(context);
+                          },
+                        ),
+                        _ThemeToggleBtn(
+                          label: 'Light (Accessibility)',
+                          icon: Icons.accessibility_new_rounded,
+                          activeColor: Colors.yellow.shade700,
+                          isActive: state.themeMode == ThemeMode.light,
+                          onTap: () {
+                            state.setTheme(ThemeMode.light);
                             Navigator.pop(context);
                           },
                         ),
@@ -1642,21 +1901,104 @@ class _MyPropertiesList extends StatefulWidget {
 }
 
 class _MyPropertiesListState extends State<_MyPropertiesList> {
+  // ── Smart Loading Pipeline ──────────────────────────────────────────────
+  // Session-level cache: persists across profile rebuilds so scrolling back
+  // never triggers a new network call. Cleared only on logout (via AppState).
+  static List<dynamic>? _sessionCache;
+  static DateTime? _lastFetchAt;
+  static const _staleDuration = Duration(minutes: 5);
+
   List<dynamic> _listings = [];
-  bool _loading = true;
+  bool _loading = true;   // true only on cold start (no cache at all)
+  bool _refreshing = false; // silent background refresh — no spinner shown
+
+  bool get _isStale =>
+      _lastFetchAt == null ||
+      DateTime.now().difference(_lastFetchAt!) > _staleDuration;
 
   @override
   void initState() {
     super.initState();
-    _fetch();
+    _initSmartLoad();
   }
 
+  /// Smart pipeline:
+  /// 1. If session cache exists → paint instantly, then silently refresh if stale.
+  /// 2. If no cache → show spinner, fetch, cache result, paint.
+  void _initSmartLoad() {
+    if (_sessionCache != null) {
+      // Paint immediately from cache — zero spinner, zero bandwidth
+      _listings = _sessionCache!;
+      _loading = false;
+      if (_isStale) _backgroundRefresh();
+    } else {
+      _fetch();
+    }
+  }
+
+  /// Cold fetch: shows spinner (first ever load or after logout).
   Future<void> _fetch() async {
     try {
-      final data = await SmoothAction.myListings();
-      if (mounted) setState(() { _listings = data; _loading = false; });
-    } catch (e) {
-      if (mounted) setState(() => _loading = false);
+      List<dynamic> data = [];
+      try {
+        data = await SmoothAction.myListings();
+      } catch (err) {
+        debugPrint('[_MyPropertiesList] SmoothAction notice: $err');
+      }
+
+      // Resilient fallback: Direct Supabase client query for user's properties
+      if (data.isEmpty) {
+        final uid = Supabase.instance.client.auth.currentUser?.id;
+        if (uid != null) {
+          final res = await Supabase.instance.client
+              .from('properties')
+              .select('*')
+              .eq('lister_id', uid)
+              .order('created_at', ascending: false);
+          if (res is List) data = res;
+        }
+      }
+
+      if (!mounted) return;
+      _sessionCache = data;
+      _lastFetchAt = DateTime.now();
+      setState(() { _listings = data; _loading = false; });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  /// Silent background refresh: no spinner, no layout jump.
+  Future<void> _backgroundRefresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      List<dynamic> data = [];
+      try {
+        data = await SmoothAction.myListings();
+      } catch (_) {}
+
+      if (data.isEmpty) {
+        final uid = Supabase.instance.client.auth.currentUser?.id;
+        if (uid != null) {
+          final res = await Supabase.instance.client
+              .from('properties')
+              .select('*')
+              .eq('lister_id', uid)
+              .order('created_at', ascending: false);
+          if (res is List) data = res;
+        }
+      }
+
+      if (!mounted) return;
+      _sessionCache = data;
+      _lastFetchAt = DateTime.now();
+      if (data.toString() != _listings.toString()) {
+        setState(() => _listings = data);
+      }
+    } catch (_) {} finally {
+      _refreshing = false;
     }
   }
 
@@ -1687,7 +2029,10 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
               if (val != null && val > 0) {
                 Navigator.pop(c);
                 await SmoothAction.updatePropertyPrice(prop['id'], val);
-                _fetch();
+                // Optimistically clear cache timestamp so next background refresh
+                // is treated as stale and fetches immediately
+                _lastFetchAt = null;
+                _backgroundRefresh();
               }
             },
             child: Text('Save', style: dm(c: C.bg)),
@@ -1711,7 +2056,8 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
             onPressed: () async {
               Navigator.pop(c);
               await SmoothAction.delistProperty(prop['id']);
-              _fetch();
+              _lastFetchAt = null; // Force immediate refresh
+              _backgroundRefresh();
             },
             child: Text('Delist', style: dm(c: C.bg)),
           ),
@@ -1723,22 +2069,62 @@ class _MyPropertiesListState extends State<_MyPropertiesList> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator(color: C.brand)));
-    if (_listings.isEmpty) return const SizedBox();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Text('My Properties', style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('My Properties', style: syne(sz: 18, w: FontWeight.bold, c: C.text)),
+              if (_listings.isNotEmpty)
+                Text('${_listings.length} listed', style: dm(sz: 12, c: C.dim)),
+            ],
+          ),
         ),
-        SizedBox(
-          height: 140,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _listings.length,
+        if (_listings.isEmpty)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+            decoration: BoxDecoration(
+              color: C.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: C.border),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: C.brand.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.home_work_outlined, color: C.brand, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('No properties listed yet', style: dm(w: FontWeight.bold, c: C.text, sz: 14)),
+                      const SizedBox(height: 4),
+                      Text('Your active listings will appear here for price management and delisting.', style: dm(c: C.dim, sz: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          SizedBox(
+            height: 220,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _listings.length,
             itemBuilder: (context, i) {
               final prop = _listings[i];
               final images = prop['images'] as List<dynamic>? ?? [];

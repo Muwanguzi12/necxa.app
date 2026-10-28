@@ -5,6 +5,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import com.cloudwebrtc.webrtc.FlutterWebRTCPlugin
+import com.cloudwebrtc.webrtc.video.LocalVideoTrack
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Signature
@@ -13,8 +15,10 @@ import java.math.BigInteger
 
 class MainActivity : FlutterFragmentActivity() {
   private val channelName = "com.necxa/liveness_keystore"
+  private val faceEffectChannelName = "com.necxa/live_beauty"
   private val alias = "necxa_liveness_p256"
   private val b64 = Base64.getUrlEncoder().withoutPadding()
+  private val processors = mutableMapOf<String, FaceBeautyFrameProcessor>()
 
   override fun configureFlutterEngine(engine: FlutterEngine) {
     super.configureFlutterEngine(engine)
@@ -27,6 +31,52 @@ class MainActivity : FlutterFragmentActivity() {
         }
       } catch (error: Exception) {
         result.error("KEYSTORE_ERROR", error.message, null)
+      }
+    }
+    MethodChannel(engine.dartExecutor.binaryMessenger, faceEffectChannelName).setMethodCallHandler { call, result ->
+      val trackId = call.argument<String>("trackId")
+      when (call.method) {
+        "attach" -> {
+          if (trackId == null) {
+            result.error("missing_track", "Camera track is unavailable", null)
+            return@setMethodCallHandler
+          }
+          val track = FlutterWebRTCPlugin.sharedSingleton?.getLocalTrack(trackId)
+          if (track !is LocalVideoTrack) {
+            result.error("track_unavailable", "Live camera track is unavailable", null)
+            return@setMethodCallHandler
+          }
+          val old = processors.remove(trackId)
+          if (old != null) {
+            track.removeProcessor(old)
+            old.close()
+          }
+          val processor = FaceBeautyFrameProcessor()
+          processor.intensity = (call.argument<Double>("intensity") ?: 0.35).toFloat()
+          processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
+          processors[trackId] = processor
+          track.addProcessor(processor)
+          result.success(true)
+        }
+        "setIntensity" -> {
+          val processor = trackId?.let(processors::get)
+          if (processor == null) result.error("not_attached", "Effect is not attached", null)
+          else {
+            processor.intensity = (call.argument<Double>("intensity") ?: 0.35).toFloat()
+            if (call.hasArgument("mirrorLeft")) {
+              processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
+            }
+            result.success(true)
+          }
+        }
+        "detach" -> {
+          val processor = trackId?.let(processors::remove)
+          val track = if (trackId == null) null else FlutterWebRTCPlugin.sharedSingleton?.getLocalTrack(trackId)
+          if (processor != null && track is LocalVideoTrack) track.removeProcessor(processor)
+          processor?.close()
+          result.success(true)
+        }
+        else -> result.notImplemented()
       }
     }
   }
@@ -73,5 +123,11 @@ class MainActivity : FlutterFragmentActivity() {
       source.copyInto(out, 32 - source.size)
     }
     return b64.encode(pad(r) + pad(s)).toString()
+  }
+
+  override fun onDestroy() {
+    processors.values.forEach(FaceBeautyFrameProcessor::close)
+    processors.clear()
+    super.onDestroy()
   }
 }

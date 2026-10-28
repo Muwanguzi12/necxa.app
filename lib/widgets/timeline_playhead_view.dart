@@ -77,6 +77,9 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
   late final Animation<double> _snapRingAnim;
 
   bool _isDragging = false;
+  bool _isFineScrub = false;
+  DateTime? _lastDragTime;
+  double? _lastDragX;
 
   @override
   void initState() {
@@ -111,13 +114,49 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
 
   // ── Drag & seek logic ─────────────────────────────────────────────────────
 
+  void _onDragStart(DragStartDetails details) {
+    _updateRenderBoxLeft();
+    _lastDragTime = DateTime.now();
+    _lastDragX = details.globalPosition.dx;
+    setState(() {
+      _isDragging = true;
+      _isFineScrub = false;
+    });
+  }
+
+  void _onDragEnd() {
+    setState(() {
+      _isDragging = false;
+      _isFineScrub = false;
+      _lastDragTime = null;
+      _lastDragX = null;
+    });
+  }
+
   void _onDragUpdate(DragUpdateDetails details) {
     final scrollOffset = widget.scrollController.hasClients
         ? widget.scrollController.offset
         : 0.0;
-    // details.globalPosition.dx is relative to the screen; convert to timeline
-    // canvas coordinates by adding the scroll offset and subtracting the
-    // widget's render-box left edge (which is always 0 inside the canvas Stack).
+
+    // Velocity detection: slow scrub triggers fine-grain frame preview
+    final now = DateTime.now();
+    if (_lastDragTime != null && _lastDragX != null) {
+      final dt = now.difference(_lastDragTime!).inMilliseconds;
+      if (dt > 16) {
+        final dx = (details.globalPosition.dx - _lastDragX!).abs();
+        final velocity = (dx / dt) * 1000.0; // px/sec
+        final isFine = velocity < 75.0;
+        if (isFine != _isFineScrub) {
+          setState(() => _isFineScrub = isFine);
+          if (isFine) {
+            HapticFeedback.selectionClick();
+          }
+        }
+        _lastDragTime = now;
+        _lastDragX = details.globalPosition.dx;
+      }
+    }
+
     final rawX =
         (details.globalPosition.dx - _renderBoxLeft) + scrollOffset;
     final rawTime = _xToTime(rawX.clamp(0.0, double.infinity));
@@ -173,18 +212,12 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
       bottom: 0,
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onVerticalDragStart: (_) {
-          _updateRenderBoxLeft();
-          setState(() => _isDragging = true);
-        },
+        onVerticalDragStart: _onDragStart,
         onVerticalDragUpdate: _onDragUpdate,
-        onVerticalDragEnd: (_) => setState(() => _isDragging = false),
-        onHorizontalDragStart: (_) {
-          _updateRenderBoxLeft();
-          setState(() => _isDragging = true);
-        },
+        onVerticalDragEnd: (_) => _onDragEnd(),
+        onHorizontalDragStart: _onDragStart,
         onHorizontalDragUpdate: _onDragUpdate,
-        onHorizontalDragEnd: (_) => setState(() => _isDragging = false),
+        onHorizontalDragEnd: (_) => _onDragEnd(),
         child: AnimatedBuilder(
           animation: _snapRingAnim,
           builder: (_, __) => CustomPaint(
@@ -192,6 +225,7 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
             painter: _PlayheadPainter(
               snapRingProgress: _snapRingAnim.value,
               isDragging: _isDragging,
+              isFineScrub: _isFineScrub,
               timecode: _formatTimecode(widget.currentTime),
             ),
           ),
@@ -222,40 +256,51 @@ class _PlayheadPainter extends CustomPainter {
   const _PlayheadPainter({
     required this.snapRingProgress,
     required this.isDragging,
+    required this.isFineScrub,
     required this.timecode,
   });
 
   final double snapRingProgress;
   final bool isDragging;
+  final bool isFineScrub;
   final String timecode;
 
-  static const Color _needleColor = C.brand; // amber/brand
-  static const Color _handleColor = C.brand;
+  static const Color _defaultColor = Color(0xFF00E5FF); // Pro Cyan
+  static const Color _fineColor = Color(0xFFFBBF24); // Precision Amber
   static const Color _snapColor = Color(0xFFFFE066);
   static const double _needleWidth = 2.0;
-  static const double _handleW = 20.0;
-  static const double _handleH = 28.0;
+  static const double _handleW = 14.0;
+  static const double _handleH = 22.0;
   static const double _handleRadius = 5.0;
 
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
+    final activeColor = isFineScrub ? _fineColor : _defaultColor;
 
     // ── Snap ring glow ────────────────────────────────────────────────────
     if (snapRingProgress > 0) {
       final ringRadius = 14.0 + snapRingProgress * 18.0;
       final ringPaint = Paint()
-        ..color = _snapColor.withAlpha(
-          ((1 - snapRingProgress) * 200).round(),
+        ..color = _snapColor.withValues(
+          alpha: (1 - snapRingProgress) * 0.8,
         )
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.5;
       canvas.drawCircle(Offset(cx, _handleH / 2), ringRadius, ringPaint);
     }
 
+    // ── Fine scrub halo glow ──────────────────────────────────────────────
+    if (isDragging && isFineScrub) {
+      final haloPaint = Paint()
+        ..color = _fineColor.withValues(alpha: 0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+      canvas.drawCircle(Offset(cx, _handleH / 2), 12.0, haloPaint);
+    }
+
     // ── Needle ────────────────────────────────────────────────────────────
     final needlePaint = Paint()
-      ..color = _needleColor.withAlpha(isDragging ? 255 : 204)
+      ..color = activeColor.withValues(alpha: isDragging ? 1.0 : 0.85)
       ..strokeWidth = _needleWidth;
     canvas.drawLine(
       Offset(cx, _handleH),
@@ -273,30 +318,36 @@ class _PlayheadPainter extends CustomPainter {
       const Radius.circular(_handleRadius),
     );
     final handlePaint = Paint()
-      ..color = isDragging ? _handleColor : _handleColor.withAlpha(230);
+      ..color = isDragging ? activeColor : activeColor.withValues(alpha: 0.9);
     canvas.drawRRect(handleRect, handlePaint);
 
     // ── Timecode badge ────────────────────────────────────────────────────
     if (isDragging) {
-      _drawTimecode(canvas, Offset(cx, _handleH + 8), timecode);
+      _drawTimecode(canvas, Offset(cx, _handleH + 8), timecode, isFineScrub);
     }
   }
 
-  void _drawTimecode(Canvas canvas, Offset topCenter, String text) {
+  void _drawTimecode(
+    Canvas canvas,
+    Offset topCenter,
+    String text,
+    bool isFine,
+  ) {
+    final displayText = isFine ? '$text • FRAME' : text;
     final tp = TextPainter(
       text: TextSpan(
-        text: text,
-        style: const TextStyle(
+        text: displayText,
+        style: TextStyle(
           fontSize: 9,
           fontWeight: FontWeight.w700,
-          color: Colors.white,
+          color: isFine ? const Color(0xFFFBBF24) : Colors.white,
           letterSpacing: 0.3,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
 
-    const hPad = 5.0;
+    const hPad = 6.0;
     const vPad = 3.0;
     final badgeW = tp.width + hPad * 2;
     final badgeH = tp.height + vPad * 2;
@@ -309,9 +360,21 @@ class _PlayheadPainter extends CustomPainter {
       topCenter.dy,
       left + badgeW,
       topCenter.dy + badgeH,
-      const Radius.circular(4),
+      const Radius.circular(5),
     );
-    canvas.drawRRect(rrect, Paint()..color = const Color(0xDD111116));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = const Color(0xEE0B132B),
+    );
+    if (isFine) {
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..color = const Color(0xFFFBBF24).withValues(alpha: 0.6)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0,
+      );
+    }
     tp.paint(canvas, Offset(left + hPad, topCenter.dy + vPad));
   }
 
@@ -319,5 +382,6 @@ class _PlayheadPainter extends CustomPainter {
   bool shouldRepaint(_PlayheadPainter old) =>
       snapRingProgress != old.snapRingProgress ||
       isDragging != old.isDragging ||
+      isFineScrub != old.isFineScrub ||
       timecode != old.timecode;
 }

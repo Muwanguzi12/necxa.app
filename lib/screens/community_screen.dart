@@ -17,9 +17,11 @@ import 'dart:convert';
 import 'sound_hub_screen.dart';
 import 'live_studio_screen.dart';
 import '../widgets/checkout_overlay.dart';
+import '../widgets/necxa_experience_sheet.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/commerce_service.dart';
+import '../utils/content_sanitizer.dart';
 
 String? _extractListingImageUrl(dynamic value) {
   if (value == null) return null;
@@ -1013,6 +1015,54 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       'LIVE Now',
                       style: syne(sz: 13, w: FontWeight.w900, c: C.text),
                     ),
+                    const SizedBox(width: 10),
+                    // ── Go Live shortcut button ──
+                    GestureDetector(
+                      onTap: () {
+                        _toggleLiveOverlay();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LiveStudioScreen(
+                              state: widget.state,
+                              channelName:
+                                  '${widget.state.myDisplayName ?? 'User'}_Live',
+                              isHost: true,
+                              hostId: widget.state.user?.id,
+                              hostName: widget.state.myDisplayName,
+                              hostAvatar: widget.state.myAvatarUrl,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF334E), Color(0xFFFF6B35)],
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFF334E).withValues(alpha: 0.4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.wifi_tethering_rounded, size: 12, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Go Live',
+                              style: syne(sz: 11, w: FontWeight.w800, c: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     const Spacer(),
                     if (_activeLiveStreams.isNotEmpty)
                       TextButton(
@@ -1764,7 +1814,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
   // ── New UX States ──
   bool _isExpanded = false;
-  final bool _isDescExpanded = false;
+  bool _isDescExpanded = false;
   bool _isCleanMode = false;
   bool _showCleanHint = false;
   late AnimationController _pulseController;
@@ -1872,6 +1922,26 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         ),
       );
     }
+  }
+
+  void _openTagSearch(String tag) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Align(
+        alignment: kIsWeb ? Alignment.center : Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: communityModalMaxWidth(MediaQuery.sizeOf(context).width),
+          ),
+          child: _CommunitySearchSheet(
+            state: widget.state,
+            initialTab: 0,
+          ),
+        ),
+      ),
+    );
   }
 
   void _handleLike() async {
@@ -2180,37 +2250,99 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ),
                 ),
 
-                // Creator Bubble
+                // 🚀 UNIFIED BOTTOM CONTROLS
+                // Avatar + Name, Scrubber, Description + Chevron, Hashtags/Nametags, Rotating Sound Disc
                 Positioned(
                   left: 16,
-                  bottom: MediaQuery.of(context).padding.bottom + 120,
-                  child: _buildExpandableBubble(),
-                ),
-
-                // Info Section
-                Positioned(
-                  left: 20,
-                  bottom: MediaQuery.of(context).padding.bottom + 40,
-                  right: 80,
+                  right: 16,
+                  bottom: MediaQuery.of(context).padding.bottom + 14,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '@$username',
-                        style: syne(sz: 13, w: FontWeight.w900, c: C.text),
+                      // 1. Creator Bubble + Display Name ('kiol')
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _buildExpandableBubble(),
+                          AnimatedBuilder(
+                            animation: _expandController,
+                            builder: (context, _) {
+                              final double opacity =
+                                  (1.0 - _expandController.value * 2.5)
+                                      .clamp(0.0, 1.0);
+                              if (opacity <= 0.0) return const SizedBox.shrink();
+                              return Opacity(
+                                opacity: opacity,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 10),
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      widget.state.targetProfileId =
+                                          widget.post['author_id'];
+                                      widget.state.go('public_profile');
+                                    },
+                                    child: Text(
+                                      username,
+                                      style: syne(
+                                        sz: 14,
+                                        w: FontWeight.w700,
+                                        c: Colors.white,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        description,
-                        style: dm(sz: 13, c: C.text.withOpacity(0.9)),
-                      ),
+                      const SizedBox(height: 10),
 
-                      // 🚀 SHOP REEL: Inline Buy Button if linked to a listing
-                      if (widget.post['listings'] != null) ...[
-                        const SizedBox(height: 12),
-                        _buildMiniBuyCard(widget.post['listings']),
-                      ],
+                      // 2. Video Progress Scrubber Bar (Horizontal line with thumb)
+                      _VideoScrubber(
+                        controller:
+                            _activeVideoController ??
+                            _videoKey.currentState?.controller,
+                      ),
+                      const SizedBox(height: 10),
+
+                      // 3. Bottom Row: Description + Hashtags on Left, Rotating Sound Disc on Right
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Description with '>' chevron expand button
+                                _buildDescriptionRow(description),
+                                const SizedBox(height: 8),
+
+                                // Hashtag / nametag / mentions chips
+                                _buildHashtagRow(description),
+
+                                // Shop Reel inline buy card if linked to a listing
+                                if (widget.post['listings'] != null) ...[
+                                  const SizedBox(height: 8),
+                                  _buildMiniBuyCard(widget.post['listings']),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+
+                          // 4. Rotating Sound Disc (Bottom Right)
+                          GestureDetector(
+                            onTap: _goToSoundHub,
+                            child: _buildRotatingDisc(),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -2238,44 +2370,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             ),
           ),
 
-        // 5. ROTATING SOUND DISC (Bottom Right)
+        // 4. Side Action Hub (positioned directly above bottom controls)
         Positioned(
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 40,
-          child: AnimatedOpacity(
-            opacity: _isCleanMode ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 300),
-            child: IgnorePointer(
-              ignoring: _isCleanMode,
-              child: GestureDetector(
-                onTap: _goToSoundHub,
-                child: _buildRotatingDisc(),
-              ),
-            ),
-          ),
-        ),
-
-        // 6. VIDEO PROGRESS INDICATOR / MEDIA SCRUBBER (Horizontally above sound, no time indicators)
-        Positioned(
-          left: 16,
-          right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 88,
-          child: AnimatedOpacity(
-            opacity: _isCleanMode ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 300),
-            child: IgnorePointer(
-              ignoring: _isCleanMode,
-              child: _VideoScrubber(
-                controller: _activeVideoController ?? _videoKey.currentState?.controller,
-              ),
-            ),
-          ),
-        ),
-
-        // 4. Side Action Hub
-        Positioned(
-          right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 100,
+          bottom: MediaQuery.of(context).padding.bottom + 140,
           child: AnimatedOpacity(
             opacity: _isCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -2299,7 +2397,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.card_giftcard,
-                    label: 'Gift',
+                    label: (widget.post['gifts_count'] != null && (widget.post['gifts_count'] as num) > 0)
+                        ? kNum(widget.post['gifts_count'])
+                        : 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
                       final receiverId = widget.post['author_id']?.toString();
@@ -2404,9 +2504,35 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ListTile(
                   leading: Icon(Icons.visibility_off_outlined, color: C.sub),
                   title: Text('Not Interested', style: dm(sz: 16, c: C.text)),
-                  onTap: () {
+                  subtitle: Text(
+                    "We'll hide this post and show fewer posts like this.",
+                    style: dm(sz: 12, c: C.dim),
+                  ),
+                  onTap: () async {
                     Navigator.pop(context);
-                    widget.state.notInterested(postId, 'post');
+                    await widget.state.notInterested(postId, 'post');
+                    if (mounted) {
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Post hidden. You will see fewer posts like this.',
+                                  style: dm(sz: 13, c: C.text),
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: const Color(0xFF131923),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
                   },
                 ),
               if (isOwner && postId != null)
@@ -2474,39 +2600,137 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(Icons.report_problem_outlined, color: C.text),
+                  leading: Icon(Icons.report_problem_outlined, color: Colors.orangeAccent),
                   title: Text('Report Content', style: dm(sz: 16, c: C.text)),
-                  onTap: () async {
+                  subtitle: Text(
+                    'Sent for review by Necxa AI & team at Goobox.',
+                    style: dm(sz: 12, c: C.dim),
+                  ),
+                  onTap: () {
                     Navigator.pop(context);
-                    final messenger = ScaffoldMessenger.of(this.context);
-                    try {
-                      await widget.state.reportContent(
-                        postId,
-                        'post',
-                        'Inappropriate content',
-                      );
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text('Post reported for review'),
-                          ),
-                        );
-                      }
-                    } catch (_) {
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Could not submit the report. Try again.',
-                            ),
-                            backgroundColor: Colors.redAccent,
-                          ),
-                        );
-                      }
-                    }
+                    _showReportReasonsDialog(postId);
                   },
                 ),
               const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showReportReasonsDialog(String postId) {
+    final reasons = [
+      'Inappropriate or adult content',
+      'Spam, misleading or fraud',
+      'Hate speech, harassment or bullying',
+      'Violence or dangerous content',
+      'Copyright or intellectual property violation',
+      'Other content policy violation',
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D121B),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          border: Border.all(color: C.text.withOpacity(0.1)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: C.dim,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.orangeAccent.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.shield_outlined, color: Colors.orangeAccent, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Report Content', style: syne(sz: 18, w: FontWeight.w700, c: C.text)),
+                        const SizedBox(height: 2),
+                        Text('Reviewed by Necxa AI & team at Goobox', style: dm(sz: 12, c: C.dim)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white10),
+              ...reasons.map((reason) => ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                leading: const Icon(Icons.flag_outlined, color: Colors.orangeAccent, size: 18),
+                title: Text(reason, style: dm(sz: 14, c: C.text)),
+                trailing: Icon(Icons.chevron_right, color: C.dim, size: 18),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  final messenger = ScaffoldMessenger.of(this.context);
+                  try {
+                    await widget.state.reportContent(
+                      postId,
+                      'post',
+                      reason,
+                      details: 'Reported from community reel via moderation engine',
+                    );
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.verified_user_outlined, color: C.brand, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Report submitted. Necxa AI & Goobox team will review this content.',
+                                  style: dm(sz: 13, c: C.text),
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: const Color(0xFF131923),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not submit report. Please try again.'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
+                  }
+                },
+              )),
+              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -2545,6 +2769,124 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   }
 
   // ── NEW UI COMPONENTS ───────────────────────────────────────
+
+  Widget _buildDescriptionRow(String description) {
+    if (description.isEmpty) return const SizedBox.shrink();
+
+    // Strip trailing hashtags from text so they don't duplicate with the chips below
+    String displayDesc =
+        description.replaceAll(RegExp(r'(#[a-zA-Z0-9_]+\s*)+$'), '').trim();
+    if (displayDesc.isEmpty) displayDesc = description;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _isDescExpanded = !_isDescExpanded;
+        });
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              displayDesc,
+              style: dm(
+                sz: 13,
+                w: FontWeight.w500,
+                c: Colors.white.withValues(alpha: 0.95),
+              ),
+              maxLines: _isDescExpanded ? null : 1,
+              overflow:
+                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            _isDescExpanded
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.chevron_right_rounded,
+            color: const Color(0xFF00E5FF),
+            size: 18,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHashtagRow(String description) {
+    final tags = _extractPostTags(description);
+    if (tags.isEmpty) return const SizedBox.shrink();
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: tags.map((tag) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => _openTagSearch(tag),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    width: 0.8,
+                  ),
+                ),
+                child: Text(
+                  tag,
+                  style: dm(
+                    sz: 11,
+                    w: FontWeight.w600,
+                    c: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  List<String> _extractPostTags(String description) {
+    final List<String> result = [];
+
+    final rawTags = widget.post['tags'] ?? widget.post['hashtags'];
+    if (rawTags is List) {
+      for (final t in rawTags) {
+        final s = t.toString().trim();
+        if (s.isNotEmpty) {
+          result.add(s.startsWith('#') || s.startsWith('@') ? s : '#$s');
+        }
+      }
+    } else if (rawTags is String && rawTags.trim().isNotEmpty) {
+      result.addAll(ContentSanitizer.sanitizeTags(rawTags));
+    }
+
+    final inlineTags = ContentSanitizer.extractHashtagsFromText(description);
+    result.addAll(inlineTags);
+
+    final mentionRegex = RegExp(r'@[a-zA-Z0-9_]+');
+    for (final m in mentionRegex.allMatches(description)) {
+      final mention = m.group(0);
+      if (mention != null && mention.isNotEmpty) {
+        result.add(mention);
+      }
+    }
+
+    if (result.isEmpty) {
+      result.addAll(['#NightVibes', '#StreetStyle', '#NecxaMoments']);
+    }
+
+    return result.toSet().toList();
+  }
 
   Widget _buildExpandableBubble() {
     return GestureDetector(
@@ -2907,12 +3249,33 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           _menuItem(
                             'Not Interested',
                             Icons.sentiment_dissatisfied,
-                            onTap: () {
+                            onTap: () async {
                               Navigator.pop(context);
-                              widget.state.notInterested(
+                              await widget.state.notInterested(
                                 widget.post['id'],
                                 'post',
                               );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Row(
+                                      children: [
+                                        const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Post hidden. You will see fewer posts like this.',
+                                            style: dm(sz: 13, c: C.text),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    backgroundColor: const Color(0xFF131923),
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                );
+                              }
                             },
                           ),
                           _menuItem(
@@ -2921,17 +3284,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             color: Colors.redAccent,
                             onTap: () {
                               Navigator.pop(context);
-                              widget.state.reportContent(
-                                widget.post['id'],
-                                'post',
-                                'Inappropriate content',
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Post reported'),
-                                  backgroundColor: Colors.redAccent,
-                                ),
-                              );
+                              final postId = widget.post['id']?.toString();
+                              if (postId != null) {
+                                _showReportReasonsDialog(postId);
+                              }
                             },
                           ),
                         ],
@@ -3202,6 +3558,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
 
   // New Bubble States
   bool _isExpanded = false;
+  bool _isDescExpanded = false;
   late AnimationController _pulseController;
   late AnimationController _expandController;
   Timer? _collapseTimer;
@@ -3233,6 +3590,16 @@ class _ShopReelItemState extends State<_ShopReelItem>
   @override
   void didUpdateWidget(covariant _ShopReelItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.listing['id'] != widget.listing['id']) {
+      _activeVideoController = null;
+      _isDescExpanded = false;
+      _buyPanelTimer?.cancel();
+      _buyPanelVisible = false;
+      // Restart 4s attention timer for newly swiped product
+      _buyPanelTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _buyPanelVisible = true);
+      });
+    }
     _isLiked =
         widget.listing['is_liked'] == true || widget.listing['is_liked'] == 1;
     _likesCount = (widget.listing['likes_count'] as num?)?.toInt() ?? 0;
@@ -3321,6 +3688,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
     final price = widget.listing['price'] ?? 0;
     final title = widget.listing['title'] ?? 'Luxury Shard';
     final description = widget.listing['description'] ?? '';
+    final rawProf = widget.listing['profiles'] ?? widget.listing['lister'];
+    final prof = (rawProf is List && rawProf.isNotEmpty)
+        ? rawProf[0]
+        : (rawProf is Map ? rawProf : null);
+    final vendorName = prof?['display_name'] ?? prof?['full_name'] ?? 'Vendor';
 
     return Stack(
       fit: StackFit.expand,
@@ -3420,7 +3792,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
         // 5. SIDE ACTION HUB (RIGHT)
         Positioned(
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 120,
+          bottom: MediaQuery.of(context).padding.bottom + 200,
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -3471,7 +3843,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.card_giftcard,
-                    label: 'Gift',
+                    label: (widget.listing['gifts_count'] != null && (widget.listing['gifts_count'] as num) > 0)
+                        ? kNum(widget.listing['gifts_count'])
+                        : 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
                       if (authorId == widget.state.user?.id) {
@@ -3523,28 +3897,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
           ),
         ),
 
-        // 5. VIDEO PROGRESS INDICATOR / MEDIA SCRUBBER (Horizontally across bottom, no time indicators)
+        // 5. UNIFIED BOTTOM COMMERCE UI
         Positioned(
           left: 16,
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 88,
-          child: AnimatedOpacity(
-            opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 300),
-            child: IgnorePointer(
-              ignoring: widget.state.isFeedCleanMode,
-              child: _VideoScrubber(
-                controller: _activeVideoController ?? _videoKey.currentState?.controller,
-              ),
-            ),
-          ),
-        ),
-
-        // 6. BOTTOM INTERACTIVE UI (LEFT)
-        Positioned(
-          left: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 20,
-          right: 80, // Leave space for side actions
+          bottom: MediaQuery.of(context).padding.bottom + 14,
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -3554,27 +3911,212 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 1. Creator Info Bubble
-                  _buildExpandableBubble(),
-                  const SizedBox(height: 12),
-
-                  // 2. Product Description & Price (Always visible)
-                  Text(
-                    title,
-                    style: syne(sz: 14, w: FontWeight.w900, c: C.text),
+                  // 1. Creator Info Bubble + Display Name (Inline, fades when panel is expanded)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _buildExpandableBubble(),
+                      AnimatedBuilder(
+                        animation: _expandController,
+                        builder: (context, _) {
+                          final double opacity =
+                              (1.0 - _expandController.value * 2.5).clamp(0.0, 1.0);
+                          if (opacity <= 0.0) return const SizedBox.shrink();
+                          return Opacity(
+                            opacity: opacity,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 10),
+                              child: GestureDetector(
+                                onTap: () {
+                                  final authorId =
+                                      widget.listing['lister_id'] ??
+                                      widget.listing['user_id'];
+                                  if (authorId != null) {
+                                    widget.state.targetProfileId = authorId;
+                                    widget.state.go('public_profile');
+                                  }
+                                },
+                                child: Text(
+                                  vendorName,
+                                  style: syne(
+                                    sz: 14,
+                                    w: FontWeight.w700,
+                                    c: Colors.white,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: dm(sz: 12, c: C.sub),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
-                  // 3. 4s DELAYED BUY OVERLAY
-                  // This overlays on top but is fairly small as requested.
-                  if (_buyPanelVisible) _buildExpandedBuyPanel(context),
+                  // 2. Video Progress Scrubber Bar (Horizontal line with thumb)
+                  _VideoScrubber(
+                    controller:
+                        _activeVideoController ??
+                        _videoKey.currentState?.controller,
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 3. Product Title, Price & Experience Action
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Product Title + Price Pill
+                      Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: syne(
+                                  sz: 15,
+                                  w: FontWeight.w900,
+                                  c: Colors.white,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                ugx(num.tryParse(price.toString()) ?? 0),
+                                style: dm(
+                                  sz: 13,
+                                  w: FontWeight.bold,
+                                  c: const Color(0xFF00E5FF),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // 👤 EXPERIENCE → Button (Immediately accessible on product view)
+                      GestureDetector(
+                        onTap: () {
+                          NecxaExperienceSheet.show(
+                            context: context,
+                            listing: widget.listing,
+                            state: widget.state,
+                            onBuyNow: () {
+                              widget.state.selectedListing = widget.listing;
+                              widget.state.showCheckoutOverlay = true;
+                              widget.state.notify();
+                            },
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A1324).withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFF00E5FF),
+                              width: 1.3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+                                blurRadius: 10,
+                                spreadRadius: 0.5,
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: Stack(
+                                  children: [
+                                    const Positioned(
+                                      left: 0,
+                                      top: 2,
+                                      child: Icon(
+                                        Icons.person_outline_rounded,
+                                        color: Color(0xFF00E5FF),
+                                        size: 14,
+                                      ),
+                                    ),
+                                    Positioned(
+                                      right: 0,
+                                      top: 0,
+                                      child: Icon(
+                                        Icons.auto_awesome,
+                                        color: const Color(0xFF00E5FF),
+                                        size: 8,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'EXPERIENCE',
+                                style: syne(
+                                  sz: 11,
+                                  w: FontWeight.w900,
+                                  c: const Color(0xFF00E5FF),
+                                  ls: 0.8,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_forward_rounded,
+                                color: Color(0xFF00E5FF),
+                                size: 14,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  // 4. Product Description with '>' Expand Chevron
+                  _buildShopDescriptionRow(description),
+
+                  // 5. Smart 4s Delayed Buy Overlay (pops up only after customer gives attention)
+                  AnimatedCrossFade(
+                    firstChild: const SizedBox.shrink(),
+                    secondChild: Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: _buildExpandedBuyPanel(context),
+                    ),
+                    crossFadeState: _buyPanelVisible
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                    duration: const Duration(milliseconds: 350),
+                  ),
                 ],
               ),
             ),
@@ -3623,6 +4165,45 @@ class _ShopReelItemState extends State<_ShopReelItem>
               const SizedBox(height: 8),
               Container(width: 80, height: 10, color: C.dim),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShopDescriptionRow(String description) {
+    if (description.isEmpty) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _isDescExpanded = !_isDescExpanded;
+        });
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              description,
+              style: dm(
+                sz: 12,
+                w: FontWeight.w500,
+                c: Colors.white.withValues(alpha: 0.85),
+              ),
+              maxLines: _isDescExpanded ? null : 1,
+              overflow:
+                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            _isDescExpanded
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.chevron_right_rounded,
+            color: const Color(0xFF00E5FF),
+            size: 16,
           ),
         ],
       ),

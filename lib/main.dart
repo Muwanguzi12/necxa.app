@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'theme.dart';
 import 'app_state.dart';
@@ -22,6 +22,7 @@ import 'widgets/gift_float.dart';
 import 'screens/artist_auth_screen.dart';
 import 'screens/creator_chat_list_screen.dart';
 import 'screens/creator_chat_detail_screen.dart';
+import 'screens/live_hub_screen.dart';
 import 'screens/admin/music_management_admin.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:ui';
@@ -246,7 +247,7 @@ class _RootShellState extends State<RootShell> {
 
   Widget _buildLockScreen() {
     return Container(
-      color: Colors.black.withOpacity(.95),
+      color: Colors.black.withValues(alpha: .95),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -301,7 +302,13 @@ class _RootShellState extends State<RootShell> {
       return LoginScreen(state: _state);
     }
 
+    if (kIsWeb && (_state.screen == 'community' || _state.screen == 'upload')) {
+      return HomeScreen(state: _state);
+    }
+
     switch (_state.screen) {
+      case 'live':
+        return LiveHubScreen(state: _state);
       case 'detail':
         return DetailScreen(state: _state);
       case 'community':

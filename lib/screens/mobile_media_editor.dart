@@ -99,6 +99,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Duration? _dragOriginalStart;
   Duration? _dragOriginalDuration;
   double _dragCumulativeDx = 0;
+  double _dragCumulativeDy = 0;
+  bool _hasClipOverlap = false;
+  bool _isLiftSwipeUp = false;
+  bool _isDeleteSwipeDown = false;
   final Map<String, Duration> _dragRippleOriginalStarts = <String, Duration>{};
   double _clipHandleWidth = 12.0; // hit area for handles in pixels
   bool _isRippleMode = false; // when true, edits ripple following clips
@@ -106,6 +110,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   bool _isSnappingEnabled = true;
   bool _showSymmetryGuide = false;
   bool _previewOriginal = false;
+
+  // Ghost trim preview — stored at drag-start so we can draw the original
+  // clip outline as a ghost while the user is resizing (amber dashed border).
+  Duration? _ghostStart;
+  Duration? _ghostDuration;
+  String? _ghostClipId;
+  String? _ghostTrackId;
+
+  // Loop Region & In/Out points
+  Duration? _loopIn;
+  Duration? _loopOut;
+  bool _isLoopingEnabled = false;
 
   // Timeline pinch/zoom helpers
   double? _timelineScaleStartZoom;
@@ -120,6 +136,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         c.start = originalStart + totalDelta;
       }
     }
+  }
+
+  /// Returns true if [clip] overlaps any other visible clip on [track].
+  bool _checkTrackOverlap(TimelineTrack track, TimelineClip clip) {
+    final clipStart = clip.start;
+    final clipEnd = clip.start + clip.duration;
+    for (final other in track.clips) {
+      if (other.id == clip.id || other.isHidden) continue;
+      final otherStart = other.start;
+      final otherEnd = other.start + other.duration;
+      if (clipStart < otherEnd && clipEnd > otherStart) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Duration clamp helper since Duration doesn't expose clamp()
@@ -159,6 +190,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _dragOriginalStart = clip.start;
     _dragOriginalDuration = clip.duration;
     _dragCumulativeDx = 0;
+    _dragCumulativeDy = 0;
+    _hasClipOverlap = false;
+    _isLiftSwipeUp = false;
+    _isDeleteSwipeDown = false;
     final originalEnd = clip.start + clip.duration;
     _dragRippleOriginalStarts
       ..clear()
@@ -183,6 +218,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       }
     }
 
+    // Snapshot ghost position for trim outline preview
+    _ghostClipId = clip.id;
+    _ghostTrackId = track.id;
+    _ghostStart = clip.start;
+    _ghostDuration = clip.duration;
+
     // Capture timeline for undo
     _captureTimeline();
   }
@@ -195,6 +236,22 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     if (_activeDragClipId != clip.id) return;
     final scale = _pixelsPerSecond * _timelineZoom;
     _dragCumulativeDx += details.delta.dx;
+    _dragCumulativeDy += details.delta.dy;
+
+    // Vertical swipe gesture tracking during move mode
+    if (_clipDragMode == _ClipDragMode.move) {
+      final isLift = _dragCumulativeDy < -36.0;
+      final isDelete = _dragCumulativeDy > 36.0;
+      if (isLift != _isLiftSwipeUp) {
+        _isLiftSwipeUp = isLift;
+        if (isLift) HapticFeedback.selectionClick();
+      }
+      if (isDelete != _isDeleteSwipeDown) {
+        _isDeleteSwipeDown = isDelete;
+        if (isDelete) HapticFeedback.mediumImpact();
+      }
+    }
+
     final rawDelta = Duration(
       milliseconds: (_dragCumulativeDx / scale * 1000.0).round(),
     );
@@ -322,18 +379,107 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         case _ClipDragMode.none:
           break;
       }
+
+      // Overlap / Collision Warning detection
+      final isOverlap = _checkTrackOverlap(track, clip);
+      if (isOverlap != _hasClipOverlap) {
+        _hasClipOverlap = isOverlap;
+        if (isOverlap) {
+          HapticFeedback.heavyImpact();
+        }
+      }
+
       _playback.updateProject(_tracks);
     });
   }
 
   void _onClipPanEnd(DragEndDetails details) {
+    final wasMove = _clipDragMode == _ClipDragMode.move;
+    final movedClipId = _activeDragClipId;
+    final isLift = _isLiftSwipeUp;
+    final isDelete = _isDeleteSwipeDown;
+
     _activeDragClipId = null;
     _clipDragMode = _ClipDragMode.none;
     _dragStartLocalX = null;
     _dragOriginalStart = null;
     _dragOriginalDuration = null;
     _dragCumulativeDx = 0;
+    _dragCumulativeDy = 0;
+    _hasClipOverlap = false;
+    _isLiftSwipeUp = false;
+    _isDeleteSwipeDown = false;
     _dragRippleOriginalStarts.clear();
+    // Clear ghost trim preview
+    _ghostClipId = null;
+    _ghostTrackId = null;
+    _ghostStart = null;
+    _ghostDuration = null;
+
+    if (movedClipId != null) {
+      TimelineTrack? sourceTrack;
+      TimelineClip? targetClip;
+      for (final t in _tracks) {
+        for (final c in t.clips) {
+          if (c.id == movedClipId) {
+            sourceTrack = t;
+            targetClip = c;
+            break;
+          }
+        }
+      }
+
+      if (targetClip != null && sourceTrack != null) {
+        if (isDelete) {
+          // Swipe-down delete with magnetic ripple collapse
+          _magneticallyDeleteClips([targetClip!.id]);
+          HapticFeedback.heavyImpact();
+          _showSnack('Deleted clip & magnetically closed timeline gap');
+          return;
+        } else if (isLift) {
+          // Swipe-up move to track above
+          final currentIdx = _tracks.indexWhere((t) => t.id == sourceTrack!.id);
+          setState(() {
+            sourceTrack!.clips.removeWhere((c) => c.id == targetClip!.id);
+            if (currentIdx > 0) {
+              _tracks[currentIdx - 1].clips.add(targetClip!);
+              _selectedTrackId = _tracks[currentIdx - 1].id;
+            } else {
+              final newTrack = TimelineTrack(
+                id: 'track_${DateTime.now().millisecondsSinceEpoch}',
+                type: sourceTrack!.type,
+                label: '${sourceTrack.label} Overlay',
+                icon: sourceTrack.icon,
+                clips: [targetClip!],
+              );
+              _tracks.insert(0, newTrack);
+              _selectedTrackId = newTrack.id;
+            }
+          });
+          HapticFeedback.mediumImpact();
+          _showSnack('Moved clip to track above');
+          return;
+        }
+      }
+    }
+
+    // Playhead Parking: auto-park playhead at start of moved clip with smooth reposition
+    if (wasMove && movedClipId != null) {
+      TimelineClip? movedClip;
+      for (final t in _tracks) {
+        for (final c in t.clips) {
+          if (c.id == movedClipId) {
+            movedClip = c;
+            break;
+          }
+        }
+      }
+      if (movedClip != null) {
+        _playback.seek(movedClip.start, _tracks);
+        setState(() => _currentTime = movedClip!.start);
+        _ensureTimelinePosition();
+      }
+    }
     // finalize history capture already taken at start
   }
 
@@ -456,6 +602,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _loadProState();
     _loadShaders();
     _triggerInitialProxies();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _queueCompositionSync();
+    });
   }
 
   Future<void> _loadProState() async {
@@ -657,6 +806,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       );
       controller.addListener(_syncVideoState);
       if (mounted) setState(() => _isVideoReady = true);
+      if (_playback.state.isPlaying && !clip.isReversed) {
+        await controller.play();
+      }
+      _queueCompositionSync();
     } on TimeoutException catch (_) {
       if (loadGeneration == _videoLoadGeneration && mounted) {
         setState(() => _isVideoReady = false);
@@ -1208,6 +1361,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           ),
           ..._buildEffectOverlayWidgets(),
           ..._buildTimelineOverlayWidgets(),
+          _buildTransitionOverlay(compositionClip),
         ],
       );
     }
@@ -1246,6 +1400,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           _applyClipPresentation(compositionClip, Center(child: video)),
           ..._buildEffectOverlayWidgets(),
           ..._buildTimelineOverlayWidgets(),
+          _buildTransitionOverlay(compositionClip),
           Positioned(
             bottom: 10,
             left: 10,
@@ -1277,14 +1432,106 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
+  Widget _buildTransitionOverlay(TimelineClip? visual) {
+    if (visual == null || visual.transitionIn == null) return const SizedBox.shrink();
+    final tOp = visual.transitionIn!;
+    final tDuration = Duration(milliseconds: (tOp.duration * 1000).round());
+    final elapsed = _currentTime - visual.start;
+    if (elapsed < Duration.zero || elapsed > tDuration || tDuration.inMilliseconds == 0) {
+      return const SizedBox.shrink();
+    }
+    final progress = (elapsed.inMilliseconds / tDuration.inMilliseconds).clamp(0.0, 1.0);
+    final invProgress = (1.0 - progress).clamp(0.0, 1.0);
+
+    switch (tOp.presetId) {
+      case 'fade':
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: Container(
+              color: Colors.black.withValues(alpha: invProgress),
+            ),
+          ),
+        );
+      case 'flash':
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: Container(
+              color: Colors.white.withValues(alpha: (invProgress * invProgress).clamp(0.0, 1.0)),
+            ),
+          ),
+        );
+      case 'glitch':
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: Container(
+              color: (elapsed.inMilliseconds % 120 < 60)
+                  ? const Color(0xFF00E5FF).withValues(alpha: invProgress * 0.45)
+                  : const Color(0xFFFF007F).withValues(alpha: invProgress * 0.45),
+            ),
+          ),
+        );
+      case 'wipe':
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FractionallySizedBox(
+                widthFactor: invProgress,
+                heightFactor: 1.0,
+                child: Container(
+                  color: Colors.black,
+                ),
+              ),
+            ),
+          ),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
   Widget _applyClipPresentation(TimelineClip clip, Widget child) {
+    var transOpacity = 1.0;
+    var transOffset = Offset.zero;
+    var transScale = 1.0;
+    var transRotation = 0.0;
+
+    if (clip.transitionIn != null) {
+      final tOp = clip.transitionIn!;
+      final tDuration = Duration(milliseconds: (tOp.duration * 1000).round());
+      final elapsed = _currentTime - clip.start;
+      if (elapsed >= Duration.zero && elapsed <= tDuration && tDuration.inMilliseconds > 0) {
+        final progress = (elapsed.inMilliseconds / tDuration.inMilliseconds).clamp(0.0, 1.0);
+        switch (tOp.presetId) {
+          case 'crossfade':
+          case 'dissolve':
+            transOpacity = Curves.easeOutCubic.transform(progress);
+            break;
+          case 'slide':
+            final dx = (1.0 - Curves.easeOutCubic.transform(progress)) * 320.0;
+            transOffset = Offset(dx, 0);
+            break;
+          case 'zoom':
+            transScale = 1.0 + (1.0 - Curves.easeOutCubic.transform(progress)) * 0.35;
+            break;
+          case 'spin':
+            transRotation = (1.0 - Curves.easeOutCubic.transform(progress)) * 0.25;
+            transScale = 1.0 + (1.0 - Curves.easeOutCubic.transform(progress)) * 0.2;
+            break;
+        }
+      }
+    }
+
     Widget result = Opacity(
-      opacity: clip.transform.opacity.clamp(0.0, 1.0),
+      opacity: (clip.transform.opacity * transOpacity).clamp(0.0, 1.0),
       child: Transform.translate(
-        offset: clip.transform.position,
+        offset: clip.transform.position + transOffset,
         child: Transform.rotate(
-          angle: clip.transform.rotation,
-          child: Transform.scale(scale: clip.transform.scale, child: child),
+          angle: clip.transform.rotation + transRotation,
+          child: Transform.scale(
+            scale: clip.transform.scale * transScale,
+            child: child,
+          ),
         ),
       ),
     );
@@ -1879,18 +2126,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final height = 56.0;
 
     return Container(
-      height: height,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: C.card,
-        border: Border(bottom: BorderSide(color: C.border)),
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        color: Color(0xFF070D18),
+        border: Border(bottom: BorderSide(color: Color(0xFF131D2E))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             _formatDuration(_currentTime),
-            style: dm(sz: 12, w: FontWeight.w600, c: C.brand),
+            style: dm(sz: 15, w: FontWeight.w700, c: C.brand),
           ),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -1905,16 +2152,133 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               const SizedBox(width: 8),
               _buildPlaybackButton(Icons.skip_next, () => _nextFrame()),
               const SizedBox(width: 8),
-              // Expand belongs directly after the forward control.
               _buildPlaybackButton(
-                Icons.fullscreen_outlined,
+                _isLoopingEnabled ? Icons.repeat_one : Icons.repeat,
+                () => _toggleLooping(),
+                activeColor:
+                    _isLoopingEnabled ? const Color(0xFF10B981) : null,
+                onLongPress: () => _showLoopContextMenu(),
+              ),
+              const SizedBox(width: 8),
+              _buildPlaybackButton(
+                Icons.crop_free,
                 () => setState(() => _showFullscreenPreview = true),
               ),
             ],
           ),
-          Text(_formatDuration(_totalDuration), style: dm(sz: 12, c: C.dim)),
+          Text(
+            _formatDuration(_totalDuration),
+            style: dm(sz: 15, c: const Color(0xFF94A3B8), w: FontWeight.w600),
+          ),
         ],
       ),
+    );
+  }
+
+  void _toggleLooping() {
+    setState(() {
+      _isLoopingEnabled = !_isLoopingEnabled;
+      if (_isLoopingEnabled &&
+          (_loopIn == null || _loopOut == null || _loopOut! <= _loopIn!)) {
+        if (_selectedClip != null) {
+          _loopIn = _selectedClip!.start;
+          _loopOut = _selectedClip!.start + _selectedClip!.duration;
+        } else {
+          final half = const Duration(seconds: 3);
+          _loopIn = _currentTime > half ? _currentTime - half : Duration.zero;
+          final proposedOut = _currentTime + half;
+          _loopOut = proposedOut < _totalDuration ? proposedOut : _totalDuration;
+        }
+      }
+    });
+    HapticFeedback.lightImpact();
+    _showSnack(_isLoopingEnabled ? 'Loop Region Active' : 'Loop Disabled');
+  }
+
+  void _showLoopContextMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Loop Region Options',
+                        style: dm(sz: 16, w: FontWeight.w700, c: Colors.white)),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.start, color: Color(0xFF10B981)),
+                  title: Text(
+                      'Set In Point [I] at ${_formatDuration(_currentTime)}',
+                      style: dm(sz: 13, c: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _loopIn = _currentTime;
+                      if (_loopOut != null && _loopOut! <= _loopIn!) {
+                        _loopOut = _totalDuration;
+                      }
+                      _isLoopingEnabled = true;
+                    });
+                    HapticFeedback.lightImpact();
+                    _showSnack('Loop In set');
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.east, color: Color(0xFF10B981)),
+                  title: Text(
+                      'Set Out Point [O] at ${_formatDuration(_currentTime)}',
+                      style: dm(sz: 13, c: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      _loopOut = _currentTime;
+                      if (_loopIn == null || _loopIn! >= _loopOut!) {
+                        _loopIn = Duration.zero;
+                      }
+                      _isLoopingEnabled = true;
+                    });
+                    HapticFeedback.lightImpact();
+                    _showSnack('Loop Out set');
+                  },
+                ),
+                if (_loopIn != null && _loopOut != null)
+                  ListTile(
+                    leading: const Icon(Icons.clear, color: Colors.redAccent),
+                    title: Text('Clear Loop Region',
+                        style: dm(sz: 13, c: Colors.redAccent)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _loopIn = null;
+                        _loopOut = null;
+                        _isLoopingEnabled = false;
+                      });
+                      HapticFeedback.lightImpact();
+                      _showSnack('Loop Region Cleared');
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1922,24 +2286,36 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     IconData icon,
     VoidCallback onTap, {
     bool isLarge = false,
+    Color? activeColor,
+    VoidCallback? onLongPress,
   }) {
+    final effectiveBg = activeColor != null
+        ? activeColor.withValues(alpha: 0.20)
+        : (isLarge ? C.brand : const Color(0xFF0F172A));
+    final iconColor = activeColor ?? (isLarge ? Colors.black : C.brand);
+    final borderColor = activeColor != null
+        ? activeColor.withValues(alpha: 0.6)
+        : const Color(0xFF1E293B);
+
     return Container(
-      width: isLarge ? 48 : 40,
-      height: isLarge ? 48 : 40,
+      width: isLarge ? 42 : 36,
+      height: isLarge ? 42 : 36,
       decoration: BoxDecoration(
-        color: isLarge ? C.brand : C.surface,
-        borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
-        border: Border.all(color: C.border),
+        color: effectiveBg,
+        shape: isLarge ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: isLarge ? null : BorderRadius.circular(8),
+        border: isLarge ? null : Border.all(color: borderColor),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(isLarge ? 24 : 8),
+          onLongPress: onLongPress,
+          borderRadius: BorderRadius.circular(isLarge ? 21 : 8),
           child: Icon(
             icon,
-            size: isLarge ? 24 : 20,
-            color: isLarge ? Colors.white : C.brand,
+            size: isLarge ? 24 : 18,
+            color: iconColor,
           ),
         ),
       ),
@@ -2256,51 +2632,47 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
             child: Row(
               children: [
                 Text(
                   'Timeline',
-                  style: syne(sz: 12, w: FontWeight.w800, c: C.text),
+                  style: syne(sz: 16, w: FontWeight.w800, c: Colors.white),
                 ),
                 const Spacer(),
-                Material(
-                  color: C.brand.withOpacity(0.16),
-                  borderRadius: BorderRadius.circular(999),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(999),
-                    onTap: _showTimelineInsertMenu,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.add, size: 14, color: Colors.white),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Add',
-                            style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
-                          ),
-                        ],
-                      ),
+                GestureDetector(
+                  onTap: _showTimelineInsertMenu,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F1E2E),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.add, size: 14, color: C.brand),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Add',
+                          style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: C.brand.withOpacity(0.16),
-                    borderRadius: BorderRadius.circular(999),
+                    color: const Color(0xFF0F1E2E),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
                   ),
                   child: Text(
                     '${visibleTracks.length} Tracks',
-                    style: dm(sz: 9, c: C.brand, w: FontWeight.w700),
+                    style: dm(sz: 11, c: C.brand, w: FontWeight.w700),
                   ),
                 ),
               ],
@@ -2324,17 +2696,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 children: [
                   // Left Pane: Track Headers
                   Container(
-                    width: 56,
-                    decoration: BoxDecoration(
-                      color: C.surface,
-                      border: Border(right: BorderSide(color: C.border)),
+                    width: 52,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF070D18),
+                      border: Border(right: BorderSide(color: Color(0xFF131D2E))),
                     ),
                     child: ListView.builder(
                       controller: _sidebarScrollController,
                       padding: const EdgeInsets.only(
-                        top: 28,
+                        top: 22,
                         bottom: 8,
-                      ), // 28 is ruler height
+                      ), // 22 is ruler height
                       itemCount: visibleTracks.length,
                       itemBuilder: (context, index) {
                         final track = visibleTracks[index];
@@ -2347,11 +2719,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                             );
                           }),
                           child: Container(
-                            height: 72,
+                            height: 52,
                             margin: const EdgeInsets.only(bottom: 4),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? C.brand.withOpacity(0.1)
+                                  ? C.brand.withValues(alpha: 0.12)
                                   : Colors.transparent,
                               border: Border(
                                 left: BorderSide(
@@ -2365,23 +2737,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(
-                                  _getTrackIcon(track.type),
-                                  style: const TextStyle(fontSize: 18),
+                                const Icon(
+                                  Icons.movie_creation_outlined,
+                                  size: 18,
+                                  color: Color(0xFF94A3B8),
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 3),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     _buildTrackButton(
-                                      Icons.visibility,
+                                      Icons.visibility_outlined,
                                       () => _toggleTrackVisibility(track),
-                                      size: 12,
+                                      size: 11,
                                     ),
+                                    const SizedBox(width: 4),
                                     _buildTrackButton(
-                                      Icons.lock,
+                                      Icons.lock_outline,
                                       () => _toggleTrackLock(track),
-                                      size: 12,
+                                      size: 11,
                                     ),
                                   ],
                                 ),
@@ -2439,6 +2813,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       pixelsPerSecond: _pixelsPerSecond,
       zoom: _timelineZoom,
       width: timelineWidth,
+      loopIn: _loopIn,
+      loopOut: _loopOut,
+      onRulerTap: (t) {
+        _playback.seek(t, _tracks);
+        setState(() => _currentTime = t);
+      },
     );
   }
 
@@ -2461,103 +2841,387 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildTrackClips(TimelineTrack track) {
     final scale = _pixelsPerSecond * _timelineZoom;
+    final showGhost = _ghostClipId != null &&
+        _ghostTrackId == track.id &&
+        _ghostStart != null &&
+        _ghostDuration != null &&
+        (_clipDragMode == _ClipDragMode.resizeLeft ||
+            _clipDragMode == _ClipDragMode.resizeRight);
 
     return Container(
-      height: 72,
-      margin: const EdgeInsets.only(bottom: 4),
-      decoration: BoxDecoration(color: C.surface.withAlpha(128)),
+      height: 52,
+      margin: const EdgeInsets.only(bottom: 2),
+      decoration: BoxDecoration(color: C.surface.withValues(alpha: 0.5)),
       child: Stack(
-        children: track.clips.map((clip) {
-          final left = (clip.start.inMilliseconds / 1000.0) * scale;
-          final width = (clip.duration.inMilliseconds / 1000.0) * scale;
-          final isSelected = _selectedClipIds.contains(clip.id);
-
-          return Positioned(
-            left: left,
-            top: 4,
-            bottom: 4,
-            width: width,
-            child: GestureDetector(
-              onTap: () => _selectClip(track, clip),
-              onDoubleTap: () => _trimClip(),
-              onLongPress: () => _enterMultiSelect(track, clip),
-              onPanStart: (details) =>
-                  _onClipPanStart(track, clip, details, width),
-              onPanUpdate: (details) => _onClipPanUpdate(track, clip, details),
-              onPanEnd: (details) => _onClipPanEnd(details),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _buildClipContent(track, clip, width, isSelected),
-                  if (isSelected) ...[
-                    // left handle
-                    Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 6,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
+        clipBehavior: Clip.none,
+        children: [
+          // ── Ghost trim outline with Red Overlap Warning ───────────
+          if (showGhost)
+            Positioned(
+              left: (_ghostStart!.inMilliseconds / 1000.0) * scale,
+              top: 2,
+              bottom: 2,
+              width: (_ghostDuration!.inMilliseconds / 1000.0) * scale,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: _hasClipOverlap
+                          ? const Color(0xFFEF4444)
+                          : const Color(0xFFFBBF24).withValues(alpha: 0.6),
+                      width: _hasClipOverlap ? 2.0 : 1.5,
+                    ),
+                    boxShadow: _hasClipOverlap
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.35),
+                              blurRadius: 8,
+                              spreadRadius: 1,
                             ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // right handle
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      width: _clipHandleWidth,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.resizeLeftRight,
-                        child: Container(
-                          color: Colors.transparent,
-                          child: Center(
-                            child: Container(
-                              width: 6,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // center drag hint
-                    Positioned(
-                      left: width / 2 - 10,
-                      top: 0,
-                      bottom: 0,
-                      width: 20,
-                      child: Center(
-                        child: Container(
-                          width: 2,
-                          height: 28,
-                          color: Colors.white12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                          ]
+                        : null,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
               ),
             ),
-          );
-        }).toList(),
+
+          // ── Clips ─────────────────────────────────────────────
+          ...track.clips.map((clip) {
+            final left = (clip.start.inMilliseconds / 1000.0) * scale;
+            final width = (clip.duration.inMilliseconds / 1000.0) * scale;
+            final isSelected = _selectedClipIds.contains(clip.id);
+            final isTrimming = _activeDragClipId == clip.id &&
+                (_clipDragMode == _ClipDragMode.resizeLeft ||
+                    _clipDragMode == _ClipDragMode.resizeRight ||
+                    _clipDragMode == _ClipDragMode.stretch);
+            final isMoving = _activeDragClipId == clip.id &&
+                _clipDragMode == _ClipDragMode.move;
+            final isThisActive = _activeDragClipId == clip.id;
+            final hasOverlap = isThisActive && _hasClipOverlap;
+
+            // Handle colors:
+            // Left handle: Red on collision, Amber when trimming, Slate otherwise
+            final leftHandleColor = isTrimming
+                ? (hasOverlap
+                    ? const Color(0xFFEF4444)
+                    : const Color(0xFFFBBF24))
+                : const Color(0xFF94A3B8);
+
+            // Right handle: Red on collision, Purple when in stretch mode, Amber when trimming, Slate otherwise
+            final isStretchActive =
+                _isStretchMode || _clipDragMode == _ClipDragMode.stretch;
+            final rightHandleColor = isTrimming
+                ? (hasOverlap
+                    ? const Color(0xFFEF4444)
+                    : (isStretchActive
+                        ? const Color(0xFFA855F7)
+                        : const Color(0xFFFBBF24)))
+                : (isStretchActive
+                    ? const Color(0xFFA855F7)
+                    : const Color(0xFF94A3B8));
+
+            return Positioned(
+              left: left,
+              top: 2,
+              bottom: 2,
+              width: width,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  RepaintBoundary(
+                    child: GestureDetector(
+                      onTap: () => _selectClip(track, clip),
+                      onDoubleTap: () => _trimClip(),
+                      onLongPress: () => _enterMultiSelect(track, clip),
+                      onPanStart: (details) =>
+                          _onClipPanStart(track, clip, details, width),
+                      onPanUpdate: (details) =>
+                          _onClipPanUpdate(track, clip, details),
+                      onPanEnd: (details) => _onClipPanEnd(details),
+                      child: AnimatedScale(
+                        scale: isMoving ? 1.03 : 1.0,
+                        duration: const Duration(milliseconds: 120),
+                        curve: Curves.easeOutCubic,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 120),
+                          curve: Curves.easeOutCubic,
+                          decoration: isMoving
+                              ? BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.45),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                )
+                              : null,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              _buildClipContent(
+                                track,
+                                clip,
+                                width,
+                                isSelected,
+                                isTrimming,
+                                hasOverlap,
+                              ),
+                              if (isSelected || isTrimming) ...[
+                                // Left trim handle
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: _clipHandleWidth,
+                                  child: MouseRegion(
+                                    cursor: SystemMouseCursors.resizeLeftRight,
+                                    child: Container(
+                                      color: Colors.transparent,
+                                      child: Center(
+                                        child: Container(
+                                          width: 4,
+                                          height: 20,
+                                          decoration: BoxDecoration(
+                                            color: leftHandleColor,
+                                            borderRadius:
+                                                BorderRadius.circular(2),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // Right trim / stretch handle
+                                Positioned(
+                                  right: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: _clipHandleWidth,
+                                  child: MouseRegion(
+                                    cursor: SystemMouseCursors.resizeLeftRight,
+                                    child: Container(
+                                      color: Colors.transparent,
+                                      child: Center(
+                                        child: Container(
+                                          width: isStretchActive ? 6 : 4,
+                                          height: 20,
+                                          decoration: BoxDecoration(
+                                            color: rightHandleColor,
+                                            borderRadius:
+                                                BorderRadius.circular(2),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                // Center drag hint line
+                                Positioned(
+                                  left: width / 2 - 10,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: 20,
+                                  child: Center(
+                                    child: Container(
+                                      width: 2,
+                                      height: 20,
+                                      color: Colors.white12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Floating swipe-up pill: [↑ TRACK ABOVE]
+                  if (isMoving && isThisActive && _isLiftSwipeUp)
+                    Positioned(
+                      top: -18,
+                      left: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00E5FF),
+                          borderRadius: BorderRadius.circular(4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.arrow_upward,
+                                size: 10, color: Colors.black),
+                            SizedBox(width: 2),
+                            Text(
+                              'TRACK ABOVE',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  // Floating swipe-down pill: [🗑️ RELEASE TO DELETE]
+                  if (isMoving && isThisActive && _isDeleteSwipeDown)
+                    Positioned(
+                      bottom: -18,
+                      left: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444),
+                          borderRadius: BorderRadius.circular(4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.delete_outline,
+                                size: 10, color: Colors.white),
+                            SizedBox(width: 2),
+                            Text(
+                              'RELEASE TO DELETE',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  // Floating collision warning pill: [⚠️ OVERLAP]
+                  if ((isMoving || isTrimming) && hasOverlap)
+                    Positioned(
+                      top: -18,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444),
+                          borderRadius: BorderRadius.circular(4),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          '⚠️ OVERLAP',
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }),
+          // ── Cut-Point Transition Buttons between adjacent clips ───
+          ..._buildTrackTransitions(track, scale),
+        ],
       ),
     );
+  }
+
+  List<Widget> _buildTrackTransitions(TimelineTrack track, double scale) {
+    if (track.type != TrackType.video) return const [];
+    final widgets = <Widget>[];
+    final clips = track.clips.where((c) => !c.isHidden).toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+
+    for (var i = 0; i < clips.length - 1; i++) {
+      final prev = clips[i];
+      final next = clips[i + 1];
+      final prevEnd = prev.start + prev.duration;
+      // If clips are adjacent (gap <= 400ms)
+      if ((next.start - prevEnd).abs() <= const Duration(milliseconds: 400)) {
+        final cutX = (next.start.inMilliseconds / 1000.0) * scale;
+        final hasTransition = next.transitionIn != null;
+
+        widgets.add(
+          Positioned(
+            left: cutX - 11,
+            top: 14,
+            width: 22,
+            height: 24,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _showTransitionPickerSheet(next),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: BoxDecoration(
+                  color: hasTransition
+                      ? const Color(0xFF00E5FF)
+                      : const Color(0xFF1E293B),
+                  shape: BoxShape.rectangle,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: hasTransition
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.35),
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: hasTransition
+                          ? const Color(0xFF00E5FF).withValues(alpha: 0.5)
+                          : Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: hasTransition
+                      ? Text(
+                          next.transitionIn!.icon.isNotEmpty
+                              ? next.transitionIn!.icon
+                              : '⧖',
+                          style: const TextStyle(fontSize: 10),
+                        )
+                      : const Icon(
+                          Icons.hourglass_empty_rounded,
+                          size: 11,
+                          color: Colors.white70,
+                        ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return widgets;
   }
 
   Widget _buildClipContent(
@@ -2565,37 +3229,102 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     TimelineClip clip,
     double width,
     bool isSelected,
+    bool isTrimming,
+    bool hasOverlap,
   ) {
     final baseColor = _trackColorForType(track.type);
 
     Widget content;
     if (track.type == TrackType.video) {
+      // Pro video clip: Edge-to-edge filmstrip frame thumbnails across the entire clip length +
+      // dark gradient scrim for contrast + metadata pills + badge row + mini audio waveform bar
       content = Stack(
         fit: StackFit.expand,
         children: [
-          _VideoClipThumbnails(
-            clip: clip,
-            width: width,
-            pixelsPerSecond: _pixelsPerSecond * _timelineZoom,
-          ),
-          Container(color: Colors.black.withOpacity(0.3)),
-          Padding(
-            padding: const EdgeInsets.all(4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  clip.file?.path.split('/').last ?? 'Video',
-                  style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  _formatDuration(clip.duration),
-                  style: dm(sz: 7, c: Colors.white70),
-                ),
-              ],
+          // ── Full-width filmstrip frame thumbnails ─────────────────
+          Positioned.fill(
+            child: _VideoClipThumbnails(
+              clip: clip,
+              width: width,
+              pixelsPerSecond: _pixelsPerSecond * _timelineZoom,
             ),
+          ),
+          // ── Cinematic filmstrip scrim overlay for pristine legibility ─
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.72),
+                    Colors.black.withValues(alpha: 0.35),
+                    Colors.black.withValues(alpha: 0.68),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // ── Metadata, pills, badges & waveform ──────────────────────
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                      left: 6, right: 6, top: 4, bottom: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Text(
+                          _formatDuration(clip.duration),
+                          style: dm(sz: 8.5, c: Colors.white, w: FontWeight.w700),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          clip.file?.path.split('/').last ?? 'Video 1',
+                          style: dm(
+                              sz: 10,
+                              c: Colors.white,
+                              w: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      _ClipBadgeRow(clip: clip),
+                    ],
+                  ),
+                ),
+              ),
+              // Mini waveform bar — 8px tall audio visualiser at clip bottom
+              SizedBox(
+                height: 8,
+                child: ClipRRect(
+                  borderRadius:
+                      const BorderRadius.vertical(bottom: Radius.circular(8)),
+                  child: CustomPaint(
+                    painter: _WaveformPainter(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      seed: clip.id.hashCode,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       );
@@ -2607,7 +3336,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         children: [
           CustomPaint(
             painter: _WaveformPainter(
-              color: Colors.white.withOpacity(0.5),
+              color: Colors.white.withValues(alpha: 0.5),
               seed: clip.id.hashCode,
             ),
           ),
@@ -2653,18 +3382,37 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       );
     }
 
+    // Border / glow: red on collision, purple when stretch, amber when trimming, cyan when selected, dim otherwise
+    final borderColor = hasOverlap
+        ? const Color(0xFFEF4444)
+        : isTrimming
+            ? (_isStretchMode
+                ? const Color(0xFFA855F7)
+                : const Color(0xFFFBBF24))
+            : isSelected
+                ? const Color(0xFF00E5FF)
+                : Colors.white.withValues(alpha: 0.08);
+    final borderWidth =
+        (hasOverlap || isTrimming || isSelected) ? 2.0 : 1.0;
+    final glowColor = hasOverlap
+        ? const Color(0xFFEF4444).withValues(alpha: 0.45)
+        : isTrimming
+            ? (_isStretchMode
+                ? const Color(0xFFA855F7).withValues(alpha: 0.4)
+                : const Color(0xFFFBBF24).withValues(alpha: 0.35))
+            : const Color(0xFF00E5FF).withValues(alpha: 0.3);
+
     return Container(
       decoration: BoxDecoration(
-        color: baseColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isSelected ? C.brand : Colors.white.withOpacity(0.08),
-          width: isSelected ? 2.5 : 1,
-        ),
-        boxShadow: isSelected
+        color: track.type == TrackType.video
+            ? const Color(0xFF0F172A)
+            : baseColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: borderWidth),
+        boxShadow: (hasOverlap || isTrimming || isSelected)
             ? [
                 BoxShadow(
-                  color: C.brand.withOpacity(0.35),
+                  color: glowColor,
                   blurRadius: 6,
                   spreadRadius: 1,
                 ),
@@ -2675,6 +3423,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: content,
     );
   }
+
 
   Color _trackColorForType(TrackType type) {
     switch (type) {
@@ -5019,6 +5768,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       // Stop it before starting the shared timeline transport.
       await _stopAudioPreview();
       if (!mounted) return;
+
+      // Ensure active visual clip is preloaded so first-time play never stutters or drops video
+      if (_videoController == null || !_videoController!.value.isInitialized) {
+        final active = TimelinePlaybackController.resolve(
+          _tracks,
+          _playback.state.currentTime,
+        );
+        final videos = active.ofType(TrackType.video);
+        if (videos.isNotEmpty && videos.last.file != null) {
+          await _loadClip(videos.last);
+        }
+      }
+
       _playback.play(_tracks);
     }
   }
@@ -5304,16 +6066,41 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final viewport = _timelineScrollController.position.viewportDimension;
     if (viewport <= 0) return;
     final offset = _timelineScrollController.offset;
-    const margin = 80.0;
-    final visibleStart = offset + margin;
-    final visibleEnd = offset + viewport - margin;
 
-    if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
-      final target = math.min(
-        math.max(playheadPosition - viewport / 2, 0.0),
+    // Loop region auto-loop check during active playback
+    if (_isPlaying &&
+        _isLoopingEnabled &&
+        _loopIn != null &&
+        _loopOut != null &&
+        _loopOut! > _loopIn!) {
+      if (_currentTime >= _loopOut!) {
+        _playback.seek(_loopIn!, _tracks);
+        setState(() => _currentTime = _loopIn!);
+        return;
+      }
+    }
+
+    if (_isPlaying) {
+      // Pro studio auto-scroll: keep playhead around 30% from the left edge of viewport
+      final target = (playheadPosition - viewport * 0.30).clamp(
+        0.0,
         _timelineScrollController.position.maxScrollExtent,
       );
-      _timelineScrollController.jumpTo(target);
+      if ((offset - target).abs() > 4.0) {
+        _timelineScrollController.jumpTo(target);
+      }
+    } else {
+      const margin = 80.0;
+      final visibleStart = offset + margin;
+      final visibleEnd = offset + viewport - margin;
+
+      if (playheadPosition < visibleStart || playheadPosition > visibleEnd) {
+        final target = (playheadPosition - viewport / 2).clamp(
+          0.0,
+          _timelineScrollController.position.maxScrollExtent,
+        );
+        _timelineScrollController.jumpTo(target);
+      }
     }
   }
 
@@ -5941,21 +6728,68 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _applyFilter() => _showEffectLibrarySheet();
-  void _deleteClip() {
-    if (_selectedClipIds.isEmpty) return;
+
+  void _magneticallyDeleteClips(List<String> clipIdsToDelete) {
+    if (clipIdsToDelete.isEmpty) return;
     _captureTimeline();
+
+    Duration? earliestDeletedStart;
+
     setState(() {
       for (final track in _tracks) {
-        track.clips.removeWhere((clip) => _selectedClipIds.contains(clip.id));
+        final toDelete = track.clips
+            .where((c) => clipIdsToDelete.contains(c.id))
+            .toList();
+        if (toDelete.isEmpty) continue;
+
+        // Sort descending by start time so shifting downstream clips doesn't displace earlier clips
+        toDelete.sort((a, b) => b.start.compareTo(a.start));
+
+        for (final deletedClip in toDelete) {
+          final deletedStart = deletedClip.start;
+          final deletedDur = deletedClip.duration;
+          if (earliestDeletedStart == null || deletedStart < earliestDeletedStart!) {
+            earliestDeletedStart = deletedStart;
+          }
+
+          track.clips.removeWhere((c) => c.id == deletedClip.id);
+
+          // Magnetically retract all downstream clips on this track to fill the void
+          for (final remaining in track.clips) {
+            if (remaining.start >= deletedStart) {
+              final newStart = remaining.start - deletedDur;
+              remaining.start = newStart < Duration.zero ? Duration.zero : newStart;
+            }
+          }
+        }
       }
-      _selectedClipIds.clear();
+
+      // Clear selection
+      _selectedClipIds.removeWhere((id) => clipIdsToDelete.contains(id));
+      if (_selectedClip != null && clipIdsToDelete.contains(_selectedClip!.id)) {
+        _selectedClip = null;
+        _selectedTrackId = null;
+        _selectedTrackIndex = null;
+      }
       _isMultiSelectMode = false;
-      _selectedClip = null;
-      _selectedTrackId = null;
-      _selectedTrackIndex = null;
       TimelineModelUtils.pruneEmptyTracks(_tracks);
+
+      // Playhead parking: park at the seam where the void was closed
+      if (earliestDeletedStart != null && _currentTime >= earliestDeletedStart!) {
+        _currentTime = earliestDeletedStart!;
+      }
     });
+
     _playback.updateProject(_tracks);
+    _playback.seek(_currentTime, _tracks);
+    _ensureTimelinePosition();
+    _queueCompositionSync();
+    HapticFeedback.mediumImpact();
+  }
+
+  void _deleteClip() {
+    if (_selectedClipIds.isEmpty) return;
+    _magneticallyDeleteClips(_selectedClipIds.toList());
   }
 
   void _duplicateSelectedClips() {
@@ -7228,257 +8062,244 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  void _toggleTransitionLibrary() {
-    setState(() => _showTransitionLibrary = !_showTransitionLibrary);
-    if (_showTransitionLibrary) {
-      _showTransitionLibrarySheet();
-    }
-  }
-
-  void _applySelectedTransition() {
-    if (_selectedTransitionId == null || _selectedClip == null) {
-      _showSnack('Select a clip boundary first');
-      return;
-    }
-
-    final preset = _transitionPresets.firstWhere(
-      (candidate) => candidate.id == _selectedTransitionId,
-      orElse: () => _transitionPresets.first,
-    );
-    final transition = TimelineClip(
-      id: 'transition-${DateTime.now().millisecondsSinceEpoch}',
-      start: _selectedClip!.start + _selectedClip!.duration,
-      duration: Duration(milliseconds: (preset.defaultDuration * 1000).round()),
-      operation: TransitionOperation(
-        presetId: preset.id,
-        presetName: preset.name,
-        category: preset.category,
-        icon: preset.icon,
-        duration: preset.defaultDuration,
-        direction: 'center',
-      ),
-    );
-
+  void _showTransitionPickerSheet(TimelineClip clip) {
     _captureTimeline();
-    TimelineModelUtils.insertClip(_tracks, transition, TrackType.effects);
-    _playback.updateProject(_tracks);
-    _recentTransitionIds.remove(preset.id);
-    _recentTransitionIds.insert(0, preset.id);
-    setState(() {
-      _selectedClip = transition;
-      _selectedTrackId = _tracks
-          .firstWhere((track) => track.clips.contains(transition))
-          .id;
-      _selectedTrackIndex = _tracks.indexWhere(
-        (candidate) => candidate.id == _selectedTrackId,
-      );
-    });
-    _showSnack('${preset.name} transition added');
-  }
+    double currentDuration = clip.transitionIn?.duration ?? 0.6;
+    String currentPresetId = clip.transitionIn?.presetId ?? 'none';
 
-  void _showTransitionLibrarySheet() {
+    final transitionPresets = [
+      (id: 'none', name: 'None', category: 'Cut', icon: Icons.block, emoji: '🚫'),
+      (id: 'crossfade', name: 'Crossfade', category: 'Dissolve', icon: Icons.auto_awesome, emoji: '🌫️'),
+      (id: 'fade', name: 'Fade to Black', category: 'Fade', icon: Icons.dark_mode, emoji: '⬛'),
+      (id: 'flash', name: 'White Flash', category: 'Flash', icon: Icons.bolt, emoji: '⚡'),
+      (id: 'slide', name: 'Slide Left', category: 'Motion', icon: Icons.arrow_forward, emoji: '➡️'),
+      (id: 'wipe', name: 'Wipe', category: 'Creative', icon: Icons.cleaning_services, emoji: '🧹'),
+      (id: 'zoom', name: 'Zoom In', category: 'Cinematic', icon: Icons.zoom_in, emoji: '🔍'),
+      (id: 'spin', name: 'Spin Cut', category: '3D Motion', icon: Icons.rotate_right, emoji: '🌀'),
+      (id: 'glitch', name: 'Glitch Cut', category: 'Digital', icon: Icons.sensors, emoji: '📡'),
+    ];
+
     showModalBottomSheet<void>(
       context: context,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      backgroundColor: C.card,
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) {
-          final visibleTransitions = _transitionPresets.where((preset) {
-            final matchesQuery =
-                _transitionSearchQuery.isEmpty ||
-                [
-                      preset.name,
-                      preset.category,
-                      preset.description,
-                      ...preset.tags,
-                    ]
-                    .join(' ')
-                    .toLowerCase()
-                    .contains(_transitionSearchQuery.toLowerCase());
-            final matchesFilter =
-                _transitionFilter == 'All' ||
-                preset.category == _transitionFilter;
-            return matchesQuery && matchesFilter;
-          }).toList();
-
-          visibleTransitions.sort((a, b) {
-            switch (_transitionSort) {
-              case 'Name':
-                return a.name.compareTo(b.name);
-              case 'Recent':
-                return _recentTransitionIds
-                    .indexOf(b.id)
-                    .compareTo(_recentTransitionIds.indexOf(a.id));
-              case 'Favorites':
-                return _favoriteTransitionIds.contains(b.id) ? 1 : 0;
-              default:
-                return (b.featured ? 1 : 0).compareTo(a.featured ? 1 : 0);
-            }
-          });
-
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          return Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  blurRadius: 16,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Transitions Library',
-                        style: syne(sz: 16, w: FontWeight.w800, c: C.text),
+                  // Handle pill
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      const Spacer(),
-                      TextButton(
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.transform, size: 18, color: Color(0xFF00E5FF)),
+                          const SizedBox(width: 8),
+                          Text(
+                            'TRANSITIONS',
+                            style: syne(sz: 14, w: FontWeight.w800, c: Colors.white, ls: 1.5),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18, color: Colors.white70),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Close'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    onChanged: (value) =>
-                        setModalState(() => _transitionSearchQuery = value),
-                    decoration: InputDecoration(
-                      hintText: 'Search transitions',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                  const SizedBox(height: 16),
+                  // Duration slider
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Duration',
+                        style: dm(sz: 12, c: Colors.white70, w: FontWeight.w600),
                       ),
-                    ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Text(
+                          '${currentDuration.toStringAsFixed(1)}s',
+                          style: dm(sz: 11, c: const Color(0xFF00E5FF), w: FontWeight.w800),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children:
-                          <String>[
-                                'All',
-                                'Crossfade',
-                                'Fade',
-                                'Dissolve',
-                                'Slide',
-                                'Wipe',
-                                'Zoom',
-                                'Spin',
-                                'Blur',
-                                'Glitch',
-                              ]
-                              .map(
-                                (category) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ChoiceChip(
-                                    label: Text(category),
-                                    selected: _transitionFilter == category,
-                                    onSelected: (_) => setModalState(
-                                      () => _transitionFilter = category,
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: const Color(0xFF00E5FF),
+                      inactiveTrackColor: Colors.white12,
+                      thumbColor: const Color(0xFF00E5FF),
+                      trackHeight: 3,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children:
-                          <String>['Featured', 'Recent', 'Favorites', 'Name']
-                              .map(
-                                (sort) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ChoiceChip(
-                                    label: Text(sort),
-                                    selected: _transitionSort == sort,
-                                    onSelected: (_) => setModalState(
-                                      () => _transitionSort = sort,
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
+                    child: Slider(
+                      value: currentDuration,
+                      min: 0.2,
+                      max: 2.0,
+                      divisions: 18,
+                      onChanged: (val) {
+                        setModalState(() => currentDuration = (val * 10).round() / 10);
+                        if (clip.transitionIn != null) {
+                          clip.transitionIn!.duration = currentDuration;
+                          _playback.updateProject(_tracks);
+                          setState(() {});
+                        }
+                      },
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: visibleTransitions.length,
+                  // Presets Grid
+                  SizedBox(
+                    height: 160,
+                    child: GridView.builder(
+                      physics: const BouncingScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 2.2,
+                      ),
+                      itemCount: transitionPresets.length,
                       itemBuilder: (context, index) {
-                        final preset = visibleTransitions[index];
-                        final isFavorite = _favoriteTransitionIds.contains(
-                          preset.id,
-                        );
-                        final isSelected = _selectedTransitionId == preset.id;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? C.brand.withOpacity(0.14)
-                                : C.surface,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: isSelected ? C.brand : C.border,
+                        final p = transitionPresets[index];
+                        final isSelected = currentPresetId == p.id;
+                        return GestureDetector(
+                          onTap: () {
+                            setModalState(() => currentPresetId = p.id);
+                            setState(() {
+                              if (p.id == 'none') {
+                                clip.transitionIn = null;
+                              } else {
+                                clip.transitionIn = TransitionOperation(
+                                  presetId: p.id,
+                                  presetName: p.name,
+                                  category: p.category,
+                                  icon: p.emoji,
+                                  duration: currentDuration,
+                                );
+                              }
+                            });
+                            _playback.updateProject(_tracks);
+                            HapticFeedback.selectionClick();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? const Color(0xFF00E5FF).withValues(alpha: 0.18)
+                                  : Colors.white.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isSelected
+                                    ? const Color(0xFF00E5FF)
+                                    : Colors.white.withValues(alpha: 0.08),
+                                width: isSelected ? 1.5 : 1.0,
+                              ),
                             ),
-                          ),
-                          child: ListTile(
-                            leading: Text(
-                              preset.icon,
-                              style: const TextStyle(fontSize: 24),
-                            ),
-                            title: Text(
-                              preset.name,
-                              style: dm(sz: 12, w: FontWeight.w700, c: C.text),
-                            ),
-                            subtitle: Text(
-                              preset.description,
-                              style: dm(sz: 10.5, c: C.dim),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      if (isFavorite) {
-                                        _favoriteTransitionIds.remove(
-                                          preset.id,
-                                        );
-                                      } else {
-                                        _favoriteTransitionIds.add(preset.id);
-                                      }
-                                    });
-                                    setModalState(() {});
-                                  },
-                                  icon: Icon(
-                                    isFavorite
-                                        ? Icons.favorite
-                                        : Icons.favorite_outline,
-                                    color: C.brand,
+                                Text(p.emoji, style: const TextStyle(fontSize: 14)),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    p.name,
+                                    style: dm(
+                                      sz: 10.5,
+                                      c: isSelected ? const Color(0xFF00E5FF) : Colors.white,
+                                      w: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                ),
-                                IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _selectedTransitionId = preset.id;
-                                      _recentTransitionIds.remove(preset.id);
-                                      _recentTransitionIds.insert(0, preset.id);
-                                    });
-                                    setModalState(() {});
-                                  },
-                                  icon: const Icon(Icons.play_arrow),
                                 ),
                               ],
                             ),
-                            onTap: () {
-                              setState(() => _selectedTransitionId = preset.id);
-                              Navigator.pop(context);
-                              _applySelectedTransition();
-                            },
                           ),
                         );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Apply to All Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 40,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF00E5FF),
+                        side: const BorderSide(color: Color(0xFF00E5FF), width: 1.0),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: const Icon(Icons.copy_all, size: 16),
+                      label: const Text('Apply to All Cuts', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      onPressed: () {
+                        for (final track in _tracks) {
+                          if (track.clips.any((c) => c.id == clip.id)) {
+                            final sorted = track.clips.where((c) => !c.isHidden).toList()
+                              ..sort((a, b) => a.start.compareTo(b.start));
+                            for (var i = 1; i < sorted.length; i++) {
+                              if (currentPresetId == 'none') {
+                                sorted[i].transitionIn = null;
+                              } else {
+                                final selectedP = transitionPresets.firstWhere((p) => p.id == currentPresetId);
+                                sorted[i].transitionIn = TransitionOperation(
+                                  presetId: selectedP.id,
+                                  presetName: selectedP.name,
+                                  category: selectedP.category,
+                                  icon: selectedP.emoji,
+                                  duration: currentDuration,
+                                );
+                              }
+                            }
+                            break;
+                          }
+                        }
+                        _playback.updateProject(_tracks);
+                        setState(() {});
+                        HapticFeedback.mediumImpact();
+                        Navigator.pop(context);
+                        _showSnack('Transition applied to all cuts on track');
                       },
                     ),
                   ),
@@ -7490,6 +8311,29 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       ),
     );
   }
+
+  void _showTransitionLibrarySheet() {
+    TimelineClip? target = _selectedClip;
+    if (target == null) {
+      for (final track in _tracks) {
+        if (track.type == TrackType.video && track.clips.length > 1) {
+          final sorted = track.clips.where((c) => !c.isHidden).toList()
+            ..sort((a, b) => a.start.compareTo(b.start));
+          if (sorted.length > 1) {
+            target = sorted[1];
+            break;
+          }
+        }
+      }
+    }
+    if (target != null) {
+      _showTransitionPickerSheet(target);
+      return;
+    }
+    _showSnack('Add at least two clips on a video track to apply transitions');
+  }
+
+
 
   Future<void> _showTransitionEditorSheet() async {
     _captureTimeline();
@@ -8162,6 +9006,109 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
 int min(int a, int b) => a < b ? a : b;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// _ClipBadgeRow
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Compact row of state-indicator pill badges shown on each timeline clip.
+/// Only renders when a badge condition is active — IDLE clips are badge-free.
+///
+/// Badges rendered (in order):
+///   • Speed  — amber pill (e.g. "2.0×") when playback speed ≠ 1.0
+///   • FX     — cyan sparkle icon when a colour filter is applied
+///   • Beauty — pink face icon when skin/makeup effects are active
+///   • Rev    — purple rewind icon when clip is reversed
+class _ClipBadgeRow extends StatelessWidget {
+  const _ClipBadgeRow({required this.clip});
+
+  final TimelineClip clip;
+
+  @override
+  Widget build(BuildContext context) {
+    final badges = <Widget>[];
+
+    // Speed badge (shown when not 1.0×)
+    if ((clip.speed - 1.0).abs() > 0.01) {
+      final label = '${clip.speed.toStringAsFixed(1)}×';
+      badges.add(_textBadge(label, const Color(0xFFFBBF24), Colors.black));
+    }
+
+    // FX badge (colour filter applied)
+    if (clip.filter != null) {
+      badges.add(_iconBadge(Icons.auto_fix_high, const Color(0xFF00E5FF)));
+    }
+
+    // Beauty badge (any skin/makeup effect active)
+    if (clip.skinSmoothing > 0.01 ||
+        clip.skinBrightening > 0.01 ||
+        clip.makeupIntensity > 0.01) {
+      badges.add(
+          _iconBadge(Icons.face_retouching_natural, const Color(0xFFEC4899)));
+    }
+
+    // Reversed badge
+    if (clip.isReversed) {
+      badges.add(_iconBadge(Icons.fast_rewind, const Color(0xFFA78BFA)));
+    }
+
+    // Split / J-Cut / L-Cut indicator (source trimmed with split boundaries)
+    if (clip.sourceStart > Duration.zero ||
+        (clip.sourceEnd != null && clip.sourceEnd! < clip.sourceDuration)) {
+      badges.add(_iconBadge(Icons.content_cut, const Color(0xFFF59E0B)));
+    }
+
+    // Transition In badge (active transition operation on this clip cut-boundary)
+    if (clip.transitionIn != null) {
+      badges.add(_textBadge(
+        clip.transitionIn!.icon.isNotEmpty ? clip.transitionIn!.icon : '⧖',
+        const Color(0xFF00E5FF),
+        Colors.black,
+      ));
+    }
+
+    if (badges.isEmpty) return const SizedBox.shrink();
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int i = 0; i < badges.length; i++) ...[
+          if (i > 0) const SizedBox(width: 2),
+          badges[i],
+        ],
+      ],
+    );
+  }
+
+  Widget _textBadge(String label, Color bg, Color fg) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 7,
+            fontWeight: FontWeight.w800,
+            color: fg,
+            height: 1.2,
+          ),
+        ),
+      );
+
+  Widget _iconBadge(IconData icon, Color color) => Container(
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+              color: color.withValues(alpha: 0.55), width: 0.5),
+        ),
+        child: Icon(icon, size: 9, color: color),
+      );
+}
+
 class _VideoClipThumbnails extends StatefulWidget {
   final TimelineClip clip;
   final double width;
@@ -8191,55 +9138,29 @@ class _VideoClipThumbnailsState extends State<_VideoClipThumbnails> {
         : 0;
     final largeMedia = fileSizeBytes > 2 * 1024 * 1024 * 1024 || longFormClip;
 
-    final maxThumbCount = (widget.width / 120).round().clamp(
-      4,
-      _MobileMediaEditorState._maxThumbnailFrames,
-    );
-    final int numThumbnails = largeMedia
-        ? maxThumbCount
-        : (clipDurationMs / 1000).clamp(1, maxThumbCount).round();
-    final double thumbWidth = widget.pixelsPerSecond;
+    // Cinematic filmstrip tiling: 48px tile width seamlessly covers full clip length
+    const double tileWidth = 48.0;
+    final int numThumbnails = (widget.width / tileWidth).ceil().clamp(1, 50);
+    final double actualTileWidth = widget.width / numThumbnails;
 
-    if (largeMedia) {
-      return ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: numThumbnails,
-        itemBuilder: (context, index) {
+    return ClipRect(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: List.generate(numThumbnails, (index) {
           final timeMs = clipDurationMs > 0
-              ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs)
-                    .round()
+              ? ((index / math.max(1, numThumbnails)) * clipDurationMs).round()
               : 0;
           return SizedBox(
-            width: thumbWidth,
+            width: actualTileWidth,
+            height: double.infinity,
             child: _SingleThumbnail(
               file: widget.clip.file!,
               timeMs: timeMs,
-              isLargeMedia: true,
+              isLargeMedia: largeMedia,
             ),
           );
-        },
-      );
-    }
-
-    return ListView.builder(
-      scrollDirection: Axis.horizontal,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: numThumbnails,
-      itemBuilder: (context, index) {
-        final timeMs = clipDurationMs > 0
-            ? ((index / math.max(1, numThumbnails - 1)) * clipDurationMs)
-                  .round()
-            : 0;
-        return SizedBox(
-          width: thumbWidth,
-          child: _SingleThumbnail(
-            file: widget.clip.file!,
-            timeMs: timeMs,
-            isLargeMedia: false,
-          ),
-        );
-      },
+        }),
+      ),
     );
   }
 }

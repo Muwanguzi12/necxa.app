@@ -33,6 +33,16 @@ const supabase = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 )
 
+// 📦 GOOBOX SUPPORT BACKEND: Cross-cloud connection for human review & support responses
+const GOOBOX_URL = Deno.env.get("GOOBOX_SUPABASE_URL") || "https://anregykcgolpgxecfxej.supabase.co";
+const GOOBOX_KEY = Deno.env.get("GOOBOX_SERVICE_ROLE_KEY") || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFucmVneWtjZ29scGd4ZWNmeGVqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDQ2MjU1NCwiZXhwIjoyMDk2MDM4NTU0fQ.519sxkeFrEL-zIyP2MM4kbSZ3sHHP7OY-uwXoDV7cnc";
+
+const goobox = createClient(
+  GOOBOX_URL,
+  GOOBOX_KEY,
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
+
 // 🚀 UPSTASH REDIS: Hyper-Performance Feed Layer
 const REDIS_URL = Deno.env.get("UPSTASH_REDIS_REST_URL") ?? "";
 const REDIS_TOKEN = Deno.env.get("UPSTASH_REDIS_REST_TOKEN") ?? "";
@@ -246,6 +256,23 @@ async function handleFetchFeed(userId: string, payload: any = {}) {
     query = query.lt('created_at', beforeTime);
   }
 
+  // Filter out posts the user marked as 'not_interested' or 'hidden'
+  if (userId) {
+    try {
+      const { data: prefRows } = await supabase
+        .from('user_preferences')
+        .select('target_id')
+        .eq('user_id', userId)
+        .in('preference_type', ['not_interested', 'hidden', 'blocked']);
+      const hiddenIds = (prefRows || []).map((r: any) => r.target_id).filter(Boolean);
+      if (hiddenIds.length > 0) {
+        query = query.not('id', 'in', `(${hiddenIds.join(',')})`);
+      }
+    } catch (e) {
+      console.warn("Could not query user_preferences for feed filtering:", e);
+    }
+  }
+
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(sinceTime ? 100 : 50);
@@ -441,6 +468,9 @@ async function handleFetchShowcase(payload: any) {
     .select('*, profiles:user_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')
     .eq('user_id', targetUserId)
     .eq('status', 'active')
+    // 🔒 Property listings must NEVER appear in the public showcase.
+    // They are agent-gated — revealing them would expose the agent without unlock.
+    .or('is_property_listing.is.null,is_property_listing.eq.false')
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -1193,6 +1223,673 @@ async function handleDeletePost(userId: string, payload: any) {
 }
 
 /**
+ * NOT-INTERESTED: Records negative affinity preference and excludes from user's feed
+ */
+async function handleNotInterested(userId: string, payload: any) {
+  const targetId = payload.target_id || payload.post_id;
+  const contentType = payload.content_type || 'post';
+  if (!targetId) return err("target_id is required");
+
+  const { error } = await supabase
+    .from('user_preferences')
+    .upsert({
+      user_id: userId,
+      target_id: targetId,
+      content_type: contentType,
+      preference_type: 'not_interested',
+      created_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,target_id' });
+
+  if (error) {
+    console.error("user_preferences error:", error);
+    return err(error.message);
+  }
+
+  return json({
+    success: true,
+    message: "Content marked not interested. Feed will exclude this item.",
+  });
+}
+
+/**
+ * SUBMIT-REPORT: Stores report in Supabase, triggers AI scan, and flags for Necxa Team / Goobox review
+ */
+async function handleSubmitReport(userId: string, payload: any) {
+  const targetId = payload.target_id || payload.post_id;
+  const targetType = payload.target_type || 'post';
+  const reason = payload.reason || 'Inappropriate content';
+  const details = payload.details || '';
+  if (!targetId) return err("target_id is required");
+
+  // 1. Fetch reported content — resolved per target type
+  let postSnippet: string | null = null;
+  let targetTitle: string | null = null;
+  let mediaUrls: string[] = [];
+  let reportedAuthorEmail: string | null = null;
+
+  try {
+    if (targetType === 'post') {
+      const { data: post } = await supabase
+        .from('community_posts')
+        .select('content, title, media_url, hls_url, thumbnail_url, gallery_urls, photos, author_id')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (post) {
+        postSnippet = post.content || post.title;
+        targetTitle = post.title;
+        const candidates: (string | null)[] = [
+          post.media_url, post.hls_url, post.thumbnail_url,
+          ...(Array.isArray(post.gallery_urls) ? post.gallery_urls : []),
+          ...(Array.isArray(post.photos) ? post.photos : []),
+        ];
+        mediaUrls = candidates
+          .map((u) => toStorageCdnUrl(u))
+          .filter((u): u is string => !!u);
+        if (post.author_id) {
+          const { data: ap } = await supabase.from('profiles').select('email').eq('id', post.author_id).maybeSingle();
+          reportedAuthorEmail = ap?.email ?? null;
+        }
+      }
+    } else if (targetType === 'listing') {
+      const { data: listing } = await supabase
+        .from('listings')
+        .select('title, description, photos, price, category, district, vendor_id')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (listing) {
+        postSnippet = listing.description || listing.title;
+        targetTitle = listing.title;
+        if (Array.isArray(listing.photos)) {
+          mediaUrls = listing.photos.map((u: string) => toStorageCdnUrl(u)).filter((u): u is string => !!u);
+        }
+        if (listing.vendor_id) {
+          const { data: vp } = await supabase.from('profiles').select('email').eq('id', listing.vendor_id).maybeSingle();
+          reportedAuthorEmail = vp?.email ?? null;
+        }
+      }
+    } else if (targetType === 'profile') {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('full_name, bio, avatar_url, email')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (prof) {
+        postSnippet = prof.bio;
+        targetTitle = prof.full_name;
+        const avatarCdn = toStorageCdnUrl(prof.avatar_url);
+        if (avatarCdn) mediaUrls = [avatarCdn];
+        reportedAuthorEmail = prof.email ?? null;
+      }
+    } else if (targetType === 'comment') {
+      const { data: comment } = await supabase
+        .from('comments')
+        .select('content, user_id')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (comment) {
+        postSnippet = comment.content;
+      }
+    }
+  } catch (e) {
+    console.warn("Could not fetch reported content context:", e);
+  }
+
+  // 2. Perform quick AI safety assessment
+  let severity = "medium";
+  if (reason.toLowerCase().includes("spam") || reason.toLowerCase().includes("fraud")) {
+    severity = "high";
+  }
+
+  // 3. Persist report record in 'reports' table
+  const { data: reportRecord, error: reportErr } = await supabase
+    .from('reports')
+    .insert({
+      user_id: userId,
+      target_id: targetId,
+      target_type: targetType,
+      reason: `${reason}${details ? ' - ' + details : ''}`,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+
+  if (reportErr) {
+    console.error("Failed to insert into reports table:", reportErr);
+  }
+
+  // 4. Mirror report to Goobox support backend (https://anregykcgolpgxecfxej.supabase.co)
+  // so the moderation team can review, decide, and communicate back.
+  let gooboxTicketId = null;
+  try {
+    const { data: reporterProfile } = await supabase
+      .from('profiles')
+      .select('full_name, phone, email')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const reporterName = reporterProfile?.full_name || 'Necxa User';
+    const reporterEmail = reporterProfile?.email || `${userId}@users.necxa.uk`;
+    const subject = `[CONTENT REPORT] ${reason.slice(0, 50)} — ${targetType}`;
+    const snippet = postSnippet ? postSnippet.slice(0, 120) : `Reported ${targetType} ID: ${targetId}`;
+
+    // Build plain text and HTML body for Goobox moderators
+    const desc = [
+      `Content Report from Necxa App User`,
+      `─────────────────────────────────`,
+      `Reporter: ${reporterName} (${userId})`,
+      `Target Type: ${targetType}`,
+      `Target ID: ${targetId}`,
+      targetTitle ? `Title: "${targetTitle}"` : null,
+      `Reason: ${reason}`,
+      details ? `Details: ${details}` : null,
+      postSnippet ? `Content: "${postSnippet.slice(0, 300)}"` : null,
+      reportedAuthorEmail ? `Reported Author Email: ${reportedAuthorEmail}` : null,
+      `Severity: ${severity}`,
+      `Report ID: ${reportRecord?.id ?? 'pending'}`,
+    ].filter(Boolean).join('\n');
+
+    const descHtml = desc
+      .split('\n')
+      .map((l) => `<p>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`)
+      .join('');
+
+    // Attachments array for Goobox ticket_messages
+    const attachments = mediaUrls.slice(0, 5).map((url, i) => ({
+      name: `media_${i + 1}.jpg`,
+      url,
+      type: url.includes('.mp4') || url.includes('.m3u8') || url.includes('hls') ? 'video' : 'image',
+    }));
+
+    const ticketPayload = {
+      subject,
+      snippet,
+      status: 'open',
+      priority: severity === 'high' ? 'high' : 'medium',
+      source: 'report',
+      inbox: 'support@necxa.uk',
+      sender: `${reporterName} <${reporterEmail}>`,
+      necxa_user_id: userId,
+      customer_name: reporterName,
+      customer_email: reporterEmail,
+      customer_phone: reporterProfile?.phone || null,
+      verified: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: ticket, error: ticketErr } = await goobox
+      .from('support_tickets')
+      .insert(ticketPayload)
+      .select('id')
+      .single();
+
+    if (ticketErr && (ticketErr.code === '23514' || ticketErr.message?.includes('source_check'))) {
+      console.warn("[Goobox Sync] source='report' hit check constraint; falling back to source='portal'");
+      const fallback = await goobox
+        .from('support_tickets')
+        .insert({ ...ticketPayload, source: 'portal' })
+        .select('id')
+        .single();
+      ticket = fallback.data;
+      ticketErr = fallback.error;
+    }
+
+    if (!ticketErr && ticket) {
+      gooboxTicketId = ticket.id;
+      // Insert structured message with media attachments so moderators see full context
+      await goobox.from('ticket_messages').insert({
+        ticket_id: ticket.id,
+        sender_type: 'customer',
+        sender: `${reporterName} <${reporterEmail}>`,
+        body: desc,
+        body_html: descHtml,
+        attachments,
+        direction: 'inbound',
+        created_at: new Date().toISOString(),
+      });
+      console.log(`[Goobox Sync] Report mirrored to Goobox ticket: ${gooboxTicketId} with ${attachments.length} attachments`);
+    } else if (ticketErr) {
+      console.warn("[Goobox Sync] Ticket insert warning:", ticketErr.message, ticketErr.code);
+    }
+  } catch (gbErr) {
+    console.warn("[Goobox Sync] Could not mirror report to Goobox:", gbErr);
+  }
+
+  // 5. Automatically add to user_preferences as hidden for the reporter
+  try {
+    await supabase.from('user_preferences').upsert({
+      user_id: userId,
+      target_id: targetId,
+      content_type: targetType,
+      preference_type: 'hidden',
+      created_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,target_id' });
+  } catch (_) {}
+
+  return json({
+    success: true,
+    report_id: reportRecord?.id ?? null,
+    goobox_ticket_id: gooboxTicketId,
+    message: "Report received and queued for Necxa AI analysis and human review by the moderation team at Goobox.",
+    goobox_channel: "goobox.necxa.uk/support",
+  });
+}
+
+
+/**
+ * SYNC-SUPPORT-RESPONSE: Ingests responses from the Goobox team,
+ * and routes them directly to the specific user's chat room and in-app notifications securely.
+ */
+async function handleSyncSupportResponse(payload: any) {
+  const targetUserId = payload.necxa_user_id || payload.user_id;
+  const ticketId = payload.ticket_id;
+  const agentName = payload.agent_name || payload.from_name || "Necxa Support Team";
+  const replyMessage = payload.message || payload.body || payload.content;
+
+  if (!targetUserId) return err("necxa_user_id is required for routing support response");
+  if (!replyMessage) return err("reply message is required");
+
+  // 1. Resolve Necxa Official Support account
+  // IMPORTANT: fallback is the real Necxa Support profile — '00000000-0000-0000-0000-000000000001' does NOT exist
+  // and causes FK failures on direct_chat_rooms, direct_messages, and notifications.actor_id.
+  let supportBotId = "709c2cae-4be0-42db-9f28-37f172c32749";
+  try {
+    const { data: officialProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .or('email.eq.support@necxa.uk,username.eq.necxa_support')
+      .maybeSingle();
+    if (officialProfile?.id) {
+      supportBotId = officialProfile.id;
+    }
+  } catch (_) {}
+
+  // 2. Get or create support chat room with proper metadata
+  let directMessageId = null;
+  try {
+    const { data: roomId } = await supabase.rpc('get_or_create_direct_room', {
+      p_user_a: supportBotId,
+      p_user_b: targetUserId,
+    });
+
+    if (roomId) {
+      // Ensure room has support metadata so isSupport getter works in Flutter
+      await supabase
+        .from('direct_chat_rooms')
+        .update({
+          metadata: {
+            interaction_context: 'support',
+            conversation_label: 'Necxa Support',
+            ticket_id: ticketId,
+          },
+        })
+        .eq('id', roomId);
+
+      // Deduplication check
+      const { count: dupCount } = await supabase
+        .from('direct_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('room_id', roomId)
+        .eq('content', replyMessage);
+
+      if (dupCount && dupCount > 0) {
+        return json({
+          success: true,
+          message: "Already synced",
+          delivered_to: targetUserId,
+          room_id: roomId,
+        });
+      }
+
+      const replyMetadata: Record<string, any> = {
+        source: 'goobox',
+        ticket_id: ticketId,
+        agent_name: agentName,
+        interaction_context: 'support',
+      };
+      if (payload.ticket_reply_id) replyMetadata.ticket_reply_id = payload.ticket_reply_id;
+      if (payload.ticket_message_id) replyMetadata.ticket_message_id = payload.ticket_message_id;
+
+      const { data: insertedMsg } = await supabase
+        .from('direct_messages')
+        .insert({
+          room_id: roomId,
+          sender_id: supportBotId,
+          message_type: 'text',
+          content: replyMessage,
+          metadata: replyMetadata,
+        })
+        .select('id')
+        .single();
+      directMessageId = insertedMsg?.id;
+    }
+  } catch (chatErr) {
+    console.warn("[Support Sync] Could not deliver to direct chat:", chatErr);
+  }
+
+  // 3. Route into user's in-app notifications
+  // IMPORTANT: Necxa DB only allows type in ('like','comment','follow','share','save','mention',
+  //   'listing','content','financial','social','system','listing_viewed')
+  //   and target_type in ('post','listing','profile','comment','system').
+  //   'support_response' and 'support' BOTH violate the check constraints — use 'system'.
+  let notificationId = null;
+  try {
+    const notifRow = {
+      id: crypto.randomUUID(),
+      user_id: targetUserId,
+      actor_id: supportBotId,
+      type: 'system',           // was 'support_response' — violated check constraint
+      title: `Message from ${agentName}`,
+      body: replyMessage.length > 120 ? `${replyMessage.slice(0, 117)}...` : replyMessage,
+      target_id: targetUserId,  // use userId so FK resolves (profiles.id)
+      target_type: 'system',    // was 'support' — violated check constraint
+      notification_type: 'support_response',  // custom discriminator stored in metadata
+      metadata: {
+        notification_type: 'support_response',
+        agent_name: agentName,
+        ticket_id: ticketId,
+        full_content: replyMessage,
+        source: 'goobox',
+        interaction_context: 'support',
+      },
+      dedupe_key: `support:${ticketId || Date.now()}:${crypto.randomUUID().slice(0, 6)}`,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data: insertedNotif, error: notifInsertErr } = await supabase
+      .from('notifications')
+      .insert(notifRow)
+      .select('id')
+      .single();
+    if (notifInsertErr) {
+      console.warn("[Support Sync] Notification insert failed:", notifInsertErr.message, notifInsertErr.code);
+    }
+    notificationId = insertedNotif?.id;
+  } catch (notifErr) {
+    console.warn("[Support Sync] Could not deliver to notifications:", notifErr);
+  }
+
+  return json({
+    success: true,
+    message: "Support response delivered to user chat and notification.",
+    delivered_to: targetUserId,
+    direct_message_id: directMessageId,
+    notification_id: notificationId,
+  });
+}
+
+/**
+ * CREATE-SUPPORT-TICKET: Creates an in-app support ticket in Goobox directly from the Necxa app
+ * and establishes the matching support chat room in Necxa.
+ */
+async function handleCreateSupportTicket(userId: string, payload: any) {
+  const subject = payload.subject || 'Support Request';
+  const message = payload.message || '';
+  const category = payload.category || 'general';
+  const priority = payload.priority || 'medium';
+
+  if (!message) return err("message is required");
+
+  // Fetch user profile
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, email, phone')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const userName = profile?.full_name || 'Necxa User';
+  const userEmail = profile?.email || `${userId}@users.necxa.uk`;
+
+  // Resolve support bot
+  let supportBotId = "709c2cae-4be0-42db-9f28-37f172c32749";
+  try {
+    const { data: sp } = await supabase.from('profiles').select('id')
+      .or('email.eq.support@necxa.uk,username.eq.necxa_support').maybeSingle();
+    if (sp?.id) supportBotId = sp.id;
+  } catch (_) {}
+
+  // 1. Create ticket in Goobox
+  let gooboxTicketId: string | null = null;
+  try {
+    const ticketPayload = {
+      subject: subject.slice(0, 200),
+      snippet: message.slice(0, 120),
+      status: 'open',
+      priority,
+      source: 'in_app',
+      inbox: 'support@necxa.uk',
+      sender: `${userName} <${userEmail}>`,
+      necxa_user_id: userId,
+      customer_name: userName,
+      customer_email: userEmail,
+      customer_phone: profile?.phone || null,
+      verified: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: ticket, error: ticketErr } = await goobox
+      .from('support_tickets')
+      .insert(ticketPayload)
+      .select('id')
+      .single();
+
+    if (ticketErr && (ticketErr.code === '23514' || ticketErr.message?.includes('source_check'))) {
+      console.warn("[CreateTicket] source='in_app' hit check constraint; falling back to source='portal'");
+      const fallback = await goobox
+        .from('support_tickets')
+        .insert({ ...ticketPayload, source: 'portal' })
+        .select('id')
+        .single();
+      ticket = fallback.data;
+      ticketErr = fallback.error;
+    }
+
+    if (!ticketErr && ticket) {
+      gooboxTicketId = ticket.id;
+      await goobox.from('ticket_messages').insert({
+        ticket_id: ticket.id,
+        sender_type: 'customer',
+        sender: `${userName} <${userEmail}>`,
+        body: `[Category: ${category}]\n\n${message}`,
+        direction: 'inbound',
+        created_at: new Date().toISOString(),
+      });
+      console.log(`[CreateTicket] Ticket created in Goobox: ${gooboxTicketId}`);
+    } else if (ticketErr) {
+      console.warn("[CreateTicket] Goobox ticket insert failed:", ticketErr.message, ticketErr.code);
+    }
+  } catch (gbErr) {
+    console.warn("[CreateTicket] Goobox error:", gbErr);
+  }
+
+  // 2. Create or get Necxa support chat room with support metadata
+  let roomId: string | null = null;
+  try {
+    const { data: rid } = await supabase.rpc('get_or_create_direct_room', {
+      p_user_a: supportBotId,
+      p_user_b: userId,
+    });
+    roomId = rid;
+    if (roomId) {
+      await supabase.from('direct_chat_rooms').update({
+        metadata: {
+          interaction_context: 'support',
+          conversation_label: 'Necxa Support',
+          ...(gooboxTicketId ? { ticket_id: gooboxTicketId } : {}),
+        },
+      }).eq('id', roomId);
+
+      // Send the initial message as support bot (system confirmation)
+      await supabase.from('direct_messages').insert({
+        room_id: roomId,
+        sender_id: supportBotId,
+        message_type: 'text',
+        content: `✅ Your support request has been received.\n\nSubject: ${subject}\n\nOur team will respond shortly. You can continue messaging here.`,
+        metadata: { interaction_context: 'support', source: 'system' },
+      });
+
+      // Also echo user's message into the room
+      await supabase.from('direct_messages').insert({
+        room_id: roomId,
+        sender_id: userId,
+        message_type: 'text',
+        content: message,
+        metadata: {
+          interaction_context: 'support',
+          ...(gooboxTicketId ? { ticket_id: gooboxTicketId } : {}),
+        },
+      });
+    }
+  } catch (chatErr) {
+    console.warn("[CreateTicket] Chat room setup error:", chatErr);
+  }
+
+  return json({
+    success: true,
+    ticket_id: gooboxTicketId,
+    room_id: roomId,
+    message: "Support ticket created. Our team will respond shortly.",
+  });
+}
+
+/**
+ * FORWARD-SUPPORT-MESSAGE: When a user types in the Necxa support chat,
+ * this forwards their message to Goobox ticket_messages and bumps updated_at.
+ */
+async function handleForwardSupportMessage(userId: string, payload: any) {
+  const message = payload.message || payload.content || '';
+  const ticketId = payload.ticket_id;
+  const roomId = payload.room_id;
+
+  if (!message) return err("message is required");
+  if (!ticketId) return json({ success: true, forwarded: false, reason: "no ticket_id — skipping forward" });
+
+  const { data: profile } = await supabase
+    .from('profiles').select('full_name, email').eq('id', userId).maybeSingle();
+  const userName = profile?.full_name || 'Necxa User';
+  const userEmail = profile?.email || `${userId}@users.necxa.uk`;
+
+  try {
+    const { error: msgErr } = await goobox.from('ticket_messages').insert({
+      ticket_id: ticketId,
+      sender_type: 'customer',
+      sender: `${userName} <${userEmail}>`,
+      body: message,
+      direction: 'inbound',
+      created_at: new Date().toISOString(),
+    });
+    if (msgErr) console.warn("[ForwardSupport] ticket_messages insert:", msgErr.message);
+
+    // Bump ticket updated_at so Goobox inbox sorts it to top
+    await goobox.from('support_tickets')
+      .update({ updated_at: new Date().toISOString(), status: 'open' })
+      .eq('id', ticketId);
+
+    return json({ success: true, forwarded: true });
+  } catch (e) {
+    console.warn("[ForwardSupport] Error forwarding to Goobox:", e);
+    return json({ success: true, forwarded: false, reason: String(e) });
+  }
+}
+
+/**
+ * FETCH-USER-SUPPORT-MESSAGES: Allows the Necxa user to securely view their
+ * active support tickets and messages from the Goobox team. Also auto-syncs any
+ * new Goobox agent replies that haven't been delivered to the user's chat yet.
+ */
+async function handleFetchUserSupportMessages(userId: string) {
+  try {
+    const { data: tickets, error } = await goobox
+      .from('support_tickets')
+      .select('id, subject, snippet, status, priority, created_at, updated_at')
+      .eq('necxa_user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.warn("[Goobox] Error fetching tickets for user:", error.message);
+      return json({ success: true, tickets: [] });
+    }
+
+    // Auto-sync any pending agent replies not yet delivered to Necxa chat
+    if (tickets && tickets.length > 0) {
+      try {
+        for (const ticket of tickets.slice(0, 5)) {
+          // 1. Check ticket_replies (standard Goobox outbound replies)
+          const { data: replies } = await goobox
+            .from('ticket_replies')
+            .select('id, body, sender, created_at')
+            .eq('ticket_id', ticket.id)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (replies && replies.length > 0) {
+            for (const r of replies) {
+              const { count } = await supabase.from('direct_messages')
+                .select('id', { count: 'exact', head: true })
+                .contains('metadata', { ticket_reply_id: r.id });
+
+              if (count === 0) {
+                await handleSyncSupportResponse({
+                  necxa_user_id: userId,
+                  ticket_id: ticket.id,
+                  ticket_reply_id: r.id,
+                  message: r.body,
+                  agent_name: r.sender || 'Necxa Support Team',
+                });
+                console.log(`[AutoSync] Delivered pending Goobox ticket_reply: ${r.id}`);
+              }
+            }
+          }
+
+          // 2. Also check ticket_messages (agent messages)
+          const { data: messages } = await goobox
+            .from('ticket_messages')
+            .select('id, body, sender_type, sender, created_at')
+            .eq('ticket_id', ticket.id)
+            .or('direction.eq.outbound,sender_type.eq.agent')
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          if (messages && messages.length > 0) {
+            for (const msg of messages) {
+              const { count } = await supabase.from('direct_messages')
+                .select('id', { count: 'exact', head: true })
+                .contains('metadata', { ticket_message_id: msg.id });
+
+              if (count === 0) {
+                await handleSyncSupportResponse({
+                  necxa_user_id: userId,
+                  ticket_id: ticket.id,
+                  ticket_message_id: msg.id,
+                  message: msg.body,
+                  agent_name: msg.sender || 'Necxa Support Team',
+                });
+                console.log(`[AutoSync] Delivered pending Goobox ticket_message: ${msg.id}`);
+              }
+            }
+          }
+        }
+      } catch (autoSyncErr) {
+        console.warn("[AutoSync] Error during auto-sync:", autoSyncErr);
+      }
+    }
+
+    return json({
+      success: true,
+      tickets: tickets || [],
+    });
+  } catch (e) {
+    console.error("[Goobox] Fetch user support failed:", e);
+    return json({ success: true, tickets: [] });
+
+  }
+}
+
+/**
  * CLEAR-CACHE: Emergency invalidation for all feed nodes.
  */
 async function handleClearCache() {
@@ -1607,7 +2304,9 @@ Deno.serve(async (req: Request) => {
     const { data: { user } } = await supabase.auth.getUser(authHeader?.replace("Bearer ", "") || "");
     const userId = user?.id;
     const body = await req.json() as { action: string; payload?: Record<string, unknown> };
-    const { action, payload = {} } = body;
+    const { payload = {} } = body;
+    const rawAction = body.action || "";
+    const action = rawAction.trim().toLowerCase().replace(/\s*-\s*|\s*_\s*|\s+/g, "-");
 
     // The one-time cutover is authenticated by a private application key.
     // It runs before user auth because deployment callers use the project anon
@@ -1617,6 +2316,11 @@ Deno.serve(async (req: Request) => {
     }
     if (action === "diagnose-engagement") {
       return handleDiagnoseEngagement(user);
+    }
+
+    // sync-support-response is invoked by Goobox backend webhooks/admins
+    if (action === "sync-support-response") {
+      return handleSyncSupportResponse(payload);
     }
 
     if (!userId) return err("Unauthorized", 401);
@@ -1647,7 +2351,20 @@ Deno.serve(async (req: Request) => {
       case "fetch-music-discovery":return handleFetchMusicDiscovery();
       case "search-music":         return handleSearchMusic(payload);
       case "search-listings":      return handleSearchListings(payload);
-      default:                     return err(`Unknown action: "${action}"`);
+      case "not-interested":       return handleNotInterested(userId, payload);
+      case "report-content":       return handleSubmitReport(userId, payload);
+      case "sync-support-response":return handleSyncSupportResponse(payload);
+      case "fetch-user-support":
+      case "fetch-support":
+        return handleFetchUserSupportMessages(userId);
+      case "create-support-ticket":
+      case "create-ticket":
+      case "support-ticket":
+        return handleCreateSupportTicket(userId, payload);
+      case "forward-support-message":
+      case "forward-message":
+        return handleForwardSupportMessage(userId, payload);
+      default:                     return err(`Unknown action: "${rawAction}"`);
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

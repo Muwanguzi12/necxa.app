@@ -68,10 +68,16 @@ class TextOverlay extends EditOperation {
 /// Represents a color filter operation.
 class FilterOperation extends EditOperation {
   final String filterName; // e.g., 'sepia', 'grayscale', 'vignette'
-  FilterOperation({required this.filterName}) : super('filter');
+  final double intensity;
+  FilterOperation({required this.filterName, this.intensity = 1.0})
+      : super('filter');
 
   @override
-  Map<String, dynamic> toJson() => {'type': type, 'name': filterName};
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'name': filterName,
+    'intensity': intensity,
+  };
 }
 
 /// Non-destructive visual transform shared by every editor surface and renderer.
@@ -731,6 +737,7 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
+  TransitionOperation? transitionIn;
   bool
   isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
   File? proxyFile;
@@ -770,6 +777,7 @@ class TimelineClip {
     this.isReversed = false,
     TransformOperation? transform,
     this.filter,
+    this.transitionIn,
     this.isHidden = false,
   }) : transform = transform ?? TransformOperation();
 
@@ -798,6 +806,7 @@ class TimelineClip {
     bool? isReversed,
     TransformOperation? transform,
     FilterOperation? filter,
+    TransitionOperation? transitionIn,
     bool? isHidden,
   }) {
     return TimelineClip(
@@ -825,6 +834,7 @@ class TimelineClip {
       isReversed: isReversed ?? this.isReversed,
       transform: transform ?? this.transform,
       filter: filter ?? this.filter,
+      transitionIn: transitionIn ?? this.transitionIn,
       isHidden: isHidden ?? this.isHidden,
     );
   }

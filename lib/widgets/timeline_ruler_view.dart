@@ -19,8 +19,11 @@ class TimelineRulerView extends StatelessWidget {
     required this.totalDuration,
     required this.pixelsPerSecond,
     required this.zoom,
-    this.height = 28.0,
+    this.height = 22.0,
     this.width,
+    this.loopIn,
+    this.loopOut,
+    this.onRulerTap,
   });
 
   /// Total project duration — used to know how many ticks to draw.
@@ -38,6 +41,15 @@ class TimelineRulerView extends StatelessWidget {
   /// Explicit width override. If null, uses the available constraint width.
   final double? width;
 
+  /// Optional loop in-point.
+  final Duration? loopIn;
+
+  /// Optional loop out-point.
+  final Duration? loopOut;
+
+  /// Callback when user taps the ruler to seek.
+  final void Function(Duration)? onRulerTap;
+
   @override
   Widget build(BuildContext context) {
     final effectiveWidth =
@@ -47,15 +59,31 @@ class TimelineRulerView extends StatelessWidget {
           MediaQuery.of(context).size.width,
         );
 
-    return SizedBox(
-      height: height,
-      width: effectiveWidth,
-      child: CustomPaint(
-        painter: _RulerPainter(
-          totalDuration: totalDuration,
-          pixelsPerSecond: pixelsPerSecond,
-          zoom: zoom,
-          height: height,
+    final scale = pixelsPerSecond * zoom;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapUp: (details) {
+        if (onRulerTap == null || scale <= 0) return;
+        final seconds = details.localPosition.dx / scale;
+        final clampedSecs = seconds.clamp(
+          0.0,
+          totalDuration.inMilliseconds / 1000.0,
+        );
+        onRulerTap!(Duration(milliseconds: (clampedSecs * 1000.0).round()));
+      },
+      child: SizedBox(
+        height: height,
+        width: effectiveWidth,
+        child: CustomPaint(
+          painter: _RulerPainter(
+            totalDuration: totalDuration,
+            pixelsPerSecond: pixelsPerSecond,
+            zoom: zoom,
+            height: height,
+            loopIn: loopIn,
+            loopOut: loopOut,
+          ),
         ),
       ),
     );
@@ -72,12 +100,17 @@ class _RulerPainter extends CustomPainter {
     required this.pixelsPerSecond,
     required this.zoom,
     required this.height,
+    this.loopIn,
+    this.loopOut,
   });
 
   final Duration totalDuration;
   final double pixelsPerSecond;
   final double zoom;
   final double height;
+  final Duration? loopIn;
+  final Duration? loopOut;
+
 
   // ── Tick-interval selection ───────────────────────────────────────────────
 
@@ -156,6 +189,56 @@ class _RulerPainter extends CustomPainter {
         ..strokeWidth = 1,
     );
 
+    // ── Loop Region Highlight ───────────────────────────────────────────────
+    if (loopIn != null && loopOut != null && loopOut! > loopIn!) {
+      final xIn =
+          (loopIn!.inMicroseconds / Duration.microsecondsPerSecond) * scale;
+      final xOut =
+          (loopOut!.inMicroseconds / Duration.microsecondsPerSecond) * scale;
+      // Tint strip on ruler
+      canvas.drawRect(
+        Rect.fromLTRB(xIn, 0, xOut, size.height - 0.5),
+        Paint()..color = const Color(0xFF10B981).withValues(alpha: 0.20),
+      );
+      // Top connection line
+      canvas.drawLine(
+        Offset(xIn, 1),
+        Offset(xOut, 1),
+        Paint()
+          ..color = const Color(0xFF10B981)
+          ..strokeWidth = 2.0,
+      );
+      // In marker
+      final inPath = Path()
+        ..moveTo(xIn, 0)
+        ..lineTo(xIn + 6, 0)
+        ..lineTo(xIn, 8)
+        ..close();
+      canvas.drawPath(inPath, Paint()..color = const Color(0xFF10B981));
+      canvas.drawLine(
+        Offset(xIn, 0),
+        Offset(xIn, size.height),
+        Paint()
+          ..color = const Color(0xFF10B981)
+          ..strokeWidth = 1.5,
+      );
+
+      // Out marker
+      final outPath = Path()
+        ..moveTo(xOut, 0)
+        ..lineTo(xOut - 6, 0)
+        ..lineTo(xOut, 8)
+        ..close();
+      canvas.drawPath(outPath, Paint()..color = const Color(0xFF10B981));
+      canvas.drawLine(
+        Offset(xOut, 0),
+        Offset(xOut, size.height),
+        Paint()
+          ..color = const Color(0xFF10B981)
+          ..strokeWidth = 1.5,
+      );
+    }
+
     final totalSecs =
         totalDuration.inMicroseconds / Duration.microsecondsPerSecond;
     final totalWidth = totalSecs * scale;
@@ -216,5 +299,7 @@ class _RulerPainter extends CustomPainter {
       totalDuration != old.totalDuration ||
       pixelsPerSecond != old.pixelsPerSecond ||
       zoom != old.zoom ||
-      height != old.height;
+      height != old.height ||
+      loopIn != old.loopIn ||
+      loopOut != old.loopOut;
 }
