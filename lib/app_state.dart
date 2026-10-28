@@ -1621,7 +1621,16 @@ class AppState extends ChangeNotifier {
 
   // ── Global Methods ──
   void go(String s, {dynamic extra}) {
-    if (kIsWeb && _isChatRoute(s)) return;
+    if (kIsWeb) {
+      // Guard on web: community, upload, and media editor are removed
+      if (s == 'community' ||
+          s == 'upload' ||
+          s == 'media-editor' ||
+          s == 'responsive_media_editor' ||
+          s == 'pro_media_editor') {
+        s = 'home';
+      }
+    }
     // Prevent push-loops
     if (screen != s) {
       _navigationStack.add(screen);
@@ -1657,7 +1666,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get chatAvailable => !kIsWeb;
+  bool get chatAvailable => true;
 
   bool _isChatRoute(String route) =>
       route == 'chat' ||

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../theme.dart';
 import '../app_state.dart';
 import '../widgets/vault_widget.dart';
@@ -749,12 +750,19 @@ class _ProfileScreenState extends State<ProfileScreen>
                     icon: Icons.home_filled,
                     onTap: () => widget.state.go('home'),
                   ),
-                  _NavBtn(
-                    icon: Icons.bolt,
-                    onTap: () => widget.state.go('community'),
-                  ),
-                  // Center Pulse
-                  _NavCenterBtn(onTap: () => widget.state.go('upload')),
+                  if (!kIsWeb)
+                    _NavBtn(
+                      icon: Icons.bolt,
+                      onTap: () => widget.state.go('community'),
+                    ),
+                  if (kIsWeb)
+                    _NavBtn(
+                      icon: Icons.live_tv_rounded,
+                      onTap: () => widget.state.go('live'),
+                    ),
+                  if (!kIsWeb)
+                    // Center Pulse
+                    _NavCenterBtn(onTap: () => widget.state.go('upload')),
                   _NavBtn(
                     icon: Icons.local_shipping_outlined,
                     onTap: () => widget.state.go('transport'),

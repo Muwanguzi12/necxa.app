@@ -85,34 +85,33 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          if (!kIsWeb)
-            GestureDetector(
-              onTap: () => _showAiChat(context, state),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E2631),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.withOpacity(.3)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Image.asset(
-                      'assets/images/logo.png',
-                      width: 14,
-                      height: 14,
-                      color: C.text,
-                    ),
-                    const SizedBox(width: 6),
-                    Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
-                  ],
-                ),
+          GestureDetector(
+            onTap: () => _showAiChat(context, state),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E2631),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.withValues(alpha: .3)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset(
+                    'assets/images/logo.png',
+                    width: 14,
+                    height: 14,
+                    color: C.text,
+                  ),
+                  const SizedBox(width: 6),
+                  Text('Necxa AI', style: syne(sz: 11, c: Colors.blue)),
+                ],
               ),
             ),
+          ),
           const SizedBox(width: 8),
           GestureDetector(
             onTap: () => state.go('profile'),
@@ -160,8 +159,10 @@ class HomeScreen extends StatelessWidget {
       current: 'home',
       state: state,
       onTap: (t) {
+        if (t == 'list') state.go('list');
         if (t == 'transport') state.go('transport');
-        if (t == 'upload') state.go('upload');
+        if (t == 'upload' && !kIsWeb) state.go('upload');
+        if (t == 'live') state.go('live');
         if (t == 'profile') state.go('profile');
       },
     );
@@ -320,6 +321,63 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ],
+          if (kIsWeb) ...[
+            const SizedBox(height: 14),
+            GestureDetector(
+              onTap: () => state.go('list'),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      C.brand.withValues(alpha: 0.15),
+                      C.brand.withValues(alpha: 0.05),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: C.brand.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: C.brand.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.add_home_work_rounded,
+                        color: C.brand,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'List a Property on Necxa',
+                            style: syne(sz: 13, w: FontWeight.w800, c: C.text),
+                          ),
+                          Text(
+                            'Verify with National ID & publish to thousands of buyers',
+                            style: dm(sz: 10, c: C.dim),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
+                      color: C.brand,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -420,7 +478,8 @@ class HomeScreen extends StatelessWidget {
       current: 'home',
       savedCount: state.saved.length,
       onTap: (t) {
-        if (t == 'community') state.go('community');
+        if (t == 'community' && !kIsWeb) state.go('community');
+        if (t == 'live') state.go('live');
         if (t == 'chat') state.go('chat');
         if (t == 'home') state.go('home');
         if (t == 'list') state.go('list');
@@ -932,10 +991,12 @@ class _AppTabs extends StatelessWidget {
     required this.state,
   });
 
-  static const _tabRoutes = [
+  List<(String, String?, String)> get _tabRoutes => [
     ('home', 'assets/images/property_icon.png', 'Property'),
-    ('transport', 'assets/images/transport_icon.png', 'Transport'),
-    ('upload', 'assets/images/upload_icon.png', 'Upload'),
+    ('list', 'assets/images/listing_icon.png', 'Property Listing'),
+    if (!kIsWeb) ('transport', 'assets/images/transport_icon.png', 'Transport'),
+    if (!kIsWeb) ('upload', 'assets/images/upload_icon.png', 'Upload'),
+    if (kIsWeb) ('live', null, 'Live Stream'),
     ('profile', null, 'Profile'),
   ];
 
@@ -950,6 +1011,7 @@ class _AppTabs extends StatelessWidget {
         children: _tabRoutes.map((t) {
           final active = t.$1 == current;
           final isProfile = t.$1 == 'profile';
+          final isLive = t.$1 == 'live';
           final iconAsset = t.$2;
 
           return Expanded(
@@ -980,7 +1042,7 @@ class _AppTabs extends StatelessWidget {
                             margin: const EdgeInsets.only(right: 4),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: C.dim.withOpacity(.2),
+                              color: C.dim.withValues(alpha: .2),
                               image: url != null
                                   ? DecorationImage(
                                       image: NetworkImage(url),
@@ -994,13 +1056,22 @@ class _AppTabs extends StatelessWidget {
                           );
                         },
                       )
+                    else if (isLive)
+                      const Padding(
+                        padding: EdgeInsets.only(right: 4),
+                        child: Icon(
+                          Icons.live_tv_rounded,
+                          size: 14,
+                          color: Color(0xFFFF2D55),
+                        ),
+                      )
                     else if (iconAsset != null)
                       Opacity(
                         opacity: active ? 1.0 : 0.6,
                         child: Image.asset(iconAsset, width: 14, height: 14),
                       ),
 
-                    if (!isProfile) const SizedBox(width: 4),
+                    if (!isProfile && !isLive) const SizedBox(width: 4),
 
                     Text(
                       t.$3,
@@ -1055,21 +1126,36 @@ class _BottomNav extends StatelessWidget {
             ),
             'Property', 
             current == 'home', 
-            () => onTap('home')
+            () => onTap('home'),
           ),
-          _BotBtn(
-            Opacity(
-              opacity: current == 'community' ? 1.0 : 0.5,
-              child: Image.asset(
-                'assets/images/community_icon_colored.png',
-                width: 24,
-                height: 24,
+          if (!kIsWeb)
+            _BotBtn(
+              Opacity(
+                opacity: current == 'community' ? 1.0 : 0.5,
+                child: Image.asset(
+                  'assets/images/community_icon_colored.png',
+                  width: 24,
+                  height: 24,
+                ),
               ),
+              'Community',
+              current == 'community',
+              () => onTap('community'),
             ),
-            'Community',
-            current == 'community',
-            () => onTap('community'),
-          ),
+          if (kIsWeb)
+            _BotBtn(
+              Opacity(
+                opacity: current == 'live' ? 1.0 : 0.5,
+                child: const Icon(
+                  Icons.live_tv_rounded,
+                  color: Color(0xFFFF2D55),
+                  size: 24,
+                ),
+              ),
+              'Live',
+              current == 'live',
+              () => onTap('live'),
+            ),
           _BotBtn(
             Opacity(
               opacity: current == 'list' ? 1.0 : 0.5,
@@ -1079,24 +1165,23 @@ class _BottomNav extends StatelessWidget {
                 height: 24,
               ),
             ),
-            'Listings', 
+            'Property Listing', 
             current == 'list', 
-            () => onTap('list')
+            () => onTap('list'),
           ),
-          if (!kIsWeb)
-            _BotBtn(
-              Opacity(
-                opacity: current == 'chat' ? 1.0 : 0.5,
-                child: Image.asset(
-                  'assets/images/chat_icon.png',
-                  width: 24,
-                  height: 24,
-                ),
+          _BotBtn(
+            Opacity(
+              opacity: (current == 'chat' || current == 'chat-list' || current == 'new-chat') ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/chat_icon.png',
+                width: 24,
+                height: 24,
               ),
-              'Chat',
-              current == 'chat',
-              () => onTap('chat'),
             ),
+            'Chat',
+            current == 'chat' || current == 'chat-list' || current == 'new-chat',
+            () => onTap('chat'),
+          ),
         ],
       ),
     );

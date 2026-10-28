@@ -31,19 +31,34 @@ class NecxaBottomNav extends StatelessWidget {
             state.screen == 'home',
             () => state.go('home'),
           ),
-          _BotBtn(
-            Opacity(
-              opacity: state.screen == 'community' ? 1.0 : 0.5,
-              child: Image.asset(
-                'assets/images/community_icon_colored.png', 
-                width: 24, 
-                height: 24,
+          if (!kIsWeb)
+            _BotBtn(
+              Opacity(
+                opacity: state.screen == 'community' ? 1.0 : 0.5,
+                child: Image.asset(
+                  'assets/images/community_icon_colored.png', 
+                  width: 24, 
+                  height: 24,
+                ),
               ),
+              'Community',
+              state.screen == 'community',
+              () => state.go('community'),
             ),
-            'Community',
-            state.screen == 'community',
-            () => state.go('community'),
-          ),
+          if (kIsWeb)
+            _BotBtn(
+              Opacity(
+                opacity: state.screen == 'live' ? 1.0 : 0.5,
+                child: const Icon(
+                  Icons.live_tv_rounded,
+                  color: Color(0xFFFF2D55),
+                  size: 24,
+                ),
+              ),
+              'Live',
+              state.screen == 'live',
+              () => state.go('live'),
+            ),
           _BotBtn(
             Opacity(
               opacity: (state.screen == 'list' || state.screen == 'property_listing') ? 1.0 : 0.5,
@@ -53,26 +68,25 @@ class NecxaBottomNav extends StatelessWidget {
                 height: 24,
               ),
             ),
-            'Listings',
+            'Property Listing',
             state.screen == 'list' || state.screen == 'property_listing',
             () => state.go('list'),
           ),
-          if (!kIsWeb)
-            _BotBtn(
-              Opacity(
-                opacity: (state.screen == 'chat' || state.screen == 'chat-list' || state.screen == 'new-chat') ? 1.0 : 0.5,
-                child: Image.asset(
-                  'assets/images/chat_icon.png',
-                  width: 24,
-                  height: 24,
-                ),
+          _BotBtn(
+            Opacity(
+              opacity: (state.screen == 'chat' || state.screen == 'chat-list' || state.screen == 'new-chat') ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/chat_icon.png',
+                width: 24,
+                height: 24,
               ),
-              'Chat',
-              state.screen == 'chat' ||
-                  state.screen == 'chat-list' ||
-                  state.screen == 'new-chat',
-              () => state.go('chat'),
             ),
+            'Chat',
+            state.screen == 'chat' ||
+                state.screen == 'chat-list' ||
+                state.screen == 'new-chat',
+            () => state.go('chat'),
+          ),
         ],
       ),
     );

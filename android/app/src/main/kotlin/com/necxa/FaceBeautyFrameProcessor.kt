@@ -62,15 +62,27 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
 
         return try {
             val source = frame.buffer.toI420() ?: return frame
+            // Guard: skip processing on degenerate frames (camera initializing or flipping)
+            if (source.width <= 0 || source.height <= 0) {
+                source.release()
+                return frame
+            }
             var output: JavaI420Buffer? = null
             var outputRetained = false
+            var sourceReleased = false
             try {
                 frameCount++
                 if (frameCount % 10 == 0 && detecting.compareAndSet(false, true)) {
                     detect(source, frame.rotation)
                 }
 
-                val bounds = face ?: return frame
+                val bounds = face
+                if (bounds == null) {
+                    // No face yet — pass through original frame, release source cleanly
+                    source.release()
+                    sourceReleased = true
+                    return frame
+                }
                 output = JavaI420Buffer.allocate(source.width, source.height)
 
                 warpPlane(source.dataY, source.strideY, output.dataY, output.strideY,
@@ -88,10 +100,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 outputRetained = true
                 resultFrame
             } finally {
-                source.release()
-                if (!outputRetained) {
-                    output?.release()
-                }
+                if (!sourceReleased) source.release()
+                if (!outputRetained) output?.release()
             }
         } catch (_: Throwable) {
             frame

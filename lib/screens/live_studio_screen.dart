@@ -1736,13 +1736,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           ?.videoTrackPublications.firstOrNull?.track;
       if (track == null) return;
       final trackId = track.mediaStreamTrack.id;
+      // Guard: trackId must be non-null and non-empty, otherwise the native plugin won't find the track
+      if (trackId == null || trackId.isEmpty) return;
       try {
         if (intensity <= 0.01) {
           if (!_faceSymmetryProcessorAttached) return;
           await _faceSymmetryChannel.invokeMethod<void>('detach', {
             'trackId': trackId,
           });
-          _faceSymmetryProcessorAttached = false;
+          if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
         } else if (_faceSymmetryProcessorAttached) {
           await _faceSymmetryChannel.invokeMethod<void>('setIntensity', {
             'trackId': trackId,
@@ -1755,14 +1757,19 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             'intensity': intensity,
             'mirrorLeft': _symmetryMirrorLeft,
           });
-          _faceSymmetryProcessorAttached = true;
+          // Only mark attached AFTER the native call confirms success (no exception)
+          if (mounted) setState(() => _faceSymmetryProcessorAttached = true);
         }
       } on PlatformException catch (error) {
-        debugPrint('Necxa Live: Face symmetry processor unavailable: ${error.message}');
+        debugPrint('Necxa Live: Face symmetry processor error: ${error.message}');
+        // If attach/setIntensity fails, reset state so next call retries attach cleanly
+        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       } on MissingPluginException {
         debugPrint('Necxa Live: Face symmetry processor is not available on this platform.');
+        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       } catch (error) {
         debugPrint('Necxa Live: Could not update face symmetry: $error');
+        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       }
     });
   }
