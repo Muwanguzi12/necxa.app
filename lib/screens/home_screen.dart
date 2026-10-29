@@ -1156,20 +1156,19 @@ class _BottomNav extends StatelessWidget {
               current == 'live',
               () => onTap('live'),
             ),
-          if (kIsWeb)
-            _BotBtn(
-              Opacity(
-                opacity: current == 'list' ? 1.0 : 0.5,
-                child: Image.asset(
-                  'assets/images/listing_icon.png',
-                  width: 24,
-                  height: 24,
-                ),
+          _BotBtn(
+            Opacity(
+              opacity: current == 'list' ? 1.0 : 0.5,
+              child: Image.asset(
+                'assets/images/listing_icon.png',
+                width: 24,
+                height: 24,
               ),
-              'Property Listing', 
-              current == 'list', 
-              () => onTap('list'),
             ),
+            'Property Listing', 
+            current == 'list', 
+            () => onTap('list'),
+          ),
           _BotBtn(
             Opacity(
               opacity: (current == 'chat' || current == 'chat-list' || current == 'new-chat') ? 1.0 : 0.5,
