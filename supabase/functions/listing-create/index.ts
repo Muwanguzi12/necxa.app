@@ -479,10 +479,17 @@ Deno.serve(async (req) => {
 
       const videoPaths: string[] = []
       for (let i = 0; i < videoFiles.length; i++) {
+          if (videoFiles[i].size > 60 * 1024 * 1024) {
+            return err("Property video exceeds 60MB limit. Max allowed duration is 30 seconds.", 400, "utility_provider_unavailable")
+          }
           const ext = videoFiles[i].name.split(".").pop() || "mp4"
           const path = `${userId}/reel_${timestamp}_${i}.${ext}`
           const fileBuffer = await videoFiles[i].arrayBuffer()
-          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, { upsert: false, contentType: "video/mp4" })
+          const { error } = await supabaseAdmin.storage.from("listing-photos").upload(path, fileBuffer, {
+            upsert: false,
+            contentType: "video/mp4",
+            cacheControl: "31536000",
+          })
           if (error) throw new Error(`Property video upload failed: ${error.message}`)
           videoPaths.push(path)
         }
@@ -619,6 +626,7 @@ Deno.serve(async (req) => {
           country: country || "Uganda",
           images: fullPhotoUrls,
           bathroom_image_urls: fullBathroomUrls,
+          video_url: fullVideoPaths.length > 0 ? fullVideoPaths[0] : null,
           latitude: gpsNode?.latitude || null,
           longitude: gpsNode?.longitude || null,
           gps_latitude: gpsNode?.latitude || null,

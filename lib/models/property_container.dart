@@ -25,6 +25,7 @@ class PropertyCore {
   final List<String> bathroomImageUrls;
   final String? authorityStampUrl;
   final String? lc1LetterUrl;
+  final String? videoUrl;
   final String? agentPhone;
   final String? agentWhatsapp;
   final String? agentGoogleMeet;
@@ -51,6 +52,7 @@ class PropertyCore {
     required this.longitude,
     required this.images,
     required this.bathroomImageUrls,
+    this.videoUrl,
     this.authorityStampUrl,
     this.lc1LetterUrl,
     this.agentPhone,
@@ -87,6 +89,7 @@ class PropertyCore {
       longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
       images: List<String>.from(json['images'] ?? []),
       bathroomImageUrls: List<String>.from(json['bathroom_image_urls'] ?? []),
+      videoUrl: (json['video_url'] ?? json['media_url'] ?? json['video'])?.toString(),
       authorityStampUrl: json['authority_stamp_url'],
       lc1LetterUrl: json['lc1_letter_url'],
       agentPhone: json['agent_phone'],

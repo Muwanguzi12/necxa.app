@@ -89,6 +89,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
   final List<File> _exteriorPhotos = [];
   final List<File> _interiorPhotos = [];
   final List<File> _bathroomPhotos = [];
+  File? _propertyVideo;
 
   bool _locatingGps = false;
   bool _onSiteVerified = false;
@@ -560,6 +561,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           exterior: _exteriorPhotos,
           interior: _interiorPhotos,
           bathrooms: _bathroomPhotos,
+          video: _propertyVideo,
           loading: _loading,
           aiGenerating: _aiGenerating,
           onAdd: _addPropertyPhoto,
@@ -571,6 +573,8 @@ class _ListingWizardState extends State<ListingWizardScreen> {
             else
               _bathroomPhotos.removeAt(i);
           }),
+          onAddVideo: _addPropertyVideo,
+          onRemoveVideo: _removePropertyVideo,
           onGenerateAi: _generateListingDetailsFromPhotos,
         );
       case 6:
@@ -584,6 +588,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
           faceVerified: widget.state.lastSelfieResult?.faceMatch ?? false,
           gpsLocked: _gpsLocked,
           photoCount: _exteriorPhotos.length + _interiorPhotos.length,
+          videoAttached: _propertyVideo != null,
           loading: _loading,
           submitted: _submitted,
           mintEventId: _mintEventId,
@@ -1151,6 +1156,7 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         agentWhatsapp: _agentWhatsappCtrl.text.trim(),
         photos: _exteriorPhotos + _interiorPhotos,
         bathroomPhotos: _bathroomPhotos,
+        videoFile: _propertyVideo,
         livePingLat: widget.state.livePingGps?.latitude,
         livePingLng: widget.state.livePingGps?.longitude,
         securityMetadata: await widget.state.getFullSecurityMetadata(),
@@ -1215,6 +1221,31 @@ class _ListingWizardState extends State<ListingWizardScreen> {
       setState(() => _loading = false);
       _showError(getUserFriendlyError(e));
     }
+  }
+
+  Future<void> _addPropertyVideo(File file) async {
+    setState(() => _loading = true);
+    try {
+      final bytes = await file.length();
+      if (bytes > 60 * 1024 * 1024) {
+        throw UserMessageException('Video exceeds 60MB. Please select or record a video up to 30 seconds.');
+      }
+      if (!mounted) return;
+      setState(() {
+        _propertyVideo = file;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showError(getUserFriendlyError(e));
+    }
+  }
+
+  void _removePropertyVideo() {
+    setState(() {
+      _propertyVideo = null;
+    });
   }
 
   Future<void> _generateListingDetailsFromPhotos({File? specificPhoto}) async {
@@ -3473,20 +3504,26 @@ class _Step5GPS extends StatelessWidget {
 
 class _Step6Photos extends StatelessWidget {
   final List<File> exterior, interior, bathrooms;
+  final File? video;
   final bool loading;
   final bool aiGenerating;
   final Future<void> Function(String, File) onAdd;
   final Function(String, int) onRemove;
+  final Future<void> Function(File) onAddVideo;
+  final VoidCallback onRemoveVideo;
   final VoidCallback onGenerateAi;
 
   const _Step6Photos({
     required this.exterior,
     required this.interior,
     required this.bathrooms,
+    this.video,
     required this.loading,
     required this.aiGenerating,
     required this.onAdd,
     required this.onRemove,
+    required this.onAddVideo,
+    required this.onRemoveVideo,
     required this.onGenerateAi,
   });
 
@@ -3502,6 +3539,8 @@ class _Step6Photos extends StatelessWidget {
         _photoRow(context, 'Interior & Rooms', interior, 'INTERIOR'),
         const SizedBox(height: 24),
         _photoRow(context, 'Bathrooms', bathrooms, 'BATHROOM'),
+        const SizedBox(height: 24),
+        _videoSection(context),
         const SizedBox(height: 32),
 
         // ── NVIDIA Vision Assistant Banner ──
@@ -3509,12 +3548,12 @@ class _Step6Photos extends StatelessWidget {
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [C.card, C.brand.withOpacity(0.08)],
+              colors: [C.card, C.brand.withValues(alpha: 0.08)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: C.brand.withOpacity(0.35), width: 1.2),
+            border: Border.all(color: C.brand.withValues(alpha: 0.35), width: 1.2),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3524,7 +3563,7 @@ class _Step6Photos extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: C.brand.withOpacity(0.15),
+                      color: C.brand.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(Icons.auto_awesome, color: C.brand, size: 20),
@@ -3583,6 +3622,236 @@ class _Step6Photos extends StatelessWidget {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _videoSection(BuildContext context) {
+    final v = video;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _label('Property Video Tour (Max 30s)'),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: C.brand.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: C.brand.withValues(alpha: 0.4), width: 0.8),
+              ),
+              child: Text(
+                '30s MAX',
+                style: syne(sz: 9, w: FontWeight.w800, c: C.brand),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (v == null)
+          GestureDetector(
+            onTap: loading
+                ? null
+                : () async {
+                    final choice = await showModalBottomSheet<String>(
+                      context: context,
+                      backgroundColor: C.card,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                      ),
+                      builder: (sheetCtx) => SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 4,
+                                margin: const EdgeInsets.only(bottom: 20),
+                                decoration: BoxDecoration(
+                                  color: C.border,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                              Text('Add Property Video (30s Max)',
+                                  style: syne(sz: 16, w: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              Text('Compressed and optimized on upload for smooth playback',
+                                  style: dm(sz: 11, c: C.dim)),
+                              const SizedBox(height: 20),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () => Navigator.pop(sheetCtx, 'camera'),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 20),
+                                        decoration: BoxDecoration(
+                                          color: C.brand.withValues(alpha: .12),
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: C.brand.withValues(alpha: .4)),
+                                        ),
+                                        child: Column(
+                                          children: [
+                                            Icon(Icons.videocam, color: C.brand, size: 36),
+                                            const SizedBox(height: 8),
+                                            Text('Record Video',
+                                                style: syne(sz: 12, w: FontWeight.bold, c: C.brand)),
+                                            Text('30s limit', style: dm(sz: 10, c: C.dim)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () => Navigator.pop(sheetCtx, 'gallery'),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 20),
+                                        decoration: BoxDecoration(
+                                          color: C.card,
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: C.border),
+                                        ),
+                                        child: Column(
+                                          children: [
+                                            Icon(Icons.video_library, color: C.text, size: 36),
+                                            const SizedBox(height: 8),
+                                            Text('Gallery',
+                                                style: syne(sz: 12, w: FontWeight.bold, c: C.text)),
+                                            Text('From device', style: dm(sz: 10, c: C.dim)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                    if (choice == null) return;
+                    final picker = ImagePicker();
+                    final XFile? vf = await picker.pickVideo(
+                      source: choice == 'camera' ? ImageSource.camera : ImageSource.gallery,
+                      maxDuration: const Duration(seconds: 30),
+                    );
+                    if (vf != null) {
+                      await onAddVideo(File(vf.path));
+                    }
+                  },
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+              decoration: BoxDecoration(
+                color: C.card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: C.border,
+                  style: BorderStyle.solid,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: C.brand.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.video_call, color: C.brand, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '+ Add 30s Video Tour (Optional)',
+                        style: syne(sz: 13, w: FontWeight.w700, c: C.text),
+                      ),
+                      Text(
+                        'Boost engagement with a 30s walkthrough',
+                        style: dm(sz: 11, c: C.dim),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: C.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: C.brand.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: C.brand.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Icon(Icons.movie_creation, color: C.brand, size: 24),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              v.path.split(RegExp(r'[/\\]')).last,
+                              style: syne(sz: 12, w: FontWeight.w700, c: C.text),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF00E676).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '30s Tour ✔',
+                              style: syne(sz: 9, w: FontWeight.w800, c: const Color(0xFF00E676)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Ready for upload & backend compression (30s max)',
+                        style: dm(sz: 10, c: C.dim),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: loading ? null : onRemoveVideo,
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                  tooltip: 'Remove video',
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -3767,7 +4036,7 @@ class _Step6Photos extends StatelessWidget {
 class _Step7Review extends StatelessWidget {
   final String title, role, propType, price, priceType;
   final String? mintEventId;
-  final bool idVerified, faceVerified, gpsLocked, submitted, loading;
+  final bool idVerified, faceVerified, gpsLocked, submitted, loading, videoAttached;
   final int photoCount;
   final VoidCallback onSubmit;
   final VoidCallback onReturnHome;
@@ -3785,6 +4054,7 @@ class _Step7Review extends StatelessWidget {
     required this.submitted,
     required this.loading,
     required this.photoCount,
+    this.videoAttached = false,
     required this.onSubmit,
     required this.onReturnHome,
   });
@@ -3802,6 +4072,10 @@ class _Step7Review extends StatelessWidget {
         _reviewCard(
           'Photos',
           photoCount > 0 ? '$photoCount Uploaded ✔' : 'Required ❌',
+        ),
+        _reviewCard(
+          'Video Tour',
+          videoAttached ? '30s Tour Attached ✔' : 'Optional (Not added)',
         ),
         const SizedBox(height: 40),
         SizedBox(

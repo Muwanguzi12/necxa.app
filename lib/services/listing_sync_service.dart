@@ -380,6 +380,7 @@ class ListingSyncService {
     Map<String, dynamic>? securityMetadata,
     required List<File> photos,
     required List<File> bathroomPhotos,
+    File? videoFile,
     String? musicTrackId,
     String? audioUrl,
     String? idempotencyKey,
@@ -436,6 +437,12 @@ class ListingSyncService {
     for (int i = 0; i < bathroomPhotos.length; i++) {
       req.files.add(
         await _fileToMultipart('bathroom_$i', bathroomPhotos[i]),
+      );
+    }
+
+    if (videoFile != null) {
+      req.files.add(
+        await _fileToMultipart('video_0', videoFile),
       );
     }
 
