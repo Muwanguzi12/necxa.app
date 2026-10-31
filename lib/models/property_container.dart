@@ -25,9 +25,13 @@ class PropertyCore {
   final List<String> bathroomImageUrls;
   final String? authorityStampUrl;
   final String? lc1LetterUrl;
+  final String? videoUrl;
   final String? agentPhone;
   final String? agentWhatsapp;
   final String? agentGoogleMeet;
+  final String? agentName;
+  final String? agentAvatar;
+  final int? agentTrustScore;
 
   PropertyCore({
     required this.id,
@@ -48,14 +52,20 @@ class PropertyCore {
     required this.longitude,
     required this.images,
     required this.bathroomImageUrls,
+    this.videoUrl,
     this.authorityStampUrl,
     this.lc1LetterUrl,
     this.agentPhone,
     this.agentWhatsapp,
     this.agentGoogleMeet,
+    this.agentName,
+    this.agentAvatar,
+    this.agentTrustScore,
   });
 
   factory PropertyCore.fromJson(Map<String, dynamic> json) {
+    // Agent profile may be embedded as a nested map by smooth-action join
+    final agentProfile = json['agent_profile'] as Map<String, dynamic>?;
     return PropertyCore(
       id: json['id'],
       listerId: json['lister_id'],
@@ -79,11 +89,19 @@ class PropertyCore {
       longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
       images: List<String>.from(json['images'] ?? []),
       bathroomImageUrls: List<String>.from(json['bathroom_image_urls'] ?? []),
+      videoUrl: (json['video_url'] ?? json['media_url'] ?? json['video'])?.toString(),
       authorityStampUrl: json['authority_stamp_url'],
       lc1LetterUrl: json['lc1_letter_url'],
       agentPhone: json['agent_phone'],
       agentWhatsapp: json['agent_whatsapp'],
       agentGoogleMeet: json['agent_google_meet'],
+      agentName: agentProfile?['full_name']?.toString()
+          ?? agentProfile?['display_name']?.toString()
+          ?? json['agent_name']?.toString(),
+      agentAvatar: agentProfile?['avatar_url']?.toString()
+          ?? json['agent_avatar']?.toString(),
+      agentTrustScore: (agentProfile?['trust_score'] as num?)?.toInt()
+          ?? (json['agent_trust_score'] as num?)?.toInt(),
     );
   }
 }
@@ -114,7 +132,7 @@ class PropertyFinancial {
       price: json['price'] ?? 0,
       priceType: PriceType.values.byName(json['price_type'] ?? 'monthly'),
       unlockCost: json['unlock_cost']?.toInt() ?? 0,
-      escrowDeposit: json['escrow_deposit']?.toInt() ?? 0,
+      escrowDeposit: (json['escrow_deposit'] as num?)?.toInt() ?? 0,
       isVerified: json['is_verified'] ?? false,
       trustStatus: TrustStatus.values.byName(json['trust_status'] ?? 'standard'),
       verificationScore: json['verification_score'] ?? 0,
@@ -218,3 +236,4 @@ class PropertyContainer {
     );
   }
 }
+

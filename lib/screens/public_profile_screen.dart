@@ -6,7 +6,7 @@ import 'dart:ui';
 
 class PublicProfileScreen extends StatefulWidget {
   final AppState state;
-  const PublicProfileScreen({super.key, required this.state});
+  PublicProfileScreen({super.key, required this.state});
 
   @override
   State<PublicProfileScreen> createState() => _PublicProfileScreenState();
@@ -50,15 +50,48 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       future: widget.state.getProfile(targetId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(backgroundColor: C.bg, body: const Center(child: CircularProgressIndicator(color: C.brand)));
+          return Scaffold(backgroundColor: C.bg, body: Center(child: CircularProgressIndicator(color: C.brand)));
         }
         
         final profile = snapshot.data;
         if (profile == null) {
-          return Scaffold(backgroundColor: C.bg, body: Center(child: Text('PROFILE NOT FOUND', style: syne(c: C.brand))));
+          return Scaffold(
+            backgroundColor: C.bg,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+                onPressed: () => widget.state.goBack(),
+              ),
+            ),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.person_off_outlined, color: C.dim, size: 48),
+                  const SizedBox(height: 12),
+                  Text('PROFILE NOT FOUND', style: syne(c: C.brand, sz: 14, w: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text('The requested profile could not be loaded.', style: dm(c: C.dim, sz: 12)),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () => setState(() {}),
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Retry'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: C.brand,
+                      side: BorderSide(color: C.brand.withValues(alpha: .5)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
 
         final isFollowing = widget.state.followed.contains(profile.id);
+        final isFriend = widget.state.isFriendSync(profile.id);
 
         return Scaffold(
           backgroundColor: C.bg,
@@ -66,9 +99,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
             children: [
               _buildAmbientGlow(),
               CustomScrollView(
-                physics: const BouncingScrollPhysics(),
+                physics: BouncingScrollPhysics(),
                 slivers: [
-                  SliverToBoxAdapter(child: _buildIdentityHeader(profile, isFollowing)),
+                  SliverToBoxAdapter(child: _buildIdentityHeader(profile, isFollowing, isFriend)),
                   SliverToBoxAdapter(child: _buildPublicStats()),
                   SliverToBoxAdapter(child: _buildBioSection(profile)),
                   
@@ -85,7 +118,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                           unselectedLabelStyle: syne(sz: 12, w: FontWeight.w700, ls: 2),
                           tabs: [
                             Tab(text: _hasListings ? 'SHOWCASE' : 'CONTENT'),
-                            const Tab(text: 'FEED'),
+                            Tab(text: 'FEED'),
                           ],
                         ),
                       ),
@@ -117,7 +150,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       top: -50, left: -50,
       child: Container(
         width: 300, height: 300,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: C.brand.withOpacity(.05)),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: C.brand.withValues(alpha: .05)),
         child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80), child: const SizedBox()),
       ),
     );
@@ -132,8 +165,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
           child: Container(
             padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + 10, 20, 15),
             decoration: BoxDecoration(
-              color: C.bg.withOpacity(.6),
-              border: const Border(bottom: BorderSide(color: Colors.white10)),
+              color: C.bg.withValues(alpha: .6),
+              border: Border(bottom: BorderSide(color: C.dim)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -150,7 +183,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
   }
 
 
-  Widget _buildIdentityHeader(Profile profile, bool isFollowing) {
+  Widget _buildIdentityHeader(Profile profile, bool isFollowing, bool isFriend) {
     return Padding(
       padding: EdgeInsets.fromLTRB(24, MediaQuery.of(context).padding.top + 80, 24, 0),
       child: Column(
@@ -167,15 +200,15 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                       profile.fullName ?? 'Creator',
                       profile.avatarUrl
                     );
-                                    },
+                  },
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
+                      color: C.text.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      border: Border.all(color: C.text.withValues(alpha: 0.1)),
                     ),
-                    child: const Icon(Icons.chat_bubble_outline_rounded, color: C.brand, size: 20),
+                    child: Icon(Icons.chat_bubble_outline_rounded, color: C.brand, size: 20),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -186,12 +219,12 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                     decoration: BoxDecoration(
                       color: isFollowing ? Colors.transparent : C.brand,
                       borderRadius: BorderRadius.circular(16),
-                      border: isFollowing ? Border.all(color: C.brand.withOpacity(.4)) : null,
-                      boxShadow: isFollowing ? null : [BoxShadow(color: C.brand.withOpacity(.2), blurRadius: 10)],
+                      border: isFollowing ? Border.all(color: C.brand.withValues(alpha: .4)) : null,
+                      boxShadow: isFollowing ? null : [BoxShadow(color: C.brand.withValues(alpha: .2), blurRadius: 10)],
                     ),
                     child: Text(
-                      isFollowing ? 'FOLLOWING' : 'FOLLOW',
-                      style: syne(sz: 12, w: FontWeight.w900, ls: 1, c: isFollowing ? C.brand : Colors.white),
+                      isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
+                      style: syne(sz: 12, w: FontWeight.w900, ls: 1, c: isFollowing ? C.brand : C.text),
                     ),
                   ),
                 ),
@@ -208,11 +241,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                         Text(profile.fullName ?? 'NECXA USER', style: syne(sz: 28, w: FontWeight.w900, ls: -1, fs: FontStyle.italic)),
                         if (profile.verified) ...[
                           const SizedBox(width: 8),
-                          const Icon(Icons.verified, color: C.brand, size: 24),
+                          Icon(Icons.verified, color: C.brand, size: 24),
                         ],
                       ],
                     ),
-                    Text('@${profile.username}', style: dm(sz: 14, w: FontWeight.w700, c: C.brand.withOpacity(.6))),
+                    Text('@${profile.username}', style: dm(sz: 14, w: FontWeight.w700, c: C.brand.withValues(alpha: .6))),
                   ],
                 ),
               ],
@@ -228,18 +261,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 24),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.03),
+          color: C.text.withValues(alpha: .03),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(.05)),
+          border: Border.all(color: C.text.withValues(alpha: .05)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            const _StatItem(label: 'FOLLOWERS', value: '2.4M', color: Colors.white),
+            _StatItem(label: 'FOLLOWERS', value: '2.4M', color: C.text),
             _StatSeparator(),
             const _StatItem(label: 'LIKES', value: '18.2M', color: C.purple),
             _StatSeparator(),
-            const _StatItem(label: 'EARNINGS', value: '24.5M', color: C.brand),
+            _StatItem(label: 'EARNINGS', value: '24.5M', color: C.brand),
           ],
         ),
       ),
@@ -252,14 +285,14 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('CORE SYSTEMS & BIO', style: dm(sz: 9, w: FontWeight.w900, ls: 2, c: Colors.white38)),
+          Text('CORE SYSTEMS & BIO', style: dm(sz: 9, w: FontWeight.w900, ls: 2, c: C.dim)),
           const SizedBox(height: 12),
-          Text(profile.bio ?? 'No status transmission available.', style: dm(sz: 14, c: Colors.white.withOpacity(.7), h: 1.6)),
+          Text(profile.bio ?? 'No status transmission available.', style: dm(sz: 14, c: C.text.withValues(alpha: .7), h: 1.6)),
           const SizedBox(height: 24),
-          const Row(
+          Row(
             children: [
               _MetricTag(label: 'POSTS', value: '1,240'),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               _MetricTag(label: 'REPUTATION', value: '9.8', icon: Icons.star, color: C.brand),
             ],
           ),
@@ -273,11 +306,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
       child: Row(
         children: [
-          const Icon(Icons.grid_view_sharp, color: C.brand, size: 14),
+          Icon(Icons.grid_view_sharp, color: C.brand, size: 14),
           const SizedBox(width: 10),
           Text(title, style: syne(sz: 11, w: FontWeight.w800, ls: 2, c: C.brand)),
           const Spacer(),
-          const Icon(Icons.tune, color: Colors.white24, size: 16),
+          Icon(Icons.tune, color: C.dim, size: 16),
         ],
       ),
     );
@@ -295,7 +328,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
         
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-           return Center(child: Text('NO PRODUCTS SYNCED', style: syne(sz: 11, c: Colors.white24, ls: 2)));
+           return Center(child: Text('NO PRODUCTS SYNCED', style: syne(sz: 11, c: C.dim, ls: 2)));
         }
 
         return GridView.builder(
@@ -325,7 +358,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
         
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-           return Center(child: Text('NO CONTENT TRANSMISSIONS', style: syne(sz: 11, c: Colors.white24, ls: 2)));
+           return Center(child: Text('NO CONTENT TRANSMISSIONS', style: syne(sz: 11, c: C.dim, ls: 2)));
         }
 
         return GridView.builder(
@@ -344,7 +377,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
   }
 }
 
-// ── Showcase Product Tile (Product as Cover, Content as Engine) ──
+// -- Showcase Product Tile (Product as Cover, Content as Engine) --
 class _ProductGridItem extends StatelessWidget {
   final Map<String, dynamic> listing;
   final AppState state;
@@ -363,9 +396,9 @@ class _ProductGridItem extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.05),
+          color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(.1)),
+          border: Border.all(color: C.text.withValues(alpha: .1)),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
@@ -375,7 +408,7 @@ class _ProductGridItem extends StatelessWidget {
               Positioned.fill(
                 child: url != null 
                   ? Image.network(url, fit: BoxFit.cover) 
-                  : Container(color: Colors.white10, child: const Icon(Icons.shopping_bag, color: Colors.white24)),
+                  : Container(color: C.dim, child: Icon(Icons.shopping_bag, color: C.dim)),
               ),
               
               // Bottom Price Badge
@@ -386,7 +419,7 @@ class _ProductGridItem extends StatelessWidget {
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                      padding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                       color: Colors.black26,
                       child: Row(
                         children: [
@@ -397,7 +430,7 @@ class _ProductGridItem extends StatelessWidget {
                               maxLines: 1, overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          const Icon(Icons.bolt, color: C.brand, size: 14),
+                          Icon(Icons.bolt, color: C.brand, size: 14),
                         ],
                       ),
                     ),
@@ -410,13 +443,13 @@ class _ProductGridItem extends StatelessWidget {
                 Positioned(
                   top: 12, right: 12,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
                     child: Row(
                       children: [
-                        const Icon(Icons.play_circle_fill, color: Colors.white, size: 12),
-                        const SizedBox(width: 4),
-                        Text('STORY', style: syne(sz: 8, w: FontWeight.w900, c: Colors.white)),
+                        Icon(Icons.play_circle_fill, color: C.text, size: 12),
+                        SizedBox(width: 4),
+                        Text('VIDEO', style: syne(sz: 8, w: FontWeight.w900, c: C.text)),
                       ],
                     ),
                   ),
@@ -451,7 +484,7 @@ class _AvatarContainer extends StatelessWidget {
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(40),
       gradient: const LinearGradient(colors: [C.brand, Color(0xFFa855f7)]),
-      boxShadow: [BoxShadow(color: C.brand.withOpacity(.3), blurRadius: 20)],
+      boxShadow: [BoxShadow(color: C.brand.withValues(alpha: .3), blurRadius: 20)],
     ),
     padding: const EdgeInsets.all(3),
     child: Container(
@@ -460,8 +493,8 @@ class _AvatarContainer extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(34),
         child: url != null 
-          ? Image.network(url!, fit: BoxFit.cover, errorBuilder: (c, e, s) => const Center(child: Icon(Icons.person, color: C.brand, size: 40))) 
-          : const Center(child: Icon(Icons.person, color: Colors.white24, size: 40)),
+          ? Image.network(url!, fit: BoxFit.cover, errorBuilder: (c, e, s) => Center(child: Icon(Icons.person, color: C.brand, size: 40))) 
+          : Center(child: Icon(Icons.person, color: C.dim, size: 40)),
       ),
     ),
   );
@@ -476,38 +509,41 @@ class _StatItem extends StatelessWidget {
     children: [
       Text(value, style: syne(sz: 18, w: FontWeight.w900, fs: FontStyle.italic, c: color)),
       const SizedBox(height: 6),
-      Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: Colors.white30)),
+      Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: C.dim)),
     ],
   );
 }
 
 class _StatSeparator extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => Container(width: 1, height: 30, color: Colors.white10);
+  Widget build(BuildContext context) => Container(width: 1, height: 30, color: C.dim);
 }
 
 class _MetricTag extends StatelessWidget {
   final String label, value;
   final IconData? icon;
-  final Color color;
-  const _MetricTag({required this.label, required this.value, this.icon, this.color = Colors.white});
+  final Color? color;
+  _MetricTag({required this.label, required this.value, this.icon, this.color});
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final activeColor = color ?? C.text;
+    return Container(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
     decoration: BoxDecoration(
-      color: Colors.white.withOpacity(.03),
+      color: C.text.withValues(alpha: .03),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withOpacity(.05)),
+      border: Border.all(color: C.text.withValues(alpha: .05)),
     ),
     child: Row(
       children: [
-        if (icon != null) ...[Icon(icon, color: color, size: 12), const SizedBox(width: 6)],
-        Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: Colors.white30)),
+        if (icon != null) ...[Icon(icon, color: activeColor, size: 12), const SizedBox(width: 6)],
+        Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: C.dim)),
         const SizedBox(width: 8),
-        Text(value, style: syne(sz: 12, w: FontWeight.w900, c: color)),
+        Text(value, style: syne(sz: 12, w: FontWeight.w900, c: activeColor)),
       ],
     ),
   );
+  }
 }
 
 class _GridItem extends StatelessWidget {
@@ -525,29 +561,29 @@ class _GridItem extends StatelessWidget {
       onTap: () => state.go('community', extra: data['id']),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.05),
+          color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(.1)),
+          border: Border.all(color: C.text.withValues(alpha: .1)),
           image: (thumbUrl != null || mediaUrl != null) 
             ? DecorationImage(
                 image: NetworkImage(thumbUrl ?? mediaUrl!), 
                 fit: BoxFit.cover,
-                colorFilter: isVideo ? ColorFilter.mode(Colors.black.withOpacity(0.3), BlendMode.darken) : null,
+                colorFilter: isVideo ? ColorFilter.mode(Colors.black.withValues(alpha: 0.3), BlendMode.darken) : null,
               )
             : null,
         ),
         child: Stack(
           children: [
             if (isVideo)
-              const Center(child: Icon(Icons.play_arrow_rounded, color: Colors.white70, size: 40)),
+              Center(child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40)),
             
             Positioned(
               bottom: 12, left: 12,
               child: Row(
                 children: [
-                  const Icon(Icons.favorite, color: Colors.white, size: 12),
+                  Icon(Icons.favorite, color: C.text, size: 12),
                   const SizedBox(width: 4),
-                  Text(kNum(likes), style: dm(sz: 10, w: FontWeight.w800, c: Colors.white)),
+                  Text(kNum(likes), style: dm(sz: 10, w: FontWeight.w800, c: C.text)),
                 ],
               ),
             ),
@@ -568,11 +604,15 @@ class _HUDButton extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(.05),
+        color: C.text.withValues(alpha: .05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(.1)),
+        border: Border.all(color: C.text.withValues(alpha: .1)),
       ),
-      child: Icon(icon, color: Colors.white, size: 18),
+      child: Icon(icon, color: C.text, size: 18),
     ),
   );
 }
+
+
+
+

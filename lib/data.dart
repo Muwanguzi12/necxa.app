@@ -87,12 +87,18 @@ class Profile {
 class Gift {
   final String id, emoji, name;
   final int price, fee;
+  final String? imageUrl;
+  /// Kept separate from [imageUrl] so the lightweight picker can use PNGs
+  /// while a received-gift notification can load its JPEG only when opened.
+  final String? notificationImageUrl;
   const Gift({
     required this.id,
     required this.emoji,
     required this.name,
     required this.price,
     required this.fee,
+    this.imageUrl,
+    this.notificationImageUrl,
   });
 }
 
@@ -138,15 +144,91 @@ class PaymentMethod {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-const List<Gift> gifts = [
-  Gift(id: 'g1', emoji: '🌹', name: 'Rose', price: 2000, fee: 400),
-  Gift(id: 'g2', emoji: '🎵', name: 'Note', price: 5000, fee: 1000),
-  Gift(id: 'g3', emoji: '🏆', name: 'Trophy', price: 10000, fee: 2000),
-  Gift(id: 'g4', emoji: '💎', name: 'Diamond', price: 50000, fee: 10000),
-  Gift(id: 'g5', emoji: '🚗', name: 'Benz', price: 100000, fee: 20000),
-  Gift(id: 'g6', emoji: '✈️', name: 'Jet', price: 500000, fee: 100000),
-  Gift(id: 'g7', emoji: '🏠', name: 'House', price: 1000000, fee: 200000),
-  Gift(id: 'g8', emoji: '🌍', name: 'Universe', price: 5000000, fee: 1000000),
+const String _giftCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
+
+/// Picker artwork is bundled with the app.  A failed CDN request must never
+/// decide whether a financial gift can be sent or change the picker into emoji
+/// fallbacks. The source gift ID remains the only value sent to Finance.
+const Map<String, String> giftPickerImageUrls = {
+  'rose': 'assets/gifts/rose.png',
+  'clap': 'assets/gifts/clap.png',
+  'heart': 'assets/gifts/heart.png',
+  'coffee': 'assets/gifts/coffee.png',
+  'star': 'assets/gifts/star.png',
+  'fire': 'assets/gifts/fire.png',
+  'rocket': 'assets/gifts/rocket.png',
+  'crown': 'assets/gifts/crown.png',
+  'diamond': 'assets/gifts/diamond.png',
+  'trophy': 'assets/gifts/trophy.png',
+  'money_bag': 'assets/gifts/moneybag.png',
+  'sports_car': 'assets/gifts/sportscar.png',
+  'yacht': 'assets/gifts/yacht.png',
+  'mansion': 'assets/gifts/villa.png',
+  'villa': 'assets/gifts/villa.png',
+  'jet': 'assets/gifts/jet.png',
+  'dragon': 'assets/gifts/dragon.png',
+  'globe': 'assets/gifts/diamond.png',
+  'stadium': 'assets/gifts/diamond.png',
+  'ressort': 'assets/gifts/dragon.png',
+
+  // Compatibility aliases for catalogues cached by older app versions.
+  'moneybag': 'assets/gifts/moneybag.png',
+  'sportscar': 'assets/gifts/sportscar.png',
+  'palace': 'assets/gifts/villa.png',
+  'galaxy': 'assets/gifts/diamond.png',
+};
+
+const Set<String> _builtInGiftIds = {
+  'rose',
+  'clap',
+  'heart',
+  'coffee',
+  'star',
+  'fire',
+  'rocket',
+  'crown',
+  'trophy',
+  'diamond',
+  'money_bag',
+  'sports_car',
+  'yacht',
+  'mansion',
+  'villa',
+  'jet',
+  'dragon',
+  'globe',
+  'stadium',
+  'ressort',
+};
+
+/// Resolve a notification image only at display time. This prevents media URLs
+/// from being stored in the gift ledger or sent with every payment request.
+String? giftNotificationImageUrlFor(String giftId) {
+  if (!_builtInGiftIds.contains(giftId)) return null;
+  return '$_giftCdn/$giftId.jpeg';
+}
+
+String? giftPickerImageUrlFor(String giftId) => giftPickerImageUrls[giftId];
+
+final List<Gift> gifts = [
+  Gift(id: 'rose',       emoji: '🌹', name: 'Rose',        price: 1,     fee: 0,    imageUrl: giftPickerImageUrls['rose'], notificationImageUrl: '$_giftCdn/rose.jpeg'),
+  Gift(id: 'clap',       emoji: '👏', name: 'Clap',        price: 2,     fee: 0,    imageUrl: giftPickerImageUrls['clap'], notificationImageUrl: '$_giftCdn/clap.jpeg'),
+  Gift(id: 'heart',      emoji: '❤️', name: 'Heart',       price: 3,     fee: 0,    imageUrl: giftPickerImageUrls['heart']),
+  Gift(id: 'coffee',     emoji: '☕', name: 'Coffee',      price: 5,     fee: 1,    imageUrl: giftPickerImageUrls['coffee'], notificationImageUrl: '$_giftCdn/coffee.jpeg'),
+  Gift(id: 'star',       emoji: '⭐', name: 'Star',        price: 5,     fee: 1,    imageUrl: giftPickerImageUrls['star'], notificationImageUrl: '$_giftCdn/star.jpeg'),
+  Gift(id: 'fire',       emoji: '🔥', name: 'Fire',        price: 10,    fee: 1,    imageUrl: giftPickerImageUrls['fire'], notificationImageUrl: '$_giftCdn/fire.jpeg'),
+  Gift(id: 'rocket',     emoji: '🚀', name: 'Rocket',      price: 20,    fee: 2,    imageUrl: giftPickerImageUrls['rocket'], notificationImageUrl: '$_giftCdn/rocket.jpeg'),
+  Gift(id: 'crown',      emoji: '👑', name: 'Crown',       price: 25,    fee: 3,    imageUrl: giftPickerImageUrls['crown']),
+  Gift(id: 'trophy',     emoji: '🏆', name: 'Trophy',      price: 50,    fee: 6,    imageUrl: giftPickerImageUrls['trophy'], notificationImageUrl: '$_giftCdn/trophy.jpeg'),
+  Gift(id: 'diamond',    emoji: '💎', name: 'Diamond',     price: 50,    fee: 6,    imageUrl: giftPickerImageUrls['diamond'], notificationImageUrl: '$_giftCdn/diamond.jpeg'),
+  Gift(id: 'money_bag',   emoji: '💰', name: 'Money Bag',   price: 100,   fee: 11,   imageUrl: giftPickerImageUrls['money_bag'], notificationImageUrl: '$_giftCdn/money_bag.jpeg'),
+  Gift(id: 'sports_car',  emoji: '🏎️', name: 'Sports Car',  price: 200,   fee: 22,   imageUrl: giftPickerImageUrls['sports_car'], notificationImageUrl: '$_giftCdn/sports_car.jpeg'),
+  Gift(id: 'yacht',      emoji: '🛥️', name: 'Yacht',       price: 500,   fee: 55,   imageUrl: giftPickerImageUrls['yacht'], notificationImageUrl: '$_giftCdn/yacht.jpeg'),
+  Gift(id: 'mansion',    emoji: '🏰', name: 'Mansion',     price: 1000,  fee: 110,  imageUrl: giftPickerImageUrls['mansion']),
+  Gift(id: 'jet',        emoji: '✈️', name: 'Private Jet', price: 1500,  fee: 165,  imageUrl: giftPickerImageUrls['jet'], notificationImageUrl: '$_giftCdn/jet.jpeg'),
+  Gift(id: 'globe',      emoji: '🌍', name: 'Globe',       price: 5000,  fee: 550,  imageUrl: giftPickerImageUrls['globe']),
+  Gift(id: 'stadium',    emoji: '🏟️', name: 'Stadium',     price: 10000, fee: 1100, imageUrl: giftPickerImageUrls['stadium']),
+  Gift(id: 'ressort',    emoji: '🎢', name: 'Ressort',     price: 50000, fee: 5500, imageUrl: giftPickerImageUrls['ressort']),
 ];
 
 const List<Post> posts = [

@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import '../services/video_enhancement_service.dart';
 
 /// Base class for any non-destructive edit operation.
@@ -45,7 +46,7 @@ class TextOverlay extends EditOperation {
     this.rotation = 0.0,
     this.style = const TextStyle(
       fontSize: 24,
-      color: Colors.white,
+      color: Color(0xFFF0F4FF),
       fontWeight: FontWeight.bold,
     ),
   }) : super('text');
@@ -67,10 +68,16 @@ class TextOverlay extends EditOperation {
 /// Represents a color filter operation.
 class FilterOperation extends EditOperation {
   final String filterName; // e.g., 'sepia', 'grayscale', 'vignette'
-  FilterOperation({required this.filterName}) : super('filter');
+  final double intensity;
+  FilterOperation({required this.filterName, this.intensity = 1.0})
+      : super('filter');
 
   @override
-  Map<String, dynamic> toJson() => {'type': type, 'name': filterName};
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'name': filterName,
+    'intensity': intensity,
+  };
 }
 
 /// Non-destructive visual transform shared by every editor surface and renderer.
@@ -127,7 +134,7 @@ class OverlayOperation extends EditOperation {
     this.rotation = 0,
     this.opacity = 1,
     this.fontSize = 28,
-    this.color = Colors.white,
+    this.color = const Color(0xFFF0F4FF),
     this.background = Colors.transparent,
     this.backgroundOpacity = 0,
     this.shadow = true,
@@ -150,7 +157,7 @@ class OverlayOperation extends EditOperation {
       rotation: (values['rotation'] as num?)?.toDouble() ?? 0,
       opacity: (values['opacity'] as num?)?.toDouble() ?? 1,
       fontSize: (values['fontSize'] as num?)?.toDouble() ?? 28,
-      color: values['color'] as Color? ?? Colors.white,
+      color: values['color'] as Color? ?? C.text,
       background: values['background'] as Color? ?? Colors.transparent,
       backgroundOpacity: (values['backgroundOpacity'] as num?)?.toDouble() ?? 0,
       shadow: values['shadow'] as bool? ?? true,
@@ -615,6 +622,8 @@ class AudioClipOperation extends EditOperation {
   double volume;
   double speed;
   bool reverse;
+  double fadeIn;
+  double fadeOut;
   final double? startOffset;
   final double? endOffset;
 
@@ -625,6 +634,8 @@ class AudioClipOperation extends EditOperation {
     this.volume = 1.0,
     this.speed = 1.0,
     this.reverse = false,
+    this.fadeIn = 0.0,
+    this.fadeOut = 0.0,
     this.startOffset,
     this.endOffset,
   }) : super('audio');
@@ -638,6 +649,8 @@ class AudioClipOperation extends EditOperation {
     'volume': volume,
     'speed': speed,
     'reverse': reverse,
+    'fadeIn': fadeIn,
+    'fadeOut': fadeOut,
     'startOffset': startOffset,
     'endOffset': endOffset,
   };
@@ -724,7 +737,20 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
-  bool isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  TransitionOperation? transitionIn;
+  bool
+  isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  File? proxyFile;
+  bool isProxyReady;
+  double faceSymmetry;
+  bool symmetryMirrorLeft;
+  double skinSmoothing;
+  int smoothingMode;
+  double skinBrightening;
+  int skinToneMode;
+  int makeupGender;
+  int makeupStyle;
+  double makeupIntensity;
 
   TimelineClip({
     required this.id,
@@ -732,6 +758,17 @@ class TimelineClip {
     required this.duration,
     required this.operation,
     this.file,
+    this.proxyFile,
+    this.isProxyReady = false,
+    this.faceSymmetry = 0.0,
+    this.symmetryMirrorLeft = true,
+    this.skinSmoothing = 0.0,
+    this.smoothingMode = 0,
+    this.skinBrightening = 0.0,
+    this.skinToneMode = 0,
+    this.makeupGender = 0,
+    this.makeupStyle = 0,
+    this.makeupIntensity = 0.7,
     this.sourceStart = Duration.zero,
     this.sourceEnd,
     this.speed = 1.0,
@@ -740,6 +777,7 @@ class TimelineClip {
     this.isReversed = false,
     TransformOperation? transform,
     this.filter,
+    this.transitionIn,
     this.isHidden = false,
   }) : transform = transform ?? TransformOperation();
 
@@ -749,6 +787,17 @@ class TimelineClip {
     Duration? duration,
     EditOperation? operation,
     File? file,
+    File? proxyFile,
+    bool? isProxyReady,
+    double? faceSymmetry,
+    bool? symmetryMirrorLeft,
+    double? skinSmoothing,
+    int? smoothingMode,
+    double? skinBrightening,
+    int? skinToneMode,
+    int? makeupGender,
+    int? makeupStyle,
+    double? makeupIntensity,
     Duration? sourceStart,
     Duration? sourceEnd,
     double? speed,
@@ -757,6 +806,7 @@ class TimelineClip {
     bool? isReversed,
     TransformOperation? transform,
     FilterOperation? filter,
+    TransitionOperation? transitionIn,
     bool? isHidden,
   }) {
     return TimelineClip(
@@ -765,6 +815,17 @@ class TimelineClip {
       duration: duration ?? this.duration,
       operation: operation ?? this.operation,
       file: file ?? this.file,
+      proxyFile: proxyFile ?? this.proxyFile,
+      isProxyReady: isProxyReady ?? this.isProxyReady,
+      faceSymmetry: faceSymmetry ?? this.faceSymmetry,
+      symmetryMirrorLeft: symmetryMirrorLeft ?? this.symmetryMirrorLeft,
+      skinSmoothing: skinSmoothing ?? this.skinSmoothing,
+      smoothingMode: smoothingMode ?? this.smoothingMode,
+      skinBrightening: skinBrightening ?? this.skinBrightening,
+      skinToneMode: skinToneMode ?? this.skinToneMode,
+      makeupGender: makeupGender ?? this.makeupGender,
+      makeupStyle: makeupStyle ?? this.makeupStyle,
+      makeupIntensity: makeupIntensity ?? this.makeupIntensity,
       sourceStart: sourceStart ?? this.sourceStart,
       sourceEnd: sourceEnd ?? this.sourceEnd,
       speed: speed ?? this.speed,
@@ -773,6 +834,7 @@ class TimelineClip {
       isReversed: isReversed ?? this.isReversed,
       transform: transform ?? this.transform,
       filter: filter ?? this.filter,
+      transitionIn: transitionIn ?? this.transitionIn,
       isHidden: isHidden ?? this.isHidden,
     );
   }
@@ -928,7 +990,7 @@ class TimelineModelUtils {
             style ??
             const TextStyle(
               fontSize: 28,
-              color: Colors.white,
+              color: Color(0xFFF0F4FF),
               fontWeight: FontWeight.bold,
             ),
       ),
@@ -953,3 +1015,4 @@ class TimelineModelUtils {
         .toList();
   }
 }
+
