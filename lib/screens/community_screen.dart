@@ -2279,9 +2279,13 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                   padding: const EdgeInsets.only(left: 10),
                                   child: GestureDetector(
                                     onTap: () {
-                                      widget.state.targetProfileId =
-                                          widget.post['author_id'];
-                                      widget.state.go('public_profile');
+                                      final authorId = widget.post['author_id'] ??
+                                          widget.post['user_id'] ??
+                                          widget.post['lister_id'];
+                                      if (authorId != null && authorId.toString().isNotEmpty) {
+                                        widget.state.targetProfileId = authorId.toString();
+                                        widget.state.go('public_profile');
+                                      }
                                     },
                                     child: Text(
                                       username,
@@ -2971,8 +2975,13 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             onTap: () {
               if (_isExpanded) {
                 // Navigate to profile
-                widget.state.targetProfileId = widget.post['author_id'];
-                widget.state.go('public_profile');
+                final authorId = widget.post['author_id'] ??
+                    widget.post['user_id'] ??
+                    widget.post['lister_id'];
+                if (authorId != null && authorId.toString().isNotEmpty) {
+                  widget.state.targetProfileId = authorId.toString();
+                  widget.state.go('public_profile');
+                }
               } else {
                 _toggleExpanded();
               }

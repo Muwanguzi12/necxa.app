@@ -22,6 +22,18 @@ class HomeScreen extends StatelessWidget {
     ('commercial', 'Office'),
   ];
 
+  static Color? _parseZoneColor(dynamic hexValue) {
+    if (hexValue == null) return null;
+    try {
+      final raw = hexValue.toString().trim();
+      final hex = raw.startsWith('#') ? raw.replaceFirst('#', '0xFF') : (raw.startsWith('0x') ? raw : '0xFF$raw');
+      final val = int.tryParse(hex);
+      return val != null ? Color(val) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = state.filtered;
@@ -33,15 +45,23 @@ class HomeScreen extends StatelessWidget {
             _buildNav(context),
             _buildAppTabs(),
             Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHero(),
-                    _buildStats(filtered.length),
-                    _buildFilterRow(),
-                    _buildListings(filtered),
-                  ],
+              child: RefreshIndicator(
+                color: C.brand,
+                backgroundColor: C.card,
+                onRefresh: () async {
+                  await state.loadProperties();
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHero(),
+                      _buildStats(filtered.length),
+                      _buildFilterRow(),
+                      _buildListings(filtered),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -73,9 +93,9 @@ class HomeScreen extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: C.green.withOpacity(.1),
+                    color: C.green.withValues(alpha: .1),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: C.green.withOpacity(.25)),
+                    border: Border.all(color: C.green.withValues(alpha: .25)),
                   ),
                   child: Text(
                     '🇺🇬 UGX',
@@ -186,9 +206,9 @@ class HomeScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
             decoration: BoxDecoration(
-              color: C.brand.withOpacity(.07),
+              color: C.brand.withValues(alpha: .07),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: C.brand.withOpacity(.17)),
+              border: Border.all(color: C.brand.withValues(alpha: .17)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -227,16 +247,7 @@ class HomeScreen extends StatelessWidget {
               color: C.cardDk,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: state.zoneMetadata != null
-                    ? Color(
-                        int.parse(
-                          state.zoneMetadata!['color_hex'].replaceFirst(
-                            '#',
-                            '0xFF',
-                          ),
-                        ),
-                      )
-                    : C.border,
+                color: _parseZoneColor(state.zoneMetadata?['color_hex']) ?? C.border,
                 width: state.zoneMetadata != null ? 2 : 1,
               ),
             ),
@@ -266,60 +277,38 @@ class HomeScreen extends StatelessWidget {
           ),
           if (state.zoneMetadata != null) ...[
             const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: Color(
-                  int.parse(
-                    state.zoneMetadata!['color_hex'].replaceFirst('#', '0xFF'),
+            Builder(builder: (context) {
+              final zoneColor = _parseZoneColor(state.zoneMetadata!['color_hex']) ?? C.brand;
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: zoneColor.withValues(alpha: .15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: zoneColor.withValues(alpha: .4),
                   ),
-                ).withOpacity(.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: Color(
-                    int.parse(
-                      state.zoneMetadata!['color_hex'].replaceFirst(
-                        '#',
-                        '0xFF',
-                      ),
-                    ),
-                  ).withOpacity(.4),
                 ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.map_outlined,
-                    size: 12,
-                    color: Color(
-                      int.parse(
-                        state.zoneMetadata!['color_hex'].replaceFirst(
-                          '#',
-                          '0xFF',
-                        ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.map_outlined,
+                      size: 12,
+                      color: zoneColor,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      state.zoneMetadata!['zone_label'].toString().toUpperCase(),
+                      style: dm(
+                        sz: 9,
+                        w: FontWeight.w800,
+                        c: zoneColor,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    state.zoneMetadata!['zone_label'].toString().toUpperCase(),
-                    style: dm(
-                      sz: 9,
-                      w: FontWeight.w800,
-                      c: Color(
-                        int.parse(
-                          state.zoneMetadata!['color_hex'].replaceFirst(
-                            '#',
-                            '0xFF',
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                  ],
+                ),
+              );
+            }),
           ],
           if (kIsWeb) ...[
             const SizedBox(height: 14),
@@ -423,7 +412,7 @@ class HomeScreen extends StatelessWidget {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: active ? C.brand.withOpacity(.09) : C.card,
+                  color: active ? C.brand.withValues(alpha: .09) : C.card,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: active ? C.brand : C.border),
                 ),
@@ -453,9 +442,26 @@ class HomeScreen extends StatelessWidget {
     }
     if (filtered.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.all(32.0),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
         child: Center(
-          child: Text('No properties found.', style: dm(sz: 14, c: C.dim)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.home_work_outlined, size: 40, color: C.dim),
+              const SizedBox(height: 12),
+              Text('No properties found.', style: dm(sz: 14, c: C.dim)),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => state.loadProperties(),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Refresh'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: C.brand,
+                  side: BorderSide(color: C.brand.withValues(alpha: .5)),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -567,7 +573,7 @@ class _PropertyCardState extends State<_PropertyCard> {
           color: C.card,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isReserved ? C.red.withOpacity(.3) : C.border,
+            color: isReserved ? C.red.withValues(alpha: .3) : C.border,
           ),
         ),
         child: ClipRRect(
@@ -591,7 +597,7 @@ class _PropertyCardState extends State<_PropertyCard> {
                               fit: BoxFit.cover,
                               width: double.infinity,
                               height: double.infinity,
-                              placeholder: (context, url) => Container(color: C.dim.withOpacity(0.1)),
+                              placeholder: (context, url) => Container(color: C.dim.withValues(alpha: 0.1)),
                               errorWidget: (context, url, error) => Container(
                                 color: C.surface,
                                 child: Icon(Icons.broken_image, color: C.dim),
@@ -738,7 +744,7 @@ class _PropertyCardState extends State<_PropertyCard> {
                     // Horizontal Divider
                     Container(
                       height: 1,
-                      color: Colors.white.withOpacity(0.08),
+                      color: Colors.white.withValues(alpha: 0.08),
                     ),
                     const SizedBox(height: 12),
 
@@ -784,7 +790,7 @@ class _PropertyCardState extends State<_PropertyCard> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                           decoration: BoxDecoration(
-                            color: isReserved ? C.red.withOpacity(.1) : Colors.transparent,
+                            color: isReserved ? C.red.withValues(alpha: .1) : Colors.transparent,
                             borderRadius: BorderRadius.circular(22),
                             border: Border.all(
                               color: isReserved ? C.red : C.brand,
@@ -857,7 +863,7 @@ class _TrustBadge extends StatelessWidget {
         boxShadow: [
           if (status == TrustStatus.titan_trust)
             BoxShadow(
-              color: bg.withOpacity(.4),
+              color: bg.withValues(alpha: .4),
               blurRadius: 8,
               spreadRadius: 1,
             ),
@@ -911,9 +917,9 @@ class _PurposeBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: C.bg.withOpacity(.82),
+        color: C.bg.withValues(alpha: .82),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(.27)),
+        border: Border.all(color: color.withValues(alpha: .27)),
       ),
       child: Text(
         label,
