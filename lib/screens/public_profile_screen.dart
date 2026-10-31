@@ -55,7 +55,39 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
         
         final profile = snapshot.data;
         if (profile == null) {
-          return Scaffold(backgroundColor: C.bg, body: Center(child: Text('PROFILE NOT FOUND', style: syne(c: C.brand))));
+          return Scaffold(
+            backgroundColor: C.bg,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+                onPressed: () => widget.state.goBack(),
+              ),
+            ),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.person_off_outlined, color: C.dim, size: 48),
+                  const SizedBox(height: 12),
+                  Text('PROFILE NOT FOUND', style: syne(c: C.brand, sz: 14, w: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text('The requested profile could not be loaded.', style: dm(c: C.dim, sz: 12)),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () => setState(() {}),
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Retry'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: C.brand,
+                      side: BorderSide(color: C.brand.withValues(alpha: .5)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
 
         final isFollowing = widget.state.followed.contains(profile.id);
@@ -118,8 +150,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       top: -50, left: -50,
       child: Container(
         width: 300, height: 300,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: C.brand.withOpacity(.05)),
-        child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80), child: SizedBox()),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: C.brand.withValues(alpha: .05)),
+        child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80), child: const SizedBox()),
       ),
     );
   }
@@ -133,7 +165,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
           child: Container(
             padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + 10, 20, 15),
             decoration: BoxDecoration(
-              color: C.bg.withOpacity(.6),
+              color: C.bg.withValues(alpha: .6),
               border: Border(bottom: BorderSide(color: C.dim)),
             ),
             child: Row(
@@ -160,7 +192,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 _AvatarContainer(url: profile.avatarUrl),
-                Spacer(),
+                const Spacer(),
                 GestureDetector(
                   onTap: () {
                     widget.state.openCreatorChat(
@@ -168,27 +200,27 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                       profile.fullName ?? 'Creator',
                       profile.avatarUrl
                     );
-                                    },
+                  },
                   child: Container(
-                    padding: EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: C.text.withOpacity(0.05),
+                      color: C.text.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: C.text.withOpacity(0.1)),
+                      border: Border.all(color: C.text.withValues(alpha: 0.1)),
                     ),
                     child: Icon(Icons.chat_bubble_outline_rounded, color: C.brand, size: 20),
                   ),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 GestureDetector(
                   onTap: () => setState(() => widget.state.toggleFollow(profile.id)),
                   child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                     decoration: BoxDecoration(
                       color: isFollowing ? Colors.transparent : C.brand,
                       borderRadius: BorderRadius.circular(16),
-                      border: isFollowing ? Border.all(color: C.brand.withOpacity(.4)) : null,
-                      boxShadow: isFollowing ? null : [BoxShadow(color: C.brand.withOpacity(.2), blurRadius: 10)],
+                      border: isFollowing ? Border.all(color: C.brand.withValues(alpha: .4)) : null,
+                      boxShadow: isFollowing ? null : [BoxShadow(color: C.brand.withValues(alpha: .2), blurRadius: 10)],
                     ),
                     child: Text(
                       isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
@@ -198,7 +230,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                 ),
               ],
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             Row(
               children: [
                 Column(
@@ -208,12 +240,12 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                       children: [
                         Text(profile.fullName ?? 'NECXA USER', style: syne(sz: 28, w: FontWeight.w900, ls: -1, fs: FontStyle.italic)),
                         if (profile.verified) ...[
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           Icon(Icons.verified, color: C.brand, size: 24),
                         ],
                       ],
                     ),
-                    Text('@${profile.username}', style: dm(sz: 14, w: FontWeight.w700, c: C.brand.withOpacity(.6))),
+                    Text('@${profile.username}', style: dm(sz: 14, w: FontWeight.w700, c: C.brand.withValues(alpha: .6))),
                   ],
                 ),
               ],
@@ -225,13 +257,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
 
   Widget _buildPublicStats() {
     return Padding(
-      padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       child: Container(
-        padding: EdgeInsets.symmetric(vertical: 24),
+        padding: const EdgeInsets.symmetric(vertical: 24),
         decoration: BoxDecoration(
-          color: C.text.withOpacity(.03),
+          color: C.text.withValues(alpha: .03),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: C.text.withOpacity(.05)),
+          border: Border.all(color: C.text.withValues(alpha: .05)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -249,18 +281,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
 
   Widget _buildBioSection(Profile profile) {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('CORE SYSTEMS & BIO', style: dm(sz: 9, w: FontWeight.w900, ls: 2, c: C.dim)),
-          SizedBox(height: 12),
-          Text(profile.bio ?? 'No status transmission available.', style: dm(sz: 14, c: C.text.withOpacity(.7), h: 1.6)),
-          SizedBox(height: 24),
+          const SizedBox(height: 12),
+          Text(profile.bio ?? 'No status transmission available.', style: dm(sz: 14, c: C.text.withValues(alpha: .7), h: 1.6)),
+          const SizedBox(height: 24),
           Row(
             children: [
               _MetricTag(label: 'POSTS', value: '1,240'),
-              SizedBox(width: 12),
+              const SizedBox(width: 12),
               _MetricTag(label: 'REPUTATION', value: '9.8', icon: Icons.star, color: C.brand),
             ],
           ),
@@ -271,13 +303,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
 
   Widget _buildSectionTitle(String title) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(24, 32, 24, 16),
+      padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
       child: Row(
         children: [
           Icon(Icons.grid_view_sharp, color: C.brand, size: 14),
-          SizedBox(width: 10),
+          const SizedBox(width: 10),
           Text(title, style: syne(sz: 11, w: FontWeight.w800, ls: 2, c: C.brand)),
-          Spacer(),
+          const Spacer(),
           Icon(Icons.tune, color: C.dim, size: 16),
         ],
       ),
@@ -291,7 +323,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       future: widget.state.social.fetchUserListings(targetId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-           return Center(child: CircularProgressIndicator(color: C.brand));
+           return const Center(child: CircularProgressIndicator(color: C.brand));
         }
         
         final list = snapshot.data ?? [];
@@ -300,8 +332,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
         }
 
         return GridView.builder(
-          padding: EdgeInsets.all(24),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          padding: const EdgeInsets.all(24),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
@@ -321,7 +353,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       future: widget.state.social.fetchUserPosts(targetId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-           return Center(child: CircularProgressIndicator(color: C.brand));
+           return const Center(child: CircularProgressIndicator(color: C.brand));
         }
         
         final list = snapshot.data ?? [];
@@ -330,8 +362,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
         }
 
         return GridView.builder(
-          padding: EdgeInsets.all(24),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          padding: const EdgeInsets.all(24),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
@@ -364,9 +396,9 @@ class _ProductGridItem extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: C.text.withOpacity(.05),
+          color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: C.text.withOpacity(.1)),
+          border: Border.all(color: C.text.withValues(alpha: .1)),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
@@ -451,13 +483,13 @@ class _AvatarContainer extends StatelessWidget {
     width: 100, height: 100,
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(40),
-      gradient: LinearGradient(colors: [C.brand, Color(0xFFa855f7)]),
-      boxShadow: [BoxShadow(color: C.brand.withOpacity(.3), blurRadius: 20)],
+      gradient: const LinearGradient(colors: [C.brand, Color(0xFFa855f7)]),
+      boxShadow: [BoxShadow(color: C.brand.withValues(alpha: .3), blurRadius: 20)],
     ),
-    padding: EdgeInsets.all(3),
+    padding: const EdgeInsets.all(3),
     child: Container(
       decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(38)),
-      padding: EdgeInsets.all(4),
+      padding: const EdgeInsets.all(4),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(34),
         child: url != null 
@@ -476,7 +508,7 @@ class _StatItem extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     children: [
       Text(value, style: syne(sz: 18, w: FontWeight.w900, fs: FontStyle.italic, c: color)),
-      SizedBox(height: 6),
+      const SizedBox(height: 6),
       Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: C.dim)),
     ],
   );
@@ -496,11 +528,11 @@ class _MetricTag extends StatelessWidget {
   Widget build(BuildContext context) {
     final activeColor = color ?? C.text;
     return Container(
-    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
     decoration: BoxDecoration(
-      color: C.text.withOpacity(.03),
+      color: C.text.withValues(alpha: .03),
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: C.text.withOpacity(.05)),
+      border: Border.all(color: C.text.withValues(alpha: .05)),
     ),
     child: Row(
       children: [
@@ -529,14 +561,14 @@ class _GridItem extends StatelessWidget {
       onTap: () => state.go('community', extra: data['id']),
       child: Container(
         decoration: BoxDecoration(
-          color: C.text.withOpacity(.05),
+          color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: C.text.withOpacity(.1)),
+          border: Border.all(color: C.text.withValues(alpha: .1)),
           image: (thumbUrl != null || mediaUrl != null) 
             ? DecorationImage(
                 image: NetworkImage(thumbUrl ?? mediaUrl!), 
                 fit: BoxFit.cover,
-                colorFilter: isVideo ? ColorFilter.mode(Colors.black.withOpacity(0.3), BlendMode.darken) : null,
+                colorFilter: isVideo ? ColorFilter.mode(Colors.black.withValues(alpha: 0.3), BlendMode.darken) : null,
               )
             : null,
         ),
@@ -550,7 +582,7 @@ class _GridItem extends StatelessWidget {
               child: Row(
                 children: [
                   Icon(Icons.favorite, color: C.text, size: 12),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(kNum(likes), style: dm(sz: 10, w: FontWeight.w800, c: C.text)),
                 ],
               ),
@@ -570,11 +602,11 @@ class _HUDButton extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
-      padding: EdgeInsets.all(10),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: C.text.withOpacity(.05),
+        color: C.text.withValues(alpha: .05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: C.text.withOpacity(.1)),
+        border: Border.all(color: C.text.withValues(alpha: .1)),
       ),
       child: Icon(icon, color: C.text, size: 18),
     ),
