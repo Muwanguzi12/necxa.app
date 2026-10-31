@@ -68,10 +68,16 @@ class TextOverlay extends EditOperation {
 /// Represents a color filter operation.
 class FilterOperation extends EditOperation {
   final String filterName; // e.g., 'sepia', 'grayscale', 'vignette'
-  FilterOperation({required this.filterName}) : super('filter');
+  final double intensity;
+  FilterOperation({required this.filterName, this.intensity = 1.0})
+      : super('filter');
 
   @override
-  Map<String, dynamic> toJson() => {'type': type, 'name': filterName};
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'name': filterName,
+    'intensity': intensity,
+  };
 }
 
 /// Non-destructive visual transform shared by every editor surface and renderer.
@@ -731,8 +737,20 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
+  TransitionOperation? transitionIn;
   bool
   isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  File? proxyFile;
+  bool isProxyReady;
+  double faceSymmetry;
+  bool symmetryMirrorLeft;
+  double skinSmoothing;
+  int smoothingMode;
+  double skinBrightening;
+  int skinToneMode;
+  int makeupGender;
+  int makeupStyle;
+  double makeupIntensity;
 
   TimelineClip({
     required this.id,
@@ -740,6 +758,17 @@ class TimelineClip {
     required this.duration,
     required this.operation,
     this.file,
+    this.proxyFile,
+    this.isProxyReady = false,
+    this.faceSymmetry = 0.0,
+    this.symmetryMirrorLeft = true,
+    this.skinSmoothing = 0.0,
+    this.smoothingMode = 0,
+    this.skinBrightening = 0.0,
+    this.skinToneMode = 0,
+    this.makeupGender = 0,
+    this.makeupStyle = 0,
+    this.makeupIntensity = 0.7,
     this.sourceStart = Duration.zero,
     this.sourceEnd,
     this.speed = 1.0,
@@ -748,6 +777,7 @@ class TimelineClip {
     this.isReversed = false,
     TransformOperation? transform,
     this.filter,
+    this.transitionIn,
     this.isHidden = false,
   }) : transform = transform ?? TransformOperation();
 
@@ -757,6 +787,17 @@ class TimelineClip {
     Duration? duration,
     EditOperation? operation,
     File? file,
+    File? proxyFile,
+    bool? isProxyReady,
+    double? faceSymmetry,
+    bool? symmetryMirrorLeft,
+    double? skinSmoothing,
+    int? smoothingMode,
+    double? skinBrightening,
+    int? skinToneMode,
+    int? makeupGender,
+    int? makeupStyle,
+    double? makeupIntensity,
     Duration? sourceStart,
     Duration? sourceEnd,
     double? speed,
@@ -765,6 +806,7 @@ class TimelineClip {
     bool? isReversed,
     TransformOperation? transform,
     FilterOperation? filter,
+    TransitionOperation? transitionIn,
     bool? isHidden,
   }) {
     return TimelineClip(
@@ -773,6 +815,17 @@ class TimelineClip {
       duration: duration ?? this.duration,
       operation: operation ?? this.operation,
       file: file ?? this.file,
+      proxyFile: proxyFile ?? this.proxyFile,
+      isProxyReady: isProxyReady ?? this.isProxyReady,
+      faceSymmetry: faceSymmetry ?? this.faceSymmetry,
+      symmetryMirrorLeft: symmetryMirrorLeft ?? this.symmetryMirrorLeft,
+      skinSmoothing: skinSmoothing ?? this.skinSmoothing,
+      smoothingMode: smoothingMode ?? this.smoothingMode,
+      skinBrightening: skinBrightening ?? this.skinBrightening,
+      skinToneMode: skinToneMode ?? this.skinToneMode,
+      makeupGender: makeupGender ?? this.makeupGender,
+      makeupStyle: makeupStyle ?? this.makeupStyle,
+      makeupIntensity: makeupIntensity ?? this.makeupIntensity,
       sourceStart: sourceStart ?? this.sourceStart,
       sourceEnd: sourceEnd ?? this.sourceEnd,
       speed: speed ?? this.speed,
@@ -781,6 +834,7 @@ class TimelineClip {
       isReversed: isReversed ?? this.isReversed,
       transform: transform ?? this.transform,
       filter: filter ?? this.filter,
+      transitionIn: transitionIn ?? this.transitionIn,
       isHidden: isHidden ?? this.isHidden,
     );
   }

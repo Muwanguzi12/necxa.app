@@ -22,6 +22,7 @@ import 'widgets/gift_float.dart';
 import 'screens/artist_auth_screen.dart';
 import 'screens/creator_chat_list_screen.dart';
 import 'screens/creator_chat_detail_screen.dart';
+import 'screens/live_hub_screen.dart';
 import 'screens/admin/music_management_admin.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:ui';
@@ -97,6 +98,15 @@ void main() async {
   runApp(const NecxaApp());
 }
 
+class AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+      };
+}
+
 class NecxaApp extends StatefulWidget {
   const NecxaApp({super.key});
 
@@ -159,6 +169,7 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
     C.themeMode = _state.themeMode;
     return MaterialApp(
       navigatorKey: navigatorKey,
+      scrollBehavior: AppScrollBehavior(),
       title: 'NECXA',
       themeMode: _state.themeMode,
       theme: buildLightTheme(),
@@ -236,7 +247,7 @@ class _RootShellState extends State<RootShell> {
 
   Widget _buildLockScreen() {
     return Container(
-      color: Colors.black.withOpacity(.95),
+      color: Colors.black.withValues(alpha: .95),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -291,7 +302,13 @@ class _RootShellState extends State<RootShell> {
       return LoginScreen(state: _state);
     }
 
+    if (kIsWeb && (_state.screen == 'community' || _state.screen == 'upload')) {
+      return HomeScreen(state: _state);
+    }
+
     switch (_state.screen) {
+      case 'live':
+        return LiveHubScreen(state: _state);
       case 'detail':
         return DetailScreen(state: _state);
       case 'community':

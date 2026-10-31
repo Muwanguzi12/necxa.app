@@ -91,8 +91,8 @@ export async function handleNecxaSupportReply(request: Request): Promise<Respons
     }
 
     const chatUrl = Deno.env.get("NECXA_CHAT_URL") ||
-      "https://ayvescksetiuekoyfqar.supabase.co/functions/v1/necxa-chat"
-    const chatAnonKey = Deno.env.get("NECXA_CHAT_ANON_KEY") || ""
+      "https://lzdtrmjcwzalckszdzpt.supabase.co/functions/v1/necxa-chat"
+    const chatAnonKey = Deno.env.get("NECXA_CHAT_ANON_KEY") || "sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR"
     const sharedSecret = Deno.env.get("GOOBOX_SHARED_SECRET") || ""
     if (!chatAnonKey || sharedSecret.length < 32) {
       return json({ error: "Necxa chat bridge is not configured" }, 503)

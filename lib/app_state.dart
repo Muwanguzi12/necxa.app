@@ -12,6 +12,7 @@ import 'services/media_compression_service.dart';
 import 'services/listing_sync_service.dart';
 import 'services/local_db_service.dart';
 import 'services/smooth_action.dart';
+import 'services/support_service.dart';
 
 import 'models/property_container.dart';
 import 'models/wallet.dart';
@@ -54,7 +55,7 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 class AppState extends ChangeNotifier {
   String screen = 'home';
 
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.dark;
   ThemeMode get themeMode => _themeMode;
 
   static AppState? maybeOf(BuildContext context) {
@@ -226,7 +227,7 @@ class AppState extends ChangeNotifier {
       } else if (modeStr == 'ThemeMode.light') {
         _themeMode = ThemeMode.light;
       } else {
-        _themeMode = ThemeMode.system;
+        _themeMode = ThemeMode.dark; // default: dark mode (light = accessibility option)
       }
       C.themeMode = _themeMode;
 
@@ -388,8 +389,18 @@ class AppState extends ChangeNotifier {
 
   String? _shieldError;
   String? get shieldFeedback => _shieldError;
-  void setShieldFeedback(String? message) {
-    _shieldError = message;
+  void setShieldFeedback(Object? message) {
+    if (message == null) {
+      _shieldError = null;
+    } else if (message is String) {
+      _shieldError = message;
+    } else if (message is Map) {
+      final value =
+          message['message'] ?? message['error'] ?? message['feedback'];
+      _shieldError = value is String ? value : message.toString();
+    } else {
+      _shieldError = message.toString();
+    }
     notifyListeners();
   }
 
@@ -500,6 +511,11 @@ class AppState extends ChangeNotifier {
   String? utilityShardId;
   bool isVerifying = false;
   int verificationSubStep = 0; // TRACKS CURRENT CAPTURE STAGE (0-3)
+  void setVerificationSubStep(int step) {
+    verificationSubStep = step;
+    notify();
+  }
+
   IDResult? lastIDResult;
   IDResult? lastIDBackResult;
   SelfieResult? lastSelfieResult;
@@ -819,6 +835,9 @@ class AppState extends ChangeNotifier {
   String payMethod = 'momo';
   bool paying = false;
   bool paid = false;
+  /// Set when reserveProperty() creates a pending escrow. PaymentScreen reads this.
+  Map<String, dynamic>? currentEscrowInitiation;
+  String? escrowError;
 
   // ── Gift Engine ──
   String? giftEmoji;
@@ -1410,7 +1429,7 @@ class AppState extends ChangeNotifier {
 
   PropertyContainer? get currentProperty => listingId == null
       ? null
-      : propertyContainers.firstWhere((p) => p.core.id == listingId);
+      : propertyContainers.where((p) => p.core.id == listingId).firstOrNull;
 
   Future<void> loadProperties() async {
     isLoadingProperties = true;
@@ -1477,43 +1496,90 @@ class AppState extends ChangeNotifier {
 
   // ── Property Actions ──
 
-  Future<void> unlockProperty(String id) async {
+    Future<void> unlockProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
     try {
       final res = await SmoothAction.unlockProperty(id);
       if (res['success'] == true) {
-        // Find the property in the local list and mark it as unlocked
+        // Free trial used or already unlocked
         final idx = propertyContainers.indexWhere((p) => p.core.id == id);
         if (idx != -1) {
-          // Re-fetch listing data to get the now-decrypted contact fields
           final raw = await SmoothAction.getProperty(id);
           final refreshed = PropertyContainer.fromJson(raw);
           propertyContainers[idx] = refreshed;
         }
         await loadProperties(); // Full sync
         paid = true;
+      } else if (res['requires_payment'] == true) {
+        // Route to payment screen, free trial was already used
+        listingId = id;
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Unknown error');
       }
-    } catch (e) {
+} catch (e) {
       debugPrint('Unlock Error: $e');
+      if (navigatorKey.currentContext != null) {
+        showDialog(
+          context: navigatorKey.currentContext!,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Unlock Error 🚨', style: TextStyle(color: Colors.red)),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              )
+            ],
+          )
+        );
+      }
     }
     paying = false;
     notify();
   }
 
+  /// Called by PaymentScreen after finance-engine confirms payment succeeded.
+  /// Refreshes the property from SP1 so unlocked credentials are shown
+  /// without re-triggering the unlock gate / free-trial check.
+  Future<void> markPropertyUnlockedAfterPayment(String id) async {
+    try {
+      final idx = propertyContainers.indexWhere((p) => p.core.id == id);
+      if (idx != -1) {
+        final raw = await SmoothAction.getProperty(id);
+        final refreshed = PropertyContainer.fromJson(raw);
+        propertyContainers[idx] = refreshed;
+      }
+      await loadProperties(); // full sync so is_unlocked_by_current_user flips
+      paid = true;
+    } catch (e) {
+      debugPrint('markPropertyUnlockedAfterPayment Error: $e');
+    }
+    notify();
+  }
+
+  /// Step 1: Creates a pending escrow reservation on the Primary DB.
+  /// Step 2: Hands off to the payment screen to process the fiat payment.
   Future<void> reserveProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
     try {
+      // Create the pending escrow record on smooth-action (Primary DB)
       final res = await SmoothAction.createEscrow(id);
       if (res['success'] == true) {
-        await loadProperties();
-        paid = true;
+        // Store the escrow initiation data so PaymentScreen can pick it up
+        currentEscrowInitiation = res;
+        // Navigate to payment screen — PaymentScreen detects escrow mode via currentEscrowInitiation
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Could not create escrow reservation.');
       }
     } catch (e) {
       debugPrint('Reservation Error: $e');
+      escrowError = e.toString();
     }
     paying = false;
     notify();
@@ -1555,7 +1621,16 @@ class AppState extends ChangeNotifier {
 
   // ── Global Methods ──
   void go(String s, {dynamic extra}) {
-    if (kIsWeb && _isChatRoute(s)) return;
+    if (kIsWeb) {
+      // Guard on web: community, upload, and media editor are removed
+      if (s == 'community' ||
+          s == 'upload' ||
+          s == 'media-editor' ||
+          s == 'responsive_media_editor' ||
+          s == 'pro_media_editor') {
+        s = 'home';
+      }
+    }
     // Prevent push-loops
     if (screen != s) {
       _navigationStack.add(screen);
@@ -1591,7 +1666,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get chatAvailable => !kIsWeb;
+  bool get chatAvailable => true;
 
   bool _isChatRoute(String route) =>
       route == 'chat' ||
@@ -1708,8 +1783,13 @@ class AppState extends ChangeNotifier {
     await social.toggleSavePost(id);
   }
 
-  Future<void> reportContent(String id, String type, String reason) async {
-    await social.reportContent(id, type, reason);
+  Future<void> reportContent(
+    String id,
+    String type,
+    String reason, {
+    String? details,
+  }) async {
+    await social.reportContent(id, type, reason, details: details);
   }
 
   Future<void> notInterested(String id, String type) async {
@@ -1761,6 +1841,7 @@ class AppState extends ChangeNotifier {
           ncxAmount: price,
           contextType: contextType ?? 'direct',
           contextId: contextId ?? 'general_feed',
+          currentBalance: coinBalance,
         );
 
         if (result.success) {
@@ -2171,10 +2252,13 @@ class AppState extends ChangeNotifier {
   void onAuthStateChange(AuthState state) {
     final authenticatedUserId = state.session?.user.id;
     if (authenticatedUserId != null) {
-      if (_notificationUserId != authenticatedUserId) {
+      final isNewUser = _notificationUserId != authenticatedUserId;
+      if (isNewUser) {
         appNotifications = [];
         _notificationUserId = authenticatedUserId;
         unawaited(NotificationService().clearDisplayedNotifications());
+        // Reload profile immediately so the UI doesn't sit blank after login
+        unawaited(loadMyProfile());
       }
       _syncVault();
       checkSecurityStatus(); // Syncs 2FA, Forex, and Payment Methods
@@ -2192,11 +2276,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // Clear all local data first
     await localDb.clearAllOnLogout();
+    // Reset all user-specific state
+    myProfile = null;
     myTransportOrders = [];
     myDriverOrders = [];
     currentDriverProfile = null;
     isDriver = false;
+    // Reset navigation to home so after re-login the app opens cleanly
+    screen = 'home';
     await Supabase.instance.client.auth.signOut();
     notifyListeners();
   }
@@ -2442,9 +2531,35 @@ class AppState extends ChangeNotifier {
       debugPrint('fetchMessages Neural Sync Error: $e');
     }
 
-    // 3. Ensure Realtime is active
+    // 3. If this is a support room, reconcile Goobox agent replies
+    if (activeConversation?.isSupport == true) {
+      await syncSupportMessages(roomId);
+    }
+
+    // 4. Ensure Realtime is active
     if (_msgChannel == null || _currentSubscribedRoomId != roomId) {
       _subscribeToMessages(roomId);
+    }
+  }
+
+  Future<void> syncSupportMessages([String? targetRoomId]) async {
+    final roomId = targetRoomId ?? activeConversation?.id;
+    if (roomId == null) return;
+    try {
+      final ticketId = activeConversation?.metadata?['ticket_id']?.toString();
+      final replies = await SupportService().syncSupportReplies(
+        roomId: roomId,
+        ticketId: ticketId,
+      );
+      if (replies.isNotEmpty) {
+        await localDb.saveMessages(replies);
+        if (activeConversation?.id == roomId) {
+          currentMessages = await localDb.getMessages(roomId);
+          notify();
+        }
+      }
+    } catch (e) {
+      debugPrint('syncSupportMessages Error: $e');
     }
   }
 
@@ -2723,6 +2838,17 @@ class AppState extends ChangeNotifier {
       // Do NOT re-fetch — the Realtime subscription delivers the echo automatically.
       // Triggering fetchMessages here would double-count egress on every send.
       debugPrint('✅ Message dispatched via Realtime pipeline');
+
+      // If this is a support conversation, forward to Goobox ticket thread
+      if (activeConversation?.isSupport == true) {
+        final ticketId = activeConversation?.metadata?['ticket_id'] as String?;
+        final roomId = activeConversation?.id;
+        SupportService().forwardSupportMessage(
+          message: msg,
+          ticketId: ticketId,
+          roomId: roomId,
+        );
+      }
     }
   }
 
@@ -3405,3 +3531,6 @@ class IPResult {
   final String sessionId;
   IPResult({required this.verified, required this.sessionId});
 }
+
+
+

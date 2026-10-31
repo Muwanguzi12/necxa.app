@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
+import 'package:video_player/video_player.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../theme.dart';
@@ -15,9 +17,11 @@ import 'dart:convert';
 import 'sound_hub_screen.dart';
 import 'live_studio_screen.dart';
 import '../widgets/checkout_overlay.dart';
+import '../widgets/necxa_experience_sheet.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/commerce_service.dart';
+import '../utils/content_sanitizer.dart';
 
 String? _extractListingImageUrl(dynamic value) {
   if (value == null) return null;
@@ -834,113 +838,113 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Widget _buildTopHUDContent() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Back Button (Dashboard Return)
-        GestureDetector(
-          onTap: () => widget.state.go('home'),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3),
-              shape: BoxShape.circle,
-              border: Border.all(color: C.text.withOpacity(0.1)),
+        // Left: Back chevron (<) + Live indicator/button (📺 LIVE)
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTap: () => widget.state.go('home'),
+              child: Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: C.text.withValues(alpha: 0.1)),
+                ),
+                child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 16),
+              ),
             ),
-            child: Icon(Icons.arrow_back_ios_new, color: C.text, size: 16),
+            const SizedBox(width: 8),
+            _buildLiveButton(),
+          ],
+        ),
+
+        // Center: Segmented capsule toggle (Feed | Shop)
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _selectedTab = _selectedTab == 0 ? 1 : 0;
+              _currentItems = []; // Clear stale data
+
+              // 🚀 RESTORE PERSISTENCE: Use saved index from AppState for the target tab
+              _currentPageIndex = _selectedTab == 0
+                  ? widget.state.communityFeedIndex
+                  : widget.state.communityShopIndex;
+
+              if (_pageController.hasClients) {
+                _pageController.jumpToPage(_currentPageIndex);
+              }
+              // 🚀 FORCE SYNC: Ensure the Smart Loader triggers immediately on tab switch
+              _refreshFuture(force: true);
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: C.text.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: C.text.withValues(alpha: 0.1)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _selectedTab == 0 ? C.text : Colors.transparent,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text(
+                    'Feed',
+                    style: syne(
+                      sz: 12,
+                      w: FontWeight.bold,
+                      c: _selectedTab == 0 ? Colors.black : C.sub,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _selectedTab == 1 ? C.text : Colors.transparent,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text(
+                    'Shop',
+                    style: syne(
+                      sz: 12,
+                      w: FontWeight.bold,
+                      c: _selectedTab == 1 ? Colors.black : C.sub,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
 
-        _buildLiveButton(),
-
-        // Toggle Pill (Feed / Shop) + Sync Indicator above it
-        Column(
+        // Right: Cloud upload (☁️⬆️), network sync dots (traffic light), and Search (🔍)
+        Row(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _buildSyncDots(),
-            const SizedBox(height: 6),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _selectedTab = _selectedTab == 0 ? 1 : 0;
-                  _currentItems = []; // Clear stale data
-
-                  // 🚀 RESTORE PERSISTENCE: Use saved index from AppState for the target tab
-                  _currentPageIndex = _selectedTab == 0
-                      ? widget.state.communityFeedIndex
-                      : widget.state.communityShopIndex;
-
-                  if (_pageController.hasClients) {
-                    _pageController.jumpToPage(_currentPageIndex);
-                  }
-                  // 🚀 FORCE SYNC: Ensure the Smart Loader triggers immediately on tab switch
-                  _refreshFuture(force: true);
-                });
-              },
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: C.text.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: C.text.withOpacity(0.1)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _selectedTab == 0 ? C.text : Colors.transparent,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Text(
-                        'Feed',
-                        style: syne(
-                          sz: 12,
-                          w: FontWeight.bold,
-                          c: _selectedTab == 0 ? Colors.black : C.sub,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _selectedTab == 1 ? C.text : Colors.transparent,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Text(
-                        'Shop',
-                        style: syne(
-                          sz: 12,
-                          w: FontWeight.bold,
-                          c: _selectedTab == 1 ? Colors.black : C.sub,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        // Right Edge: Upload + Search stacked vertically
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // Upload / New Shard Button
             GestureDetector(
               onTap: () => _showUploadOptions(context),
               child: Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
-                  border: Border.all(color: C.text.withOpacity(0.1)),
+                  border: Border.all(color: C.text.withValues(alpha: 0.1)),
                 ),
                 child: Icon(
                   Icons.cloud_upload_outlined,
@@ -949,21 +953,21 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            // Search Button
+            const SizedBox(width: 8),
+            _buildSyncDots(),
+            const SizedBox(width: 8),
             GestureDetector(
               onTap: () => _showSearchSheet(context),
               child: Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
-                  border: Border.all(color: C.text.withOpacity(0.1)),
+                  border: Border.all(color: C.text.withValues(alpha: 0.1)),
                 ),
                 child: Icon(Icons.search_rounded, color: C.text, size: 18),
               ),
             ),
-            const SizedBox(height: 10),
           ],
         ),
       ],
@@ -1011,6 +1015,54 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       'LIVE Now',
                       style: syne(sz: 13, w: FontWeight.w900, c: C.text),
                     ),
+                    const SizedBox(width: 10),
+                    // ── Go Live shortcut button ──
+                    GestureDetector(
+                      onTap: () {
+                        _toggleLiveOverlay();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LiveStudioScreen(
+                              state: widget.state,
+                              channelName:
+                                  '${widget.state.myDisplayName ?? 'User'}_Live',
+                              isHost: true,
+                              hostId: widget.state.user?.id,
+                              hostName: widget.state.myDisplayName,
+                              hostAvatar: widget.state.myAvatarUrl,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF334E), Color(0xFFFF6B35)],
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFF334E).withValues(alpha: 0.4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.wifi_tethering_rounded, size: 12, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Go Live',
+                              style: syne(sz: 11, w: FontWeight.w800, c: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     const Spacer(),
                     if (_activeLiveStreams.isNotEmpty)
                       TextButton(
@@ -1049,50 +1101,27 @@ class _CommunityScreenState extends State<CommunityScreen> {
       message: _showLiveOverlay ? 'Hide live streams' : 'Show live streams',
       child: InkResponse(
         onTap: _toggleLiveOverlay,
-        radius: 30,
-        child: SizedBox(
-          width: 50,
-          height: 56,
-          child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: _showLiveOverlay
-                      ? const Color(0x33FF334E)
-                      : Colors.black.withValues(alpha: 0.3),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: _showLiveOverlay
-                        ? const Color(0xFFFF334E)
-                        : C.text.withValues(alpha: 0.12),
-                  ),
-                ),
-                child: Icon(Icons.sensors_rounded, color: C.text, size: 23),
-              ),
-              Positioned(
-                bottom: -1,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF334E),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.black, width: 1.5),
-                  ),
-                  child: Text(
-                    'LIVE',
-                    style: syne(sz: 8, w: FontWeight.w900, c: C.text),
-                  ),
-                ),
-              ),
-            ],
+        radius: 20,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 36,
+          height: 36,
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: _showLiveOverlay
+                ? const Color(0x33FF334E)
+                : Colors.black.withValues(alpha: 0.3),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: _showLiveOverlay
+                  ? const Color(0xFFFF334E)
+                  : C.text.withValues(alpha: 0.12),
+              width: 1.5,
+            ),
+          ),
+          child: Image.asset(
+            'assets/images/live_icon.png',
+            fit: BoxFit.contain,
           ),
         ),
       ),
@@ -1397,14 +1426,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
             ? const Color(0xFF69F0AE)
             : C.dim;
 
-        return Row(
+        return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _dot(redCol, sz: 3, isPulse: isOffline),
-            const SizedBox(width: 2),
-            _dot(yellowCol, sz: 3, isPulse: isSyncing),
-            const SizedBox(width: 2),
-            _dot(greenCol, sz: 3),
+            _dot(redCol, sz: 3.5, isPulse: isOffline),
+            const SizedBox(height: 2.5),
+            _dot(yellowCol, sz: 3.5, isPulse: isSyncing),
+            const SizedBox(height: 2.5),
+            _dot(greenCol, sz: 3.5),
           ],
         );
       },
@@ -1631,6 +1660,138 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 }
 
+// ── Horizontal Video Scrubber / Progress Indicator ─────────────
+class _VideoScrubber extends StatefulWidget {
+  final VideoPlayerController? controller;
+  const _VideoScrubber({this.controller});
+
+  @override
+  State<_VideoScrubber> createState() => _VideoScrubberState();
+}
+
+class _VideoScrubberState extends State<_VideoScrubber> {
+  bool _isDragging = false;
+  double _dragValue = 0.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final durationMs = value.duration.inMilliseconds;
+        final positionMs = value.position.inMilliseconds;
+        if (durationMs <= 0) return const SizedBox.shrink();
+
+        final progress = _isDragging
+            ? _dragValue
+            : (positionMs / durationMs).clamp(0.0, 1.0);
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final trackWidth = constraints.maxWidth;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: (details) {
+                setState(() {
+                  _isDragging = true;
+                  _dragValue = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                });
+              },
+              onHorizontalDragUpdate: (details) {
+                setState(() {
+                  _dragValue = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                });
+              },
+              onHorizontalDragEnd: (details) async {
+                final targetMs = (_dragValue * durationMs).round();
+                await controller.seekTo(Duration(milliseconds: targetMs));
+                setState(() {
+                  _isDragging = false;
+                });
+              },
+              onTapDown: (details) async {
+                final tapProgress = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                final targetMs = (tapProgress * durationMs).round();
+                await controller.seekTo(Duration(milliseconds: targetMs));
+              },
+              child: Container(
+                height: 18,
+                color: Colors.transparent,
+                alignment: Alignment.center,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    // Background track
+                    Container(
+                      height: 2.5,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    // Buffered progress (if available)
+                    if (value.buffered.isNotEmpty) ...[
+                      Builder(
+                        builder: (_) {
+                          final bufferedEnd = value.buffered.last.end.inMilliseconds;
+                          final bufferedFraction = (bufferedEnd / durationMs).clamp(0.0, 1.0);
+                          return Container(
+                            height: 2.5,
+                            width: trackWidth * bufferedFraction,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.38),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                    // Played progress bar
+                    Container(
+                      height: 2.5,
+                      width: trackWidth * progress,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    // Circular thumb indicator
+                    Positioned(
+                      left: (trackWidth * progress - 5).clamp(0.0, trackWidth - 10),
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              blurRadius: 3,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 class _ReelItem extends StatefulWidget {
   final Map<String, dynamic> post;
   final AppState state;
@@ -1649,10 +1810,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   bool _audioInitialized = false;
   bool _isPlaying = true;
   final GlobalKey<NecxaVideoPlayerState> _videoKey = GlobalKey();
+  VideoPlayerController? _activeVideoController;
 
   // ── New UX States ──
   bool _isExpanded = false;
-  final bool _isDescExpanded = false;
+  bool _isDescExpanded = false;
   bool _isCleanMode = false;
   bool _showCleanHint = false;
   late AnimationController _pulseController;
@@ -1690,6 +1852,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant _ReelItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.post['id'] != widget.post['id']) {
+      _activeVideoController = null;
+    }
     _isLiked = widget.post['is_liked'] == true || widget.post['is_liked'] == 1;
     _likesCount = (widget.post['likes_count'] as num?)?.toInt() ?? 0;
     _commentsCount = (widget.post['comments_count'] as num?)?.toInt() ?? 0;
@@ -1757,6 +1922,26 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         ),
       );
     }
+  }
+
+  void _openTagSearch(String tag) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Align(
+        alignment: kIsWeb ? Alignment.center : Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: communityModalMaxWidth(MediaQuery.sizeOf(context).width),
+          ),
+          child: _CommunitySearchSheet(
+            state: widget.state,
+            initialTab: 0,
+          ),
+        ),
+      ),
+    );
   }
 
   void _handleLike() async {
@@ -1959,6 +2144,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                         audioUrl: widget.post['audio_url'],
                         adaptive: true, // 🚀 RESTORED: Always original size
                         lowDataMode: widget.state.isDataSaverMode,
+                        onControllerReady: (ctrl) {
+                          if (mounted) {
+                            setState(() => _activeVideoController = ctrl);
+                          }
+                        },
                         onToggle: (playing) => setState(() {
                           _isPlaying = playing;
                           if (playing) {
@@ -2060,37 +2250,103 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   ),
                 ),
 
-                // Creator Bubble
+                // 🚀 UNIFIED BOTTOM CONTROLS
+                // Avatar + Name, Scrubber, Description + Chevron, Hashtags/Nametags, Rotating Sound Disc
                 Positioned(
                   left: 16,
-                  bottom: MediaQuery.of(context).padding.bottom + 120,
-                  child: _buildExpandableBubble(),
-                ),
-
-                // Info Section
-                Positioned(
-                  left: 20,
-                  bottom: MediaQuery.of(context).padding.bottom + 40,
-                  right: 80,
+                  right: 16,
+                  bottom: MediaQuery.of(context).padding.bottom + 14,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '@$username',
-                        style: syne(sz: 13, w: FontWeight.w900, c: C.text),
+                      // 1. Creator Bubble + Display Name ('kiol')
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _buildExpandableBubble(),
+                          AnimatedBuilder(
+                            animation: _expandController,
+                            builder: (context, _) {
+                              final double opacity =
+                                  (1.0 - _expandController.value * 2.5)
+                                      .clamp(0.0, 1.0);
+                              if (opacity <= 0.0) return const SizedBox.shrink();
+                              return Opacity(
+                                opacity: opacity,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 10),
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      final authorId = widget.post['author_id'] ??
+                                          widget.post['user_id'] ??
+                                          widget.post['lister_id'];
+                                      if (authorId != null && authorId.toString().isNotEmpty) {
+                                        widget.state.targetProfileId = authorId.toString();
+                                        widget.state.go('public_profile');
+                                      }
+                                    },
+                                    child: Text(
+                                      username,
+                                      style: syne(
+                                        sz: 14,
+                                        w: FontWeight.w700,
+                                        c: Colors.white,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        description,
-                        style: dm(sz: 13, c: C.text.withOpacity(0.9)),
-                      ),
+                      const SizedBox(height: 10),
 
-                      // 🚀 SHOP REEL: Inline Buy Button if linked to a listing
-                      if (widget.post['listings'] != null) ...[
-                        const SizedBox(height: 12),
-                        _buildMiniBuyCard(widget.post['listings']),
-                      ],
+                      // 2. Video Progress Scrubber Bar (Horizontal line with thumb)
+                      _VideoScrubber(
+                        controller:
+                            _activeVideoController ??
+                            _videoKey.currentState?.controller,
+                      ),
+                      const SizedBox(height: 10),
+
+                      // 3. Bottom Row: Description + Hashtags on Left, Rotating Sound Disc on Right
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Description with '>' chevron expand button
+                                _buildDescriptionRow(description),
+                                const SizedBox(height: 8),
+
+                                // Hashtag / nametag / mentions chips
+                                _buildHashtagRow(description),
+
+                                // Shop Reel inline buy card if linked to a listing
+                                if (widget.post['listings'] != null) ...[
+                                  const SizedBox(height: 8),
+                                  _buildMiniBuyCard(widget.post['listings']),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+
+                          // 4. Rotating Sound Disc (Bottom Right)
+                          GestureDetector(
+                            onTap: _goToSoundHub,
+                            child: _buildRotatingDisc(),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -2118,27 +2374,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             ),
           ),
 
-        // 5. ROTATING SOUND DISC (Bottom Right)
+        // 4. Side Action Hub (positioned directly above bottom controls)
         Positioned(
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 40,
-          child: AnimatedOpacity(
-            opacity: _isCleanMode ? 0.0 : 1.0,
-            duration: const Duration(milliseconds: 300),
-            child: IgnorePointer(
-              ignoring: _isCleanMode,
-              child: GestureDetector(
-                onTap: _goToSoundHub,
-                child: _buildRotatingDisc(),
-              ),
-            ),
-          ),
-        ),
-
-        // 4. Side Action Hub
-        Positioned(
-          right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 100,
+          bottom: MediaQuery.of(context).padding.bottom + 140,
           child: AnimatedOpacity(
             opacity: _isCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -2162,7 +2401,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.card_giftcard,
-                    label: 'Gift',
+                    label: (widget.post['gifts_count'] != null && (widget.post['gifts_count'] as num) > 0)
+                        ? kNum(widget.post['gifts_count'])
+                        : 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
                       final receiverId = widget.post['author_id']?.toString();
@@ -2267,9 +2508,35 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ListTile(
                   leading: Icon(Icons.visibility_off_outlined, color: C.sub),
                   title: Text('Not Interested', style: dm(sz: 16, c: C.text)),
-                  onTap: () {
+                  subtitle: Text(
+                    "We'll hide this post and show fewer posts like this.",
+                    style: dm(sz: 12, c: C.dim),
+                  ),
+                  onTap: () async {
                     Navigator.pop(context);
-                    widget.state.notInterested(postId, 'post');
+                    await widget.state.notInterested(postId, 'post');
+                    if (mounted) {
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Post hidden. You will see fewer posts like this.',
+                                  style: dm(sz: 13, c: C.text),
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: const Color(0xFF131923),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
                   },
                 ),
               if (isOwner && postId != null)
@@ -2337,39 +2604,137 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(Icons.report_problem_outlined, color: C.text),
+                  leading: Icon(Icons.report_problem_outlined, color: Colors.orangeAccent),
                   title: Text('Report Content', style: dm(sz: 16, c: C.text)),
-                  onTap: () async {
+                  subtitle: Text(
+                    'Sent for review by Necxa AI & team at Goobox.',
+                    style: dm(sz: 12, c: C.dim),
+                  ),
+                  onTap: () {
                     Navigator.pop(context);
-                    final messenger = ScaffoldMessenger.of(this.context);
-                    try {
-                      await widget.state.reportContent(
-                        postId,
-                        'post',
-                        'Inappropriate content',
-                      );
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text('Post reported for review'),
-                          ),
-                        );
-                      }
-                    } catch (_) {
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Could not submit the report. Try again.',
-                            ),
-                            backgroundColor: Colors.redAccent,
-                          ),
-                        );
-                      }
-                    }
+                    _showReportReasonsDialog(postId);
                   },
                 ),
               const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showReportReasonsDialog(String postId) {
+    final reasons = [
+      'Inappropriate or adult content',
+      'Spam, misleading or fraud',
+      'Hate speech, harassment or bullying',
+      'Violence or dangerous content',
+      'Copyright or intellectual property violation',
+      'Other content policy violation',
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D121B),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          border: Border.all(color: C.text.withOpacity(0.1)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: C.dim,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.orangeAccent.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.shield_outlined, color: Colors.orangeAccent, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Report Content', style: syne(sz: 18, w: FontWeight.w700, c: C.text)),
+                        const SizedBox(height: 2),
+                        Text('Reviewed by Necxa AI & team at Goobox', style: dm(sz: 12, c: C.dim)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(color: Colors.white10),
+              ...reasons.map((reason) => ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                leading: const Icon(Icons.flag_outlined, color: Colors.orangeAccent, size: 18),
+                title: Text(reason, style: dm(sz: 14, c: C.text)),
+                trailing: Icon(Icons.chevron_right, color: C.dim, size: 18),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  final messenger = ScaffoldMessenger.of(this.context);
+                  try {
+                    await widget.state.reportContent(
+                      postId,
+                      'post',
+                      reason,
+                      details: 'Reported from community reel via moderation engine',
+                    );
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.verified_user_outlined, color: C.brand, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Report submitted. Necxa AI & Goobox team will review this content.',
+                                  style: dm(sz: 13, c: C.text),
+                                ),
+                              ),
+                            ],
+                          ),
+                          backgroundColor: const Color(0xFF131923),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Could not submit report. Please try again.'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
+                  }
+                },
+              )),
+              const SizedBox(height: 12),
             ],
           ),
         ),
@@ -2408,6 +2773,124 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   }
 
   // ── NEW UI COMPONENTS ───────────────────────────────────────
+
+  Widget _buildDescriptionRow(String description) {
+    if (description.isEmpty) return const SizedBox.shrink();
+
+    // Strip trailing hashtags from text so they don't duplicate with the chips below
+    String displayDesc =
+        description.replaceAll(RegExp(r'(#[a-zA-Z0-9_]+\s*)+$'), '').trim();
+    if (displayDesc.isEmpty) displayDesc = description;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _isDescExpanded = !_isDescExpanded;
+        });
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              displayDesc,
+              style: dm(
+                sz: 13,
+                w: FontWeight.w500,
+                c: Colors.white.withValues(alpha: 0.95),
+              ),
+              maxLines: _isDescExpanded ? null : 1,
+              overflow:
+                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            _isDescExpanded
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.chevron_right_rounded,
+            color: const Color(0xFF00E5FF),
+            size: 18,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHashtagRow(String description) {
+    final tags = _extractPostTags(description);
+    if (tags.isEmpty) return const SizedBox.shrink();
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: tags.map((tag) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => _openTagSearch(tag),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    width: 0.8,
+                  ),
+                ),
+                child: Text(
+                  tag,
+                  style: dm(
+                    sz: 11,
+                    w: FontWeight.w600,
+                    c: Colors.white.withValues(alpha: 0.9),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  List<String> _extractPostTags(String description) {
+    final List<String> result = [];
+
+    final rawTags = widget.post['tags'] ?? widget.post['hashtags'];
+    if (rawTags is List) {
+      for (final t in rawTags) {
+        final s = t.toString().trim();
+        if (s.isNotEmpty) {
+          result.add(s.startsWith('#') || s.startsWith('@') ? s : '#$s');
+        }
+      }
+    } else if (rawTags is String && rawTags.trim().isNotEmpty) {
+      result.addAll(ContentSanitizer.sanitizeTags(rawTags));
+    }
+
+    final inlineTags = ContentSanitizer.extractHashtagsFromText(description);
+    result.addAll(inlineTags);
+
+    final mentionRegex = RegExp(r'@[a-zA-Z0-9_]+');
+    for (final m in mentionRegex.allMatches(description)) {
+      final mention = m.group(0);
+      if (mention != null && mention.isNotEmpty) {
+        result.add(mention);
+      }
+    }
+
+    if (result.isEmpty) {
+      result.addAll(['#NightVibes', '#StreetStyle', '#NecxaMoments']);
+    }
+
+    return result.toSet().toList();
+  }
 
   Widget _buildExpandableBubble() {
     return GestureDetector(
@@ -2492,8 +2975,13 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             onTap: () {
               if (_isExpanded) {
                 // Navigate to profile
-                widget.state.targetProfileId = widget.post['author_id'];
-                widget.state.go('public_profile');
+                final authorId = widget.post['author_id'] ??
+                    widget.post['user_id'] ??
+                    widget.post['lister_id'];
+                if (authorId != null && authorId.toString().isNotEmpty) {
+                  widget.state.targetProfileId = authorId.toString();
+                  widget.state.go('public_profile');
+                }
               } else {
                 _toggleExpanded();
               }
@@ -2770,12 +3258,33 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           _menuItem(
                             'Not Interested',
                             Icons.sentiment_dissatisfied,
-                            onTap: () {
+                            onTap: () async {
                               Navigator.pop(context);
-                              widget.state.notInterested(
+                              await widget.state.notInterested(
                                 widget.post['id'],
                                 'post',
                               );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Row(
+                                      children: [
+                                        const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Post hidden. You will see fewer posts like this.',
+                                            style: dm(sz: 13, c: C.text),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    backgroundColor: const Color(0xFF131923),
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                );
+                              }
                             },
                           ),
                           _menuItem(
@@ -2784,17 +3293,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             color: Colors.redAccent,
                             onTap: () {
                               Navigator.pop(context);
-                              widget.state.reportContent(
-                                widget.post['id'],
-                                'post',
-                                'Inappropriate content',
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Post reported'),
-                                  backgroundColor: Colors.redAccent,
-                                ),
-                              );
+                              final postId = widget.post['id']?.toString();
+                              if (postId != null) {
+                                _showReportReasonsDialog(postId);
+                              }
                             },
                           ),
                         ],
@@ -3055,6 +3557,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
     with TickerProviderStateMixin {
   final GlobalKey<NecxaVideoPlayerState> _videoKey =
       GlobalKey<NecxaVideoPlayerState>();
+  VideoPlayerController? _activeVideoController;
   bool _buyPanelVisible = false;
   Timer? _buyPanelTimer;
 
@@ -3064,6 +3567,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
 
   // New Bubble States
   bool _isExpanded = false;
+  bool _isDescExpanded = false;
   late AnimationController _pulseController;
   late AnimationController _expandController;
   Timer? _collapseTimer;
@@ -3095,6 +3599,16 @@ class _ShopReelItemState extends State<_ShopReelItem>
   @override
   void didUpdateWidget(covariant _ShopReelItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.listing['id'] != widget.listing['id']) {
+      _activeVideoController = null;
+      _isDescExpanded = false;
+      _buyPanelTimer?.cancel();
+      _buyPanelVisible = false;
+      // Restart 4s attention timer for newly swiped product
+      _buyPanelTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _buyPanelVisible = true);
+      });
+    }
     _isLiked =
         widget.listing['is_liked'] == true || widget.listing['is_liked'] == 1;
     _likesCount = (widget.listing['likes_count'] as num?)?.toInt() ?? 0;
@@ -3183,6 +3697,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
     final price = widget.listing['price'] ?? 0;
     final title = widget.listing['title'] ?? 'Luxury Shard';
     final description = widget.listing['description'] ?? '';
+    final rawProf = widget.listing['profiles'] ?? widget.listing['lister'];
+    final prof = (rawProf is List && rawProf.isNotEmpty)
+        ? rawProf[0]
+        : (rawProf is Map ? rawProf : null);
+    final vendorName = prof?['display_name'] ?? prof?['full_name'] ?? 'Vendor';
 
     return Stack(
       fit: StackFit.expand,
@@ -3222,6 +3741,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
                         true, // 🚀 FILM HUB: Always use original aspect ratio
                     lowDataMode: widget.state.isDataSaverMode,
                     state: widget.state,
+                    onControllerReady: (ctrl) {
+                      if (mounted) {
+                        setState(() => _activeVideoController = ctrl);
+                      }
+                    },
                   )
                 : Image.network(
                     mediaUrl,
@@ -3277,7 +3801,7 @@ class _ShopReelItemState extends State<_ShopReelItem>
         // 5. SIDE ACTION HUB (RIGHT)
         Positioned(
           right: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 120,
+          bottom: MediaQuery.of(context).padding.bottom + 200,
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -3328,7 +3852,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.card_giftcard,
-                    label: 'Gift',
+                    label: (widget.listing['gifts_count'] != null && (widget.listing['gifts_count'] as num) > 0)
+                        ? kNum(widget.listing['gifts_count'])
+                        : 'Gift',
                     iconColor: Colors.amberAccent,
                     onTap: () {
                       if (authorId == widget.state.user?.id) {
@@ -3380,11 +3906,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
           ),
         ),
 
-        // 6. BOTTOM INTERACTIVE UI (LEFT)
+        // 5. UNIFIED BOTTOM COMMERCE UI
         Positioned(
           left: 16,
-          bottom: MediaQuery.of(context).padding.bottom + 20,
-          right: 80, // Leave space for side actions
+          right: 16,
+          bottom: MediaQuery.of(context).padding.bottom + 14,
           child: AnimatedOpacity(
             opacity: widget.state.isFeedCleanMode ? 0.0 : 1.0,
             duration: const Duration(milliseconds: 300),
@@ -3394,27 +3920,212 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 1. Creator Info Bubble
-                  _buildExpandableBubble(),
-                  const SizedBox(height: 12),
-
-                  // 2. Product Description & Price (Always visible)
-                  Text(
-                    title,
-                    style: syne(sz: 14, w: FontWeight.w900, c: C.text),
+                  // 1. Creator Info Bubble + Display Name (Inline, fades when panel is expanded)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _buildExpandableBubble(),
+                      AnimatedBuilder(
+                        animation: _expandController,
+                        builder: (context, _) {
+                          final double opacity =
+                              (1.0 - _expandController.value * 2.5).clamp(0.0, 1.0);
+                          if (opacity <= 0.0) return const SizedBox.shrink();
+                          return Opacity(
+                            opacity: opacity,
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 10),
+                              child: GestureDetector(
+                                onTap: () {
+                                  final authorId =
+                                      widget.listing['lister_id'] ??
+                                      widget.listing['user_id'];
+                                  if (authorId != null) {
+                                    widget.state.targetProfileId = authorId;
+                                    widget.state.go('public_profile');
+                                  }
+                                },
+                                child: Text(
+                                  vendorName,
+                                  style: syne(
+                                    sz: 14,
+                                    w: FontWeight.w700,
+                                    c: Colors.white,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: dm(sz: 12, c: C.sub),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
-                  // 3. 4s DELAYED BUY OVERLAY
-                  // This overlays on top but is fairly small as requested.
-                  if (_buyPanelVisible) _buildExpandedBuyPanel(context),
+                  // 2. Video Progress Scrubber Bar (Horizontal line with thumb)
+                  _VideoScrubber(
+                    controller:
+                        _activeVideoController ??
+                        _videoKey.currentState?.controller,
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 3. Product Title, Price & Experience Action
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Product Title + Price Pill
+                      Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                style: syne(
+                                  sz: 15,
+                                  w: FontWeight.w900,
+                                  c: Colors.white,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                                  width: 0.8,
+                                ),
+                              ),
+                              child: Text(
+                                ugx(num.tryParse(price.toString()) ?? 0),
+                                style: dm(
+                                  sz: 13,
+                                  w: FontWeight.bold,
+                                  c: const Color(0xFF00E5FF),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // 👤 EXPERIENCE → Button (Immediately accessible on product view)
+                      GestureDetector(
+                        onTap: () {
+                          NecxaExperienceSheet.show(
+                            context: context,
+                            listing: widget.listing,
+                            state: widget.state,
+                            onBuyNow: () {
+                              widget.state.selectedListing = widget.listing;
+                              widget.state.showCheckoutOverlay = true;
+                              widget.state.notify();
+                            },
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0A1324).withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFF00E5FF),
+                              width: 1.3,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+                                blurRadius: 10,
+                                spreadRadius: 0.5,
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: Stack(
+                                  children: [
+                                    const Positioned(
+                                      left: 0,
+                                      top: 2,
+                                      child: Icon(
+                                        Icons.person_outline_rounded,
+                                        color: Color(0xFF00E5FF),
+                                        size: 14,
+                                      ),
+                                    ),
+                                    Positioned(
+                                      right: 0,
+                                      top: 0,
+                                      child: Icon(
+                                        Icons.auto_awesome,
+                                        color: const Color(0xFF00E5FF),
+                                        size: 8,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'EXPERIENCE',
+                                style: syne(
+                                  sz: 11,
+                                  w: FontWeight.w900,
+                                  c: const Color(0xFF00E5FF),
+                                  ls: 0.8,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_forward_rounded,
+                                color: Color(0xFF00E5FF),
+                                size: 14,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  // 4. Product Description with '>' Expand Chevron
+                  _buildShopDescriptionRow(description),
+
+                  // 5. Smart 4s Delayed Buy Overlay (pops up only after customer gives attention)
+                  AnimatedCrossFade(
+                    firstChild: const SizedBox.shrink(),
+                    secondChild: Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: _buildExpandedBuyPanel(context),
+                    ),
+                    crossFadeState: _buyPanelVisible
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                    duration: const Duration(milliseconds: 350),
+                  ),
                 ],
               ),
             ),
@@ -3463,6 +4174,45 @@ class _ShopReelItemState extends State<_ShopReelItem>
               const SizedBox(height: 8),
               Container(width: 80, height: 10, color: C.dim),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShopDescriptionRow(String description) {
+    if (description.isEmpty) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _isDescExpanded = !_isDescExpanded;
+        });
+      },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              description,
+              style: dm(
+                sz: 12,
+                w: FontWeight.w500,
+                c: Colors.white.withValues(alpha: 0.85),
+              ),
+              maxLines: _isDescExpanded ? null : 1,
+              overflow:
+                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(
+            _isDescExpanded
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.chevron_right_rounded,
+            color: const Color(0xFF00E5FF),
+            size: 16,
           ),
         ],
       ),

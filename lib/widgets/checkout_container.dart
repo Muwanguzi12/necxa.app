@@ -847,7 +847,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
-                                '? Payment confirmed! Your order is being processed.',
+                                '🎉 Payment confirmed! Your order is being processed.',
                               ),
                             ),
                           );
