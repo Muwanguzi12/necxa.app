@@ -493,6 +493,8 @@ class HomeScreen extends StatelessWidget {
       },
     );
   }
+}
+
 // -- 30-Second Property Video Tour Player ----------------------
 class _Property30sVideoPlayer extends StatefulWidget {
   final String videoUrl;
