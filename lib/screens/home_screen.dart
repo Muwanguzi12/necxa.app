@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
+import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../data.dart';
@@ -492,6 +493,324 @@ class HomeScreen extends StatelessWidget {
       },
     );
   }
+// -- 30-Second Property Video Tour Player ----------------------
+class _Property30sVideoPlayer extends StatefulWidget {
+  final String videoUrl;
+  final VoidCallback onClose;
+
+  const _Property30sVideoPlayer({
+    required this.videoUrl,
+    required this.onClose,
+  });
+
+  @override
+  State<_Property30sVideoPlayer> createState() => _Property30sVideoPlayerState();
+}
+
+class _Property30sVideoPlayerState extends State<_Property30sVideoPlayer> {
+  late VideoPlayerController _controller;
+  bool _initialized = false;
+  bool _hasError = false;
+  bool _isMuted = true;
+  Duration _position = Duration.zero;
+  static const Duration _maxDuration = Duration(seconds: 30);
+
+  @override
+  void initState() {
+    super.initState();
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    try {
+      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+      await _controller.initialize();
+      await _controller.setLooping(false); // Cap & loop at 30s
+      await _controller.setVolume(0.0); // Muted by default for fast feed scrolling
+      await _controller.play();
+      _controller.addListener(_onVideoTick);
+      if (mounted) {
+        setState(() {
+          _initialized = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Property 30s video error: $e');
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+        });
+      }
+    }
+  }
+
+  void _onVideoTick() {
+    if (!mounted || !_initialized) return;
+    final pos = _controller.value.position;
+    final dur = _controller.value.duration;
+    final limit = dur < _maxDuration ? dur : _maxDuration;
+    if (pos >= limit) {
+      _controller.seekTo(Duration.zero);
+      _controller.play();
+    }
+    setState(() {
+      _position = _controller.value.position;
+    });
+  }
+
+  Future<void> _toggleMute() async {
+    if (!_initialized) return;
+    final nextMuted = !_isMuted;
+    await _controller.setVolume(nextMuted ? 0.0 : 1.0);
+    if (mounted) {
+      setState(() {
+        _isMuted = nextMuted;
+      });
+    }
+  }
+
+  Future<void> _togglePlay() async {
+    if (!_initialized) return;
+    if (_controller.value.isPlaying) {
+      await _controller.pause();
+    } else {
+      await _controller.play();
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    if (_initialized) {
+      _controller.removeListener(_onVideoTick);
+      _controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasError) {
+      return Container(
+        color: C.cardDk,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.videocam_off, color: C.dim, size: 36),
+              const SizedBox(height: 6),
+              Text('Video tour unavailable', style: dm(sz: 11, c: C.dim)),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: widget.onClose,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: C.surface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: C.border),
+                  ),
+                  child: Text('View Photos', style: syne(sz: 11, c: C.text)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!_initialized) {
+      return Container(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  color: C.brand,
+                  strokeWidth: 2,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Loading 30s tour...',
+                style: dm(sz: 11, c: C.dim),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final double progress = (_position.inMilliseconds / 30000.0).clamp(0.0, 1.0);
+    final int sec = _position.inSeconds.clamp(0, 30);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _togglePlay,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 1. Video surface
+          FittedBox(
+            fit: BoxFit.cover,
+            clipBehavior: Clip.hardEdge,
+            child: SizedBox(
+              width: _controller.value.size.width > 0 ? _controller.value.size.width : 16,
+              height: _controller.value.size.height > 0 ? _controller.value.size.height : 9,
+              child: VideoPlayer(_controller),
+            ),
+          ),
+
+          // 2. Play/pause pulse overlay feedback
+          if (!_controller.value.isPlaying)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white24, width: 1),
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 36,
+                ),
+              ),
+            ),
+
+          // 3. Top Header: 30s Tour Pill + Close (Photos) button
+          Positioned(
+            top: 10,
+            left: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: C.brand.withValues(alpha: 0.8), width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: C.brand,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    '30s Tour',
+                    style: syne(sz: 10, w: FontWeight.w800, c: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Close / Return to Photos
+          Positioned(
+            top: 10,
+            right: 10,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onClose,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white24, width: 0.8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.photo_library, size: 12, color: Colors.white),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Photos',
+                      style: syne(sz: 10, w: FontWeight.w700, c: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // 4. Bottom Controls: Mute/Unmute & 30s Time indicator
+          Positioned(
+            bottom: 8,
+            left: 10,
+            right: 10,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggleMute,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white24, width: 0.8),
+                    ),
+                    child: Icon(
+                      _isMuted ? Icons.volume_off : Icons.volume_up,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.65),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white24, width: 0.8),
+                  ),
+                  child: Text(
+                    '0:${sec.toString().padLeft(2, '0')} / 0:30',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 5. 30s Progress Bar Line at the bottom edge
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              height: 3,
+              color: Colors.white12,
+              alignment: Alignment.centerLeft,
+              child: FractionallySizedBox(
+                widthFactor: progress,
+                child: Container(
+                  color: C.brand,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // -- Property Card ---------------------------------------------
@@ -506,6 +825,7 @@ class _PropertyCard extends StatefulWidget {
 
 class _PropertyCardState extends State<_PropertyCard> {
   int _currentIndex = 0;
+  bool _showVideo = false;
   Timer? _timer;
 
   @override
@@ -513,7 +833,7 @@ class _PropertyCardState extends State<_PropertyCard> {
     super.initState();
     if (widget.p.core.images.length > 1) {
       _timer = Timer.periodic(const Duration(seconds: 4), (_) {
-        if (mounted) {
+        if (mounted && !_showVideo) {
           setState(() {
             _currentIndex = (_currentIndex + 1) % widget.p.core.images.length;
           });
@@ -582,58 +902,67 @@ class _PropertyCardState extends State<_PropertyCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 1. Photo with Badges & Saved Button
+              // 1. Photo / 30s Video Tour with Badges & Saved Button
               Stack(
                 children: [
                   SizedBox(
                     height: 200,
                     width: double.infinity,
-                    child: p.core.images.isNotEmpty
-                        ? AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 800),
-                            child: CachedNetworkImage(
-                              key: ValueKey<String>(p.core.images[_currentIndex]),
-                              imageUrl: p.core.images[_currentIndex],
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: double.infinity,
-                              placeholder: (context, url) => Container(color: C.dim.withValues(alpha: 0.1)),
-                              errorWidget: (context, url, error) => Container(
-                                color: C.surface,
-                                child: Icon(Icons.broken_image, color: C.dim),
-                              ),
-                            ),
+                    child: (_showVideo &&
+                            p.core.videoUrl != null &&
+                            p.core.videoUrl!.isNotEmpty)
+                        ? _Property30sVideoPlayer(
+                            videoUrl: p.core.videoUrl!,
+                            onClose: () => setState(() => _showVideo = false),
                           )
-                        : Container(
-                            color: C.surface,
-                            child: Center(
-                              child: Text(
-                                p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
-                                style: const TextStyle(fontSize: 50),
-                              ),
-                            ),
-                          ),
+                        : (p.core.images.isNotEmpty
+                            ? AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 800),
+                                child: CachedNetworkImage(
+                                  key: ValueKey<String>(p.core.images[_currentIndex]),
+                                  imageUrl: p.core.images[_currentIndex],
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  placeholder: (context, url) => Container(color: C.dim.withValues(alpha: 0.1)),
+                                  errorWidget: (context, url, error) => Container(
+                                    color: C.surface,
+                                    child: Icon(Icons.broken_image, color: C.dim),
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                color: C.surface,
+                                child: Center(
+                                  child: Text(
+                                    p.core.propertyType == PropertyType.apartment ? '🏢' : '🏡',
+                                    style: const TextStyle(fontSize: 50),
+                                  ),
+                                ),
+                              )),
                   ),
 
                   // Top Left: Trust Badge
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: _TrustBadge(status: p.financial.trustStatus),
-                  ),
+                  if (!_showVideo)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: _TrustBadge(status: p.financial.trustStatus),
+                    ),
 
                   // Top Right: Purpose Badge
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: _PurposeBadge(
-                      p.core.listingType.name.toUpperCase(),
-                      C.brand,
+                  if (!_showVideo)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: _PurposeBadge(
+                        p.core.listingType.name.toUpperCase(),
+                        C.brand,
+                      ),
                     ),
-                  ),
 
                   // If unlocked
-                  if (p.shadow.isUnlockedByCurrentUser)
+                  if (!_showVideo && p.shadow.isUnlockedByCurrentUser)
                     Positioned(
                       top: 10,
                       right: 76,
@@ -641,23 +970,69 @@ class _PropertyCardState extends State<_PropertyCard> {
                     ),
 
                   // Heart button (favorite) on the right side of image
-                  Positioned(
-                    top: 52,
-                    right: 12,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => state.toggleSave(p.core.id),
-                      child: Text(
-                        saved ? '❤️' : '🤍',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          shadows: [
-                            Shadow(color: Colors.black54, blurRadius: 6),
-                          ],
+                  if (!_showVideo)
+                    Positioned(
+                      top: 52,
+                      right: 12,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => state.toggleSave(p.core.id),
+                        child: Text(
+                          saved ? '❤️' : '🤍',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            shadows: [
+                              Shadow(color: Colors.black54, blurRadius: 6),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
+
+                  // 30s Video Tour Badge / Toggle Button
+                  if (p.core.videoUrl != null &&
+                      p.core.videoUrl!.isNotEmpty &&
+                      !_showVideo)
+                    Positioned(
+                      bottom: 10,
+                      right: 10,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => setState(() => _showVideo = true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.75),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: C.brand.withValues(alpha: 0.8),
+                              width: 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.5),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.play_circle_fill, size: 14, color: C.brand),
+                              const SizedBox(width: 4),
+                              Text(
+                                '30s Tour',
+                                style: syne(
+                                  sz: 10,
+                                  w: FontWeight.w700,
+                                  c: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
 
                   // Reserved overlay
                   if (isReserved)
