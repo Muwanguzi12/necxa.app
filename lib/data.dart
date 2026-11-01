@@ -60,6 +60,13 @@ class Profile {
   final String? fullName, avatarUrl, bio;
   final bool verified, aiVerified;
   final DateTime createdAt;
+  final int followersCount;
+  final int followingCount;
+  final int likesCount;
+  final int postsCount;
+  final int trustScore;
+  final String? trustScoreTier;
+  final String? district;
 
   Profile({
     required this.id,
@@ -70,17 +77,31 @@ class Profile {
     required this.verified,
     required this.aiVerified,
     required this.createdAt,
+    this.followersCount = 0,
+    this.followingCount = 0,
+    this.likesCount = 0,
+    this.postsCount = 0,
+    this.trustScore = 50,
+    this.trustScoreTier,
+    this.district,
   });
 
   factory Profile.fromMap(Map<String, dynamic> m) => Profile(
-    id: m['id'],
-    username: m['username'] ?? m['full_name']?.toLowerCase().replaceAll(' ', '_') ?? 'user_${m['id'].toString().substring(0, 4)}',
-    fullName: m['full_name'] ?? 'Necxa User',
-    avatarUrl: m['avatar_url'],
+    id: m['id']?.toString() ?? '',
+    username: m['username'] ?? m['full_name']?.toLowerCase().replaceAll(' ', '_') ?? 'user_${m['id']?.toString().substring(0, (m['id']?.toString().length ?? 0) >= 4 ? 4 : (m['id']?.toString().length ?? 0)) ?? 'node'}',
+    fullName: m['full_name'] ?? m['display_name'] ?? 'Necxa User',
+    avatarUrl: m['avatar_url'] ?? m['photo_url'],
     bio: m['bio'],
-    verified: m['verified'] ?? false,
-    aiVerified: m['ai_verified'] ?? false,
-    createdAt: m['created_at'] != null ? DateTime.parse(m['created_at']) : DateTime.now(),
+    verified: m['verified'] == true || m['is_verified'] == true || m['is_verified'] == 1,
+    aiVerified: m['ai_verified'] == true || m['ai_verified'] == 1,
+    createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
+    followersCount: (m['followers_count'] ?? m['total_followers'] ?? 0) is num ? (m['followers_count'] ?? m['total_followers'] ?? 0).toInt() : 0,
+    followingCount: (m['following_count'] ?? 0) is num ? (m['following_count'] ?? 0).toInt() : 0,
+    likesCount: (m['likes_count'] ?? 0) is num ? (m['likes_count'] ?? 0).toInt() : 0,
+    postsCount: (m['posts_count'] ?? 0) is num ? (m['posts_count'] ?? 0).toInt() : 0,
+    trustScore: (m['trust_score'] ?? 50) is num ? (m['trust_score'] ?? 50).toInt() : 50,
+    trustScoreTier: m['trust_score_tier'] as String?,
+    district: m['district'] as String?,
   );
 }
 

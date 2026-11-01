@@ -2299,17 +2299,18 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Profile?> getProfile(String id) async {
-    // 1. Check Local Cache first
+    // Check Local Cache first
     final localDb = LocalDbService();
     final cached = await localDb.getProfile(id);
-    if (cached != null) {
-      // Background refresh to keep cache warm
+    if (cached != null && cached['bio'] != null) {
       _backgroundSyncProfile(id);
       return Profile.fromMap({
         'id': id,
         'full_name': cached['display_name'],
         'avatar_url': cached['photo_url'],
         'verified': cached['is_verified'] == 1,
+        'bio': cached['bio'],
+        'trust_score': cached['trust_score'] ?? 50,
       });
     }
 
@@ -2326,7 +2327,33 @@ class AppState extends ChangeNotifier {
 
       if (res == null) return null;
 
-      final profile = Profile.fromMap(res);
+      final enriched = Map<String, dynamic>.from(res);
+
+      // Fetch real followers count
+      try {
+        final fRes = await Supabase.instance.client
+            .from('creator_followers')
+            .select('id')
+            .eq('creator_id', id);
+        enriched['followers_count'] = (fRes as List).length;
+      } catch (_) {}
+
+      // Fetch real posts count & sum of real likes
+      try {
+        final pRes = await Supabase.instance.client
+            .from('community_posts')
+            .select('id, likes_count')
+            .eq('author_id', id);
+        final pList = (pRes as List);
+        enriched['posts_count'] = pList.length;
+        int totalLikes = 0;
+        for (final p in pList) {
+          totalLikes += (p['likes_count'] as num?)?.toInt() ?? 0;
+        }
+        enriched['likes_count'] = totalLikes;
+      } catch (_) {}
+
+      final profile = Profile.fromMap(enriched);
 
       // Update Local Cache
       final localDb = LocalDbService();
@@ -2335,10 +2362,10 @@ class AppState extends ChangeNotifier {
           'id': id,
           'display_name': profile.fullName,
           'photo_url': profile.avatarUrl,
-          'trust_score': 50,
+          'trust_score': profile.trustScore,
           'is_verified': profile.verified ? 1 : 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace),
-      );
+      ).catchError((_) => 0);
 
       targetProfileId = id;
       return profile;
