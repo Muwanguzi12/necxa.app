@@ -1587,6 +1587,7 @@ class AppState extends ChangeNotifier {
 
   final Set<String> followed = {};
   final Set<String> friends = {};
+  final Set<String> blockedUsers = {};
   final Set<String> liked = {};
   final Set<String> saved = {};
 
@@ -1781,6 +1782,47 @@ class AppState extends ChangeNotifier {
     saved.contains(id) ? saved.remove(id) : saved.add(id);
     notify();
     await social.toggleSavePost(id);
+  }
+
+  // ── Block / Unblock ──
+  bool isBlocked(String userId) => blockedUsers.contains(userId);
+
+  Future<void> blockUser(String userId) async {
+    blockedUsers.add(userId);
+    notify();
+    try {
+      final me = user?.id;
+      if (me == null) return;
+      await Supabase.instance.client.from('user_preferences').upsert({
+        'user_id': me,
+        'target_id': userId,
+        'preference_type': 'blocked',
+        'value': 'true',
+      }, onConflict: 'user_id,target_id,preference_type');
+    } catch (_) {
+      // revert on failure
+      blockedUsers.remove(userId);
+      notify();
+    }
+  }
+
+  Future<void> unblockUser(String userId) async {
+    blockedUsers.remove(userId);
+    notify();
+    try {
+      final me = user?.id;
+      if (me == null) return;
+      await Supabase.instance.client
+          .from('user_preferences')
+          .delete()
+          .eq('user_id', me)
+          .eq('target_id', userId)
+          .eq('preference_type', 'blocked');
+    } catch (_) {
+      // revert on failure
+      blockedUsers.add(userId);
+      notify();
+    }
   }
 
   Future<void> reportContent(

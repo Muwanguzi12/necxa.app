@@ -737,6 +737,36 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     }
   }
 
+  void _blockNode(BuildContext context) async {
+    Navigator.pop(context); // close options sheet
+    await state.blockUser(profile.id);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: C.card,
+          behavior: SnackBarBehavior.floating,
+          content: Text('@${profile.username} blocked. You will no longer see their content.', style: dm(c: Colors.redAccent)),
+        ),
+      );
+      // Navigate back — can't stay on a blocked profile
+      state.goBack();
+    }
+  }
+
+  void _unblockNode(BuildContext context) async {
+    await state.unblockUser(profile.id);
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: C.card,
+          behavior: SnackBarBehavior.floating,
+          content: Text('@${profile.username} unblocked.', style: dm(c: C.brand)),
+        ),
+      );
+    }
+  }
+
   void _showReportDialog(BuildContext context) {
     Navigator.pop(context);
     final reasons = [
@@ -810,6 +840,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Handle pill
               Center(
                 child: Container(
                   width: 44,
@@ -822,6 +853,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
               ),
               const SizedBox(height: 18),
 
+              // Header summary
               Row(
                 children: [
                   _AvatarContainer(url: profile.avatarUrl),
@@ -855,6 +887,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
               Divider(color: C.text.withValues(alpha: .06)),
               const SizedBox(height: 8),
 
+              // Options
               _OptionTile(
                 icon: Icons.share_outlined,
                 label: 'Share Public Profile',
@@ -893,6 +926,20 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
                   color: C.dim,
                   onTap: () => _muteNode(context),
                 ),
+                if (state.isBlocked(profile.id))
+                  _OptionTile(
+                    icon: Icons.lock_open_rounded,
+                    label: 'Unblock Node',
+                    color: Colors.orangeAccent,
+                    onTap: () => _unblockNode(context),
+                  )
+                else
+                  _OptionTile(
+                    icon: Icons.block_rounded,
+                    label: 'Block Node ⚠️',
+                    color: Colors.redAccent,
+                    onTap: () => _blockNode(context),
+                  ),
                 _OptionTile(
                   icon: Icons.flag_outlined,
                   label: 'Report Node Violation',
@@ -994,6 +1041,8 @@ class _SystemBadge extends StatelessWidget {
     );
   }
 }
+
+// ── Showcase Product Tile ───────────────────────────────────────────────────
 
 class _ProductGridItem extends StatelessWidget {
   final Map<String, dynamic> listing;
