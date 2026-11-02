@@ -767,14 +767,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> updateBio(String newBio) async {
-    if (user == null) return;
+  Future<bool> updateBio(String newBio) async {
+    if (user == null) return false;
     final trimmed = newBio.trim();
+    if (trimmed.length > 250) {
+      debugPrint('Bio exceeds maximum length of 250 characters');
+      return false;
+    }
+    bool success = true;
     // 1. Update Supabase profiles table
     try {
       await social.updateProfile(user!.id, {'bio': trimmed});
     } catch (e) {
       debugPrint('Error updating bio in Supabase: $e');
+      success = false;
     }
     // 2. Update in-memory profile
     if (myProfile != null) {
@@ -791,6 +797,7 @@ class AppState extends ChangeNotifier {
       ),
     ).catchError((_) => 0);
     notify();
+    return success;
   }
 
   // ── Live Streaming State ──

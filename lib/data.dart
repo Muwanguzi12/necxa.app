@@ -117,25 +117,37 @@ class Profile {
     }
 
     final rawTrust = m['trust_score'];
-    final int trust = rawTrust is num ? rawTrust.toInt() : 50;
+    final int trust = (rawTrust is num ? rawTrust.toInt() : 50).clamp(0, 100);
     final rawRep = m['reputation'];
-    final double rep = rawRep is num
+    final double rep = (rawRep is num
         ? rawRep.toDouble()
-        : (trust > 0 ? (trust / 10.0) : 5.0).clamp(1.0, 10.0);
+        : (trust > 0 ? (trust / 10.0) : 5.0)).clamp(1.0, 10.0);
+
+    final rawAvatar = (m['avatar_url'] ?? m['photo_url'])?.toString().trim();
+    final validAvatar = (rawAvatar != null &&
+            rawAvatar.isNotEmpty &&
+            (rawAvatar.startsWith('http://') || rawAvatar.startsWith('https://')))
+        ? rawAvatar
+        : null;
+
+    final rawFollowers = m['followers_count'] ?? m['total_followers'] ?? 0;
+    final rawFollowing = m['following_count'] ?? 0;
+    final rawLikes = m['likes_count'] ?? 0;
+    final rawPosts = m['posts_count'] ?? 0;
 
     return Profile(
       id: m['id']?.toString() ?? '',
       username: resolvedUsername,
       fullName: resolvedFullName,
-      avatarUrl: m['avatar_url'] ?? m['photo_url'],
-      bio: m['bio'],
+      avatarUrl: validAvatar,
+      bio: m['bio']?.toString().trim(),
       verified: m['verified'] == true || m['is_verified'] == true || m['is_verified'] == 1,
       aiVerified: m['ai_verified'] == true || m['ai_verified'] == 1,
       createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
-      followersCount: (m['followers_count'] ?? m['total_followers'] ?? 0) is num ? (m['followers_count'] ?? m['total_followers'] ?? 0).toInt() : 0,
-      followingCount: (m['following_count'] ?? 0) is num ? (m['following_count'] ?? 0).toInt() : 0,
-      likesCount: (m['likes_count'] ?? 0) is num ? (m['likes_count'] ?? 0).toInt() : 0,
-      postsCount: (m['posts_count'] ?? 0) is num ? (m['posts_count'] ?? 0).toInt() : 0,
+      followersCount: rawFollowers is num ? rawFollowers.toInt().clamp(0, 999999999) : 0,
+      followingCount: rawFollowing is num ? rawFollowing.toInt().clamp(0, 999999999) : 0,
+      likesCount: rawLikes is num ? rawLikes.toInt().clamp(0, 999999999) : 0,
+      postsCount: rawPosts is num ? rawPosts.toInt().clamp(0, 999999999) : 0,
       trustScore: trust,
       trustScoreTier: m['trust_score_tier'] as String?,
       district: m['district'] as String?,

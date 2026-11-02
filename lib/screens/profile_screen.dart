@@ -365,84 +365,122 @@ class _ProfileScreenState extends State<ProfileScreen>
   void _showEditBioSheet() {
     final currentBio = widget.state.myProfile?['bio']?.toString() ?? '';
     final controller = TextEditingController(text: currentBio);
+    bool isSaving = false;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (sheetCtx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: C.card,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: C.border),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
           ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Edit Biography', style: syne(sz: 18, w: FontWeight.bold)),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(sheetCtx),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                maxLines: 4,
-                maxLength: 250,
-                style: dm(c: C.text, sz: 14),
-                decoration: InputDecoration(
-                  hintText: 'Tell the community about yourself, your listings, and services...',
-                  hintStyle: dm(c: C.dim, sz: 13),
-                  filled: true,
-                  fillColor: C.bg,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: C.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: C.brand),
-                  ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: C.card,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(color: C.border),
+            ),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Edit Biography', style: syne(sz: 18, w: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: isSaving ? null : () => Navigator.pop(sheetCtx),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: C.brand,
-                    shape: RoundedRectangleBorder(
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  enabled: !isSaving,
+                  maxLines: 4,
+                  maxLength: 250,
+                  style: dm(c: C.text, sz: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Tell the community about yourself, your listings, and services...',
+                    hintStyle: dm(c: C.dim, sz: 13),
+                    filled: true,
+                    fillColor: C.bg,
+                    border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: C.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: C.brand),
                     ),
                   ),
-                  onPressed: () async {
-                    final newBio = controller.text;
-                    Navigator.pop(sheetCtx);
-                    await widget.state.updateBio(newBio);
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: C.card,
-                          content: Text('Biography updated successfully', style: dm(c: C.brand)),
-                        ),
-                      );
-                    }
-                  },
-                  child: Text('Save Biography', style: syne(sz: 14, w: FontWeight.bold, c: Colors.black)),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: C.brand,
+                      disabledBackgroundColor: C.brand.withValues(alpha: .4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: isSaving
+                        ? null
+                        : () async {
+                            final newBio = controller.text.trim();
+                            setSheetState(() => isSaving = true);
+                            try {
+                              final ok = await widget.state.updateBio(newBio);
+                              if (sheetCtx.mounted) {
+                                Navigator.pop(sheetCtx);
+                              }
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: C.card,
+                                    behavior: SnackBarBehavior.floating,
+                                    content: Text(
+                                      ok
+                                          ? 'Biography updated successfully.'
+                                          : 'Biography saved locally. Will sync when back online.',
+                                      style: dm(c: ok ? C.brand : Colors.orangeAccent),
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (sheetCtx.mounted) {
+                                setSheetState(() => isSaving = false);
+                              }
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: C.card,
+                                    behavior: SnackBarBehavior.floating,
+                                    content: Text('Failed to save biography: $e', style: dm(c: Colors.redAccent)),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                    child: isSaving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          )
+                        : Text('Save Biography', style: syne(sz: 14, w: FontWeight.bold, c: Colors.black)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
