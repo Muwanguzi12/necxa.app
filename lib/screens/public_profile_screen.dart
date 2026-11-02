@@ -5,6 +5,7 @@ import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
 import 'dart:ui';
+import 'dart:math' as math;
 
 class PublicProfileScreen extends StatefulWidget {
   final AppState state;
@@ -14,7 +15,8 @@ class PublicProfileScreen extends StatefulWidget {
   State<PublicProfileScreen> createState() => _PublicProfileScreenState();
 }
 
-class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTickerProviderStateMixin {
+class _PublicProfileScreenState extends State<PublicProfileScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _hasListings = false;
   int? _localFollowerDelta;
@@ -47,12 +49,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
       _isLocallyFollowing = willFollow;
       _localFollowerDelta = (_localFollowerDelta ?? 0) + (willFollow ? 1 : -1);
     });
-
     try {
       await widget.state.social.toggleFollow(profile.id);
       widget.state.toggleFollow(profile.id);
     } catch (e) {
-      // Revert if failed
       if (mounted) {
         setState(() {
           _isLocallyFollowing = currentlyFollowing;
@@ -67,7 +67,6 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
     final displayName = (profile.fullName != null && profile.fullName!.trim().isNotEmpty)
         ? profile.fullName!
         : (profile.username.isNotEmpty ? profile.username : 'NECXA NODE');
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -88,14 +87,15 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
   @override
   Widget build(BuildContext context) {
     final targetId = widget.state.targetProfileId ?? 'c1';
-
     return FutureBuilder<Profile?>(
       future: widget.state.getProfile(targetId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(backgroundColor: C.bg, body: Center(child: CircularProgressIndicator(color: C.brand)));
+          return Scaffold(
+            backgroundColor: C.bg,
+            body: Center(child: CircularProgressIndicator(color: C.brand)),
+          );
         }
-        
         final profile = snapshot.data;
         if (profile == null) {
           return Scaffold(
@@ -135,186 +135,252 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
 
         final isFollowing = _isLocallyFollowing ?? widget.state.followed.contains(profile.id);
         final isFriend = widget.state.isFriendSync(profile.id);
+        final isMe = widget.state.user?.id == profile.id;
+        final effectiveFollowers = (profile.followersCount + (_localFollowerDelta ?? 0)).clamp(0, 999999999);
 
         return Scaffold(
           backgroundColor: C.bg,
-          body: Stack(
-            children: [
-              _buildAmbientGlow(),
-              CustomScrollView(
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(child: _buildIdentityHeader(profile, isFollowing, isFriend)),
-                  SliverToBoxAdapter(child: _buildPublicStats(profile)),
-                  SliverToBoxAdapter(child: _buildBioSection(profile)),
-                  
-                  // Hybrid Tab Bar
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _SliverAppBarDelegate(
-                      child: Container(
-                        color: C.bg,
-                        child: TabBar(
-                          controller: _tabController,
-                          indicatorColor: C.brand,
-                          labelStyle: syne(sz: 12, w: FontWeight.w900, ls: 2),
-                          unselectedLabelStyle: syne(sz: 12, w: FontWeight.w700, ls: 2),
-                          tabs: [
-                            Tab(text: _hasListings ? 'SHOWCASE' : 'CONTENT'),
-                            Tab(text: 'FEED'),
+          body: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              SliverToBoxAdapter(
+                child: _ProfileHeader(
+                  profile: profile,
+                  isFollowing: isFollowing,
+                  isFriend: isFriend,
+                  isMe: isMe,
+                  effectiveFollowers: effectiveFollowers,
+                  onBack: () => widget.state.goBack(),
+                  onOptions: () => _showProfileActions(context, profile),
+                  onFollow: () => _handleFollowToggle(profile, isFollowing),
+                  onMessage: () => widget.state.openCreatorChat(
+                    profile.id,
+                    profile.fullName ?? profile.username,
+                    profile.avatarUrl,
+                  ),
+                  onEdit: () => widget.state.go('profile'),
+                ),
+              ),
+            ],
+            body: Column(
+              children: [
+                // Pinned tab bar
+                Container(
+                  color: C.bg,
+                  child: TabBar(
+                    controller: _tabController,
+                    indicatorColor: C.brand,
+                    indicatorWeight: 2,
+                    dividerColor: C.text.withValues(alpha: .06),
+                    labelStyle: syne(sz: 12, w: FontWeight.w900, ls: 2),
+                    unselectedLabelStyle: syne(sz: 12, w: FontWeight.w500, ls: 2),
+                    labelColor: C.brand,
+                    unselectedLabelColor: C.dim,
+                    tabs: [
+                      Tab(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.play_circle_outline_rounded, size: 16),
+                            const SizedBox(width: 6),
+                            Text(_hasListings ? 'SHOWCASE' : 'CONTENT'),
                           ],
                         ),
                       ),
-                    ),
+                      Tab(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.grid_view_rounded, size: 16),
+                            const SizedBox(width: 6),
+                            const Text('FEED'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-
-                  // The Grid
-                  SliverFillRemaining(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildShowcaseGrid(), // Showcase (Products)
-                        _buildContentGrid(),  // Standard Feed
-                      ],
-                    ),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildShowcaseGrid(),
+                      _buildContentGrid(),
+                    ],
                   ),
-                ],
-              ),
-              _buildTopHUD(profile),
-            ],
+                ),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _buildAmbientGlow() {
-    return Positioned(
-      top: -50, left: -50,
-      child: Container(
-        width: 300, height: 300,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: C.brand.withValues(alpha: .05)),
-        child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80), child: const SizedBox()),
-      ),
-    );
-  }
-
-  Widget _buildTopHUD(Profile profile) {
-    return Positioned(
-      top: 0, left: 0, right: 0,
-      child: ClipRRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + 10, 20, 15),
-            decoration: BoxDecoration(
-              color: C.bg.withValues(alpha: .6),
-              border: Border(bottom: BorderSide(color: C.dim)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildShowcaseGrid() {
+    final targetId = widget.state.targetProfileId ?? 'c1';
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: widget.state.social.fetchUserListings(targetId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: C.brand));
+        }
+        final list = snapshot.data ?? [];
+        if (list.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _HUDButton(icon: Icons.arrow_back_ios_new, onTap: () => widget.state.goBack()),
-                Text('PUBLIC NODE', style: syne(sz: 14, w: FontWeight.w800, ls: 4, c: C.brand)),
-                _HUDButton(
-                  icon: Icons.more_horiz, 
-                  onTap: () => _showProfileActions(context, profile),
-                ),
+                Icon(Icons.inventory_2_outlined, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text('NO PRODUCTS SYNCED', style: syne(sz: 11, c: C.dim, ls: 2)),
               ],
             ),
+          );
+        }
+        return GridView.builder(
+          padding: const EdgeInsets.all(20),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: 0.75,
           ),
-        ),
-      ),
+          itemCount: list.length,
+          itemBuilder: (context, index) => _ProductGridItem(listing: list[index], state: widget.state),
+        );
+      },
     );
   }
 
-  Widget _buildIdentityHeader(Profile profile, bool isFollowing, bool isFriend) {
+  Widget _buildContentGrid() {
+    final targetId = widget.state.targetProfileId ?? 'c1';
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: widget.state.social.fetchUserPosts(targetId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: C.brand));
+        }
+        final list = snapshot.data ?? [];
+        if (list.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.dynamic_feed_outlined, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text('NO CONTENT TRANSMISSIONS', style: syne(sz: 11, c: C.dim, ls: 2)),
+              ],
+            ),
+          );
+        }
+        return GridView.builder(
+          padding: const EdgeInsets.all(20),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: 0.8,
+          ),
+          itemCount: list.length,
+          itemBuilder: (context, index) => _GridItem(data: list[index], state: widget.state),
+        );
+      },
+    );
+  }
+}
+
+// ── Profile Header (all top content above tabs) ───────────────────────────────
+
+class _ProfileHeader extends StatelessWidget {
+  final Profile profile;
+  final bool isFollowing;
+  final bool isFriend;
+  final bool isMe;
+  final int effectiveFollowers;
+  final VoidCallback onBack;
+  final VoidCallback onOptions;
+  final VoidCallback onFollow;
+  final VoidCallback onMessage;
+  final VoidCallback onEdit;
+
+  const _ProfileHeader({
+    required this.profile,
+    required this.isFollowing,
+    required this.isFriend,
+    required this.isMe,
+    required this.effectiveFollowers,
+    required this.onBack,
+    required this.onOptions,
+    required this.onFollow,
+    required this.onMessage,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final displayName = (profile.fullName != null && profile.fullName!.trim().isNotEmpty)
         ? profile.fullName!
         : (profile.username.isNotEmpty ? profile.username : 'NECXA NODE');
-    final isMe = widget.state.user?.id == profile.id;
+    final hasBio = profile.bio != null && profile.bio!.trim().isNotEmpty;
+    final bioText = hasBio
+        ? profile.bio!
+        : 'Decentralized commerce node on Necxa Network. Real-time asset validation and escrow-secured transmissions active.';
+    final reputationScore = (profile.trustScore > 0)
+        ? (profile.trustScore / 10).toStringAsFixed(1)
+        : '5.0';
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(24, MediaQuery.of(context).padding.top + 80, 24, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+    return Column(
+      children: [
+        // ── Banner + Avatar ──────────────────────────────────────────
+        Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.bottomCenter,
+          children: [
+            // Banner
+            _NodeBanner(topPad: MediaQuery.of(context).padding.top),
+
+            // HUD overlay on banner
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 16,
+              right: 16,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _HUDButton(icon: Icons.arrow_back_ios_new, onTap: onBack),
+                  // Title
+                  Text('PUBLIC NODE',
+                      style: syne(sz: 13, w: FontWeight.w900, ls: 4, c: C.brand)),
+                  _HUDButton(icon: Icons.more_horiz, onTap: onOptions),
+                ],
+              ),
+            ),
+
+            // Avatar overlapping the banner bottom edge
+            Positioned(
+              bottom: -56,
+              child: _AvatarContainer(url: profile.avatarUrl, size: 112),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 64), // space for overflowing avatar
+
+        // ── Name + username + badges ─────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
             children: [
-              _AvatarContainer(url: profile.avatarUrl),
-              const Spacer(),
-              if (!isMe) ...[
-                GestureDetector(
-                  onTap: () {
-                    widget.state.openCreatorChat(
-                      profile.id,
-                      displayName,
-                      profile.avatarUrl,
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: C.text.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: C.text.withValues(alpha: 0.1)),
-                    ),
-                    child: Icon(Icons.chat_bubble_outline_rounded, color: C.brand, size: 20),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                GestureDetector(
-                  onTap: () => _handleFollowToggle(profile, isFollowing),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isFollowing ? Colors.transparent : C.brand,
-                      borderRadius: BorderRadius.circular(16),
-                      border: isFollowing ? Border.all(color: C.brand.withValues(alpha: .4)) : null,
-                      boxShadow: isFollowing ? null : [BoxShadow(color: C.brand.withValues(alpha: .2), blurRadius: 10)],
-                    ),
-                    child: Text(
-                      isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
-                      style: syne(sz: 12, w: FontWeight.w900, ls: 1, c: isFollowing ? C.brand : C.text),
-                    ),
-                  ),
-                ),
-              ] else ...[
-                GestureDetector(
-                  onTap: () => widget.state.go('profile'),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: C.brand.withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: C.brand.withValues(alpha: .4)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.edit_outlined, size: 14, color: C.brand),
-                        const SizedBox(width: 6),
-                        Text('EDIT NODE', style: syne(sz: 12, w: FontWeight.w900, ls: 1, c: C.brand)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 20),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+              // Name
               Wrap(
+                alignment: WrapAlignment.center,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 spacing: 8,
-                runSpacing: 4,
                 children: [
                   Text(
-                    displayName.toUpperCase(), 
-                    style: syne(sz: 26, w: FontWeight.w900, ls: -0.5, fs: FontStyle.italic),
+                    displayName.toUpperCase(),
+                    style: syne(sz: 24, w: FontWeight.w900, ls: -0.5, fs: FontStyle.italic),
+                    textAlign: TextAlign.center,
                   ),
                   if (profile.verified || profile.trustScoreTier == 'titan_trust')
                     Icon(Icons.verified, color: C.brand, size: 22),
@@ -329,228 +395,569 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.shield_outlined, color: C.purple, size: 11),
+                          Icon(Icons.shield_outlined, color: C.purple, size: 10),
                           const SizedBox(width: 3),
-                          Text('AI SHIELD', style: syne(sz: 9, w: FontWeight.w800, c: C.purple)),
+                          Text('AI SHIELD', style: syne(sz: 8, w: FontWeight.w800, c: C.purple)),
                         ],
                       ),
                     ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
+              // @ handle + node type
               Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text('@${profile.username}', style: dm(sz: 14, w: FontWeight.w700, c: C.brand.withValues(alpha: .7))),
-                  const SizedBox(width: 8),
+                  Text('@', style: dm(sz: 13, c: C.brand)),
+                  Text(profile.username, style: dm(sz: 13, w: FontWeight.w700, c: C.brand)),
+                  const SizedBox(width: 10),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: C.text.withValues(alpha: .04),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: C.text.withValues(alpha: .08)),
+                      border: Border.all(color: C.text.withValues(alpha: .1)),
                     ),
-                    child: Text(
-                      '${(profile.trustScoreTier ?? 'Standard').toUpperCase()} NODE',
-                      style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: C.dim),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.view_in_ar_rounded, size: 10, color: C.dim),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${(profile.trustScoreTier ?? 'STANDARD').toUpperCase().replaceAll('_', ' ')} NODE',
+                          style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: C.dim),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
+
+              const SizedBox(height: 6),
+              // Bio text (compact, 2 lines)
+              Text(
+                bioText,
+                style: dm(sz: 13, c: C.text.withValues(alpha: .6), h: 1.5),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+
+              const SizedBox(height: 18),
+
+              // ── Stats Row ────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                decoration: BoxDecoration(
+                  color: C.text.withValues(alpha: .03),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: C.text.withValues(alpha: .06)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _StatItem(
+                      icon: Icons.group_outlined,
+                      label: 'FOLLOWERS',
+                      value: kNum(effectiveFollowers),
+                      color: C.text,
+                    ),
+                    _StatDivider(),
+                    _StatItem(
+                      icon: Icons.favorite_outline_rounded,
+                      label: 'LIKES',
+                      value: kNum(profile.likesCount),
+                      color: C.purple,
+                    ),
+                    _StatDivider(),
+                    _StatItem(
+                      icon: Icons.play_circle_outline,
+                      label: 'POSTS',
+                      value: profile.postsCount.toString(),
+                      color: C.brand,
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              // ── Action Buttons ───────────────────────────────────────
+              if (!isMe) Row(
+                children: [
+                  // Message button
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: onMessage,
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [C.brand, C.purple]),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [BoxShadow(color: C.brand.withValues(alpha: .25), blurRadius: 12, offset: const Offset(0, 4))],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 17),
+                            const SizedBox(width: 8),
+                            Text('MESSAGE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Follow button
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: onFollow,
+                      child: Container(
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: isFollowing ? Colors.transparent : C.brand.withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isFollowing ? C.brand : C.brand.withValues(alpha: .4),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              isFollowing
+                                  ? Icons.person_remove_outlined
+                                  : Icons.person_add_outlined,
+                              color: C.brand,
+                              size: 17,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
+                              style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: C.brand),
+                            ),
+                            if (isFollowing) ...[
+                              const SizedBox(width: 4),
+                              Icon(Icons.keyboard_arrow_down_rounded, color: C.brand, size: 16),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ) else GestureDetector(
+                onTap: onEdit,
+                child: Container(
+                  width: double.infinity,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: C.brand.withValues(alpha: .10),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: C.brand.withValues(alpha: .4)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.edit_outlined, size: 16, color: C.brand),
+                      const SizedBox(width: 8),
+                      Text('EDIT NODE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: C.brand)),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // ── Node Overview Card ────────────────────────────────────
+              Container(
+                decoration: BoxDecoration(
+                  color: C.text.withValues(alpha: .03),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: C.text.withValues(alpha: .06)),
+                ),
+                child: Column(
+                  children: [
+                    // Header row
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: C.brand.withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.view_in_ar_rounded, color: C.brand, size: 16),
+                          ),
+                          const SizedBox(width: 10),
+                          Text('NODE OVERVIEW',
+                              style: syne(sz: 13, w: FontWeight.w900, ls: 1)),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: C.text.withValues(alpha: .04),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: C.text.withValues(alpha: .08)),
+                            ),
+                            child: Text('VIEW MORE ›', style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim)),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Bio body with icon
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // network icon
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              color: C.brand.withValues(alpha: .08),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: CustomPaint(painter: _NetworkNodePainter()),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              bioText,
+                              style: dm(sz: 13, c: C.text.withValues(alpha: .7), h: 1.55),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Reputation + Trust score 2-col grid
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _MetricCard(
+                              icon: Icons.star_rounded,
+                              iconColor: Colors.amber,
+                              label: 'REPUTATION',
+                              value: '$reputationScore / 10',
+                              barValue: profile.trustScore / 100,
+                              barColor: Colors.amber,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _MetricCard(
+                              icon: Icons.verified_user_rounded,
+                              iconColor: C.purple,
+                              label: 'TRUST SCORE',
+                              value: '${profile.trustScore}%',
+                              barValue: profile.trustScore / 100,
+                              barColor: C.purple,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // System badges row
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          _SysBadge(
+                            icon: Icons.location_on_outlined,
+                            label: (profile.district != null && profile.district!.isNotEmpty)
+                                ? profile.district!.toUpperCase()
+                                : 'EAST AFRICA',
+                          ),
+                          _VertDivider(),
+                          _SysBadge(
+                            icon: Icons.calendar_today_rounded,
+                            label: 'NODE SINCE ${profile.createdAt.year}',
+                          ),
+                          _VertDivider(),
+                          _SysBadge(
+                            icon: Icons.workspace_premium_rounded,
+                            label: (profile.trustScoreTier ?? 'STANDARD').toUpperCase().replaceAll('_', ' '),
+                            color: C.purple,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Node Banner (hero background) ────────────────────────────────────────────
+
+class _NodeBanner extends StatelessWidget {
+  final double topPad;
+  const _NodeBanner({required this.topPad});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: topPad + 160,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Deep space gradient
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF050A1A),
+                  Color(0xFF0A0E2A),
+                  Color(0xFF0D1540),
+                ],
+              ),
+            ),
+          ),
+          // Globe glow circles
+          Positioned(
+            right: -30, top: -20,
+            child: Container(
+              width: 220, height: 220,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF1E3A8A).withValues(alpha: .5),
+                    const Color(0xFF06B6D4).withValues(alpha: .15),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Brand accent glow
+          Positioned(
+            left: -40, bottom: -10,
+            child: Container(
+              width: 160, height: 160,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: C.brand.withValues(alpha: .1),
+              ),
+            ),
+          ),
+          // Network lines painter
+          Positioned.fill(
+            child: CustomPaint(painter: _BannerNetworkPainter()),
+          ),
+          // Bottom fade to bg
+          Positioned(
+            bottom: 0, left: 0, right: 0,
+            child: Container(
+              height: 60,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, C.bg],
+                ),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildPublicStats(Profile profile) {
-    final effectiveFollowers = (profile.followersCount + (_localFollowerDelta ?? 0)).clamp(0, 999999999);
+// ── Banner network lines painter ─────────────────────────────────────────────
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        decoration: BoxDecoration(
-          color: C.text.withValues(alpha: .03),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: C.text.withValues(alpha: .05)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _StatItem(label: 'FOLLOWERS', value: kNum(effectiveFollowers), color: C.text),
-            _StatSeparator(),
-            _StatItem(label: 'LIKES', value: kNum(profile.likesCount), color: C.purple),
-            _StatSeparator(),
-            _StatItem(label: 'POSTS', value: profile.postsCount.toString(), color: C.brand),
-          ],
-        ),
-      ),
-    );
+class _BannerNetworkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF06B6D4).withValues(alpha: .12)
+      ..strokeWidth = 0.8
+      ..style = PaintingStyle.stroke;
+
+    final nodePaint = Paint()
+      ..color = const Color(0xFF06B6D4).withValues(alpha: .25)
+      ..style = PaintingStyle.fill;
+
+    final nodes = [
+      Offset(size.width * .15, size.height * .25),
+      Offset(size.width * .35, size.height * .55),
+      Offset(size.width * .6, size.height * .2),
+      Offset(size.width * .8, size.height * .5),
+      Offset(size.width * .5, size.height * .75),
+      Offset(size.width * .25, size.height * .75),
+    ];
+
+    final connections = [
+      [0, 1], [0, 2], [1, 2], [2, 3], [3, 4], [1, 4], [1, 5],
+    ];
+
+    for (final c in connections) {
+      canvas.drawLine(nodes[c[0]], nodes[c[1]], paint);
+    }
+    for (final n in nodes) {
+      canvas.drawCircle(n, 2.5, nodePaint);
+    }
   }
 
-  Widget _buildBioSection(Profile profile) {
-    final hasBio = profile.bio != null && profile.bio!.trim().isNotEmpty;
-    final bioText = hasBio
-        ? profile.bio!
-        : 'Decentralized commerce node on Necxa Network. Real-time asset validation and escrow-secured transmissions active.';
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
 
-    final reputationScore = (profile.trustScore > 0)
-        ? (profile.trustScore / 10).toStringAsFixed(1)
-        : '9.8';
+// ── Network node icon painter ─────────────────────────────────────────────────
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+class _NetworkNodePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = size.width * .32;
+    final paint = Paint()
+      ..color = C.brand.withValues(alpha: .4)
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    final dotPaint = Paint()..color = C.brand.withValues(alpha: .6)..style = PaintingStyle.fill;
+
+    final pts = List.generate(6, (i) {
+      final angle = (i / 6) * 2 * math.pi - math.pi / 2;
+      return Offset(cx + r * math.cos(angle), cy + r * math.sin(angle));
+    });
+
+    for (var i = 0; i < pts.length; i++) {
+      canvas.drawLine(pts[i], pts[(i + 1) % pts.length], paint);
+      canvas.drawLine(pts[i], Offset(cx, cy), paint);
+    }
+    canvas.drawCircle(Offset(cx, cy), 3, dotPaint);
+    for (final p in pts) {
+      canvas.drawCircle(p, 2, dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ── Metric card (reputation / trust score) ────────────────────────────────────
+
+class _MetricCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+  final double barValue;
+  final Color barColor;
+
+  const _MetricCard({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.barValue,
+    required this.barColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: C.text.withValues(alpha: .04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: C.text.withValues(alpha: .07)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.memory_rounded, size: 14, color: C.dim),
+              Icon(icon, color: iconColor, size: 16),
               const SizedBox(width: 6),
-              Text('CORE SYSTEMS & BIO', style: dm(sz: 10, w: FontWeight.w900, ls: 2, c: C.dim)),
+              Text(label, style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: C.dim)),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            bioText, 
-            style: dm(sz: 14, c: C.text.withValues(alpha: .75), h: 1.6),
-          ),
-          const SizedBox(height: 16),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _MetricTag(
-                  label: 'REPUTATION', 
-                  value: '$reputationScore / 10', 
-                  icon: Icons.star_rounded, 
-                  color: C.brand,
-                ),
-                const SizedBox(width: 10),
-                _MetricTag(
-                  label: 'TRUST SCORE', 
-                  value: '${profile.trustScore}%', 
-                  icon: Icons.verified_user_rounded, 
-                  color: C.purple,
-                ),
-                const SizedBox(width: 10),
-                _MetricTag(
-                  label: 'CORE SYSTEM', 
-                  value: profile.aiVerified ? 'AI SHIELDED' : 'STANDARD L1', 
-                  icon: Icons.shield_outlined, 
-                  color: profile.aiVerified ? C.brand : C.dim,
-                ),
-              ],
+          const SizedBox(height: 6),
+          Text(value, style: syne(sz: 16, w: FontWeight.w900, c: C.text)),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: barValue.clamp(0.0, 1.0),
+              backgroundColor: C.text.withValues(alpha: .08),
+              valueColor: AlwaysStoppedAnimation(barColor),
+              minHeight: 4,
             ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _SystemBadge(
-                icon: Icons.location_on_outlined,
-                label: (profile.district != null && profile.district!.isNotEmpty) 
-                    ? profile.district!.toUpperCase() 
-                    : 'EAST AFRICA',
-                color: C.text.withValues(alpha: .7),
-              ),
-              _SystemBadge(
-                icon: Icons.calendar_today_rounded,
-                label: 'NODE SINCE ${profile.createdAt.year}',
-                color: C.text.withValues(alpha: .5),
-              ),
-              if (profile.trustScoreTier != null)
-                _SystemBadge(
-                  icon: Icons.workspace_premium_rounded,
-                  label: profile.trustScoreTier!.toUpperCase().replaceAll('_', ' '),
-                  color: C.purple,
-                ),
-            ],
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildShowcaseGrid() {
-    final targetId = widget.state.targetProfileId ?? 'c1';
-    
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: widget.state.social.fetchUserListings(targetId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-           return const Center(child: CircularProgressIndicator(color: C.brand));
-        }
-        
-        final list = snapshot.data ?? [];
-        if (list.isEmpty) {
-           return Center(
-             child: Column(
-               mainAxisSize: MainAxisSize.min,
-               children: [
-                 Icon(Icons.inventory_2_outlined, color: C.dim, size: 36),
-                 const SizedBox(height: 10),
-                 Text('NO PRODUCTS SYNCED', style: syne(sz: 11, c: C.dim, ls: 2)),
-               ],
-             ),
-           );
-        }
+// ── System badge (location / date / tier) ─────────────────────────────────────
 
-        return GridView.builder(
-          padding: const EdgeInsets.all(24),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.75,
+class _SysBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+
+  const _SysBadge({required this.icon, required this.label, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? C.dim;
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 11, color: c),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              style: dm(sz: 9, w: FontWeight.w700, c: c),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
           ),
-          itemCount: list.length,
-          itemBuilder: (context, index) => _ProductGridItem(listing: list[index], state: widget.state),
-        );
-      }
+        ],
+      ),
     );
   }
+}
 
-  Widget _buildContentGrid() {
-    final targetId = widget.state.targetProfileId ?? 'c1';
-    
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: widget.state.social.fetchUserPosts(targetId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-           return const Center(child: CircularProgressIndicator(color: C.brand));
-        }
-        
-        final list = snapshot.data ?? [];
-        if (list.isEmpty) {
-           return Center(
-             child: Column(
-               mainAxisSize: MainAxisSize.min,
-               children: [
-                 Icon(Icons.dynamic_feed_outlined, color: C.dim, size: 36),
-                 const SizedBox(height: 10),
-                 Text('NO CONTENT TRANSMISSIONS', style: syne(sz: 11, c: C.dim, ls: 2)),
-               ],
-             ),
-           );
-        }
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(24),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.8,
-          ),
-          itemCount: list.length,
-          itemBuilder: (context, index) => _GridItem(data: list[index], state: widget.state),
-        );
-      }
-    );
-  }
+class _VertDivider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 24, color: C.text.withValues(alpha: .06));
 }
 
 // ── Three-Dots Actions Bottom Sheet ──────────────────────────────────────────
@@ -572,9 +979,11 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
 
   void _shareProfile(BuildContext context) {
     Navigator.pop(context);
-    Share.share(
-      'Check out @${profile.username} on Necxa Financial Network: https://goobox.necxa.uk/@${profile.username}',
-      subject: '$displayName on Necxa',
+    SharePlus.instance.share(
+      ShareParams(
+        text: 'Check out @${profile.username} on Necxa Financial Network: https://goobox.necxa.uk/@${profile.username}',
+        subject: '$displayName on Necxa',
+      ),
     );
   }
 
@@ -738,7 +1147,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
   }
 
   void _blockNode(BuildContext context) async {
-    Navigator.pop(context); // close options sheet
+    Navigator.pop(context);
     await state.blockUser(profile.id);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -748,7 +1157,6 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           content: Text('@${profile.username} blocked. You will no longer see their content.', style: dm(c: Colors.redAccent)),
         ),
       );
-      // Navigate back — can't stay on a blocked profile
       state.goBack();
     }
   }
@@ -776,7 +1184,6 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
       'Harassment or Offensive Behavior',
       'Intellectual Property Infringement',
     ];
-
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
@@ -843,8 +1250,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
               // Handle pill
               Center(
                 child: Container(
-                  width: 44,
-                  height: 4,
+                  width: 44, height: 4,
                   decoration: BoxDecoration(
                     color: C.dim.withValues(alpha: .5),
                     borderRadius: BorderRadius.circular(2),
@@ -856,28 +1262,17 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
               // Header summary
               Row(
                 children: [
-                  _AvatarContainer(url: profile.avatarUrl),
+                  _AvatarContainer(url: profile.avatarUrl, size: 48),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          displayName, 
-                          style: syne(sz: 16, w: FontWeight.w800),
-                          maxLines: 1, 
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        Text(displayName, style: syne(sz: 16, w: FontWeight.w800), maxLines: 1, overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 2),
-                        Text(
-                          '@${profile.username}', 
-                          style: dm(sz: 13, w: FontWeight.w600, c: C.brand),
-                        ),
+                        Text('@${profile.username}', style: dm(sz: 13, w: FontWeight.w600, c: C.brand)),
                         const SizedBox(height: 4),
-                        Text(
-                          '${profile.trustScore}% Trust • ${profile.followersCount} Followers',
-                          style: dm(sz: 11, c: C.dim),
-                        ),
+                        Text('${profile.trustScore}% Trust • ${profile.followersCount} Followers', style: dm(sz: 11, c: C.dim)),
                       ],
                     ),
                   ),
@@ -888,64 +1283,19 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
               const SizedBox(height: 8),
 
               // Options
-              _OptionTile(
-                icon: Icons.share_outlined,
-                label: 'Share Public Profile',
-                color: C.brand,
-                onTap: () => _shareProfile(context),
-              ),
-              _OptionTile(
-                icon: Icons.link_rounded,
-                label: 'Copy Public Node Link',
-                color: C.purple,
-                onTap: () => _copyLink(context),
-              ),
-              _OptionTile(
-                icon: Icons.fingerprint_rounded,
-                label: 'Copy Node Identity ID',
-                color: C.text,
-                onTap: () => _copyNodeId(context),
-              ),
+              _OptionTile(icon: Icons.share_outlined, label: 'Share Public Profile', color: C.brand, onTap: () => _shareProfile(context)),
+              _OptionTile(icon: Icons.link_rounded, label: 'Copy Public Node Link', color: C.purple, onTap: () => _copyLink(context)),
+              _OptionTile(icon: Icons.fingerprint_rounded, label: 'Copy Node Identity ID', color: C.text, onTap: () => _copyNodeId(context)),
 
               if (!isMe) ...[
-                _OptionTile(
-                  icon: Icons.chat_bubble_outline_rounded,
-                  label: 'Send Transmission / Chat',
-                  color: C.brand,
-                  onTap: () => _openMessage(context),
-                ),
-                _OptionTile(
-                  icon: Icons.card_giftcard_rounded,
-                  label: 'Send Creator Gift / Tip',
-                  color: Colors.amberAccent,
-                  onTap: () => _sendGift(context),
-                ),
-                _OptionTile(
-                  icon: Icons.volume_off_outlined,
-                  label: 'Mute Transmissions',
-                  color: C.dim,
-                  onTap: () => _muteNode(context),
-                ),
+                _OptionTile(icon: Icons.chat_bubble_outline_rounded, label: 'Send Transmission / Chat', color: C.brand, onTap: () => _openMessage(context)),
+                _OptionTile(icon: Icons.card_giftcard_rounded, label: 'Send Creator Gift / Tip', color: Colors.amberAccent, onTap: () => _sendGift(context)),
+                _OptionTile(icon: Icons.volume_off_outlined, label: 'Mute Transmissions', color: C.dim, onTap: () => _muteNode(context)),
                 if (state.isBlocked(profile.id))
-                  _OptionTile(
-                    icon: Icons.lock_open_rounded,
-                    label: 'Unblock Node',
-                    color: Colors.orangeAccent,
-                    onTap: () => _unblockNode(context),
-                  )
+                  _OptionTile(icon: Icons.lock_open_rounded, label: 'Unblock Node', color: Colors.orangeAccent, onTap: () => _unblockNode(context))
                 else
-                  _OptionTile(
-                    icon: Icons.block_rounded,
-                    label: 'Block Node ⚠️',
-                    color: Colors.redAccent,
-                    onTap: () => _blockNode(context),
-                  ),
-                _OptionTile(
-                  icon: Icons.flag_outlined,
-                  label: 'Report Node Violation',
-                  color: Colors.redAccent,
-                  onTap: () => _showReportDialog(context),
-                ),
+                  _OptionTile(icon: Icons.block_rounded, label: 'Block Node ⚠️', color: Colors.redAccent, onTap: () => _blockNode(context)),
+                _OptionTile(icon: Icons.flag_outlined, label: 'Report Node Violation', color: Colors.redAccent, onTap: () => _showReportDialog(context)),
               ] else ...[
                 _OptionTile(
                   icon: Icons.edit_note_rounded,
@@ -964,6 +1314,8 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     );
   }
 }
+
+// ── Option Tile ───────────────────────────────────────────────────────────────
 
 class _OptionTile extends StatelessWidget {
   final IconData icon;
@@ -998,9 +1350,7 @@ class _OptionTile extends StatelessWidget {
                 child: Icon(icon, color: color, size: 18),
               ),
               const SizedBox(width: 14),
-              Expanded(
-                child: Text(label, style: syne(sz: 13, w: FontWeight.w600, c: C.text)),
-              ),
+              Expanded(child: Text(label, style: syne(sz: 13, w: FontWeight.w600, c: C.text))),
               Icon(Icons.chevron_right_rounded, color: C.dim, size: 18),
             ],
           ),
@@ -1010,39 +1360,7 @@ class _OptionTile extends StatelessWidget {
   }
 }
 
-class _SystemBadge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  const _SystemBadge({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: .08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: .2)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 12),
-          const SizedBox(width: 5),
-          Text(label, style: dm(sz: 10, w: FontWeight.w700, c: color)),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Showcase Product Tile ───────────────────────────────────────────────────
+// ── Showcase Product Tile ─────────────────────────────────────────────────────
 
 class _ProductGridItem extends StatelessWidget {
   final Map<String, dynamic> listing;
@@ -1071,11 +1389,12 @@ class _ProductGridItem extends StatelessWidget {
           child: Stack(
             children: [
               Positioned.fill(
-                child: url != null 
-                  ? Image.network(url, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: C.card, child: Icon(Icons.broken_image, color: C.dim))) 
-                  : Container(color: C.dim, child: Icon(Icons.shopping_bag, color: C.dim)),
+                child: url != null
+                    ? Image.network(url, fit: BoxFit.cover,
+                        errorBuilder: (c, e, s) =>
+                            Container(color: C.card, child: Icon(Icons.broken_image, color: C.dim)))
+                    : Container(color: C.dim, child: Icon(Icons.shopping_bag, color: C.dim)),
               ),
-              
               Positioned(
                 bottom: 12, left: 12, right: 12,
                 child: ClipRRect(
@@ -1088,11 +1407,9 @@ class _ProductGridItem extends StatelessWidget {
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              ugx(price.toDouble()), 
-                              style: syne(sz: 14, w: FontWeight.w900, c: C.brand),
-                              maxLines: 1, overflow: TextOverflow.ellipsis,
-                            ),
+                            child: Text(ugx(price.toDouble()),
+                                style: syne(sz: 14, w: FontWeight.w900, c: C.brand),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
                           Icon(Icons.bolt, color: C.brand, size: 14),
                         ],
@@ -1101,7 +1418,6 @@ class _ProductGridItem extends StatelessWidget {
                   ),
                 ),
               ),
-              
               if (listing['media_url'] != null)
                 Positioned(
                   top: 12, right: 12,
@@ -1125,95 +1441,72 @@ class _ProductGridItem extends StatelessWidget {
   }
 }
 
-class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
-  final Widget child;
-  _SliverAppBarDelegate({required this.child});
-  @override
-  double get minExtent => 50;
-  @override
-  double get maxExtent => 50;
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => child;
-  @override
-  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) => false;
-}
+// ── Avatar ────────────────────────────────────────────────────────────────────
 
 class _AvatarContainer extends StatelessWidget {
   final String? url;
-  const _AvatarContainer({this.url});
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 96, height: 96,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(40),
-      gradient: const LinearGradient(colors: [C.brand, Color(0xFFa855f7)]),
-      boxShadow: [BoxShadow(color: C.brand.withValues(alpha: .3), blurRadius: 20)],
-    ),
-    padding: const EdgeInsets.all(3),
-    child: Container(
-      decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(38)),
-      padding: const EdgeInsets.all(4),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(34),
-        child: url != null 
-          ? Image.network(url!, fit: BoxFit.cover, errorBuilder: (c, e, s) => Center(child: Icon(Icons.person, color: C.brand, size: 40))) 
-          : Center(child: Icon(Icons.person, color: C.dim, size: 40)),
-      ),
-    ),
-  );
-}
+  final double size;
+  const _AvatarContainer({this.url, this.size = 96});
 
-class _StatItem extends StatelessWidget {
-  final String label, value;
-  final Color color;
-  const _StatItem({required this.label, required this.value, required this.color});
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Text(value, style: syne(sz: 18, w: FontWeight.w900, fs: FontStyle.italic, c: color)),
-      const SizedBox(height: 6),
-      Text(label, style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim)),
-    ],
-  );
-}
-
-class _StatSeparator extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Container(width: 1, height: 28, color: C.dim.withValues(alpha: .3));
-}
-
-class _MetricTag extends StatelessWidget {
-  final String label, value;
-  final IconData? icon;
-  final Color? color;
-  const _MetricTag({required this.label, required this.value, this.icon, this.color});
   @override
   Widget build(BuildContext context) {
-    final activeColor = color ?? C.text;
+    final inner = size - 14;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      width: size, height: size,
       decoration: BoxDecoration(
-        color: C.text.withValues(alpha: .03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: C.text.withValues(alpha: .05)),
+        borderRadius: BorderRadius.circular(size * .38),
+        gradient: const LinearGradient(colors: [C.brand, Color(0xFFa855f7)]),
+        boxShadow: [BoxShadow(color: C.brand.withValues(alpha: .35), blurRadius: 24, spreadRadius: 2)],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[Icon(icon, color: activeColor, size: 14), const SizedBox(width: 6)],
-          Text(label, style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim)),
-          const SizedBox(width: 8),
-          Text(value, style: syne(sz: 12, w: FontWeight.w900, c: activeColor)),
-        ],
+      padding: const EdgeInsets.all(3),
+      child: Container(
+        decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(size * .36)),
+        padding: const EdgeInsets.all(4),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(inner * .5),
+          child: url != null
+              ? Image.network(url!, fit: BoxFit.cover,
+                  errorBuilder: (c, e, s) => Center(child: Icon(Icons.person, color: C.brand, size: size * .45)))
+              : Center(child: Icon(Icons.person, color: C.dim, size: size * .45)),
+        ),
       ),
     );
   }
 }
 
+// ── Stat Item ─────────────────────────────────────────────────────────────────
+
+class _StatItem extends StatelessWidget {
+  final IconData icon;
+  final String label, value;
+  final Color color;
+  const _StatItem({required this.icon, required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Icon(icon, color: color, size: 18),
+      const SizedBox(height: 6),
+      Text(value, style: syne(sz: 17, w: FontWeight.w900, fs: FontStyle.italic, c: color)),
+      const SizedBox(height: 4),
+      Text(label, style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim)),
+    ],
+  );
+}
+
+class _StatDivider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 36, color: C.dim.withValues(alpha: .2));
+}
+
+// ── Grid item ─────────────────────────────────────────────────────────────────
+
 class _GridItem extends StatelessWidget {
   final Map<String, dynamic> data;
   final AppState state;
   const _GridItem({required this.data, required this.state});
+
   @override
   Widget build(BuildContext context) {
     final isVideo = data['media_type'] == 'video';
@@ -1228,19 +1521,19 @@ class _GridItem extends StatelessWidget {
           color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: C.text.withValues(alpha: .1)),
-          image: (thumbUrl != null || mediaUrl != null) 
-            ? DecorationImage(
-                image: NetworkImage(thumbUrl ?? mediaUrl!), 
-                fit: BoxFit.cover,
-                colorFilter: isVideo ? ColorFilter.mode(Colors.black.withValues(alpha: 0.3), BlendMode.darken) : null,
-              )
-            : null,
+          image: (thumbUrl != null || mediaUrl != null)
+              ? DecorationImage(
+                  image: NetworkImage(thumbUrl ?? mediaUrl!),
+                  fit: BoxFit.cover,
+                  colorFilter: isVideo
+                      ? ColorFilter.mode(Colors.black.withValues(alpha: 0.3), BlendMode.darken)
+                      : null,
+                )
+              : null,
         ),
         child: Stack(
           children: [
-            if (isVideo)
-              Center(child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40)),
-            
+            if (isVideo) Center(child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40)),
             Positioned(
               bottom: 12, left: 12,
               child: Row(
@@ -1258,21 +1551,24 @@ class _GridItem extends StatelessWidget {
   }
 }
 
+// ── HUD Button ───────────────────────────────────────────────────────────────
+
 class _HUDButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   const _HUDButton({required this.icon, required this.onTap});
+
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: C.text.withValues(alpha: .05),
+        color: Colors.black.withValues(alpha: .35),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: C.text.withValues(alpha: .1)),
+        border: Border.all(color: Colors.white.withValues(alpha: .12)),
       ),
-      child: Icon(icon, color: C.text, size: 18),
+      child: Icon(icon, color: Colors.white, size: 18),
     ),
   );
 }
