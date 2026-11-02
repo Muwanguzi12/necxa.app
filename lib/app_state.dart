@@ -654,24 +654,44 @@ class AppState extends ChangeNotifier {
     final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
     try {
       final relationships = await social.loadMyFollowRelationships();
+      // RPC may return 'creator_id' or 'user_id' depending on version
       followed
         ..clear()
         ..addAll(
           relationships
-              .map((relationship) => relationship['user_id']?.toString() ?? '')
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
               .where((id) => id.isNotEmpty),
         );
       friends
         ..clear()
         ..addAll(
           relationships
-              .where((relationship) => relationship['is_friend'] == true)
-              .map((relationship) => relationship['user_id']?.toString() ?? '')
+              .where((r) => r['is_friend'] == true)
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
               .where((id) => id.isNotEmpty),
         );
     } catch (error) {
       debugPrint('Follow graph sync deferred: $error');
     }
+
+    // Load blocked users from user_preferences
+    try {
+      final blockedRes = await Supabase.instance.client
+          .from('user_preferences')
+          .select('target_id')
+          .eq('user_id', user!.id)
+          .eq('preference_type', 'blocked');
+      blockedUsers
+        ..clear()
+        ..addAll(
+          (blockedRes as List)
+              .map((r) => r['target_id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+    } catch (e) {
+      debugPrint('Blocked users sync deferred: $e');
+    }
+
     final normalizedName = _firstProfileValue([
       profile?['full_name'],
       profile?['display_name'],
@@ -696,6 +716,7 @@ class AppState extends ChangeNotifier {
     };
     notify();
   }
+
 
   Future<void> updateAvatar() async {
     if (user == null) return;
@@ -2341,21 +2362,29 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Profile?> getProfile(String id) async {
-    // Check Local Cache first
     final localDb = LocalDbService();
     final cached = await localDb.getProfile(id);
-    if (cached != null && cached['bio'] != null) {
-      _backgroundSyncProfile(id);
+    // Cache hit: only use if we have at least a username or display_name
+    if (cached != null && (cached['display_name'] != null || cached['username'] != null)) {
+      _backgroundSyncProfile(id); // background refresh
       return Profile.fromMap({
         'id': id,
+        'username': cached['username'],
         'full_name': cached['display_name'],
         'avatar_url': cached['photo_url'],
-        'verified': cached['is_verified'] == 1,
         'bio': cached['bio'],
+        'verified': cached['is_verified'] == 1,
+        'ai_verified': cached['ai_verified'] == 1,
         'trust_score': cached['trust_score'] ?? 50,
+        'trust_score_tier': cached['trust_score_tier'],
+        'district': cached['district'],
+        'followers_count': cached['followers_count'] ?? 0,
+        'following_count': cached['following_count'] ?? 0,
+        'likes_count': cached['likes_count'] ?? 0,
+        'posts_count': cached['posts_count'] ?? 0,
+        'created_at': cached['created_at'],
       });
     }
-
     return await syncProfile(id);
   }
 
@@ -2371,7 +2400,7 @@ class AppState extends ChangeNotifier {
 
       final enriched = Map<String, dynamic>.from(res);
 
-      // Fetch real followers count
+      // ── Real followers count ──────────────────────────────────────
       try {
         final fRes = await Supabase.instance.client
             .from('creator_followers')
@@ -2380,13 +2409,21 @@ class AppState extends ChangeNotifier {
         enriched['followers_count'] = (fRes as List).length;
       } catch (_) {}
 
-      // Fetch real posts count & sum of real likes
+      // ── Real posts count + aggregate likes ────────────────────────
+      // Try author_id first, fall back to user_id (schema variation)
       try {
-        final pRes = await Supabase.instance.client
-            .from('community_posts')
-            .select('id, likes_count')
-            .eq('author_id', id);
-        final pList = (pRes as List);
+        List<dynamic> pList = [];
+        try {
+          pList = await Supabase.instance.client
+              .from('community_posts')
+              .select('id, likes_count')
+              .eq('author_id', id);
+        } catch (_) {
+          pList = await Supabase.instance.client
+              .from('community_posts')
+              .select('id, likes_count')
+              .eq('user_id', id);
+        }
         enriched['posts_count'] = pList.length;
         int totalLikes = 0;
         for (final p in pList) {
@@ -2397,15 +2434,25 @@ class AppState extends ChangeNotifier {
 
       final profile = Profile.fromMap(enriched);
 
-      // Update Local Cache
+      // ── Persist enriched data to local cache ──────────────────────
       final localDb = LocalDbService();
       await localDb.database.then(
         (db) => db.insert('social_profiles', {
           'id': id,
+          'username': profile.username,
           'display_name': profile.fullName,
           'photo_url': profile.avatarUrl,
+          'bio': profile.bio,
           'trust_score': profile.trustScore,
+          'trust_score_tier': profile.trustScoreTier,
           'is_verified': profile.verified ? 1 : 0,
+          'ai_verified': profile.aiVerified ? 1 : 0,
+          'district': profile.district,
+          'followers_count': profile.followersCount,
+          'following_count': profile.followingCount,
+          'likes_count': profile.likesCount,
+          'posts_count': profile.postsCount,
+          'created_at': profile.createdAt.toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace),
       ).catchError((_) => 0);
 
@@ -2416,6 +2463,7 @@ class AppState extends ChangeNotifier {
       return null;
     }
   }
+
 
   void _backgroundSyncProfile(String id) async {
     await syncProfile(id);
