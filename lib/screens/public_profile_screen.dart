@@ -349,8 +349,22 @@ class _ProfileHeader extends StatelessWidget {
                 children: [
                   _HUDButton(icon: Icons.arrow_back_ios_new, onTap: onBack),
                   // Title
-                  Text('PUBLIC NODE',
-                      style: syne(sz: 13, w: FontWeight.w900, ls: 4, c: C.brand)),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)]),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(Icons.change_history_rounded, size: 14, color: Colors.white),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('PUBLIC NODE',
+                          style: syne(sz: 13, w: FontWeight.w900, ls: 4, c: C.brand)),
+                    ],
+                  ),
                   _HUDButton(icon: Icons.more_horiz, onTap: onOptions),
                 ],
               ),
@@ -527,7 +541,7 @@ class _ProfileHeader extends StatelessWidget {
                           children: [
                             Icon(
                               isFollowing
-                                  ? Icons.person_remove_outlined
+                                  ? Icons.how_to_reg_rounded
                                   : Icons.person_add_outlined,
                               color: C.brand,
                               size: 17,
@@ -596,14 +610,17 @@ class _ProfileHeader extends StatelessWidget {
                           Text('NODE OVERVIEW',
                               style: syne(sz: 13, w: FontWeight.w900, ls: 1)),
                           const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: C.text.withValues(alpha: .04),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: C.text.withValues(alpha: .08)),
+                          GestureDetector(
+                            onTap: () => _showNodeDetailsSheet(context, profile, bioText, reputationScore),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: C.text.withValues(alpha: .04),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: C.text.withValues(alpha: .08)),
+                              ),
+                              child: Text('VIEW MORE ›', style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.brand)),
                             ),
-                            child: Text('VIEW MORE ›', style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim)),
                           ),
                         ],
                       ),
@@ -710,6 +727,183 @@ class _ProfileHeader extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  void _showNodeDetailsSheet(
+    BuildContext context,
+    Profile profile,
+    String bioText,
+    String reputationScore,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            decoration: BoxDecoration(
+              color: C.bg.withValues(alpha: .94),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: C.text.withValues(alpha: .1)),
+            ),
+            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).padding.bottom + 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: C.dim.withValues(alpha: .5),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: C.brand.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.hub_rounded, color: C.brand, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('NODE SPECIFICATIONS', style: syne(sz: 15, w: FontWeight.w900)),
+                        Text('Cryptographic identity and network metrics',
+                            style: dm(sz: 11, c: C.dim)),
+                      ],
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(color: C.text.withValues(alpha: .06)),
+                const SizedBox(height: 12),
+                Text('TRANSMISSION BIO', style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim)),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: C.text.withValues(alpha: .03),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: C.text.withValues(alpha: .06)),
+                  ),
+                  child: Text(
+                    bioText,
+                    style: dm(sz: 13, c: C.text.withValues(alpha: .85), h: 1.5),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text('IDENTITY & TRUST METRICS', style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'REPUTATION',
+                        value: '$reputationScore / 10',
+                        color: Colors.amber,
+                        icon: Icons.star_rounded,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'TRUST SCORE',
+                        value: '${profile.trustScore}%',
+                        color: C.purple,
+                        icon: Icons.verified_user_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'TIER LEVEL',
+                        value: (profile.trustScoreTier ?? 'STANDARD').toUpperCase().replaceAll('_', ' '),
+                        color: C.brand,
+                        icon: Icons.shield_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'AI SHIELD',
+                        value: profile.aiVerified ? 'SECURED' : 'STANDARD L1',
+                        color: profile.aiVerified ? C.purple : C.dim,
+                        icon: Icons.lock_outline_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () async {
+                    await Clipboard.setData(ClipboardData(text: profile.id));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: C.card,
+                          behavior: SnackBarBehavior.floating,
+                          content: Text('Node UUID copied: ${profile.id}', style: dm(c: C.brand)),
+                        ),
+                      );
+                    }
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: C.text.withValues(alpha: .03),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: C.text.withValues(alpha: .06)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.fingerprint_rounded, size: 18, color: C.purple),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('NODE ID', style: dm(sz: 9, w: FontWeight.w800, c: C.dim)),
+                              Text(profile.id,
+                                  style: dm(sz: 11, c: C.text.withValues(alpha: .8)),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.copy_rounded, size: 16, color: C.dim),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -915,6 +1109,51 @@ class _MetricCard extends StatelessWidget {
               valueColor: AlwaysStoppedAnimation(barColor),
               minHeight: 4,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricDetailBox extends StatelessWidget {
+  final String title;
+  final String value;
+  final Color color;
+  final IconData icon;
+
+  const _MetricDetailBox({
+    required this.title,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: C.text.withValues(alpha: .03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: C.text.withValues(alpha: .06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(title, style: dm(sz: 9, w: FontWeight.w800, c: C.dim)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: syne(sz: 13, w: FontWeight.w900, c: color),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
