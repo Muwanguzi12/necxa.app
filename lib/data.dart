@@ -68,6 +68,8 @@ class Profile {
   final String? trustScoreTier;
   final String? district;
 
+  final double reputation;
+
   Profile({
     required this.id,
     required this.username,
@@ -84,6 +86,7 @@ class Profile {
     this.trustScore = 50,
     this.trustScoreTier,
     this.district,
+    this.reputation = 5.0,
   });
 
   factory Profile.fromMap(Map<String, dynamic> m) {
@@ -113,6 +116,13 @@ class Profile {
       resolvedUsername = 'member';
     }
 
+    final rawTrust = m['trust_score'];
+    final int trust = rawTrust is num ? rawTrust.toInt() : 50;
+    final rawRep = m['reputation'];
+    final double rep = rawRep is num
+        ? rawRep.toDouble()
+        : (trust > 0 ? (trust / 10.0) : 5.0).clamp(1.0, 10.0);
+
     return Profile(
       id: m['id']?.toString() ?? '',
       username: resolvedUsername,
@@ -126,9 +136,10 @@ class Profile {
       followingCount: (m['following_count'] ?? 0) is num ? (m['following_count'] ?? 0).toInt() : 0,
       likesCount: (m['likes_count'] ?? 0) is num ? (m['likes_count'] ?? 0).toInt() : 0,
       postsCount: (m['posts_count'] ?? 0) is num ? (m['posts_count'] ?? 0).toInt() : 0,
-      trustScore: (m['trust_score'] ?? 50) is num ? (m['trust_score'] ?? 50).toInt() : 50,
+      trustScore: trust,
       trustScoreTier: m['trust_score_tier'] as String?,
       district: m['district'] as String?,
+      reputation: rep,
     );
   }
 }
