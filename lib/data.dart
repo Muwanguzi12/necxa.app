@@ -86,23 +86,51 @@ class Profile {
     this.district,
   });
 
-  factory Profile.fromMap(Map<String, dynamic> m) => Profile(
-    id: m['id']?.toString() ?? '',
-    username: m['username'] ?? m['full_name']?.toLowerCase().replaceAll(' ', '_') ?? 'user_${m['id']?.toString().substring(0, (m['id']?.toString().length ?? 0) >= 4 ? 4 : (m['id']?.toString().length ?? 0)) ?? 'node'}',
-    fullName: m['full_name'] ?? m['display_name'] ?? 'Necxa User',
-    avatarUrl: m['avatar_url'] ?? m['photo_url'],
-    bio: m['bio'],
-    verified: m['verified'] == true || m['is_verified'] == true || m['is_verified'] == 1,
-    aiVerified: m['ai_verified'] == true || m['ai_verified'] == 1,
-    createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
-    followersCount: (m['followers_count'] ?? m['total_followers'] ?? 0) is num ? (m['followers_count'] ?? m['total_followers'] ?? 0).toInt() : 0,
-    followingCount: (m['following_count'] ?? 0) is num ? (m['following_count'] ?? 0).toInt() : 0,
-    likesCount: (m['likes_count'] ?? 0) is num ? (m['likes_count'] ?? 0).toInt() : 0,
-    postsCount: (m['posts_count'] ?? 0) is num ? (m['posts_count'] ?? 0).toInt() : 0,
-    trustScore: (m['trust_score'] ?? 50) is num ? (m['trust_score'] ?? 50).toInt() : 50,
-    trustScoreTier: m['trust_score_tier'] as String?,
-    district: m['district'] as String?,
-  );
+  factory Profile.fromMap(Map<String, dynamic> m) {
+    final rawName = m['full_name'] ?? m['display_name'] ?? m['name'];
+    final rawUsername = m['username'];
+    final rawEmail = m['email']?.toString();
+
+    String resolvedFullName = '';
+    if (rawName != null && rawName.toString().trim().isNotEmpty && rawName.toString().trim() != 'NECXA NODE') {
+      resolvedFullName = rawName.toString().trim();
+    } else if (rawUsername != null && rawUsername.toString().trim().isNotEmpty && rawUsername.toString().trim() != 'node') {
+      resolvedFullName = rawUsername.toString().trim();
+    } else if (rawEmail != null && rawEmail.contains('@')) {
+      resolvedFullName = rawEmail.split('@').first;
+    } else {
+      resolvedFullName = 'Necxa Member';
+    }
+
+    String resolvedUsername = '';
+    if (rawUsername != null && rawUsername.toString().trim().isNotEmpty && rawUsername.toString().trim() != 'node') {
+      resolvedUsername = rawUsername.toString().trim().replaceAll('@', '');
+    } else if (rawName != null && rawName.toString().trim().isNotEmpty && rawName.toString().trim() != 'NECXA NODE') {
+      resolvedUsername = rawName.toString().trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    } else if (rawEmail != null && rawEmail.contains('@')) {
+      resolvedUsername = rawEmail.split('@').first;
+    } else {
+      resolvedUsername = 'member';
+    }
+
+    return Profile(
+      id: m['id']?.toString() ?? '',
+      username: resolvedUsername,
+      fullName: resolvedFullName,
+      avatarUrl: m['avatar_url'] ?? m['photo_url'],
+      bio: m['bio'],
+      verified: m['verified'] == true || m['is_verified'] == true || m['is_verified'] == 1,
+      aiVerified: m['ai_verified'] == true || m['ai_verified'] == 1,
+      createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
+      followersCount: (m['followers_count'] ?? m['total_followers'] ?? 0) is num ? (m['followers_count'] ?? m['total_followers'] ?? 0).toInt() : 0,
+      followingCount: (m['following_count'] ?? 0) is num ? (m['following_count'] ?? 0).toInt() : 0,
+      likesCount: (m['likes_count'] ?? 0) is num ? (m['likes_count'] ?? 0).toInt() : 0,
+      postsCount: (m['posts_count'] ?? 0) is num ? (m['posts_count'] ?? 0).toInt() : 0,
+      trustScore: (m['trust_score'] ?? 50) is num ? (m['trust_score'] ?? 50).toInt() : 50,
+      trustScoreTier: m['trust_score_tier'] as String?,
+      district: m['district'] as String?,
+    );
+  }
 }
 
 class Gift {
