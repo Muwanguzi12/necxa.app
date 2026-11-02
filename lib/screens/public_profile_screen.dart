@@ -39,6 +39,13 @@ String resolvePublicProfileName(Profile profile, AppState state) {
   return 'Member';
 }
 
+String _formatTier(String? tier) {
+  if (tier == null || tier.isEmpty || tier.toLowerCase().contains('standard')) {
+    return 'MEMBER';
+  }
+  return tier.toUpperCase().replaceAll('_', ' ');
+}
+
 class _PublicProfileScreenState extends State<PublicProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -438,7 +445,7 @@ class _ProfileHeader extends StatelessWidget {
         Stack(
           clipBehavior: Clip.none,
           children: [
-            _NodeBanner(topPad: topPad),
+            _ProfileBanner(topPad: topPad),
             Positioned(
               top: topPad + 10,
               left: 16,
@@ -456,10 +463,10 @@ class _ProfileHeader extends StatelessWidget {
                           gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)]),
                           borderRadius: BorderRadius.circular(7),
                         ),
-                        child: const Icon(Icons.view_in_ar_rounded, size: 14, color: Colors.white),
+                        child: const Icon(Icons.person_pin_rounded, size: 14, color: Colors.white),
                       ),
                       const SizedBox(width: 8),
-                      Text('PUBLIC NODE',
+                      Text('PUBLIC PROFILE',
                           style: syne(sz: 13, w: FontWeight.w900, ls: 2, c: C.brand)),
                     ],
                   ),
@@ -542,10 +549,10 @@ class _ProfileHeader extends StatelessWidget {
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.view_in_ar_rounded, size: 10, color: Color(0xFF00E5FF)),
+                                    const Icon(Icons.verified_user_outlined, size: 10, color: Color(0xFF00E5FF)),
                                     const SizedBox(width: 4),
                                     Text(
-                                      (profile.trustScoreTier ?? 'STANDARD NODE').toUpperCase().replaceAll('_', ' '),
+                                      _formatTier(profile.trustScoreTier),
                                       style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: const Color(0xFF00E5FF)),
                                     ),
                                   ],
@@ -721,13 +728,13 @@ class _ProfileHeader extends StatelessWidget {
                                 color: const Color(0xFF00E5FF).withValues(alpha: .12),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Icon(Icons.view_in_ar_rounded, color: Color(0xFF00E5FF), size: 16),
+                              child: const Icon(Icons.info_outline_rounded, color: Color(0xFF00E5FF), size: 16),
                             ),
                             const SizedBox(width: 10),
-                            Text('NODE OVERVIEW', style: syne(sz: 13, w: FontWeight.w900, ls: 1)),
+                            Text('ABOUT PROFILE', style: syne(sz: 13, w: FontWeight.w900, ls: 1)),
                             const Spacer(),
                             GestureDetector(
-                              onTap: () => _showNodeDetailsSheet(context, profile, bioText, reputationScore),
+                              onTap: () => _showProfileDetailsSheet(context, profile, bioText, reputationScore),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                 decoration: BoxDecoration(
@@ -819,7 +826,7 @@ class _ProfileHeader extends StatelessWidget {
                             _VertDivider(),
                             _SysBadge(
                               icon: Icons.workspace_premium_rounded,
-                              label: (profile.trustScoreTier ?? 'STANDARD').toUpperCase().replaceAll('_', ' '),
+                              label: _formatTier(profile.trustScoreTier),
                               color: const Color(0xFFA855F7),
                             ),
                           ],
@@ -840,7 +847,7 @@ class _ProfileHeader extends StatelessWidget {
     );
   }
 
-  void _showNodeDetailsSheet(
+  void _showProfileDetailsSheet(
     BuildContext context,
     Profile profile,
     String bioText,
@@ -950,7 +957,7 @@ class _ProfileHeader extends StatelessWidget {
                     Expanded(
                       child: _MetricDetailBox(
                         title: 'ACCOUNT LEVEL',
-                        value: (profile.trustScoreTier ?? 'STANDARD').toUpperCase().replaceAll('_', ' '),
+                        value: _formatTier(profile.trustScoreTier),
                         color: C.brand,
                         icon: Icons.shield_outlined,
                       ),
@@ -976,11 +983,11 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
-// ── Node Banner (hero background) ────────────────────────────────────────────
+// ── Profile Banner (hero background) ──────────────────────────────────────────
 
-class _NodeBanner extends StatelessWidget {
+class _ProfileBanner extends StatelessWidget {
   final double topPad;
-  const _NodeBanner({required this.topPad});
+  const _ProfileBanner({required this.topPad});
 
   @override
   Widget build(BuildContext context) {
@@ -1389,7 +1396,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     Navigator.pop(context);
     SharePlus.instance.share(
       ShareParams(
-        text: 'Check out @${profile.username} on Necxa Financial Network: https://goobox.necxa.uk/@${profile.username}',
+        text: 'Check out @${profile.username} on Necxa: https://goobox.necxa.uk/@${profile.username}',
         subject: '$displayName on Necxa',
       ),
     );
@@ -1520,7 +1527,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     );
   }
 
-  void _muteNode(BuildContext context) async {
+  void _muteUser(BuildContext context) async {
     Navigator.pop(context);
     try {
       await state.social.hideContent(profile.id, 'profile');
@@ -1578,7 +1585,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
             ),
             onPressed: () {
               Navigator.pop(dlgCtx);
-              _blockNode(context);
+              _blockUser(context);
             },
             child: Text('Block', style: syne(w: FontWeight.bold, c: Colors.white)),
           ),
@@ -1587,7 +1594,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     );
   }
 
-  void _blockNode(BuildContext context) async {
+  void _blockUser(BuildContext context) async {
     Navigator.pop(context);
     try {
       await state.blockUser(profile.id);
@@ -1614,7 +1621,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     }
   }
 
-  void _unblockNode(BuildContext context) async {
+  void _unblockUser(BuildContext context) async {
     try {
       await state.unblockUser(profile.id);
       if (context.mounted) {
@@ -1766,9 +1773,9 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
               if (!isMe) ...[
                 _OptionTile(icon: Icons.chat_bubble_outline_rounded, label: 'Send Message', color: C.brand, onTap: () => _openMessage(context)),
                 _OptionTile(icon: Icons.card_giftcard_rounded, label: 'Send Gift', color: Colors.amberAccent, onTap: () => _sendGift(context)),
-                _OptionTile(icon: Icons.volume_off_outlined, label: 'Mute Posts', color: C.dim, onTap: () => _muteNode(context)),
+                _OptionTile(icon: Icons.volume_off_outlined, label: 'Mute Posts', color: C.dim, onTap: () => _muteUser(context)),
                 if (state.isBlocked(profile.id))
-                  _OptionTile(icon: Icons.lock_open_rounded, label: 'Unblock User', color: Colors.orangeAccent, onTap: () => _unblockNode(context))
+                  _OptionTile(icon: Icons.lock_open_rounded, label: 'Unblock User', color: Colors.orangeAccent, onTap: () => _unblockUser(context))
                 else
                   _OptionTile(icon: Icons.block_rounded, label: 'Block User', color: Colors.redAccent, onTap: () => _confirmBlockUser(context)),
                 _OptionTile(icon: Icons.flag_outlined, label: 'Report Account', color: Colors.redAccent, onTap: () => _showReportDialog(context)),
@@ -1855,8 +1862,19 @@ class _ProductGridItem extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
-        state.pendingCheckoutListing = listing;
-        state.go('community');
+        final targetId = listing['id']?.toString() ?? listing['listing_id']?.toString();
+        state.creatorTab = 'shop';
+        state.pendingDestinationTab = 'shop';
+        state.selectedListing = listing;
+        if (targetId != null && targetId.isNotEmpty) {
+          final exists = state.social.shopListings.any(
+            (it) => it['id']?.toString() == targetId || it['listing_id']?.toString() == targetId,
+          );
+          if (!exists) {
+            state.social.shopListings.insert(0, listing);
+          }
+        }
+        state.go('community', extra: targetId);
       },
       child: Container(
         decoration: BoxDecoration(
