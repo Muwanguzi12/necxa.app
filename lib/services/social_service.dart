@@ -498,9 +498,8 @@ class SocialService {
       // Build filter chain: all filters BEFORE order/limit
       var baseQuery = client
           .from('community_posts')
-          // Thin select — including profile info for denormalization
           .select(
-            'id, author_id, content, media_url, thumbnail_url, media_type, created_at, profiles(full_name, avatar_url, trust_score_tier)',
+            'id, author_id, content, media_url, thumbnail_url, media_type, likes_count, created_at, profiles(full_name, avatar_url, trust_score_tier)',
           )
           .eq('author_id', userId);
 
