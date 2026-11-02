@@ -2413,6 +2413,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Profile?> getProfile(String id) async {
+    if (id.isEmpty) {
+      if (user != null) {
+        id = user!.id;
+      } else {
+        return null;
+      }
+    }
     final localDb = LocalDbService();
     final cached = await localDb.getProfile(id);
     // Cache hit: only use if we have at least a username or display_name
@@ -2442,18 +2449,74 @@ class AppState extends ChangeNotifier {
 
   Future<Profile?> syncProfile(String id) async {
     try {
-      final res = await Supabase.instance.client
-          .from('profiles')
-          .select()
-          .eq('id', id)
-          .maybeSingle();
+      if (id.isEmpty) {
+        if (user != null) {
+          id = user!.id;
+        } else {
+          return null;
+        }
+      }
 
-      if (res == null) return null;
+      Map<String, dynamic>? res;
+      // Support looking up by UUID or by username
+      if (id.startsWith('@') || !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)) {
+        final cleanUsername = id.replaceAll('@', '').trim();
+        res = await Supabase.instance.client
+            .from('profiles')
+            .select()
+            .ilike('username', cleanUsername)
+            .maybeSingle();
+      } else {
+        res = await Supabase.instance.client
+            .from('profiles')
+            .select()
+            .eq('id', id)
+            .maybeSingle();
+      }
+
+      if (res == null) {
+        // Fallback for current logged-in user if profile row is pending creation
+        if (id == user?.id) {
+          final authName = myProfile?['full_name'] ??
+              user?.userMetadata?['full_name'] ??
+              user?.userMetadata?['display_name'] ??
+              user?.userMetadata?['name'] ??
+              user?.email?.split('@').first ??
+              'Necxa Member';
+          final authUsername = myProfile?['username'] ??
+              user?.userMetadata?['username'] ??
+              user?.email?.split('@').first ??
+              'member';
+          final authAvatar = myProfile?['avatar_url'] ??
+              user?.userMetadata?['avatar_url'] ??
+              user?.userMetadata?['picture'];
+          final authBio = myProfile?['bio']?.toString() ?? '';
+
+          return Profile.fromMap({
+            'id': id,
+            'username': authUsername,
+            'full_name': authName,
+            'avatar_url': authAvatar,
+            'bio': authBio,
+            'verified': false,
+            'ai_verified': false,
+            'trust_score': 50,
+            'trust_score_tier': 'standard',
+            'followers_count': 0,
+            'following_count': followed.length,
+            'likes_count': 0,
+            'posts_count': 0,
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        }
+        return null;
+      }
 
       final enriched = Map<String, dynamic>.from(res);
+      final realId = enriched['id']?.toString() ?? id;
 
       // If viewing self or if full_name is empty, populate from auth metadata
-      if (id == user?.id) {
+      if (realId == user?.id) {
         final authName = myProfile?['full_name'] ??
             user?.userMetadata?['full_name'] ??
             user?.userMetadata?['display_name'] ??
@@ -2472,32 +2535,15 @@ class AppState extends ChangeNotifier {
               user?.userMetadata?['avatar_url'] ??
               user?.userMetadata?['picture'];
         }
+        enriched['following_count'] = followed.length;
       }
 
-      // ── Real followers count ──────────────────────────────────────
-      try {
-        final fRes = await Supabase.instance.client
-            .from('creator_followers')
-            .select('id')
-            .eq('creator_id', id);
-        enriched['followers_count'] = (fRes as List).length;
-      } catch (_) {}
-
       // ── Real posts count + aggregate likes ────────────────────────
-      // Try author_id first, fall back to user_id (schema variation)
       try {
-        List<dynamic> pList = [];
-        try {
-          pList = await Supabase.instance.client
-              .from('community_posts')
-              .select('id, likes_count')
-              .eq('author_id', id);
-        } catch (_) {
-          pList = await Supabase.instance.client
-              .from('community_posts')
-              .select('id, likes_count')
-              .eq('user_id', id);
-        }
+        final pList = await Supabase.instance.client
+            .from('community_posts')
+            .select('id, likes_count')
+            .eq('author_id', realId);
         enriched['posts_count'] = pList.length;
         int totalLikes = 0;
         for (final p in pList) {
@@ -2529,7 +2575,7 @@ class AppState extends ChangeNotifier {
       final localDb = LocalDbService();
       await localDb.database.then(
         (db) => db.insert('social_profiles', {
-          'id': id,
+          'id': realId,
           'username': profile.username,
           'display_name': profile.fullName,
           'photo_url': profile.avatarUrl,
@@ -2547,7 +2593,7 @@ class AppState extends ChangeNotifier {
         }, conflictAlgorithm: ConflictAlgorithm.replace),
       ).catchError((_) => 0);
 
-      targetProfileId = id;
+      targetProfileId = realId;
       return profile;
     } catch (e) {
       debugPrint('Profile Sync Failure: $e');

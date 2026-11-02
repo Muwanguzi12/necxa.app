@@ -54,6 +54,14 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
   bool? _isLocallyFollowing;
   bool _isTogglingFollow = false;
 
+  String get _effectiveTargetId {
+    final tid = widget.state.targetProfileId?.trim();
+    if (tid != null && tid.isNotEmpty && tid != 'c1') {
+      return tid;
+    }
+    return widget.state.user?.id ?? '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -62,7 +70,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
   }
 
   void _checkVendorStatus() async {
-    final targetId = widget.state.targetProfileId ?? 'c1';
+    final targetId = _effectiveTargetId;
+    if (targetId.isEmpty) return;
     final listings = await widget.state.social.fetchUserListings(targetId);
     if (mounted && listings.isNotEmpty) {
       setState(() => _hasListings = true);
@@ -84,8 +93,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
       _localFollowerDelta = (_localFollowerDelta ?? 0) + (willFollow ? 1 : -1);
     });
     try {
-      await widget.state.social.toggleFollow(profile.id);
-      widget.state.toggleFollow(profile.id);
+      final success = await widget.state.toggleFollow(profile.id);
+      if (!success && mounted) {
+        setState(() {
+          _isLocallyFollowing = currentlyFollowing;
+          _localFollowerDelta = (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -127,7 +141,32 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    final targetId = widget.state.targetProfileId ?? 'c1';
+    final targetId = _effectiveTargetId;
+    if (targetId.isEmpty) {
+      return Scaffold(
+        backgroundColor: C.bg,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+            onPressed: () => widget.state.goBack(),
+          ),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.person_off_outlined, color: C.dim, size: 48),
+              const SizedBox(height: 12),
+              Text('PROFILE NOT FOUND', style: syne(c: C.brand, sz: 14, w: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text('Please sign in or select a member profile.', style: dm(c: C.dim, sz: 12)),
+            ],
+          ),
+        ),
+      );
+    }
     return FutureBuilder<Profile?>(
       future: widget.state.getProfile(targetId),
       builder: (context, snapshot) {
@@ -160,7 +199,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                   Text('The requested profile could not be loaded.', style: dm(c: C.dim, sz: 12)),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
-                    onPressed: () => setState(() {}),
+                    onPressed: () async {
+                      await widget.state.syncProfile(targetId);
+                      if (mounted) setState(() {});
+                    },
                     icon: const Icon(Icons.refresh, size: 16),
                     label: const Text('Retry'),
                     style: OutlinedButton.styleFrom(
@@ -279,7 +321,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
   }
 
   Widget _buildShowcaseGrid() {
-    final targetId = widget.state.targetProfileId ?? 'c1';
+    final targetId = _effectiveTargetId;
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: widget.state.social.fetchUserListings(targetId),
       builder: (context, snapshot) {
@@ -320,7 +362,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
         return RefreshIndicator(
           color: C.brand,
           backgroundColor: C.card,
-          onRefresh: () async => setState(() {}),
+          onRefresh: () async {
+            await widget.state.social.fetchUserListings(targetId, forceRefresh: true);
+            await widget.state.syncProfile(targetId);
+            if (mounted) setState(() {});
+          },
           child: GridView.builder(
             padding: const EdgeInsets.all(20),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -338,7 +384,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
   }
 
   Widget _buildContentGrid() {
-    final targetId = widget.state.targetProfileId ?? 'c1';
+    final targetId = _effectiveTargetId;
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: widget.state.social.fetchUserPosts(targetId),
       builder: (context, snapshot) {
@@ -379,7 +425,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
         return RefreshIndicator(
           color: C.brand,
           backgroundColor: C.card,
-          onRefresh: () async => setState(() {}),
+          onRefresh: () async {
+            await widget.state.social.fetchUserPosts(targetId, forceRefresh: true);
+            await widget.state.syncProfile(targetId);
+            if (mounted) setState(() {});
+          },
           child: GridView.builder(
             padding: const EdgeInsets.all(20),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
