@@ -499,7 +499,7 @@ class SocialService {
       var baseQuery = client
           .from('community_posts')
           .select(
-            'id, author_id, content, media_url, thumbnail_url, media_type, likes_count, created_at, profiles(full_name, avatar_url, trust_score_tier)',
+            'id, author_id, content, media_url, thumbnail_url, media_type, likes_count, created_at, profiles:author_id(full_name, avatar_url, trust_score_tier)',
           )
           .eq('author_id', userId);
 
@@ -746,9 +746,12 @@ class SocialService {
   // USER SHOWCASE (Vendor Storefront)
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> fetchUserListings(String userId) async {
+  Future<List<Map<String, dynamic>>> fetchUserListings(
+    String userId, {
+    bool forceRefresh = false,
+  }) async {
     // 1. Memory cache (hot path for fast profile loads)
-    if (state.cachedUserShowcases.containsKey(userId)) {
+    if (!forceRefresh && state.cachedUserShowcases.containsKey(userId)) {
       _syncUserListingsInBackground(userId);
       return state.cachedUserShowcases[userId]!;
     }
@@ -777,7 +780,7 @@ class SocialService {
           .select(
             'id, title, description, price, price_ugx, media_url, thumbnail_url, media_type, is_verified, status, created_at, sku, photos, stock_count, film_hub_content, category, lister_id, user_id, latitude, longitude, profiles:user_id(full_name, avatar_url, trust_score_tier)',
           )
-          .eq('user_id', userId)
+          .or('user_id.eq.$userId,lister_id.eq.$userId')
           // 🔒 Never expose property listings on the public showcase
           .or('is_property_listing.is.null,is_property_listing.eq.false')
           .order('created_at', ascending: false)
