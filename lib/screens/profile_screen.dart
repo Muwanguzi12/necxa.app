@@ -489,9 +489,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             ListenableBuilder(
               listenable: widget.state,
               builder: (context, _) {
-                final posts = (widget.state.myProfile?['posts_count'] is num)
-                    ? (widget.state.myProfile!['posts_count'] as num).toInt()
-                    : widget.state.myPosts.length;
+                final posts = widget.state.myPostsCount;
                 return _MetricItem(
                   label: 'Posts',
                   value: posts.toString().padLeft(2, '0'),

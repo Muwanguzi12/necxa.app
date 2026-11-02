@@ -660,6 +660,12 @@ class AppState extends ChangeNotifier {
     return (myTrustScore / 10.0).clamp(1.0, 10.0);
   }
 
+  int get myPostsCount {
+    final v = myProfile?['posts_count'];
+    if (v is num) return v.toInt();
+    return 0;
+  }
+
   Future<void> loadMyProfile() async {
     if (user == null) return;
     final profile = await social.getProfile(user!.id);
