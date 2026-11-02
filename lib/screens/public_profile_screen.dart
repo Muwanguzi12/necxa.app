@@ -45,6 +45,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
   bool _hasListings = false;
   int? _localFollowerDelta;
   bool? _isLocallyFollowing;
+  bool _isTogglingFollow = false;
 
   @override
   void initState() {
@@ -68,6 +69,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
   }
 
   Future<void> _handleFollowToggle(Profile profile, bool currentlyFollowing) async {
+    if (_isTogglingFollow) return;
+    _isTogglingFollow = true;
     final willFollow = !currentlyFollowing;
     setState(() {
       _isLocallyFollowing = willFollow;
@@ -82,7 +85,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
           _isLocallyFollowing = currentlyFollowing;
           _localFollowerDelta = (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Could not update follow status. Please check your connection.', style: dm(c: Colors.redAccent)),
+          ),
+        );
       }
+    } finally {
+      _isTogglingFollow = false;
     }
   }
 
@@ -267,6 +279,24 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: C.brand));
         }
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.cloud_off_rounded, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text('COULD NOT LOAD PRODUCTS', style: syne(sz: 11, c: C.dim, ls: 1.5)),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => setState(() {}),
+                  icon: const Icon(Icons.refresh, size: 14, color: C.brand),
+                  label: Text('Retry', style: dm(sz: 12, c: C.brand, w: FontWeight.w700)),
+                ),
+              ],
+            ),
+          );
+        }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
           return Center(
@@ -280,16 +310,21 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
             ),
           );
         }
-        return GridView.builder(
-          padding: const EdgeInsets.all(20),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.75,
+        return RefreshIndicator(
+          color: C.brand,
+          backgroundColor: C.card,
+          onRefresh: () async => setState(() {}),
+          child: GridView.builder(
+            padding: const EdgeInsets.all(20),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 0.75,
+            ),
+            itemCount: list.length,
+            itemBuilder: (context, index) => _ProductGridItem(listing: list[index], state: widget.state),
           ),
-          itemCount: list.length,
-          itemBuilder: (context, index) => _ProductGridItem(listing: list[index], state: widget.state),
         );
       },
     );
@@ -302,6 +337,24 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: C.brand));
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.cloud_off_rounded, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text('COULD NOT LOAD POSTS', style: syne(sz: 11, c: C.dim, ls: 1.5)),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => setState(() {}),
+                  icon: const Icon(Icons.refresh, size: 14, color: C.brand),
+                  label: Text('Retry', style: dm(sz: 12, c: C.brand, w: FontWeight.w700)),
+                ),
+              ],
+            ),
+          );
         }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
@@ -316,16 +369,21 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
             ),
           );
         }
-        return GridView.builder(
-          padding: const EdgeInsets.all(20),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.8,
+        return RefreshIndicator(
+          color: C.brand,
+          backgroundColor: C.card,
+          onRefresh: () async => setState(() {}),
+          child: GridView.builder(
+            padding: const EdgeInsets.all(20),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 0.8,
+            ),
+            itemCount: list.length,
+            itemBuilder: (context, index) => _GridItem(data: list[index], state: widget.state),
           ),
-          itemCount: list.length,
-          itemBuilder: (context, index) => _GridItem(data: list[index], state: widget.state),
         );
       },
     );
@@ -1464,44 +1522,121 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
 
   void _muteNode(BuildContext context) async {
     Navigator.pop(context);
-    await state.social.hideContent(profile.id, 'profile');
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: C.card,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Posts from @${profile.username} muted.', style: dm(c: C.text)),
-        ),
-      );
+    try {
+      await state.social.hideContent(profile.id, 'profile');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Posts from @${profile.username} muted.', style: dm(c: C.text)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Could not mute account. Please try again.', style: dm(c: Colors.redAccent)),
+          ),
+        );
+      }
     }
+  }
+
+  void _confirmBlockUser(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dlgCtx) => AlertDialog(
+        backgroundColor: C.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: C.dim.withValues(alpha: .2)),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.block_rounded, color: Colors.redAccent, size: 22),
+            const SizedBox(width: 10),
+            Text('Block @${profile.username}?', style: syne(sz: 16, w: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'They will not be able to message you or see your listings, and you will no longer see their posts or content.',
+          style: dm(sz: 13, c: C.sub),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dlgCtx),
+            child: Text('Cancel', style: dm(c: C.dim, w: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () {
+              Navigator.pop(dlgCtx);
+              _blockNode(context);
+            },
+            child: Text('Block', style: syne(w: FontWeight.bold, c: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _blockNode(BuildContext context) async {
     Navigator.pop(context);
-    await state.blockUser(profile.id);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: C.card,
-          behavior: SnackBarBehavior.floating,
-          content: Text('@${profile.username} blocked. You will no longer see their content.', style: dm(c: Colors.redAccent)),
-        ),
-      );
-      state.goBack();
+    try {
+      await state.blockUser(profile.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text('@${profile.username} blocked. You will no longer see their content.', style: dm(c: Colors.redAccent)),
+          ),
+        );
+        state.goBack();
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Failed to block account: $e', style: dm(c: Colors.redAccent)),
+          ),
+        );
+      }
     }
   }
 
   void _unblockNode(BuildContext context) async {
-    await state.unblockUser(profile.id);
-    if (context.mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: C.card,
-          behavior: SnackBarBehavior.floating,
-          content: Text('@${profile.username} unblocked.', style: dm(c: C.brand)),
-        ),
-      );
+    try {
+      await state.unblockUser(profile.id);
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text('@${profile.username} unblocked.', style: dm(c: C.brand)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Failed to unblock account: $e', style: dm(c: Colors.redAccent)),
+          ),
+        );
+      }
     }
   }
 
@@ -1524,7 +1659,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
         ),
         title: Row(
           children: [
-            Icon(Icons.flag_outlined, color: Colors.redAccent, size: 20),
+            const Icon(Icons.flag_outlined, color: Colors.redAccent, size: 20),
             const SizedBox(width: 8),
             Text('Report Account', style: syne(sz: 16, w: FontWeight.bold)),
           ],
@@ -1542,15 +1677,27 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
                 title: Text(r, style: dm(sz: 13, c: C.text)),
                 onTap: () async {
                   Navigator.pop(dialogCtx);
-                  await state.social.reportContent(profile.id, 'profile', r);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        backgroundColor: C.card,
-                        behavior: SnackBarBehavior.floating,
-                        content: Text('Report submitted. Our team is reviewing this account.', style: dm(c: C.brand)),
-                      ),
-                    );
+                  try {
+                    await state.social.reportContent(profile.id, 'profile', r);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: C.card,
+                          behavior: SnackBarBehavior.floating,
+                          content: Text('Report submitted. Our team is reviewing this account.', style: dm(c: C.brand)),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: C.card,
+                          behavior: SnackBarBehavior.floating,
+                          content: Text('Could not submit report. Please try again.', style: dm(c: Colors.redAccent)),
+                        ),
+                      );
+                    }
                   }
                 },
               ),
@@ -1623,7 +1770,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
                 if (state.isBlocked(profile.id))
                   _OptionTile(icon: Icons.lock_open_rounded, label: 'Unblock User', color: Colors.orangeAccent, onTap: () => _unblockNode(context))
                 else
-                  _OptionTile(icon: Icons.block_rounded, label: 'Block User', color: Colors.redAccent, onTap: () => _blockNode(context)),
+                  _OptionTile(icon: Icons.block_rounded, label: 'Block User', color: Colors.redAccent, onTap: () => _confirmBlockUser(context)),
                 _OptionTile(icon: Icons.flag_outlined, label: 'Report Account', color: Colors.redAccent, onTap: () => _showReportDialog(context)),
               ] else ...[
                 _OptionTile(
@@ -1700,8 +1847,11 @@ class _ProductGridItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final photos = listing['photos'] as List? ?? [];
-    final url = photos.isNotEmpty ? photos[0] : listing['media_url'];
-    final price = listing['price'] ?? 0;
+    final rawUrl = (photos.isNotEmpty ? photos[0] : listing['media_url'])?.toString().trim();
+    final url = (rawUrl != null && rawUrl.isNotEmpty && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+        ? rawUrl
+        : null;
+    final price = (listing['price'] is num) ? (listing['price'] as num).toDouble() : 0.0;
 
     return GestureDetector(
       onTap: () {
@@ -1720,9 +1870,12 @@ class _ProductGridItem extends StatelessWidget {
             children: [
               Positioned.fill(
                 child: url != null
-                    ? Image.network(url, fit: BoxFit.cover,
+                    ? Image.network(
+                        url,
+                        fit: BoxFit.cover,
                         errorBuilder: (c, e, s) =>
-                            Container(color: C.card, child: Icon(Icons.broken_image, color: C.dim)))
+                            Container(color: C.card, child: Icon(Icons.broken_image, color: C.dim)),
+                      )
                     : Container(color: C.dim, child: Icon(Icons.shopping_bag, color: C.dim)),
               ),
               Positioned(
@@ -1737,7 +1890,7 @@ class _ProductGridItem extends StatelessWidget {
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text(ugx(price.toDouble()),
+                            child: Text(ugx(price),
                                 style: syne(sz: 14, w: FontWeight.w900, c: C.brand),
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                           ),
@@ -1778,6 +1931,11 @@ class _AvatarContainer extends StatelessWidget {
   final double size;
   const _AvatarContainer({this.url, this.size = 84});
 
+  bool get _hasValidUrl {
+    final u = url?.trim();
+    return u != null && u.isNotEmpty && (u.startsWith('http://') || u.startsWith('https://'));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1806,9 +1964,9 @@ class _AvatarContainer extends StatelessWidget {
         ),
         padding: const EdgeInsets.all(3),
         child: ClipOval(
-          child: url != null
+          child: _hasValidUrl
               ? Image.network(
-                  url!,
+                  url!.trim(),
                   fit: BoxFit.cover,
                   errorBuilder: (c, e, s) => Center(child: Icon(Icons.person, color: C.brand, size: size * .45)),
                 )
@@ -1855,8 +2013,15 @@ class _GridItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isVideo = data['media_type'] == 'video';
-    final mediaUrl = data['media_url'] as String?;
-    final thumbUrl = data['thumbnail_url'] as String?;
+    final rawMedia = data['media_url']?.toString().trim();
+    final rawThumb = data['thumbnail_url']?.toString().trim();
+    final thumbUrl = (rawThumb != null && rawThumb.isNotEmpty && (rawThumb.startsWith('http://') || rawThumb.startsWith('https://')))
+        ? rawThumb
+        : null;
+    final mediaUrl = (rawMedia != null && rawMedia.isNotEmpty && (rawMedia.startsWith('http://') || rawMedia.startsWith('https://')))
+        ? rawMedia
+        : null;
+    final displayImage = thumbUrl ?? mediaUrl;
     final likes = data['likes_count'] ?? 0;
 
     return GestureDetector(
@@ -1866,10 +2031,11 @@ class _GridItem extends StatelessWidget {
           color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: C.text.withValues(alpha: .1)),
-          image: (thumbUrl != null || mediaUrl != null)
+          image: displayImage != null
               ? DecorationImage(
-                  image: NetworkImage(thumbUrl ?? mediaUrl!),
+                  image: NetworkImage(displayImage),
                   fit: BoxFit.cover,
+                  onError: (_, __) {},
                   colorFilter: isVideo
                       ? ColorFilter.mode(Colors.black.withValues(alpha: 0.3), BlendMode.darken)
                       : null,
@@ -1878,7 +2044,12 @@ class _GridItem extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            if (isVideo) Center(child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40)),
+            if (displayImage == null)
+              Center(
+                child: Icon(isVideo ? Icons.videocam_outlined : Icons.image_outlined, color: C.dim, size: 28),
+              ),
+            if (isVideo && displayImage != null)
+              Center(child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40)),
             Positioned(
               bottom: 12, left: 12,
               child: Row(
