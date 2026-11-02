@@ -144,12 +144,11 @@ class _GiftContainerState extends State<GiftContainer> {
     final hasValidPostUuid = widget.postId != null &&
         uuidRegex.hasMatch(widget.postId!.trim());
 
-    final effectiveContextType = hasValidPostUuid
-        ? (widget.contextType ?? 'creator_post')
-        : 'direct';
+    final effectiveContextType = widget.contextType ??
+        (hasValidPostUuid ? 'creator_post' : 'direct');
     final effectiveContextId = hasValidPostUuid
         ? widget.postId!.trim()
-        : 'direct:$receiverId';
+        : (widget.contextType == 'public_profile' ? 'profile:$receiverId' : 'direct:$receiverId');
 
     try {
       final res = await widget.state.financeGifting.sendGift(

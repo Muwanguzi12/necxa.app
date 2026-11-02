@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
+import 'community/gift_container.dart';
 import 'dart:ui';
 import 'dart:math' as math;
 
@@ -119,6 +120,43 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     }
   }
 
+  void _openGiftSheet(Profile profile) {
+    final senderId = widget.state.user?.id;
+    if (senderId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: C.card,
+          content: Text('Please sign in to send a gift.', style: dm(c: C.text)),
+        ),
+      );
+      return;
+    }
+    if (senderId == profile.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: C.card,
+          content: Text('You cannot send a gift to yourself.', style: dm(c: C.text)),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: GiftContainer(
+          state: widget.state,
+          receiverId: profile.id,
+          contextType: 'public_profile',
+          onDismiss: () => Navigator.pop(ctx),
+        ),
+      ),
+    );
+  }
+
   void _showProfileActions(BuildContext context, Profile profile) {
     final isMe = widget.state.user?.id == profile.id;
     final displayName = resolvePublicProfileName(profile, widget.state);
@@ -135,6 +173,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
           profile,
           _isLocallyFollowing ?? widget.state.followed.contains(profile.id),
         ),
+        onGift: () => _openGiftSheet(profile),
       ),
     );
   }
@@ -241,6 +280,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                     resolvePublicProfileName(profile, widget.state),
                     profile.avatarUrl,
                   ),
+                  onGift: () => _openGiftSheet(profile),
                   onEdit: () => widget.state.go('profile'),
                 ),
               ),
@@ -460,6 +500,7 @@ class _ProfileHeader extends StatelessWidget {
   final VoidCallback onOptions;
   final VoidCallback onFollow;
   final VoidCallback onMessage;
+  final VoidCallback onGift;
   final VoidCallback onEdit;
 
   const _ProfileHeader({
@@ -473,6 +514,7 @@ class _ProfileHeader extends StatelessWidget {
     required this.onOptions,
     required this.onFollow,
     required this.onMessage,
+    required this.onGift,
     required this.onEdit,
   });
 
@@ -632,6 +674,7 @@ class _ProfileHeader extends StatelessWidget {
                     children: [
                       // Message button
                       Expanded(
+                        flex: 5,
                         child: GestureDetector(
                           onTap: onMessage,
                           child: Container(
@@ -658,9 +701,10 @@ class _ProfileHeader extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       // Following/Follow button
                       Expanded(
+                        flex: 5,
                         child: GestureDetector(
                           onTap: onFollow,
                           child: Container(
@@ -691,6 +735,37 @@ class _ProfileHeader extends StatelessWidget {
                                   const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF00E5FF), size: 16),
                                 ],
                               ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // Live Stream Gifting button
+                      GestureDetector(
+                        onTap: onGift,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFFA000), Color(0xFFFF5252)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFFFA000).withValues(alpha: .3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.card_giftcard_rounded,
+                              color: Colors.white,
+                              size: 22,
                             ),
                           ),
                         ),
@@ -1433,6 +1508,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
   final bool isMe;
   final AppState state;
   final VoidCallback onFollowToggle;
+  final VoidCallback onGift;
 
   const _PublicProfileOptionsSheet({
     required this.profile,
@@ -1440,6 +1516,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     required this.isMe,
     required this.state,
     required this.onFollowToggle,
+    required this.onGift,
   });
 
   void _shareProfile(BuildContext context) {
@@ -1480,101 +1557,7 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
 
   void _sendGift(BuildContext context) {
     Navigator.pop(context);
-    final senderId = state.user?.id;
-    if (senderId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: C.card,
-          content: Text('Please sign in to send a gift.', style: dm(c: C.text)),
-        ),
-      );
-      return;
-    }
-    _showGiftSelectionSheet(context);
-  }
-
-  void _showGiftSelectionSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: C.bg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: C.text.withValues(alpha: .1)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.card_giftcard, color: Colors.amberAccent, size: 20),
-                const SizedBox(width: 8),
-                Text('Send Gift to @${profile.username}', style: syne(sz: 16, w: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                ('💎', 'Diamond', 100),
-                ('🚀', 'Rocket', 500),
-                ('👑', 'Crown', 1000),
-                ('⭐', 'Star', 50),
-                ('⚡', 'Spark', 20),
-              ].map((g) => GestureDetector(
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  try {
-                    await state.sendGift(
-                      g.$1, g.$2, g.$3, (g.$3 * 0.05).round(),
-                      receiverId: profile.id,
-                      contextType: 'public_profile',
-                    );
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: C.card,
-                          content: Text('Sent ${g.$1} ${g.$2} to @${profile.username}!', style: dm(c: C.brand)),
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: C.card,
-                          content: Text('Could not send gift: $e', style: dm(c: Colors.redAccent)),
-                        ),
-                      );
-                    }
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: C.card,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: C.dim.withValues(alpha: .3)),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(g.$1, style: const TextStyle(fontSize: 28)),
-                      const SizedBox(height: 4),
-                      Text(g.$2, style: syne(sz: 11, w: FontWeight.w600)),
-                      Text('${g.$3} NCX', style: dm(sz: 10, c: C.brand)),
-                    ],
-                  ),
-                ),
-              )).toList(),
-            ),
-          ],
-        ),
-      ),
-    );
+    onGift();
   }
 
   void _muteUser(BuildContext context) async {
