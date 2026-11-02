@@ -2400,6 +2400,28 @@ class AppState extends ChangeNotifier {
 
       final enriched = Map<String, dynamic>.from(res);
 
+      // If viewing self or if full_name is empty, populate from auth metadata
+      if (id == user?.id) {
+        final authName = myProfile?['full_name'] ??
+            user?.userMetadata?['full_name'] ??
+            user?.userMetadata?['display_name'] ??
+            user?.userMetadata?['name'] ??
+            user?.email?.split('@').first;
+        if (enriched['full_name'] == null || enriched['full_name'].toString().trim().isEmpty) {
+          enriched['full_name'] = authName;
+        }
+        if (enriched['username'] == null || enriched['username'].toString().trim().isEmpty) {
+          enriched['username'] = myProfile?['username'] ??
+              user?.userMetadata?['username'] ??
+              user?.email?.split('@').first;
+        }
+        if (enriched['avatar_url'] == null || enriched['avatar_url'].toString().trim().isEmpty) {
+          enriched['avatar_url'] = myProfile?['avatar_url'] ??
+              user?.userMetadata?['avatar_url'] ??
+              user?.userMetadata?['picture'];
+        }
+      }
+
       // ── Real followers count ──────────────────────────────────────
       try {
         final fRes = await Supabase.instance.client
