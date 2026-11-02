@@ -323,11 +323,128 @@ class _ProfileScreenState extends State<ProfileScreen>
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            '"Living my best life with Necxa."',
-            style: dm(sz: 14, c: C.sub),
+          ListenableBuilder(
+            listenable: widget.state,
+            builder: (context, _) {
+              final bio = widget.state.myProfile?['bio']?.toString().trim();
+              final hasBio = bio != null && bio.isNotEmpty;
+              return GestureDetector(
+                onTap: _showEditBioSheet,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: C.text.withOpacity(.03),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: C.text.withOpacity(.06)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          hasBio ? '"$bio"' : 'Tap to add your biography...',
+                          style: dm(sz: 13, fs: FontStyle.italic, c: hasBio ? C.sub : C.dim),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.edit_outlined, size: 14, color: C.brand),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ],
+      ),
+    );
+  }
+
+  void _showEditBioSheet() {
+    final currentBio = widget.state.myProfile?['bio']?.toString() ?? '';
+    final controller = TextEditingController(text: currentBio);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetCtx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: C.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: C.border),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Edit Biography', style: syne(sz: 18, w: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(sheetCtx),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 4,
+                maxLength: 250,
+                style: dm(c: C.text, sz: 14),
+                decoration: InputDecoration(
+                  hintText: 'Tell the community about yourself, your listings, and services...',
+                  hintStyle: dm(c: C.dim, sz: 13),
+                  filled: true,
+                  fillColor: C.bg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: C.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: C.brand),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: C.brand,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () async {
+                    final newBio = controller.text;
+                    Navigator.pop(sheetCtx);
+                    await widget.state.updateBio(newBio);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: C.card,
+                          content: Text('Biography updated successfully', style: dm(c: C.brand)),
+                        ),
+                      );
+                    }
+                  },
+                  child: Text('Save Biography', style: syne(sz: 14, w: FontWeight.bold, c: Colors.black)),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -356,14 +473,32 @@ class _ProfileScreenState extends State<ProfileScreen>
               },
             ),
             _MetricSeparator(),
-            const _MetricItem(
-              label: 'Reputation',
-              value: '98%',
-              color: C.purple,
-              trend: true,
+            ListenableBuilder(
+              listenable: widget.state,
+              builder: (context, _) {
+                final rep = widget.state.myReputation.toStringAsFixed(1);
+                return _MetricItem(
+                  label: 'Reputation',
+                  value: '$rep / 10',
+                  color: C.purple,
+                  trend: true,
+                );
+              },
             ),
             _MetricSeparator(),
-            _MetricItem(label: 'Posts', value: '01', color: C.text),
+            ListenableBuilder(
+              listenable: widget.state,
+              builder: (context, _) {
+                final posts = (widget.state.myProfile?['posts_count'] is num)
+                    ? (widget.state.myProfile!['posts_count'] as num).toInt()
+                    : widget.state.myPosts.length;
+                return _MetricItem(
+                  label: 'Posts',
+                  value: posts.toString().padLeft(2, '0'),
+                  color: C.text,
+                );
+              },
+            ),
           ],
         ),
       ),

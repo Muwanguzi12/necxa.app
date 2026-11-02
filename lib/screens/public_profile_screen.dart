@@ -186,40 +186,60 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
             ],
             body: Column(
               children: [
-                // Pinned tab bar
                 Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   color: C.bg,
-                  child: TabBar(
-                    controller: _tabController,
-                    indicatorColor: C.brand,
-                    indicatorWeight: 2,
-                    dividerColor: C.text.withValues(alpha: .06),
-                    labelStyle: syne(sz: 12, w: FontWeight.w900, ls: 2),
-                    unselectedLabelStyle: syne(sz: 12, w: FontWeight.w500, ls: 2),
-                    labelColor: C.brand,
-                    unselectedLabelColor: C.dim,
-                    tabs: [
-                      Tab(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.play_circle_outline_rounded, size: 16),
-                            const SizedBox(width: 6),
-                            Text(_hasListings ? 'SHOWCASE' : 'CONTENT'),
-                          ],
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF070E22),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.25)),
+                    ),
+                    padding: const EdgeInsets.all(4),
+                    child: TabBar(
+                      controller: _tabController,
+                      indicator: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF00E5FF), Color(0xFFD946EF)],
                         ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00E5FF).withOpacity(0.35),
+                            blurRadius: 10,
+                          ),
+                        ],
                       ),
-                      Tab(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.grid_view_rounded, size: 16),
-                            const SizedBox(width: 6),
-                            const Text('FEED'),
-                          ],
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      dividerColor: Colors.transparent,
+                      labelStyle: syne(sz: 13, w: FontWeight.w900, ls: 1),
+                      unselectedLabelStyle: syne(sz: 13, w: FontWeight.w700, ls: 1),
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white70,
+                      tabs: [
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.play_arrow_rounded, size: 20),
+                              SizedBox(width: 6),
+                              Text('CONTENT'),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.grid_view_rounded, size: 17),
+                              SizedBox(width: 6),
+                              Text('FEED'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 Expanded(
@@ -348,43 +368,40 @@ class _ProfileHeader extends StatelessWidget {
     final bioText = hasBio
         ? profile.bio!
         : 'Welcome to my profile! Feel free to connect, message, and explore my listings and posts.';
-    final reputationScore = (profile.trustScore > 0)
-        ? (profile.trustScore / 10).toStringAsFixed(1)
-        : '5.0';
+    final reputationScore = (profile.reputation > 0)
+        ? profile.reputation.toStringAsFixed(1)
+        : (profile.trustScore > 0 ? (profile.trustScore / 10).toStringAsFixed(1) : '5.0');
+    final topPad = MediaQuery.of(context).padding.top;
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ── Banner + Avatar ──────────────────────────────────────────
+        // ── Banner with HUD and Earth/Network Globe ─────────────────
         Stack(
           clipBehavior: Clip.none,
-          alignment: Alignment.bottomCenter,
           children: [
-            // Banner
-            _NodeBanner(topPad: MediaQuery.of(context).padding.top),
-
-            // HUD overlay on banner
+            _NodeBanner(topPad: topPad),
             Positioned(
-              top: MediaQuery.of(context).padding.top + 10,
+              top: topPad + 10,
               left: 16,
               right: 16,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _HUDButton(icon: Icons.arrow_back_ios_new, onTap: onBack),
-                  // Title
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(4),
+                        padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)]),
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(7),
                         ),
-                        child: const Icon(Icons.person_rounded, size: 14, color: Colors.white),
+                        child: const Icon(Icons.view_in_ar_rounded, size: 14, color: Colors.white),
                       ),
                       const SizedBox(width: 8),
-                      Text('PUBLIC PROFILE',
+                      Text('PUBLIC NODE',
                           style: syne(sz: 13, w: FontWeight.w900, ls: 2, c: C.brand)),
                     ],
                   ),
@@ -392,361 +409,373 @@ class _ProfileHeader extends StatelessWidget {
                 ],
               ),
             ),
-
-            // Avatar overlapping the banner bottom edge
-            Positioned(
-              bottom: -56,
-              child: _AvatarContainer(url: profile.avatarUrl, size: 112),
-            ),
           ],
         ),
 
-        const SizedBox(height: 64), // space for overflowing avatar
+        // ── Overlapping Avatar + Adjacent Name & Username Row ───────
+        Transform.translate(
+          offset: const Offset(0, -36),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Avatar on the LEFT with glowing ring and verified badge
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _AvatarContainer(url: profile.avatarUrl, size: 84),
+                        if (profile.verified || profile.trustScoreTier == 'titan_trust' || profile.aiVerified)
+                          Positioned(
+                            bottom: -2,
+                            right: -2,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF030712),
+                                shape: BoxShape.circle,
+                              ),
+                              padding: const EdgeInsets.all(2),
+                              child: const Icon(
+                                Icons.verified,
+                                color: Color(0xFF00E5FF),
+                                size: 22,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
 
-        // ── Name + username + badges ─────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            children: [
-              // Name
-              Wrap(
-                alignment: WrapAlignment.center,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                children: [
-                  Text(
-                    displayName,
-                    style: syne(sz: 24, w: FontWeight.w900, ls: -0.5),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (profile.verified || profile.trustScoreTier == 'titan_trust')
-                    Icon(Icons.verified, color: C.brand, size: 22),
-                  if (profile.aiVerified)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: C.purple.withValues(alpha: .15),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: C.purple.withValues(alpha: .4)),
-                      ),
-                      child: Row(
+                    // Adjacent Name + @username + Tier Badge on the RIGHT
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.verified_user_rounded, color: C.purple, size: 10),
-                          const SizedBox(width: 3),
-                          Text('VERIFIED', style: syne(sz: 8, w: FontWeight.w800, c: C.purple)),
+                          Text(
+                            displayName.toUpperCase(),
+                            style: syne(sz: 21, w: FontWeight.w900, fs: FontStyle.italic, ls: -0.5),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Text('@', style: dm(sz: 13, c: const Color(0xFF00E5FF))),
+                              Flexible(
+                                child: Text(
+                                  profile.username,
+                                  style: dm(sz: 13, w: FontWeight.w700, c: const Color(0xFF00E5FF)),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF00E5FF).withValues(alpha: .08),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .3)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.view_in_ar_rounded, size: 10, color: Color(0xFF00E5FF)),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      (profile.trustScoreTier ?? 'STANDARD NODE').toUpperCase().replaceAll('_', ' '),
+                                      style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: const Color(0xFF00E5FF)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              // @ handle + member type
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('@', style: dm(sz: 13, c: C.brand)),
-                  Text(profile.username, style: dm(sz: 13, w: FontWeight.w700, c: C.brand)),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: C.text.withValues(alpha: .04),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: C.text.withValues(alpha: .1)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.shield_outlined, size: 10, color: C.dim),
-                        const SizedBox(width: 4),
-                        Text(
-                          (profile.trustScoreTier ?? 'MEMBER').toUpperCase().replaceAll('_', ' '),
-                          style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: C.dim),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 8),
-              // Bio text (clean, friendly excerpt)
-              Text(
-                bioText,
-                style: dm(sz: 13, c: C.text.withValues(alpha: .7), h: 1.5),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-
-              const SizedBox(height: 18),
-
-              // ── Stats Row ────────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                decoration: BoxDecoration(
-                  color: C.text.withValues(alpha: .03),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: C.text.withValues(alpha: .06)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _StatItem(
-                      icon: Icons.group_outlined,
-                      label: 'FOLLOWERS',
-                      value: kNum(effectiveFollowers),
-                      color: C.text,
-                    ),
-                    _StatDivider(),
-                    _StatItem(
-                      icon: Icons.favorite_outline_rounded,
-                      label: 'LIKES',
-                      value: kNum(profile.likesCount),
-                      color: C.purple,
-                    ),
-                    _StatDivider(),
-                    _StatItem(
-                      icon: Icons.play_circle_outline,
-                      label: 'POSTS',
-                      value: profile.postsCount.toString(),
-                      color: C.brand,
-                    ),
                   ],
                 ),
-              ),
 
-              const SizedBox(height: 14),
+                const SizedBox(height: 12),
 
-              // ── Action Buttons ───────────────────────────────────────
-              if (!isMe) Row(
-                children: [
-                  // Message button
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: onMessage,
-                      child: Container(
-                        height: 48,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [C.brand, C.purple]),
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [BoxShadow(color: C.brand.withValues(alpha: .25), blurRadius: 12, offset: const Offset(0, 4))],
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 17),
-                            const SizedBox(width: 8),
-                            Text('MESSAGE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Follow button
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: onFollow,
-                      child: Container(
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: isFollowing ? Colors.transparent : C.brand.withValues(alpha: .12),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: isFollowing ? C.brand : C.brand.withValues(alpha: .4),
-                            width: 1.5,
+                // ── Bio text (Full width, italic) ──────────────────────
+                Text(
+                  bioText,
+                  style: dm(sz: 12.5, fs: FontStyle.italic, c: C.text.withValues(alpha: .75), h: 1.45),
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Action Buttons ─────────────────────────────────────
+                if (!isMe)
+                  Row(
+                    children: [
+                      // Message button
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: onMessage,
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)]),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF00E5FF).withValues(alpha: .25),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 17),
+                                const SizedBox(width: 8),
+                                Text('MESSAGE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: Colors.white)),
+                              ],
+                            ),
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              isFollowing
-                                  ? Icons.how_to_reg_rounded
-                                  : Icons.person_add_outlined,
-                              color: C.brand,
-                              size: 17,
+                      ),
+                      const SizedBox(width: 12),
+                      // Following/Follow button
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: onFollow,
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: isFollowing ? Colors.transparent : const Color(0xFF00E5FF).withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isFollowing ? const Color(0xFF00E5FF) : const Color(0xFF00E5FF).withValues(alpha: .4),
+                                width: 1.5,
+                              ),
                             ),
-                            const SizedBox(width: 8),
-                            Text(
-                              isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
-                              style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: C.brand),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  isFollowing ? Icons.how_to_reg_rounded : Icons.person_add_outlined,
+                                  color: const Color(0xFF00E5FF),
+                                  size: 17,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
+                                  style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: const Color(0xFF00E5FF)),
+                                ),
+                                if (isFollowing) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF00E5FF), size: 16),
+                                ],
+                              ],
                             ),
-                            if (isFollowing) ...[
-                              const SizedBox(width: 4),
-                              Icon(Icons.keyboard_arrow_down_rounded, color: C.brand, size: 16),
-                            ],
-                          ],
+                          ),
                         ),
+                      ),
+                    ],
+                  )
+                else
+                  GestureDetector(
+                    onTap: onEdit,
+                    child: Container(
+                      width: double.infinity,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: C.brand.withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: C.brand.withValues(alpha: .4)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.edit_outlined, size: 16, color: C.brand),
+                          const SizedBox(width: 8),
+                          Text('EDIT PROFILE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: C.brand)),
+                        ],
                       ),
                     ),
                   ),
-                ],
-              ) else GestureDetector(
-                onTap: onEdit,
-                child: Container(
-                  width: double.infinity,
-                  height: 48,
+
+                const SizedBox(height: 14),
+
+                // ── Stats Row ──────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
                   decoration: BoxDecoration(
-                    color: C.brand.withValues(alpha: .10),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: C.brand.withValues(alpha: .4)),
+                    color: C.text.withValues(alpha: .03),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: C.text.withValues(alpha: .06)),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      Icon(Icons.edit_outlined, size: 16, color: C.brand),
-                      const SizedBox(width: 8),
-                      Text('EDIT PROFILE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: C.brand)),
+                      _StatItem(
+                        icon: Icons.people_alt_rounded,
+                        label: 'FOLLOWERS',
+                        value: kNum(effectiveFollowers),
+                        color: const Color(0xFF00E5FF),
+                      ),
+                      _StatDivider(),
+                      _StatItem(
+                        icon: Icons.favorite_rounded,
+                        label: 'LIKES',
+                        value: kNum(profile.likesCount),
+                        color: const Color(0xFFA855F7),
+                      ),
+                      _StatDivider(),
+                      _StatItem(
+                        icon: Icons.play_circle_outline_rounded,
+                        label: 'POSTS',
+                        value: profile.postsCount.toString(),
+                        color: const Color(0xFF10B981),
+                      ),
                     ],
                   ),
                 ),
-              ),
 
-              const SizedBox(height: 20),
+                const SizedBox(height: 14),
 
-              // ── About Profile Card ────────────────────────────────────
-              Container(
-                decoration: BoxDecoration(
-                  color: C.text.withValues(alpha: .03),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: C.text.withValues(alpha: .06)),
-                ),
-                child: Column(
-                  children: [
-                    // Header row
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: C.brand.withValues(alpha: .12),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(Icons.person_outline_rounded, color: C.brand, size: 16),
-                          ),
-                          const SizedBox(width: 10),
-                          Text('ABOUT',
-                              style: syne(sz: 13, w: FontWeight.w900, ls: 1)),
-                          const Spacer(),
-                          GestureDetector(
-                            onTap: () => _showNodeDetailsSheet(context, profile, bioText, reputationScore),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                // ── Node Overview Card ─────────────────────────────────
+                Container(
+                  decoration: BoxDecoration(
+                    color: C.text.withValues(alpha: .03),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: C.text.withValues(alpha: .06)),
+                  ),
+                  child: Column(
+                    children: [
+                      // Header row
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
-                                color: C.text.withValues(alpha: .04),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: C.text.withValues(alpha: .08)),
+                                color: const Color(0xFF00E5FF).withValues(alpha: .12),
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Text('VIEW MORE ›', style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.brand)),
+                              child: const Icon(Icons.view_in_ar_rounded, color: Color(0xFF00E5FF), size: 16),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 10),
+                            Text('NODE OVERVIEW', style: syne(sz: 13, w: FontWeight.w900, ls: 1)),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: () => _showNodeDetailsSheet(context, profile, bioText, reputationScore),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: C.text.withValues(alpha: .04),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: C.text.withValues(alpha: .08)),
+                                ),
+                                child: Text('VIEW MORE ›', style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: const Color(0xFF00E5FF))),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
 
-                    // Bio body with icon
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: C.brand.withValues(alpha: .08),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: C.brand.withValues(alpha: .15)),
+                      // Polyhedron + Bio Body
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 58,
+                              height: 58,
+                              child: CustomPaint(painter: _GeodesicSpherePainter()),
                             ),
-                            child: Icon(Icons.format_quote_rounded, color: C.brand, size: 20),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              bioText,
-                              style: dm(sz: 13, c: C.text.withValues(alpha: .75), h: 1.55),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                bioText,
+                                style: dm(sz: 12.5, c: C.text.withValues(alpha: .75), h: 1.45),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 14),
+                      const SizedBox(height: 14),
 
-                    // Reputation + Trust score 2-col grid
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _MetricCard(
-                              icon: Icons.star_rounded,
-                              iconColor: Colors.amber,
-                              label: 'REPUTATION',
-                              value: '$reputationScore / 10',
-                              barValue: profile.trustScore / 100,
-                              barColor: Colors.amber,
+                      // Reputation + Trust score progress bars
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _MetricProgressBar(
+                                label: 'REPUTATION',
+                                value: '$reputationScore / 10',
+                                progress: ((double.tryParse(reputationScore) ?? 5.0) / 10.0).clamp(0.0, 1.0),
+                                color: const Color(0xFF00E5FF),
+                                icon: Icons.star_rounded,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _MetricCard(
-                              icon: Icons.verified_user_rounded,
-                              iconColor: C.purple,
-                              label: 'TRUST SCORE',
-                              value: '${profile.trustScore}%',
-                              barValue: profile.trustScore / 100,
-                              barColor: C.purple,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _MetricProgressBar(
+                                label: 'TRUST SCORE',
+                                value: '${profile.trustScore}%',
+                                progress: (profile.trustScore / 100.0).clamp(0.0, 1.0),
+                                color: const Color(0xFFA855F7),
+                                icon: Icons.verified_user_rounded,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 14),
+                      const SizedBox(height: 14),
 
-                    // Badges row
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          _SysBadge(
-                            icon: Icons.location_on_outlined,
-                            label: (profile.district != null && profile.district!.isNotEmpty)
-                                ? profile.district!.toUpperCase()
-                                : 'EAST AFRICA',
-                          ),
-                          _VertDivider(),
-                          _SysBadge(
-                            icon: Icons.calendar_today_rounded,
-                            label: 'MEMBER SINCE ${profile.createdAt.year}',
-                          ),
-                          _VertDivider(),
-                          _SysBadge(
-                            icon: Icons.workspace_premium_rounded,
-                            label: (profile.trustScoreTier ?? 'STANDARD').toUpperCase().replaceAll('_', ' '),
-                            color: C.purple,
-                          ),
-                        ],
+                      // Badges row
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            _SysBadge(
+                              icon: Icons.location_on_outlined,
+                              label: (profile.district != null && profile.district!.isNotEmpty)
+                                  ? profile.district!.toUpperCase()
+                                  : 'EAST AFRICA',
+                            ),
+                            _VertDivider(),
+                            _SysBadge(
+                              icon: Icons.calendar_today_rounded,
+                              label: '${profile.createdAt.year}',
+                            ),
+                            _VertDivider(),
+                            _SysBadge(
+                              icon: Icons.workspace_premium_rounded,
+                              label: (profile.trustScoreTier ?? 'STANDARD').toUpperCase().replaceAll('_', ' '),
+                              color: const Color(0xFFA855F7),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 14),
-                  ],
+                      const SizedBox(height: 14),
+                    ],
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 16),
-            ],
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ],
@@ -898,62 +927,55 @@ class _NodeBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: topPad + 160,
+      height: topPad + 130,
       width: double.infinity,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Deep space gradient
+          // Cyber deep space gradient
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF050A1A),
-                  Color(0xFF0A0E2A),
-                  Color(0xFF0D1540),
+                  Color(0xFF030712),
+                  Color(0xFF081229),
+                  Color(0xFF0D1B3E),
                 ],
               ),
             ),
           ),
-          // Globe glow circles
+          // Glow orbs
           Positioned(
-            right: -30, top: -20,
+            right: -20,
+            top: -20,
             child: Container(
-              width: 220, height: 220,
+              width: 220,
+              height: 220,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    const Color(0xFF1E3A8A).withValues(alpha: .5),
-                    const Color(0xFF06B6D4).withValues(alpha: .15),
+                    const Color(0xFF00E5FF).withValues(alpha: .18),
+                    const Color(0xFF1E3A8A).withValues(alpha: .12),
                     Colors.transparent,
                   ],
                 ),
               ),
             ),
           ),
-          // Brand accent glow
-          Positioned(
-            left: -40, bottom: -10,
-            child: Container(
-              width: 160, height: 160,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: C.brand.withValues(alpha: .1),
-              ),
-            ),
-          ),
-          // Network lines painter
+          // Earth/Tech globe CustomPaint
           Positioned.fill(
-            child: CustomPaint(painter: _BannerNetworkPainter()),
+            child: CustomPaint(painter: _EarthGlobePainter()),
           ),
           // Bottom fade to bg
           Positioned(
-            bottom: 0, left: 0, right: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
             child: Container(
-              height: 60,
+              height: 50,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
@@ -969,38 +991,67 @@ class _NodeBanner extends StatelessWidget {
   }
 }
 
-// ── Banner network lines painter ─────────────────────────────────────────────
+// ── 3D Earth / Tech Globe Banner Painter ─────────────────────────────────────
 
-class _BannerNetworkPainter extends CustomPainter {
+class _EarthGlobePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFF06B6D4).withValues(alpha: .12)
-      ..strokeWidth = 0.8
+    final cx = size.width * 0.78;
+    final cy = size.height * 0.45;
+    final r = size.height * 0.55;
+
+    final globeGlow = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFF00E5FF).withValues(alpha: .25),
+          const Color(0xFF1E3A8A).withValues(alpha: .15),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r * 1.3));
+    canvas.drawCircle(Offset(cx, cy), r * 1.25, globeGlow);
+
+    final arcPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .18)
+      ..strokeWidth = 0.9
       ..style = PaintingStyle.stroke;
 
-    final nodePaint = Paint()
-      ..color = const Color(0xFF06B6D4).withValues(alpha: .25)
+    final dotPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .4)
       ..style = PaintingStyle.fill;
 
-    final nodes = [
-      Offset(size.width * .15, size.height * .25),
-      Offset(size.width * .35, size.height * .55),
-      Offset(size.width * .6, size.height * .2),
-      Offset(size.width * .8, size.height * .5),
-      Offset(size.width * .5, size.height * .75),
-      Offset(size.width * .25, size.height * .75),
-    ];
-
-    final connections = [
-      [0, 1], [0, 2], [1, 2], [2, 3], [3, 4], [1, 4], [1, 5],
-    ];
-
-    for (final c in connections) {
-      canvas.drawLine(nodes[c[0]], nodes[c[1]], paint);
+    // Draw latitude ellipses
+    for (double i = -0.7; i <= 0.7; i += 0.35) {
+      final yOffset = cy + i * r;
+      final radAtY = math.sqrt(math.max(0.0, r * r - (yOffset - cy) * (yOffset - cy)));
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(cx, yOffset), width: radAtY * 2, height: radAtY * 0.6),
+        arcPaint,
+      );
     }
-    for (final n in nodes) {
-      canvas.drawCircle(n, 2.5, nodePaint);
+
+    // Draw longitude ellipses
+    for (double i = 0.2; i <= 1.0; i += 0.35) {
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(cx, cy), width: r * 2 * i, height: r * 2),
+        arcPaint,
+      );
+    }
+
+    // Network node dots & connecting arcs
+    final pts = [
+      Offset(cx - r * 0.4, cy - r * 0.2),
+      Offset(cx - r * 0.1, cy - r * 0.5),
+      Offset(cx + r * 0.3, cy - r * 0.3),
+      Offset(cx + r * 0.5, cy + r * 0.1),
+      Offset(cx + r * 0.2, cy + r * 0.4),
+      Offset(cx - r * 0.2, cy + r * 0.3),
+    ];
+    final linePaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .22)
+      ..strokeWidth = 0.8;
+    for (int i = 0; i < pts.length; i++) {
+      canvas.drawLine(pts[i], pts[(i + 1) % pts.length], linePaint);
+      canvas.drawCircle(pts[i], 2.2, dotPaint);
     }
   }
 
@@ -1008,32 +1059,103 @@ class _BannerNetworkPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-// ── Network node icon painter ─────────────────────────────────────────────────
+// ── 3D Geodesic Polyhedron Sphere Painter ─────────────────────────────────────
 
-class _NetworkNodePainter extends CustomPainter {
+class _GeodesicSpherePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
     final cy = size.height / 2;
-    final r = size.width * .32;
-    final paint = Paint()
-      ..color = C.brand.withValues(alpha: .4)
-      ..strokeWidth = 1
+    final r = size.width * 0.42;
+
+    // Outer glow
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFF00E5FF).withValues(alpha: .25),
+          const Color(0xFF9D00FF).withValues(alpha: .12),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r * 1.2));
+    canvas.drawCircle(Offset(cx, cy), r * 1.15, glowPaint);
+
+    final linePaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .65)
+      ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
-    final dotPaint = Paint()..color = C.brand.withValues(alpha: .6)..style = PaintingStyle.fill;
 
-    final pts = List.generate(6, (i) {
-      final angle = (i / 6) * 2 * math.pi - math.pi / 2;
-      return Offset(cx + r * math.cos(angle), cy + r * math.sin(angle));
-    });
+    final innerLinePaint = Paint()
+      ..color = const Color(0xFF9D00FF).withValues(alpha: .45)
+      ..strokeWidth = 0.8
+      ..style = PaintingStyle.stroke;
 
-    for (var i = 0; i < pts.length; i++) {
-      canvas.drawLine(pts[i], pts[(i + 1) % pts.length], paint);
-      canvas.drawLine(pts[i], Offset(cx, cy), paint);
+    final nodePaint = Paint()
+      ..color = const Color(0xFF00E5FF)
+      ..style = PaintingStyle.fill;
+
+    // 3D vertices of an icosahedron
+    final phi = (1.0 + math.sqrt(5.0)) / 2.0;
+    final rawVertices = [
+      [-1.0,  phi,  0.0],
+      [ 1.0,  phi,  0.0],
+      [-1.0, -phi,  0.0],
+      [ 1.0, -phi,  0.0],
+      [ 0.0, -1.0,  phi],
+      [ 0.0,  1.0,  phi],
+      [ 0.0, -1.0, -phi],
+      [ 0.0,  1.0, -phi],
+      [ phi,  0.0, -1.0],
+      [ phi,  0.0,  1.0],
+      [-phi,  0.0, -1.0],
+      [-phi,  0.0,  1.0],
+    ];
+
+    // Isometric rotation
+    const angleX = 0.45;
+    const angleY = 0.65;
+    final cosX = math.cos(angleX);
+    final sinX = math.sin(angleX);
+    final cosY = math.cos(angleY);
+    final sinY = math.sin(angleY);
+
+    final pts2d = <Offset>[];
+    final zVals = <double>[];
+
+    for (final v in rawVertices) {
+      final len = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+      final x = v[0] / len;
+      final y = v[1] / len;
+      final z = v[2] / len;
+
+      final x1 = x * cosY + z * sinY;
+      final z1 = -x * sinY + z * cosY;
+
+      final y2 = y * cosX - z1 * sinX;
+      final z2 = y * sinX + z1 * cosX;
+
+      pts2d.add(Offset(cx + x1 * r, cy + y2 * r));
+      zVals.add(z2);
     }
-    canvas.drawCircle(Offset(cx, cy), 3, dotPaint);
-    for (final p in pts) {
-      canvas.drawCircle(p, 2, dotPaint);
+
+    // Connect vertices
+    for (int i = 0; i < rawVertices.length; i++) {
+      for (int j = i + 1; j < rawVertices.length; j++) {
+        final dx = rawVertices[i][0] - rawVertices[j][0];
+        final dy = rawVertices[i][1] - rawVertices[j][1];
+        final dz = rawVertices[i][2] - rawVertices[j][2];
+        final dist = math.sqrt(dx * dx + dy * dy + dz * dz);
+        if ((dist - 2.0).abs() < 0.2) {
+          final isFront = (zVals[i] + zVals[j]) > -0.2;
+          canvas.drawLine(pts2d[i], pts2d[j], isFront ? linePaint : innerLinePaint);
+        }
+      }
+    }
+
+    // Draw glowing nodes on front vertices
+    for (int i = 0; i < pts2d.length; i++) {
+      if (zVals[i] > -0.2) {
+        canvas.drawCircle(pts2d[i], 2.2, nodePaint);
+      }
     }
   }
 
@@ -1041,54 +1163,61 @@ class _NetworkNodePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-// ── Metric card (reputation / trust score) ────────────────────────────────────
+// ── Metric Progress Bar ───────────────────────────────────────────────────────
 
-class _MetricCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
+class _MetricProgressBar extends StatelessWidget {
   final String label;
   final String value;
-  final double barValue;
-  final Color barColor;
+  final double progress;
+  final Color color;
+  final IconData icon;
 
-  const _MetricCard({
-    required this.icon,
-    required this.iconColor,
+  const _MetricProgressBar({
     required this.label,
     required this.value,
-    required this.barValue,
-    required this.barColor,
+    required this.progress,
+    required this.color,
+    required this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: C.text.withValues(alpha: .04),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: C.text.withValues(alpha: .07)),
+        border: Border.all(color: C.text.withValues(alpha: .06)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, color: iconColor, size: 16),
+              Icon(icon, size: 14, color: color),
               const SizedBox(width: 6),
-              Text(label, style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: C.dim)),
+              Expanded(
+                child: Text(
+                  label,
+                  style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: C.dim),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                value,
+                style: syne(sz: 11, w: FontWeight.w800, c: color),
+              ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(value, style: syne(sz: 16, w: FontWeight.w900, c: C.text)),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
-              value: barValue.clamp(0.0, 1.0),
+              value: progress,
               backgroundColor: C.text.withValues(alpha: .08),
-              valueColor: AlwaysStoppedAnimation(barColor),
-              minHeight: 4,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              minHeight: 5,
             ),
           ),
         ],
@@ -1096,6 +1225,7 @@ class _MetricCard extends StatelessWidget {
     );
   }
 }
+
 
 class _MetricDetailBox extends StatelessWidget {
   final String title;
@@ -1646,27 +1776,42 @@ class _ProductGridItem extends StatelessWidget {
 class _AvatarContainer extends StatelessWidget {
   final String? url;
   final double size;
-  const _AvatarContainer({this.url, this.size = 96});
+  const _AvatarContainer({this.url, this.size = 84});
 
   @override
   Widget build(BuildContext context) {
-    final inner = size - 14;
     return Container(
-      width: size, height: size,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * .38),
-        gradient: const LinearGradient(colors: [C.brand, Color(0xFFa855f7)]),
-        boxShadow: [BoxShadow(color: C.brand.withValues(alpha: .35), blurRadius: 24, spreadRadius: 2)],
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E5FF).withValues(alpha: .4),
+            blurRadius: 18,
+            spreadRadius: 1,
+          ),
+        ],
       ),
       padding: const EdgeInsets.all(3),
       child: Container(
-        decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(size * .36)),
-        padding: const EdgeInsets.all(4),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(inner * .5),
+        decoration: BoxDecoration(
+          color: C.bg,
+          shape: BoxShape.circle,
+        ),
+        padding: const EdgeInsets.all(3),
+        child: ClipOval(
           child: url != null
-              ? Image.network(url!, fit: BoxFit.cover,
-                  errorBuilder: (c, e, s) => Center(child: Icon(Icons.person, color: C.brand, size: size * .45)))
+              ? Image.network(
+                  url!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (c, e, s) => Center(child: Icon(Icons.person, color: C.brand, size: size * .45)),
+                )
               : Center(child: Icon(Icons.person, color: C.dim, size: size * .45)),
         ),
       ),

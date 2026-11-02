@@ -648,6 +648,18 @@ class AppState extends ChangeNotifier {
     user?.userMetadata?['username'],
   ]);
 
+  int get myTrustScore {
+    final v = myProfile?['trust_score'];
+    if (v is num) return v.toInt();
+    return 50;
+  }
+
+  double get myReputation {
+    final v = myProfile?['reputation'];
+    if (v is num) return v.toDouble();
+    return (myTrustScore / 10.0).clamp(1.0, 10.0);
+  }
+
   Future<void> loadMyProfile() async {
     if (user == null) return;
     final profile = await social.getProfile(user!.id);
@@ -747,6 +759,32 @@ class AppState extends ChangeNotifier {
         );
       } catch (_) {}
     }
+  }
+
+  Future<void> updateBio(String newBio) async {
+    if (user == null) return;
+    final trimmed = newBio.trim();
+    // 1. Update Supabase profiles table
+    try {
+      await social.updateProfile(user!.id, {'bio': trimmed});
+    } catch (e) {
+      debugPrint('Error updating bio in Supabase: $e');
+    }
+    // 2. Update in-memory profile
+    if (myProfile != null) {
+      myProfile!['bio'] = trimmed;
+    }
+    // 3. Update local SQLite cache
+    final localDb = LocalDbService();
+    await localDb.database.then(
+      (db) => db.update(
+        'social_profiles',
+        {'bio': trimmed},
+        where: 'id = ?',
+        whereArgs: [user!.id],
+      ),
+    ).catchError((_) => 0);
+    notify();
   }
 
   // ── Live Streaming State ──
@@ -2382,6 +2420,7 @@ class AppState extends ChangeNotifier {
         'following_count': cached['following_count'] ?? 0,
         'likes_count': cached['likes_count'] ?? 0,
         'posts_count': cached['posts_count'] ?? 0,
+        'reputation': cached['reputation'],
         'created_at': cached['created_at'],
       });
     }
@@ -2453,6 +2492,23 @@ class AppState extends ChangeNotifier {
         }
         enriched['likes_count'] = totalLikes;
       } catch (_) {}
+
+      // ── Real trust score & reputation calculation ─────────────────
+      int trustScore = (enriched['trust_score'] is num) ? (enriched['trust_score'] as num).toInt() : 0;
+      if (trustScore == 0) {
+        int computed = 45; // baseline
+        if (enriched['is_verified'] == true || enriched['verified'] == true) computed += 25;
+        if (enriched['ai_verified'] == true) computed += 15;
+        if (enriched['avatar_url'] != null && enriched['avatar_url'].toString().isNotEmpty) computed += 5;
+        if (enriched['bio'] != null && enriched['bio'].toString().isNotEmpty) computed += 5;
+        if (enriched['posts_count'] != null && (enriched['posts_count'] as int) > 0) computed += 5;
+        trustScore = computed.clamp(10, 100);
+        enriched['trust_score'] = trustScore;
+      }
+      double reputation = (enriched['reputation'] is num)
+          ? (enriched['reputation'] as num).toDouble()
+          : (trustScore / 10.0).clamp(1.0, 10.0);
+      enriched['reputation'] = reputation;
 
       final profile = Profile.fromMap(enriched);
 
