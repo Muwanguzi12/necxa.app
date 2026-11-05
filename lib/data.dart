@@ -70,6 +70,12 @@ class Profile {
 
   final double reputation;
 
+  // ── Artist fields ──
+  final bool isArtist;
+  final String? artistName;
+  final String? artistGenre;
+  final String? artistDistributorLink;
+
   Profile({
     required this.id,
     required this.username,
@@ -87,6 +93,10 @@ class Profile {
     this.trustScoreTier,
     this.district,
     this.reputation = 5.0,
+    this.isArtist = false,
+    this.artistName,
+    this.artistGenre,
+    this.artistDistributorLink,
   });
 
   factory Profile.fromMap(Map<String, dynamic> m) {
@@ -152,6 +162,10 @@ class Profile {
       trustScoreTier: m['trust_score_tier'] as String?,
       district: m['district'] as String?,
       reputation: rep,
+      isArtist: m['is_artist'] == true || m['is_artist'] == 1,
+      artistName: m['artist_name']?.toString(),
+      artistGenre: m['artist_genre']?.toString(),
+      artistDistributorLink: m['artist_distributor_link']?.toString(),
     );
   }
 }
