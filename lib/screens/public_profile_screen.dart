@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
+import '../models/music_models.dart';
 import 'community/gift_container.dart';
 import 'dart:ui';
 import 'dart:math' as math;
@@ -50,7 +51,6 @@ String _formatTier(String? tier) {
 class _PublicProfileScreenState extends State<PublicProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  bool _hasListings = false;
   bool _isViewedArtist = false;
   int? _localFollowerDelta;
   bool? _isLocallyFollowing;
@@ -77,13 +77,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     final targetId = _effectiveTargetId;
     if (targetId.isEmpty) return;
 
-    // Check listings
-    final listings = await widget.state.social.fetchUserListings(targetId);
-    if (mounted && listings.isNotEmpty) {
-      setState(() => _hasListings = true);
-    }
-
-    // Check if viewed profile is an artist (own profile matches local state, or profile row says so)
+    // Check if viewed profile is an artist (own profile matches local state, profile row says so, or has tracks on Goobox)
     final bool viewingOwnProfile = targetId == widget.state.user?.id;
     bool artistFlag = viewingOwnProfile && widget.state.isArtist;
     if (!artistFlag) {
@@ -91,6 +85,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
       try {
         final profile = await widget.state.getProfile(targetId);
         if (profile != null) artistFlag = profile.isArtist;
+      } catch (_) {}
+    }
+    if (!artistFlag) {
+      // Try checking if artist has tracks in Goobox Supabase
+      try {
+        final gooboxTracks = await widget.state.artistMusic.fetchArtistTracks(targetId);
+        if (gooboxTracks.isNotEmpty) artistFlag = true;
       } catch (_) {}
     }
 
@@ -597,30 +598,20 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
           Text('RELEASES & TRACKS', style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 2)),
           const SizedBox(height: 14),
 
-          // Music tracks — from listings where objective is 'conversion'
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: widget.state.social.fetchUserListings(targetId),
+          // Music tracks — fetched directly from Goobox Supabase storage
+          FutureBuilder<List<MusicTrack>>(
+            future: widget.state.artistMusic.fetchArtistTracks(targetId),
             builder: (context, snapshot) {
-              final all = snapshot.data ?? [];
-              // Filter for audio/music type listings
-              final musicItems = all.where((l) {
-                final obj = (l['objective'] ?? l['type'] ?? '').toString();
-                final cat = (l['category'] ?? '').toString().toLowerCase();
-                return obj == 'conversion' ||
-                    cat.contains('music') ||
-                    cat.contains('audio') ||
-                    cat.contains('track') ||
-                    cat.contains('album');
-              }).toList();
+              final tracks = snapshot.data ?? [];
 
-              if (snapshot.connectionState == ConnectionState.waiting && musicItems.isEmpty) {
+              if (snapshot.connectionState == ConnectionState.waiting && tracks.isEmpty) {
                 return const Center(child: Padding(
                   padding: EdgeInsets.all(32),
                   child: CircularProgressIndicator(color: Color(0xFF7B2FFF)),
                 ));
               }
 
-              if (musicItems.isEmpty) {
+              if (tracks.isEmpty) {
                 return _ArtistEmptyMusic(
                   isOwnProfile: isOwnProfile,
                   onUpload: () {
@@ -632,9 +623,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
               return ListView.separated(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: musicItems.length,
+                itemCount: tracks.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) => _MusicTrackTile(listing: musicItems[i], state: widget.state),
+                itemBuilder: (context, i) => _GooboxMusicTrackTile(track: tracks[i], state: widget.state),
               );
             },
           ),
@@ -2350,70 +2341,173 @@ class _ArtistEmptyMusic extends StatelessWidget {
   }
 }
 
-class _MusicTrackTile extends StatelessWidget {
-  final Map<String, dynamic> listing;
+class _GooboxMusicTrackTile extends StatelessWidget {
+  final MusicTrack track;
   final AppState state;
-  const _MusicTrackTile({required this.listing, required this.state});
+  const _GooboxMusicTrackTile({required this.track, required this.state});
 
   @override
   Widget build(BuildContext context) {
-    final title = listing['title'] ?? listing['name'] ?? 'Untitled Track';
-    final genre = listing['genre'] ?? listing['category'] ?? '';
-    final coverUrl = listing['cover_url'] ?? listing['media_url'] ?? listing['thumbnail_url'];
-    final plays = listing['usage_count'] ?? listing['plays'] ?? 0;
+    final title = track.title.isNotEmpty ? track.title : 'Untitled Release';
+    final genre = track.genre ?? 'Music';
+    final coverUrl = track.albumArtUrl;
+    final plays = track.usageCount;
+    final duration = track.formattedDuration;
 
-    return GestureDetector(
-      onTap: () {
-        // Navigate to the listing in community shop
-        state.selectedListing = listing;
-        state.pendingDestinationTab = 'shop';
-        state.go('community');
-      },
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF7B2FFF).withOpacity(0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF7B2FFF).withOpacity(0.2)),
-        ),
-        child: Row(
-          children: [
-            // Album art / placeholder
-            Container(
-              width: 52, height: 52,
+    return ValueListenableBuilder<String?>(
+      valueListenable: state.artistMusic.playingTrackId,
+      builder: (context, playingId, _) {
+        final isThisTrack = playingId == track.id;
+
+        return ValueListenableBuilder<bool>(
+          valueListenable: state.artistMusic.isPlaying,
+          builder: (context, isPlaying, _) {
+            final activePlay = isThisTrack && isPlaying;
+
+            return Container(
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: const Color(0xFF7B2FFF).withOpacity(0.2),
+                color: activePlay
+                    ? const Color(0xFF7B2FFF).withOpacity(0.18)
+                    : const Color(0xFF7B2FFF).withOpacity(0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: activePlay
+                      ? const Color(0xFF00E5FF)
+                      : const Color(0xFF7B2FFF).withOpacity(0.2),
+                  width: activePlay ? 1.5 : 1,
+                ),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: coverUrl != null
-                  ? Image.network(coverUrl.toString(), fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(Icons.music_note_rounded, color: Color(0xFFA855F7), size: 24))
-                  : const Icon(Icons.music_note_rounded, color: Color(0xFFA855F7), size: 24),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(title.toString(), style: syne(sz: 14, w: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  if (genre.toString().isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(genre.toString(), style: dm(sz: 12, c: C.dim)),
-                  ],
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    Icon(Icons.headphones_rounded, size: 12, color: C.dim),
-                    const SizedBox(width: 4),
-                    Text('$plays plays', style: dm(sz: 11, c: C.dim)),
-                  ]),
+                  // Album art / placeholder with tap to play
+                  GestureDetector(
+                    onTap: () => state.artistMusic.togglePlay(track),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: const Color(0xFF7B2FFF).withOpacity(0.2),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: coverUrl != null && coverUrl.isNotEmpty
+                              ? Image.network(
+                                  coverUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.music_note_rounded,
+                                      color: Color(0xFFA855F7),
+                                      size: 26),
+                                )
+                              : const Icon(Icons.music_note_rounded,
+                                  color: Color(0xFFA855F7), size: 26),
+                        ),
+                        if (activePlay)
+                          Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: Colors.black.withOpacity(0.4),
+                            ),
+                            child: const Icon(Icons.equalizer_rounded,
+                                color: Color(0xFF00E5FF), size: 24),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  // Track metadata
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: syne(
+                            sz: 14,
+                            w: FontWeight.w700,
+                            c: activePlay ? const Color(0xFF00E5FF) : Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            if (genre.isNotEmpty) ...[
+                              Text(genre, style: dm(sz: 12, c: C.dim)),
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 3,
+                                height: 3,
+                                decoration: BoxDecoration(color: C.dim, shape: BoxShape.circle),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Text(duration, style: dm(sz: 12, c: C.dim)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.headphones_rounded, size: 12, color: C.dim),
+                            const SizedBox(width: 4),
+                            Text('$plays plays', style: dm(sz: 11, c: C.dim)),
+                            const SizedBox(width: 12),
+                            // Quick "Use Sound" badge
+                            GestureDetector(
+                              onTap: () {
+                                state.initialMusicTrack = track;
+                                state.go('upload');
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF7B2FFF).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.auto_awesome_rounded,
+                                        size: 10, color: Color(0xFFA855F7)),
+                                    const SizedBox(width: 4),
+                                    Text('Use Sound',
+                                        style: syne(
+                                            sz: 9,
+                                            w: FontWeight.w800,
+                                            c: const Color(0xFFA855F7))),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Play/Pause Action Button
+                  IconButton(
+                    icon: Icon(
+                      activePlay
+                          ? Icons.pause_circle_filled_rounded
+                          : Icons.play_circle_fill_rounded,
+                      color: activePlay ? const Color(0xFF00E5FF) : const Color(0xFF7B2FFF),
+                      size: 36,
+                    ),
+                    onPressed: () => state.artistMusic.togglePlay(track),
+                  ),
                 ],
               ),
-            ),
-            Icon(Icons.play_circle_outline_rounded, color: const Color(0xFF7B2FFF), size: 32),
-          ],
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 }

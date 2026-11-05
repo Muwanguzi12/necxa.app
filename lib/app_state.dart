@@ -33,6 +33,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'models/music_models.dart';
 import 'services/music_library_service.dart';
+import 'services/goobox_artist_music_service.dart';
 import 'services/draft_service.dart';
 import 'services/payment_service.dart';
 import 'services/finance_gifting_service.dart';
@@ -441,6 +442,7 @@ class AppState extends ChangeNotifier {
   MusicTrack? initialMusicTrack;
   final DraftService drafts = DraftService();
   final MusicLibraryService music = MusicLibraryService();
+  final GooboxArtistMusicService artistMusic = GooboxArtistMusicService.instance;
   final PaymentService payment = PaymentService();
   final FinanceGiftingService financeGifting = FinanceGiftingService();
   final FinanceLiquidationService liquidation = FinanceLiquidationService();
