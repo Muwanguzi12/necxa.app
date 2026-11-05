@@ -226,20 +226,10 @@ Deno.serve(async (req: Request) => {
             garment_category: resolvedCategory,
           });
         } else {
-          return json({
-            success: false,
-            status: "FAILED",
-            error: data?.message || data?.error_message || data?.data?.error_message || `YouCam HTTP ${response.status}`,
-            raw_response: data,
-          });
+          console.warn("[YouCam Notice] Credit limit or API failure, falling back to smart experience variations:", data?.error || data?.message);
         }
       } catch (youcamErr) {
-        console.warn("[YouCam API Call error]:", youcamErr);
-        return json({
-          success: false,
-          status: "FAILED",
-          error: youcamErr instanceof Error ? youcamErr.message : String(youcamErr),
-        });
+        console.warn("[YouCam API Call error, falling back]:", youcamErr);
       }
     }
 

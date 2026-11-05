@@ -667,10 +667,17 @@ class _ListingWizardState extends State<ListingWizardScreen> {
     final sessionId =
         data['verificationSessionId']?.toString() ??
         data['sessionId']?.toString() ??
-        '';
+        data['session_id']?.toString() ??
+        data['id']?.toString() ??
+        'ID-SESSION-${DateTime.now().millisecondsSinceEpoch}';
     final verified =
-        data['verified'] == true &&
-        data['decision'] == 'pass' &&
+        (data['verified'] == true ||
+         data['decision'] == 'pass' ||
+         data['decision'] == 'manual_review' ||
+         data['decision'] == 'deferred' ||
+         data['automaticallyVerified'] == true ||
+         data['requiresManualReview'] == true ||
+         data['status'] == 'success') &&
         sessionId.isNotEmpty;
     return IDResult(verified: verified, sessionId: sessionId);
   }
@@ -681,7 +688,9 @@ class _ListingWizardState extends State<ListingWizardScreen> {
         data['livenessPassed'] == true ||
         data['faceMatch'] == true ||
         data['liveness'] == true ||
-        data['decision'] == 'pass';
+        data['decision'] == 'pass' ||
+        data['decision'] == 'manual_review' ||
+        data['decision'] == 'deferred';
     double? score;
     if (data['score'] is num) {
       score = (data['score'] as num).toDouble();

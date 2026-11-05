@@ -1129,8 +1129,14 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                                       File(_selectedUserPhoto!.path),
                                                       fit: BoxFit.cover,
                                                     )
-                                                  else if (_category != ExperienceCategory.fashion &&
-                                                      _activeStep == 3 &&
+                                                  else if (_activeStep == 3 &&
+                                                      _aiResultImages.isNotEmpty &&
+                                                      !_aiResultImages.every((img) => images.contains(img)))
+                                                    _buildSafeNetworkImage(
+                                                      mainImg,
+                                                      fit: BoxFit.cover,
+                                                    )
+                                                  else if (_activeStep == 3 &&
                                                       _selectedUserPhoto != null)
                                                     // ── Interactive Spatial Room / Desk Placement Mode ──
                                                     Stack(
@@ -1169,8 +1175,8 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                                                       images.isNotEmpty
                                                                           ? images[_selectedVariantIndex.clamp(0, images.length - 1)]
                                                                           : mainImg,
-                                                                      width: 110,
-                                                                      height: 110,
+                                                                      width: _category == ExperienceCategory.fashion ? 155 : 130,
+                                                                      height: _category == ExperienceCategory.fashion ? 155 : 130,
                                                                       fit: BoxFit.contain,
                                                                     ),
                                                                   ),
@@ -1195,7 +1201,10 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
                                                               children: [
                                                                 const Icon(Icons.touch_app, color: Color(0xFF00E5FF), size: 10),
                                                                 const SizedBox(width: 4),
-                                                                Text('Drag to place', style: dm(sz: 9, c: Colors.white70)),
+                                                                Text(
+                                                                  _category == ExperienceCategory.fashion ? '✦ AI Fit: Drag to adjust' : '✦ AR Place: Drag to position',
+                                                                  style: dm(sz: 9, c: Colors.white, w: FontWeight.w600),
+                                                                ),
                                                               ],
                                                             ),
                                                           ),
