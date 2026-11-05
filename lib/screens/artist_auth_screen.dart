@@ -52,7 +52,9 @@ class _ArtistGatewayState extends State<_ArtistGateway> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70),
           onPressed: () {
-            if (Navigator.canPop(context)) {
+            if (_showLogin) {
+              setState(() => _showLogin = false);
+            } else if (Navigator.canPop(context)) {
               Navigator.pop(context);
             } else {
               widget.state.goBack();
