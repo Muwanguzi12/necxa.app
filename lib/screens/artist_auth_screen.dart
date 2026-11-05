@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
+import '../models/music_models.dart';
 import '../utils/error_handler.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,10 +123,15 @@ class _EnrollFormState extends State<_EnrollForm> {
     setState(() => _loading = true);
     try {
       // Connect to Supabase auth if credentials are real, else use local state
-      await Future.delayed(const Duration(milliseconds: 600)); // simulate network
+      if (_email.isNotEmpty && _password.isNotEmpty && widget.state.user == null) {
+        try {
+          await widget.state.social.signInWithEmail(_email.trim(), _password);
+        } catch (_) {}
+      }
+      await Future.delayed(const Duration(milliseconds: 400));
       widget.state.setArtistStatus(
         true,
-        name: _artistName,
+        name: _artistName.isNotEmpty ? _artistName : _legalName,
         genre: _genre,
         distributorLink: _distributorLink,
       );
@@ -274,8 +280,18 @@ class _LoginFormState extends State<_LoginForm> {
     _formKey.currentState!.save();
     setState(() => _loading = true);
     try {
-      await Future.delayed(const Duration(milliseconds: 600));
-      widget.state.setArtistStatus(true);
+      if (_email.isNotEmpty && _password.isNotEmpty && widget.state.user == null) {
+        try {
+          await widget.state.social.signInWithEmail(_email.trim(), _password);
+        } catch (_) {}
+      }
+      await Future.delayed(const Duration(milliseconds: 400));
+      widget.state.setArtistStatus(
+        true,
+        name: widget.state.artistName.isNotEmpty
+            ? widget.state.artistName
+            : (_email.contains('@') ? _email.split('@').first : 'Artist'),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Welcome back, Artist! 🎵'),
@@ -488,6 +504,93 @@ class _ArtistDashboard extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+
+              const SizedBox(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('YOUR MUSIC RELEASES', style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 2)),
+                  Text('GOOBOX CLOUD', style: syne(sz: 9, w: FontWeight.w800, c: const Color(0xFF00E5FF), ls: 1)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              FutureBuilder<List<MusicTrack>>(
+                future: state.artistMusic.fetchArtistTracks(state.user?.id ?? ''),
+                builder: (context, snapshot) {
+                  final tracks = snapshot.data ?? [];
+                  if (snapshot.connectionState == ConnectionState.waiting && tracks.isEmpty) {
+                    return const Center(child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF7B2FFF)),
+                    ));
+                  }
+                  if (tracks.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.library_music_rounded, color: C.dim, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('No tracks uploaded yet', style: dm(sz: 13, w: FontWeight.w600, c: Colors.white)),
+                                Text('Upload to distribute your music across Necxa.', style: dm(sz: 11, c: C.dim)),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              if (Navigator.canPop(context)) Navigator.pop(context);
+                              state.go('upload');
+                            },
+                            child: Text('Upload', style: syne(sz: 12, w: FontWeight.w900, c: const Color(0xFFA855F7))),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return Column(
+                    children: tracks.take(3).map((t) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF7B2FFF).withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF7B2FFF).withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.music_note_rounded, color: Color(0xFFA855F7), size: 20),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(t.title, style: syne(sz: 13, w: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  Text('${t.genre ?? 'Music'} • ${t.formattedDuration}', style: dm(sz: 11, c: C.dim)),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF7B2FFF), size: 28),
+                              onPressed: () => state.artistMusic.togglePlay(t),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )).toList(),
+                  );
+                },
               ),
 
               const SizedBox(height: 28),

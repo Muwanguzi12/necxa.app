@@ -1209,12 +1209,18 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await _uploadRequired(
-        _audioFile!,
-        bucket: 'community-media',
-        assetType: 'audio',
+      final track = await widget.state.artistMusic.uploadTrack(
+        artistId: userId,
+        artistName: widget.state.artistName.isNotEmpty
+            ? widget.state.artistName
+            : (widget.state.user?.email?.split('@').first ?? 'Verified Artist'),
+        audioFile: _audioFile!,
+        coverFile: _artistArtFile,
+        title: _title.isNotEmpty ? _title : 'New Artist Release',
+        genre: widget.state.artistGenre.isNotEmpty ? widget.state.artistGenre : 'Music',
       );
-      audioUrl = res['url'] as String;
+      audioUrl = track.audioUrl;
+      _bakedTrack = track;
     }
 
     // Register Media Asset
@@ -1292,12 +1298,26 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await _uploadRequired(
-        _audioFile!,
-        bucket: 'community-media',
-        assetType: 'audio',
-      );
-      audioUrl = res['url'] as String;
+      if (widget.state.isArtist) {
+        final track = await widget.state.artistMusic.uploadTrack(
+          artistId: userId,
+          artistName: widget.state.artistName.isNotEmpty
+              ? widget.state.artistName
+              : (widget.state.user?.email?.split('@').first ?? 'Artist'),
+          audioFile: _audioFile!,
+          title: _title.isNotEmpty ? _title : 'Audio Track',
+          genre: widget.state.artistGenre.isNotEmpty ? widget.state.artistGenre : 'Sound',
+        );
+        audioUrl = track.audioUrl;
+        _bakedTrack = track;
+      } else {
+        final res = await _uploadRequired(
+          _audioFile!,
+          bucket: 'community-media',
+          assetType: 'audio',
+        );
+        audioUrl = res['url'] as String;
+      }
     }
 
     String? mediaAssetId;
