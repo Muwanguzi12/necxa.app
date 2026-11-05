@@ -82,7 +82,7 @@ class CreatorScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          ('home', 'assets/images/property_icon.png', 'Property'),
+          ('home', 'assets/images/community_icon_colored.png', 'Home'),
           ('creator', null, 'Creator'),
           ('list', 'assets/images/listing_icon.png', 'List'),
           ('profile', null, 'Profile'),
@@ -462,9 +462,9 @@ class CreatorScreen extends StatelessWidget {
           _BotBtn(
             Opacity(
               opacity: 0.5,
-              child: Image.asset('assets/images/property_icon.png', width: 24, height: 24),
+              child: Image.asset('assets/images/community_icon_colored.png', width: 24, height: 24),
             ),
-            'Property', false, () => state.go('home')),
+            'Home', false, () => state.go('home')),
           _BotBtn('🎬', 'Creator', true, () {}),
           _BotBtn('🔖', 'Saved', false, () {}),
           _BotBtn(
