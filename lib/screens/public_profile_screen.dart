@@ -51,6 +51,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _hasListings = false;
+  bool _isViewedArtist = false;
   int? _localFollowerDelta;
   bool? _isLocallyFollowing;
   bool _isTogglingFollow = false;
@@ -63,6 +64,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     return widget.state.user?.id ?? '';
   }
 
+  int get _tabCount => _isViewedArtist ? 3 : 2;
+
   @override
   void initState() {
     super.initState();
@@ -73,9 +76,31 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
   void _checkVendorStatus() async {
     final targetId = _effectiveTargetId;
     if (targetId.isEmpty) return;
+
+    // Check listings
     final listings = await widget.state.social.fetchUserListings(targetId);
     if (mounted && listings.isNotEmpty) {
       setState(() => _hasListings = true);
+    }
+
+    // Check if viewed profile is an artist (own profile matches local state, or profile row says so)
+    final bool viewingOwnProfile = targetId == widget.state.user?.id;
+    bool artistFlag = viewingOwnProfile && widget.state.isArtist;
+    if (!artistFlag) {
+      // Try fetching from profile row
+      try {
+        final profile = await widget.state.getProfile(targetId);
+        if (profile != null) artistFlag = profile.isArtist;
+      } catch (_) {}
+    }
+
+    if (mounted && artistFlag != _isViewedArtist) {
+      setState(() {
+        _isViewedArtist = artistFlag;
+        // Rebuild tab controller with correct length
+        _tabController.dispose();
+        _tabController = TabController(length: _tabCount, vsync: this);
+      });
     }
   }
 
@@ -314,8 +339,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                       ),
                       indicatorSize: TabBarIndicatorSize.tab,
                       dividerColor: Colors.transparent,
-                      labelStyle: syne(sz: 13, w: FontWeight.w900, ls: 1),
-                      unselectedLabelStyle: syne(sz: 13, w: FontWeight.w700, ls: 1),
+                      labelStyle: syne(sz: 12, w: FontWeight.w900, ls: 0.8),
+                      unselectedLabelStyle: syne(sz: 12, w: FontWeight.w700, ls: 0.8),
                       labelColor: Colors.white,
                       unselectedLabelColor: Colors.white70,
                       tabs: [
@@ -323,8 +348,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: const [
-                              Icon(Icons.play_arrow_rounded, size: 20),
-                              SizedBox(width: 6),
+                              Icon(Icons.play_arrow_rounded, size: 18),
+                              SizedBox(width: 4),
                               Text('CONTENT'),
                             ],
                           ),
@@ -333,12 +358,23 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: const [
-                              Icon(Icons.grid_view_rounded, size: 17),
-                              SizedBox(width: 6),
+                              Icon(Icons.grid_view_rounded, size: 15),
+                              SizedBox(width: 4),
                               Text('FEED'),
                             ],
                           ),
                         ),
+                        if (_isViewedArtist)
+                          Tab(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                Icon(Icons.music_note_rounded, size: 16),
+                                SizedBox(width: 4),
+                                Text('MUSIC'),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -349,6 +385,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                     children: [
                       _buildShowcaseGrid(),
                       _buildContentGrid(),
+                      if (_isViewedArtist) _buildArtistMusicTab(),
                     ],
                   ),
                 ),
@@ -483,6 +520,140 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
           ),
         );
       },
+    );
+  }
+
+  // ── Artist Music Showcase Tab ──────────────────────────────────────────────
+  Widget _buildArtistMusicTab() {
+    final targetId = _effectiveTargetId;
+    final bool isOwnProfile = targetId == widget.state.user?.id;
+    final String displayName = isOwnProfile
+        ? (widget.state.artistName.isNotEmpty ? widget.state.artistName : 'Artist')
+        : 'Artist';
+    final String genre = isOwnProfile
+        ? (widget.state.artistGenre.isNotEmpty ? widget.state.artistGenre : '')
+        : '';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Artist identity banner
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF7B2FFF), Color(0xFFA855F7)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF7B2FFF).withOpacity(0.4),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.mic_rounded, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Flexible(child: Text(displayName, style: syne(sz: 17, w: FontWeight.w900))),
+                        const SizedBox(width: 6),
+                        const Icon(Icons.verified_rounded, color: Colors.white, size: 16),
+                      ]),
+                      if (genre.isNotEmpty) Text(genre, style: dm(sz: 12, c: Colors.white70)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text('VERIFIED ARTIST', style: syne(sz: 9, w: FontWeight.w900, ls: 1)),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          Text('RELEASES & TRACKS', style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 2)),
+          const SizedBox(height: 14),
+
+          // Music tracks — from listings where objective is 'conversion'
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: widget.state.social.fetchUserListings(targetId),
+            builder: (context, snapshot) {
+              final all = snapshot.data ?? [];
+              // Filter for audio/music type listings
+              final musicItems = all.where((l) {
+                final obj = (l['objective'] ?? l['type'] ?? '').toString();
+                final cat = (l['category'] ?? '').toString().toLowerCase();
+                return obj == 'conversion' ||
+                    cat.contains('music') ||
+                    cat.contains('audio') ||
+                    cat.contains('track') ||
+                    cat.contains('album');
+              }).toList();
+
+              if (snapshot.connectionState == ConnectionState.waiting && musicItems.isEmpty) {
+                return const Center(child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(color: Color(0xFF7B2FFF)),
+                ));
+              }
+
+              if (musicItems.isEmpty) {
+                return _ArtistEmptyMusic(
+                  isOwnProfile: isOwnProfile,
+                  onUpload: () {
+                    widget.state.go('upload');
+                  },
+                );
+              }
+
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: musicItems.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) => _MusicTrackTile(listing: musicItems[i], state: widget.state),
+              );
+            },
+          ),
+
+          if (isOwnProfile) ...[
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.add_circle_outline_rounded, size: 18, color: Color(0xFFA855F7)),
+              label: Text('Upload New Track', style: dm(sz: 14, c: const Color(0xFFA855F7), w: FontWeight.w700)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFA855F7)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              onPressed: () => widget.state.go('upload'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -2138,4 +2309,111 @@ class _HUDButton extends StatelessWidget {
       child: Icon(icon, color: Colors.white, size: 18),
     ),
   );
+}
+
+// ── Artist Music Tab Helpers ──────────────────────────────────────────────────
+
+class _ArtistEmptyMusic extends StatelessWidget {
+  final bool isOwnProfile;
+  final VoidCallback onUpload;
+  const _ArtistEmptyMusic({required this.isOwnProfile, required this.onUpload});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.music_off_rounded, color: C.dim, size: 40),
+          const SizedBox(height: 12),
+          Text('No music released yet', style: syne(sz: 13, c: C.dim, ls: 1)),
+          if (isOwnProfile) ...[
+            const SizedBox(height: 16),
+            Text('Upload your first track to show it here', style: dm(sz: 12, c: C.sub), textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.cloud_upload_rounded, size: 18),
+              label: const Text('Upload Music'),
+              onPressed: onUpload,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7B2FFF),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MusicTrackTile extends StatelessWidget {
+  final Map<String, dynamic> listing;
+  final AppState state;
+  const _MusicTrackTile({required this.listing, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final title = listing['title'] ?? listing['name'] ?? 'Untitled Track';
+    final genre = listing['genre'] ?? listing['category'] ?? '';
+    final coverUrl = listing['cover_url'] ?? listing['media_url'] ?? listing['thumbnail_url'];
+    final plays = listing['usage_count'] ?? listing['plays'] ?? 0;
+
+    return GestureDetector(
+      onTap: () {
+        // Navigate to the listing in community shop
+        state.selectedListing = listing;
+        state.pendingDestinationTab = 'shop';
+        state.go('community');
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF7B2FFF).withOpacity(0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF7B2FFF).withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            // Album art / placeholder
+            Container(
+              width: 52, height: 52,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: const Color(0xFF7B2FFF).withOpacity(0.2),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: coverUrl != null
+                  ? Image.network(coverUrl.toString(), fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(Icons.music_note_rounded, color: Color(0xFFA855F7), size: 24))
+                  : const Icon(Icons.music_note_rounded, color: Color(0xFFA855F7), size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title.toString(), style: syne(sz: 14, w: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (genre.toString().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(genre.toString(), style: dm(sz: 12, c: C.dim)),
+                  ],
+                  const SizedBox(height: 4),
+                  Row(children: [
+                    Icon(Icons.headphones_rounded, size: 12, color: C.dim),
+                    const SizedBox(width: 4),
+                    Text('$plays plays', style: dm(sz: 11, c: C.dim)),
+                  ]),
+                ],
+              ),
+            ),
+            Icon(Icons.play_circle_outline_rounded, color: const Color(0xFF7B2FFF), size: 32),
+          ],
+        ),
+      ),
+    );
+  }
 }

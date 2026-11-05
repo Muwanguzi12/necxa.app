@@ -234,6 +234,7 @@ class AppState extends ChangeNotifier {
       chatWallpaper = prefs.getString('chatWallpaper') ?? 'solid_black';
 
       await _loadUserLanguage();
+      await _loadArtistStatus();
 
       notifyListeners();
     } catch (_) {}
@@ -241,13 +242,45 @@ class AppState extends ChangeNotifier {
 
   // ── Artist & Distribution ──
   bool isArtist = false;
+  String artistName = '';
+  String artistGenre = '';
+  String artistDistributorLink = '';
   int necxaCoins = 500; // Mock balance for testing
 
   bool get hasDistributionAccess => isArtist && necxaCoins >= 150;
 
-  void setArtistStatus(bool status) {
+  void setArtistStatus(bool status, {
+    String name = '',
+    String genre = '',
+    String distributorLink = '',
+  }) {
     isArtist = status;
+    if (name.isNotEmpty) artistName = name;
+    if (genre.isNotEmpty) artistGenre = genre;
+    if (distributorLink.isNotEmpty) artistDistributorLink = distributorLink;
     notifyListeners();
+    _persistArtistStatus();
+  }
+
+  Future<void> _persistArtistStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isArtist', isArtist);
+      await prefs.setString('artistName', artistName);
+      await prefs.setString('artistGenre', artistGenre);
+      await prefs.setString('artistDistributorLink', artistDistributorLink);
+    } catch (_) {}
+  }
+
+  Future<void> _loadArtistStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      isArtist = prefs.getBool('isArtist') ?? false;
+      artistName = prefs.getString('artistName') ?? '';
+      artistGenre = prefs.getString('artistGenre') ?? '';
+      artistDistributorLink = prefs.getString('artistDistributorLink') ?? '';
+      notifyListeners();
+    } catch (_) {}
   }
 
   void updateCoins(int amount) {

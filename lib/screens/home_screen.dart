@@ -1502,7 +1502,7 @@ class _BottomNav extends StatelessWidget {
             Opacity(
               opacity: current == 'home' ? 1.0 : 0.5,
               child: Image.asset(
-                'assets/images/property_icon.png',
+                'assets/images/community_icon_colored.png',
                 width: 24,
                 height: 24,
               ),
@@ -1516,7 +1516,7 @@ class _BottomNav extends StatelessWidget {
               Opacity(
                 opacity: current == 'community' ? 1.0 : 0.5,
                 child: Image.asset(
-                  'assets/images/community_icon_colored.png',
+                  'assets/images/community_icon_white.png',
                   width: 24,
                   height: 24,
                 ),
