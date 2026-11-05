@@ -125,7 +125,7 @@ class _EnrollFormState extends State<_EnrollForm> {
       // Connect to Supabase auth if credentials are real, else use local state
       if (_email.isNotEmpty && _password.isNotEmpty && widget.state.user == null) {
         try {
-          await widget.state.social.signInWithEmail(_email.trim(), _password);
+          await widget.state.login(_email.trim(), _password);
         } catch (_) {}
       }
       await Future.delayed(const Duration(milliseconds: 400));
@@ -282,7 +282,7 @@ class _LoginFormState extends State<_LoginForm> {
     try {
       if (_email.isNotEmpty && _password.isNotEmpty && widget.state.user == null) {
         try {
-          await widget.state.social.signInWithEmail(_email.trim(), _password);
+          await widget.state.login(_email.trim(), _password);
         } catch (_) {}
       }
       await Future.delayed(const Duration(milliseconds: 400));
