@@ -484,66 +484,229 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
       itemCount: listings.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (_, index) {
         final listing = listings[index];
         final id = listing['id']?.toString() ?? '';
         final stock = (listing['stock_count'] as num?)?.round() ?? 0;
+        final status = listing['status']?.toString() ?? 'active';
+        final isActive = status == 'active';
         final working = _workingId == id;
+        final mediaUrl = listing['media_url']?.toString();
+        final price = (listing['price_ugx'] as num?)?.round() ?? 0;
+
         return Container(
-          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: C.card,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: stock <= 5 ? C.gold2.withValues(alpha: .6) : C.border,
+              color: !isActive
+                  ? C.sub.withValues(alpha: .3)
+                  : stock == 0
+                      ? Colors.red.withValues(alpha: .4)
+                      : stock <= 5
+                          ? C.gold2.withValues(alpha: .6)
+                          : C.border,
             ),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ProductImage(url: listing['media_url']?.toString()),
-              const SizedBox(width: 12),
-              Expanded(
+              // ── Thumbnail ──────────────────────────────────────────────
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+                child: AspectRatio(
+                  aspectRatio: 16 / 7,
+                  child: mediaUrl != null && mediaUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: mediaUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) => Container(
+                            color: C.surface,
+                            child: const Center(
+                              child: Icon(Icons.image_outlined, color: C.sub, size: 32),
+                            ),
+                          ),
+                          errorWidget: (_, __, ___) => Container(
+                            color: C.surface,
+                            child: const Center(
+                              child: Icon(Icons.broken_image_outlined, color: C.sub, size: 32),
+                            ),
+                          ),
+                        )
+                      : Container(
+                          color: C.surface,
+                          child: const Center(
+                            child: Icon(Icons.storefront_outlined, color: C.sub, size: 36),
+                          ),
+                        ),
+                ),
+              ),
+
+              // ── Info Row ───────────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      listing['title']?.toString() ?? 'Listing',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: syne(sz: 14, w: FontWeight.w700),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                listing['title']?.toString() ?? 'Listing',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: syne(sz: 14, w: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'UGX ${_money(price)}',
+                                style: dm(sz: 12, c: C.sub, w: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Delete button
+                        working
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.red,
+                                ),
+                              )
+                            : IconButton(
+                                tooltip: 'Delete product',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                onPressed: () => _confirmDelete(id, listing['title']?.toString() ?? 'this product'),
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Colors.red,
+                                  size: 22,
+                                ),
+                              ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      stock <= 5 ? 'Low stock' : 'In stock',
-                      style: dm(
-                        sz: 12,
-                        c: stock <= 5 ? C.gold2 : C.green,
-                        w: FontWeight.w600,
+                    const SizedBox(height: 10),
+
+                    // ── Controls Row ───────────────────────────────────────
+                    Row(
+                      children: [
+                        // In-stock / Out-of-stock toggle
+                        GestureDetector(
+                          onTap: working ? null : () => _toggleStatus(id, isActive),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: isActive
+                                  ? C.green.withValues(alpha: .15)
+                                  : Colors.red.withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: isActive ? C.green : Colors.red,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isActive ? Icons.check_circle_outline : Icons.remove_circle_outline,
+                                  size: 13,
+                                  color: isActive ? C.green : Colors.red,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  isActive ? 'In Stock' : 'Out of Stock',
+                                  style: dm(
+                                    sz: 11,
+                                    c: isActive ? C.green : Colors.red,
+                                    w: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        const Spacer(),
+
+                        // Stock counter
+                        Row(
+                          children: [
+                            IconButton(
+                              tooltip: 'Reduce stock',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              onPressed: working || stock == 0
+                                  ? null
+                                  : () => _setStock(id, stock - 1),
+                              icon: Icon(
+                                Icons.remove_circle_outline_rounded,
+                                size: 22,
+                                color: (working || stock == 0) ? C.sub : C.brandDk,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 36,
+                              child: Text(
+                                '$stock',
+                                textAlign: TextAlign.center,
+                                style: syne(sz: 15, w: FontWeight.w800),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Add stock',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              onPressed: working ? null : () => _setStock(id, stock + 1),
+                              icon: Icon(
+                                Icons.add_circle_outline_rounded,
+                                size: 22,
+                                color: working ? C.sub : C.brandDk,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    // Low-stock warning
+                    if (isActive && stock > 0 && stock <= 5) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded, size: 13, color: C.gold2),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Low stock — only $stock left',
+                            style: dm(sz: 11, c: C.gold2, w: FontWeight.w600),
+                          ),
+                        ],
                       ),
-                    ),
+                    ],
+                    if (isActive && stock == 0) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, size: 13, color: Colors.red),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Zero stock — mark out of stock or restock',
+                            style: dm(sz: 11, c: Colors.red, w: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
-              ),
-              IconButton(
-                tooltip: 'Reduce stock',
-                onPressed: working || stock == 0
-                    ? null
-                    : () => _setStock(id, stock - 1),
-                icon: const Icon(Icons.remove_circle_outline_rounded),
-              ),
-              SizedBox(
-                width: 32,
-                child: Text(
-                  '$stock',
-                  textAlign: TextAlign.center,
-                  style: syne(w: FontWeight.w800),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Add stock',
-                onPressed: working ? null : () => _setStock(id, stock + 1),
-                icon: const Icon(Icons.add_circle_outline_rounded),
               ),
             ],
           ),
@@ -1245,6 +1408,62 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     setState(() => _workingId = listingId);
     try {
       await _commerce.updateInventory(listingId: listingId, stockCount: stock);
+      await _refreshDashboard();
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _workingId = null);
+    }
+  }
+
+  Future<void> _toggleStatus(String listingId, bool currentlyActive) async {
+    setState(() => _workingId = listingId);
+    try {
+      await _commerce.updateInventory(
+        listingId: listingId,
+        stockCount: 0, // stock unchanged — backend will keep existing
+        status: currentlyActive ? 'inactive' : 'active',
+      );
+      await _refreshDashboard();
+    } catch (error) {
+      _showError(error);
+    } finally {
+      if (mounted) setState(() => _workingId = null);
+    }
+  }
+
+  Future<void> _confirmDelete(String listingId, String title) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: C.card,
+        title: Text('Delete product?', style: syne(sz: 16, w: FontWeight.w800)),
+        content: Text(
+          'Remove "$title" permanently. This cannot be undone.',
+          style: dm(sz: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await _deleteListing(listingId);
+    }
+  }
+
+  Future<void> _deleteListing(String listingId) async {
+    setState(() => _workingId = listingId);
+    try {
+      await _commerce.deleteListing(listingId);
       await _refreshDashboard();
     } catch (error) {
       _showError(error);

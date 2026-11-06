@@ -337,7 +337,7 @@ class _TransportScreenState extends State<TransportScreen> {
   // -- Shared App Tabs --
   Widget _buildAppTabs() {
     final tabs = [
-      ('home', 'assets/images/community_icon_colored.png', 'Home'),
+      ('home', 'assets/images/community_icon_colored.png', 'Property'),
       ('transport', 'assets/images/transport_icon.png', 'Transport'),
       ('upload', 'assets/images/upload_icon.png', 'Upload'),
       ('profile', null, 'Profile'),
@@ -923,7 +923,7 @@ class _TransportScreenState extends State<TransportScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _navItem('assets/images/community_icon_colored.png', 'Home', false, 'home'),
+                _navItem('assets/images/community_icon_colored.png', 'Property', false, 'home'),
                 _navItem('assets/images/community_icon_white.png', 'Community', false, 'community'),
                 _navItem('assets/images/listing_icon.png', 'Listings', false, 'list'),
                 _navItem('assets/images/chat_icon.png', 'Chat', false, 'chat'),

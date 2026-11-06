@@ -368,6 +368,12 @@ class CommerceService {
       'limit': limit,
     },
   );
+
+  /// Permanently deletes a product listing owned by the current vendor.
+  Future<void> deleteListing(String listingId) => _backend.invoke(
+    'delete_commerce_listing',
+    body: {'listingId': listingId},
+  );
 }
 
 int _integer(dynamic value) =>
