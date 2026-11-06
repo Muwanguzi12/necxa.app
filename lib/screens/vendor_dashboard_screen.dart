@@ -517,26 +517,26 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
                 child: AspectRatio(
                   aspectRatio: 16 / 7,
-                  child: mediaUrl != null && mediaUrl.isNotEmpty
+                   child: mediaUrl != null && mediaUrl.isNotEmpty
                       ? CachedNetworkImage(
                           imageUrl: mediaUrl,
                           fit: BoxFit.cover,
                           placeholder: (_, __) => Container(
                             color: C.surface,
-                            child: const Center(
+                            child: Center(
                               child: Icon(Icons.image_outlined, color: C.sub, size: 32),
                             ),
                           ),
                           errorWidget: (_, __, ___) => Container(
                             color: C.surface,
-                            child: const Center(
+                            child: Center(
                               child: Icon(Icons.broken_image_outlined, color: C.sub, size: 32),
                             ),
                           ),
                         )
                       : Container(
                           color: C.surface,
-                          child: const Center(
+                          child: Center(
                             child: Icon(Icons.storefront_outlined, color: C.sub, size: 36),
                           ),
                         ),
