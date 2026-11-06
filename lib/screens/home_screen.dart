@@ -1375,7 +1375,7 @@ class _AppTabs extends StatelessWidget {
   });
 
   List<(String, String?, String)> get _tabRoutes => [
-    ('home', 'assets/images/community_icon_colored.png', 'Property'),
+    ('home', 'assets/images/property_icon.png', 'Property'),
     if (kIsWeb) ('list', 'assets/images/listing_icon.png', 'Property Listing'),
     if (!kIsWeb) ('transport', 'assets/images/transport_icon.png', 'Transport'),
     if (!kIsWeb) ('upload', 'assets/images/upload_icon.png', 'Upload'),
@@ -1502,7 +1502,7 @@ class _BottomNav extends StatelessWidget {
             Opacity(
               opacity: current == 'home' ? 1.0 : 0.5,
               child: Image.asset(
-                'assets/images/community_icon_colored.png',
+                'assets/images/property_icon.png',
                 width: 24,
                 height: 24,
               ),
