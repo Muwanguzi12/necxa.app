@@ -1,4 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import {
+  createEntityComment,
+  deleteEntityEngagement,
+  getEntitySummaries,
+  importLegacyEngagement,
+  listEntityComments,
+  toggleEntityLike,
+} from "../_shared/engagement_mongo.ts"
+import type { EngagementEntityType } from "../_shared/engagement_mongo.ts"
 
 // ============================================
 // CLEVER-PROCESSOR — Neural Feed & Viral Loop
@@ -6,7 +15,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-user-id",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-application-key",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
@@ -23,6 +32,16 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   { auth: { autoRefreshToken: false, persistSession: false } }
 )
+
+// 📦 GOOBOX SUPPORT BACKEND: Cross-cloud connection for human review & support responses
+const GOOBOX_URL = Deno.env.get("GOOBOX_SUPABASE_URL") || "https://anregykcgolpgxecfxej.supabase.co";
+const GOOBOX_KEY = Deno.env.get("GOOBOX_SERVICE_ROLE_KEY") || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFucmVneWtjZ29scGd4ZWNmeGVqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDQ2MjU1NCwiZXhwIjoyMDk2MDM4NTU0fQ.519sxkeFrEL-zIyP2MM4kbSZ3sHHP7OY-uwXoDV7cnc";
+
+const goobox = createClient(
+  GOOBOX_URL,
+  GOOBOX_KEY,
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
 
 // 🚀 UPSTASH REDIS: Hyper-Performance Feed Layer
 const REDIS_URL = Deno.env.get("UPSTASH_REDIS_REST_URL") ?? "";
@@ -110,10 +129,91 @@ function rewriteMediaUrls(post: any) {
   return base;
 }
 
+async function hydrateEntityEngagement(
+  items: any[],
+  entityType: EngagementEntityType,
+  userId: string,
+) {
+  const ids = items.map((item) => String(item.id ?? "")).filter(Boolean)
+  if (ids.length === 0) return items
+
+  try {
+    const summaries = await getEntitySummaries({
+      entityType,
+      entityIds: ids,
+      userId,
+    })
+    return items.map((item) => {
+      const summary = summaries.get(String(item.id))
+      return {
+        ...item,
+        likes_count: summary?.likes ?? 0,
+        comments_count: summary?.comments ?? 0,
+        views_count: summary?.views ?? item.views_count ?? 0,
+        is_liked: summary?.likedByUser ?? false,
+      }
+    })
+  } catch (error) {
+    console.error("Mongo engagement hydration failed:", error)
+    return items.map((item) => ({
+      ...item,
+      likes_count: 0,
+      comments_count: 0,
+      is_liked: false,
+    }))
+  }
+}
+
+async function hydrateFeedEngagement(items: any[], userId: string) {
+  const postIds: string[] = []
+  const productIds: string[] = []
+  for (const item of items) {
+    const listingId = item.listing_id ?? item.listings?.id
+    if (listingId) productIds.push(String(listingId))
+    else if (item.id) postIds.push(String(item.id))
+  }
+
+  try {
+    const [postSummaries, productSummaries] = await Promise.all([
+      getEntitySummaries({
+        entityType: "post",
+        entityIds: postIds,
+        userId,
+      }),
+      getEntitySummaries({
+        entityType: "product",
+        entityIds: productIds,
+        userId,
+      }),
+    ])
+    return items.map((item) => {
+      const listingId = item.listing_id ?? item.listings?.id
+      const summary = listingId
+        ? productSummaries.get(String(listingId))
+        : postSummaries.get(String(item.id))
+      return {
+        ...item,
+        likes_count: summary?.likes ?? 0,
+        comments_count: summary?.comments ?? 0,
+        views_count: summary?.views ?? item.views_count ?? 0,
+        is_liked: summary?.likedByUser ?? false,
+      }
+    })
+  } catch (error) {
+    console.error("Mongo feed engagement hydration failed:", error)
+    return items.map((item) => ({
+      ...item,
+      likes_count: 0,
+      comments_count: 0,
+      is_liked: false,
+    }))
+  }
+}
+
 /**
  * FETCH-FEED: Advanced ranking for the discovery reel.
  */
-async function handleFetchFeed(payload: any = {}) {
+async function handleFetchFeed(userId: string, payload: any = {}) {
   const redis = await getRedis();
   const sinceTime = payload.since_time;
   const beforeTime = payload.before_time;
@@ -129,7 +229,8 @@ async function handleFetchFeed(payload: any = {}) {
         
         if (validPosts.length > 0) {
           console.log(`REDIS: Found ${validPosts.length} posts in cache`);
-          return json({ success: true, data: validPosts, source: 'redis' });
+          const hydrated = await hydrateFeedEngagement(validPosts, userId)
+          return json({ success: true, data: hydrated, source: 'redis' });
         }
       }
     } catch (e) {
@@ -153,6 +254,23 @@ async function handleFetchFeed(payload: any = {}) {
     query = query.gt('created_at', sinceTime);
   } else if (beforeTime) {
     query = query.lt('created_at', beforeTime);
+  }
+
+  // Filter out posts the user marked as 'not_interested' or 'hidden'
+  if (userId) {
+    try {
+      const { data: prefRows } = await supabase
+        .from('user_preferences')
+        .select('target_id')
+        .eq('user_id', userId)
+        .in('preference_type', ['not_interested', 'hidden', 'blocked']);
+      const hiddenIds = (prefRows || []).map((r: any) => r.target_id).filter(Boolean);
+      if (hiddenIds.length > 0) {
+        query = query.not('id', 'in', `(${hiddenIds.join(',')})`);
+      }
+    } catch (e) {
+      console.warn("Could not query user_preferences for feed filtering:", e);
+    }
   }
 
   const { data, error } = await query
@@ -181,18 +299,23 @@ async function handleFetchFeed(payload: any = {}) {
     }
   }
 
-  return json({ 
+  const hydrated = await hydrateFeedEngagement(cdnData, userId)
+  return json({
     success: true, 
-    data: cdnData, 
+    data: hydrated,
     source: 'supabase',
-    count: cdnData.length
+    count: hydrated.length
   });
 }
 
 /**
  * FETCH-SHOP-FEED: Discovery logic for commercial listings.
  */
-async function handleFetchShopFeed(payload: any = {}) {
+async function hydrateListingEngagement(listings: any[], userId: string) {
+  return hydrateEntityEngagement(listings, "product", userId)
+}
+
+async function handleFetchShopFeed(userId: string, payload: any = {}) {
   const redis = await getRedis();
   const category = payload.category;
   const sinceTime = payload.since_time;
@@ -210,7 +333,8 @@ async function handleFetchShopFeed(payload: any = {}) {
         
         if (validListings.length > 0) {
           console.log(`REDIS: Found ${validListings.length} shop listings in cache (${feedKey})`);
-          return json({ success: true, data: validListings, source: 'redis' });
+          const hydrated = await hydrateListingEngagement(validListings, userId);
+          return json({ success: true, data: hydrated, source: 'redis' });
         }
       }
     } catch (e) {
@@ -227,7 +351,8 @@ async function handleFetchShopFeed(payload: any = {}) {
       profiles:user_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier),
       lister:lister_id(display_name:full_name, photo_url:avatar_url)
     `)
-    .eq('status', 'active');
+    .eq('status', 'active')
+    .or('is_property_listing.is.null,is_property_listing.eq.false');
 
   if (category) query = query.eq('category', category);
   if (sinceTime) query = query.gt('created_at', sinceTime);
@@ -264,7 +389,8 @@ async function handleFetchShopFeed(payload: any = {}) {
     }
   }
 
-  return json({ success: true, data: listings, source: 'supabase' });
+  const hydrated = await hydrateListingEngagement(listings, userId);
+  return json({ success: true, data: hydrated, source: 'supabase' });
 }
 
 /**
@@ -342,6 +468,9 @@ async function handleFetchShowcase(payload: any) {
     .select('*, profiles:user_id(display_name:full_name, photo_url:avatar_url, trust_score, trust_score_tier)')
     .eq('user_id', targetUserId)
     .eq('status', 'active')
+    // 🔒 Property listings must NEVER appear in the public showcase.
+    // They are agent-gated — revealing them would expose the agent without unlock.
+    .or('is_property_listing.is.null,is_property_listing.eq.false')
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -611,108 +740,159 @@ async function handleCreatePost(userId: string, payload: any) {
  * TOGGLE-LIKE: Atomic social interaction with Redis cache invalidation.
  */
 async function handleToggleLike(userId: string, payload: any) {
-  const postId = payload.post_id;
-  if (!postId) return err("post_id required");
-
-  const { data: existing } = await supabase
-    .from('community_likes')
-    .select()
-    .match({ post_id: postId, user_id: userId })
-    .maybeSingle();
-
+  const targetId = payload.post_id;
+  const targetType = payload.target_type ?? 'post';
+  if (!targetId) return err("post_id required");
+  const entityType: EngagementEntityType =
+    targetType === "listing" ? "product" : "post"
   const redis = await getRedis();
-  let action = '';
-
-  if (existing) {
-    await supabase.from('community_likes').delete().match({ post_id: postId, user_id: userId });
-    action = 'unliked';
-  } else {
-    await supabase.from('community_likes').insert({ post_id: postId, user_id: userId });
-    action = 'liked';
+  let result
+  try {
+    result = await toggleEntityLike({
+      entityType,
+      entityId: targetId,
+      userId,
+    })
+  } catch (error) {
+    console.error("Mongo like operation failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
   }
+  const action = result.liked ? "liked" : "unliked"
 
   // 🚀 SYNC REDIS: Update post metrics in cache
   if (redis) {
     try {
-      const postStr = await redis.get(`post:${postId}`);
+      const cacheKey = targetType === 'listing'
+        ? `listing:${targetId}`
+        : `post:${targetId}`;
+      const postStr = await redis.get(cacheKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
-        post.likes_count = (post.likes_count || 0) + (action === 'liked' ? 1 : -1);
-        await redis.set(`post:${postId}`, post, { ex: 3600 });
+        post.likes_count = result.likes
+        post.is_liked = result.liked
+        await redis.set(cacheKey, post, { ex: 3600 });
       }
     } catch (e) {
       console.error("REDIS Like Sync Error:", e);
     }
   }
 
-  return json({ success: true, action });
+  if (result.liked) {
+    await handleTriggerNotification(userId, {
+      type: "like",
+      target_id: targetId,
+      target_type: targetType,
+    })
+  }
+
+  return json({
+    success: true,
+    action,
+    liked: result.liked,
+    likes_count: result.likes,
+  });
 }
 
 /**
  * CREATE-COMMENT: Persistent storage + Redis real-time push.
  */
+async function hydrateCommentIdentities(comments: any[]) {
+  const userIds = [...new Set(
+    comments.map((comment) => comment.userId).filter(Boolean),
+  )]
+  const { data: profiles } = userIds.length === 0
+    ? { data: [] as any[] }
+    : await supabase
+      .from("profiles")
+      .select("id, full_name, avatar_url, trust_score_tier")
+      .in("id", userIds)
+  const profilesById = new Map(
+    (profiles ?? []).map((profile: any) => [profile.id, profile]),
+  )
+
+  return comments.map((comment) => {
+    const profile = profilesById.get(comment.userId)
+    const identity = {
+      user_id: comment.userId,
+      user_name: profile?.full_name || "User",
+      user_avatar: toStorageCdnUrl(profile?.avatar_url),
+      user_profile_url: `https://necxa.app/u/${comment.userId}`,
+      is_verified: profile?.trust_score_tier === "titan_trust" ||
+        profile?.trust_score_tier === "verified",
+    }
+    return {
+      id: comment.id,
+      post_id: comment.entityId,
+      user_id: comment.userId,
+      content: comment.text,
+      created_at: comment.createdAt instanceof Date
+        ? comment.createdAt.toISOString()
+        : comment.createdAt,
+      metadata: { identity },
+      identity,
+    }
+  })
+}
+
 async function handleCreateComment(userId: string, payload: any) {
   const { post_id, content, target_type = 'post' } = payload;
-  if (!post_id || !content) return err("post_id and content required");
-
-  // 1. Fetch profile to denormalize identity
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, avatar_url, trust_score_tier')
-    .eq('id', userId)
-    .single();
-
-  const identity = {
-    user_id: userId,
-    user_name: profile?.full_name || 'User',
-    user_avatar: toStorageCdnUrl(profile?.avatar_url),
-    user_profile_url: `https://necxa.app/u/${userId}`,
-    is_verified: profile?.trust_score_tier === 'titan_trust' || profile?.trust_score_tier === 'verified'
-  };
-
-  // 2. Supabase Persistence
-  const { data: comment, error } = await supabase
-    .from('community_comments')
-    .insert({ 
-      post_id, 
-      author_id: userId, 
-      content,
-      metadata: { identity } // Persist full identity snapshot
+  const cleanContent = typeof content === 'string' ? content.trim() : '';
+  if (!post_id || !cleanContent) return err("post_id and content required");
+  if (cleanContent.length > 2000) return err("Comment is too long");
+  const entityType: EngagementEntityType =
+    target_type === "listing" ? "product" : "post"
+  let comment
+  try {
+    comment = await createEntityComment({
+      entityType,
+      entityId: post_id,
+      userId,
+      text: cleanContent,
+      idempotencyKey: typeof payload.idempotency_key === "string"
+        ? payload.idempotency_key
+        : undefined,
     })
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url)')
-    .single();
-
-  if (error) return err(`Comment failed: ${error.message}`);
+  } catch (error) {
+    console.error("Mongo comment operation failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
+  }
+  const [normalizedComment] = await hydrateCommentIdentities([comment])
 
   const redis = await getRedis();
   if (redis) {
     try {
-      // 3. Push to Redis Comment Stream
-      await redis.lpush(`comments:${post_id}`, JSON.stringify({ ...comment, identity }));
-      await redis.ltrim(`comments:${post_id}`, 0, 99); // Keep last 100
-
-      // 4. Increment Post Comment Count
-      const postKey = target_type === 'listing' ? `listing:${post_id}` : `post:${post_id}`;
+      const postKey = target_type === 'listing'
+        ? `listing:${post_id}`
+        : `post:${post_id}`;
       const postStr = await redis.get(postKey);
       if (postStr) {
         const post = typeof postStr === 'string' ? JSON.parse(postStr) : postStr;
-        post.comments_count = (post.comments_count || 0) + 1;
+        post.comments_count = comment.commentsCount
         await redis.set(postKey, post, { ex: 3600 });
       }
 
       // 🚀 AUTO-TRIGGER: Alert the content owner
-      await handleTriggerNotification(userId, {
-        type: 'comment',
-        target_id: post_id,
-        actor_id: userId,
-        metadata: { snippet: content.substring(0, 50), identity }
-      });
     } catch (e) {
       console.error("REDIS Comment Sync Error:", e);
     }
   }
 
-  return json({ success: true, data: { ...comment, identity } });
+  await handleTriggerNotification(userId, {
+    type: "comment",
+    target_id: post_id,
+    target_type,
+    metadata: {
+      comment_id: normalizedComment.id,
+      snippet: cleanContent.substring(0, 80),
+      identity: normalizedComment.metadata.identity,
+    },
+  })
+
+  return json({
+    success: true,
+    data: normalizedComment,
+    comments_count: comment.commentsCount,
+  });
 }
 
 /**
@@ -774,29 +954,225 @@ async function handleFetchReviews(payload: any) {
  * FETCH-COMMENTS: High-speed retrieval from Redis.
  */
 async function handleFetchComments(payload: any) {
-  const { post_id } = payload;
+  const { post_id, target_type = 'post' } = payload;
   if (!post_id) return err("post_id required");
+  const entityType: EngagementEntityType =
+    target_type === "listing" ? "product" : "post"
+  try {
+    const comments = await listEntityComments({
+      entityType,
+      entityId: post_id,
+      limit: 50,
+    })
+    const normalized = await hydrateCommentIdentities(comments)
+    return json({ success: true, data: normalized, source: "mongodb" })
+  } catch (error) {
+    console.error("Mongo comment retrieval failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
+  }
+}
 
-  const redis = await getRedis();
-  if (redis) {
-    try {
-      const raw = await redis.lrange(`comments:${post_id}`, 0, 49) as string[];
-      if (raw.length > 0) {
-        return json({ success: true, data: raw.map(r => JSON.parse(r)), source: 'redis' });
-      }
-    } catch (e) {}
+async function handleFetchEngagement(userId: string, payload: any) {
+  const rawEntities = Array.isArray(payload.entities) ? payload.entities : []
+  const entities = rawEntities
+    .map((entity: any) => ({
+      id: String(entity?.id ?? "").trim(),
+      localId: String(entity?.local_id ?? entity?.id ?? "").trim(),
+      targetType: entity?.target_type === "listing" ? "listing" : "post",
+    }))
+    .filter((entity: any) => entity.id && entity.localId)
+    .slice(0, 12)
+
+  if (entities.length === 0) {
+    return json({ success: true, data: [] })
   }
 
-  // Fallback to Supabase
-  const { data, error } = await supabase
-    .from('community_comments')
-    .select('*, profiles:author_id(display_name:full_name, photo_url:avatar_url)')
-    .eq('post_id', post_id)
-    .order('created_at', { ascending: false })
-    .limit(50);
+  try {
+    const postIds = entities
+      .filter((entity: any) => entity.targetType === "post")
+      .map((entity: any) => entity.id)
+    const productIds = entities
+      .filter((entity: any) => entity.targetType === "listing")
+      .map((entity: any) => entity.id)
+    const [postSummaries, productSummaries] = await Promise.all([
+      getEntitySummaries({
+        entityType: "post",
+        entityIds: postIds,
+        userId,
+      }),
+      getEntitySummaries({
+        entityType: "product",
+        entityIds: productIds,
+        userId,
+      }),
+    ])
 
-  if (error) return err(error.message);
-  return json({ success: true, data, source: 'supabase' });
+    const data = entities.map((entity: any) => {
+      const summary = entity.targetType === "listing"
+        ? productSummaries.get(entity.id)
+        : postSummaries.get(entity.id)
+      return {
+        id: entity.id,
+        local_id: entity.localId,
+        target_type: entity.targetType,
+        likes_count: summary?.likes ?? 0,
+        comments_count: summary?.comments ?? 0,
+        is_liked: summary?.likedByUser ?? false,
+      }
+    })
+    return json({ success: true, data, source: "mongodb" })
+  } catch (error) {
+    console.error("Mongo engagement smart-load failed:", error)
+    return err("Engagement service is temporarily unavailable", 503)
+  }
+}
+
+function classifyMongoError(error: unknown) {
+  const candidate = error && typeof error === "object"
+    ? error as Record<string, unknown>
+    : {}
+  const name = typeof candidate.name === "string"
+    ? candidate.name
+    : "UnknownError"
+  const code = typeof candidate.code === "string" ||
+      typeof candidate.code === "number"
+    ? String(candidate.code)
+    : null
+  const message = typeof candidate.message === "string"
+    ? candidate.message.toLowerCase()
+    : ""
+  let category = "unknown"
+  if (
+    code === "ENOTFOUND" ||
+    code === "ECONNREFUSED" ||
+    message.includes("querysrv")
+  ) {
+    category = "dns"
+  } else if (
+    code === "ETIMEDOUT" ||
+    message.includes("server selection") ||
+    message.includes("timed out")
+  ) {
+    category = "network"
+  } else if (
+    code === "18" ||
+    message.includes("authentication failed") ||
+    message.includes("bad auth")
+  ) {
+    category = "authentication"
+  } else if (
+    message.includes("unsupported") ||
+    message.includes("not implemented")
+  ) {
+    category = "runtime"
+  }
+  return { name, code, category }
+}
+
+async function handleDiagnoseEngagement(user: any) {
+  const isAdmin = user?.app_metadata?.role === "admin" ||
+    user?.app_metadata?.is_admin === true
+  if (!isAdmin) return err("Administrator authorization required", 403)
+
+  try {
+    await getEntitySummaries({
+      entityType: "post",
+      entityIds: [`diagnostic-${Date.now()}`],
+      userId: user.id,
+    })
+    return json({ success: true, status: "mongodb-ready" })
+  } catch (error) {
+    console.error("Mongo engagement diagnostic failed:", error)
+    return json({
+      success: false,
+      status: "mongodb-unavailable",
+      diagnostic: classifyMongoError(error),
+    }, 503)
+  }
+}
+
+async function fetchLegacyRows(table: string) {
+  const rows: any[] = []
+  const pageSize = 1_000
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .range(offset, offset + pageSize - 1)
+    if (error) throw new Error(`${table}: ${error.message}`)
+    rows.push(...(data ?? []))
+    if (!data || data.length < pageSize) break
+  }
+  return rows
+}
+
+async function handleMigrateLegacyEngagement(user: any, req: Request) {
+  const migrationKey = Deno.env.get("ENGAGEMENT_MIGRATION_KEY") ||
+    Deno.env.get("APPLICATION_API_PRIVATE_KEY") ||
+    Deno.env.get("APP_API_PRIVATE_KEY")
+  const suppliedKey = req.headers.get("x-application-key")
+  const isAdmin = user?.app_metadata?.role === "admin" ||
+    user?.app_metadata?.is_admin === true
+  if ((!migrationKey || suppliedKey !== migrationKey) && !isAdmin) {
+    return err("Administrator authorization required", 403)
+  }
+
+  try {
+    const [likes, comments, linkedPosts] = await Promise.all([
+      fetchLegacyRows("community_likes"),
+      fetchLegacyRows("community_comments"),
+      supabase
+        .from("community_posts")
+        .select("id, listing_id")
+        .not("listing_id", "is", null),
+    ])
+    if (linkedPosts.error && linkedPosts.error.code !== "42703") {
+      throw new Error(`community_posts: ${linkedPosts.error.message}`)
+    }
+    const listingByPost = new Map(
+      (linkedPosts.error ? [] : linkedPosts.data ?? [])
+        .map((post: any) => [post.id, post.listing_id]),
+    )
+    const destination = (postId: string) => {
+      const listingId = listingByPost.get(postId)
+      return listingId
+        ? { entityType: "product" as const, entityId: String(listingId) }
+        : { entityType: "post" as const, entityId: String(postId) }
+    }
+
+    const result = await importLegacyEngagement({
+      likes: likes
+        .filter((like) => like.post_id && like.user_id)
+        .map((like) => ({
+          ...destination(like.post_id),
+          userId: String(like.user_id),
+          createdAt: like.created_at,
+        })),
+      comments: comments
+        .filter((comment) =>
+          comment.post_id &&
+          (comment.user_id || comment.author_id) &&
+          comment.content
+        )
+        .map((comment) => ({
+          ...destination(comment.post_id),
+          userId: String(comment.user_id ?? comment.author_id),
+          text: String(comment.content),
+          sourceId: `supabase:${comment.id}`,
+          createdAt: comment.created_at,
+        })),
+    })
+    return json({ success: true, data: result })
+  } catch (error) {
+    console.error("Legacy engagement migration failed:", error)
+    const message = error instanceof Error ? error.message : String(error)
+    return err(`Legacy engagement migration failed: ${message}`, 500)
+  } finally {
+    if (user?.is_anonymous === true && user?.id) {
+      const { error } = await supabase.auth.admin.deleteUser(user.id)
+      if (error) console.error("Temporary migration user cleanup failed:", error)
+    }
+  }
 }
 
 /**
@@ -823,7 +1199,14 @@ async function handleDeletePost(userId: string, payload: any) {
 
   if (deleteError) return err(`Supabase delete failed: ${deleteError.message}`);
 
-  // 2. Remove from Redis Cache
+  // 2. Remove engagement owned by the deleted post.
+  try {
+    await deleteEntityEngagement({ entityType: "post", entityId: postId })
+  } catch (error) {
+    console.error("Mongo engagement cleanup failed:", error)
+  }
+
+  // 3. Remove from Redis Cache
   try {
     const redis = await getRedis();
     if (redis) {
@@ -837,6 +1220,673 @@ async function handleDeletePost(userId: string, payload: any) {
   }
 
   return json({ success: true, message: "Post deleted from neural nodes." });
+}
+
+/**
+ * NOT-INTERESTED: Records negative affinity preference and excludes from user's feed
+ */
+async function handleNotInterested(userId: string, payload: any) {
+  const targetId = payload.target_id || payload.post_id;
+  const contentType = payload.content_type || 'post';
+  if (!targetId) return err("target_id is required");
+
+  const { error } = await supabase
+    .from('user_preferences')
+    .upsert({
+      user_id: userId,
+      target_id: targetId,
+      content_type: contentType,
+      preference_type: 'not_interested',
+      created_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,target_id' });
+
+  if (error) {
+    console.error("user_preferences error:", error);
+    return err(error.message);
+  }
+
+  return json({
+    success: true,
+    message: "Content marked not interested. Feed will exclude this item.",
+  });
+}
+
+/**
+ * SUBMIT-REPORT: Stores report in Supabase, triggers AI scan, and flags for Necxa Team / Goobox review
+ */
+async function handleSubmitReport(userId: string, payload: any) {
+  const targetId = payload.target_id || payload.post_id;
+  const targetType = payload.target_type || 'post';
+  const reason = payload.reason || 'Inappropriate content';
+  const details = payload.details || '';
+  if (!targetId) return err("target_id is required");
+
+  // 1. Fetch reported content — resolved per target type
+  let postSnippet: string | null = null;
+  let targetTitle: string | null = null;
+  let mediaUrls: string[] = [];
+  let reportedAuthorEmail: string | null = null;
+
+  try {
+    if (targetType === 'post') {
+      const { data: post } = await supabase
+        .from('community_posts')
+        .select('content, title, media_url, hls_url, thumbnail_url, gallery_urls, photos, author_id')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (post) {
+        postSnippet = post.content || post.title;
+        targetTitle = post.title;
+        const candidates: (string | null)[] = [
+          post.media_url, post.hls_url, post.thumbnail_url,
+          ...(Array.isArray(post.gallery_urls) ? post.gallery_urls : []),
+          ...(Array.isArray(post.photos) ? post.photos : []),
+        ];
+        mediaUrls = candidates
+          .map((u) => toStorageCdnUrl(u))
+          .filter((u): u is string => !!u);
+        if (post.author_id) {
+          const { data: ap } = await supabase.from('profiles').select('email').eq('id', post.author_id).maybeSingle();
+          reportedAuthorEmail = ap?.email ?? null;
+        }
+      }
+    } else if (targetType === 'listing') {
+      const { data: listing } = await supabase
+        .from('listings')
+        .select('title, description, photos, price, category, district, vendor_id')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (listing) {
+        postSnippet = listing.description || listing.title;
+        targetTitle = listing.title;
+        if (Array.isArray(listing.photos)) {
+          mediaUrls = listing.photos.map((u: string) => toStorageCdnUrl(u)).filter((u): u is string => !!u);
+        }
+        if (listing.vendor_id) {
+          const { data: vp } = await supabase.from('profiles').select('email').eq('id', listing.vendor_id).maybeSingle();
+          reportedAuthorEmail = vp?.email ?? null;
+        }
+      }
+    } else if (targetType === 'profile') {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('full_name, bio, avatar_url, email')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (prof) {
+        postSnippet = prof.bio;
+        targetTitle = prof.full_name;
+        const avatarCdn = toStorageCdnUrl(prof.avatar_url);
+        if (avatarCdn) mediaUrls = [avatarCdn];
+        reportedAuthorEmail = prof.email ?? null;
+      }
+    } else if (targetType === 'comment') {
+      const { data: comment } = await supabase
+        .from('comments')
+        .select('content, user_id')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (comment) {
+        postSnippet = comment.content;
+      }
+    }
+  } catch (e) {
+    console.warn("Could not fetch reported content context:", e);
+  }
+
+  // 2. Perform quick AI safety assessment
+  let severity = "medium";
+  if (reason.toLowerCase().includes("spam") || reason.toLowerCase().includes("fraud")) {
+    severity = "high";
+  }
+
+  // 3. Persist report record in 'reports' table
+  const { data: reportRecord, error: reportErr } = await supabase
+    .from('reports')
+    .insert({
+      user_id: userId,
+      target_id: targetId,
+      target_type: targetType,
+      reason: `${reason}${details ? ' - ' + details : ''}`,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+
+  if (reportErr) {
+    console.error("Failed to insert into reports table:", reportErr);
+  }
+
+  // 4. Mirror report to Goobox support backend (https://anregykcgolpgxecfxej.supabase.co)
+  // so the moderation team can review, decide, and communicate back.
+  let gooboxTicketId = null;
+  try {
+    const { data: reporterProfile } = await supabase
+      .from('profiles')
+      .select('full_name, phone, email')
+      .eq('id', userId)
+      .maybeSingle();
+
+    const reporterName = reporterProfile?.full_name || 'Necxa User';
+    const reporterEmail = reporterProfile?.email || `${userId}@users.necxa.uk`;
+    const subject = `[CONTENT REPORT] ${reason.slice(0, 50)} — ${targetType}`;
+    const snippet = postSnippet ? postSnippet.slice(0, 120) : `Reported ${targetType} ID: ${targetId}`;
+
+    // Build plain text and HTML body for Goobox moderators
+    const desc = [
+      `Content Report from Necxa App User`,
+      `─────────────────────────────────`,
+      `Reporter: ${reporterName} (${userId})`,
+      `Target Type: ${targetType}`,
+      `Target ID: ${targetId}`,
+      targetTitle ? `Title: "${targetTitle}"` : null,
+      `Reason: ${reason}`,
+      details ? `Details: ${details}` : null,
+      postSnippet ? `Content: "${postSnippet.slice(0, 300)}"` : null,
+      reportedAuthorEmail ? `Reported Author Email: ${reportedAuthorEmail}` : null,
+      `Severity: ${severity}`,
+      `Report ID: ${reportRecord?.id ?? 'pending'}`,
+    ].filter(Boolean).join('\n');
+
+    const descHtml = desc
+      .split('\n')
+      .map((l) => `<p>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`)
+      .join('');
+
+    // Attachments array for Goobox ticket_messages
+    const attachments = mediaUrls.slice(0, 5).map((url, i) => ({
+      name: `media_${i + 1}.jpg`,
+      url,
+      type: url.includes('.mp4') || url.includes('.m3u8') || url.includes('hls') ? 'video' : 'image',
+    }));
+
+    const ticketPayload = {
+      subject,
+      snippet,
+      status: 'open',
+      priority: severity === 'high' ? 'high' : 'medium',
+      source: 'report',
+      inbox: 'support@necxa.uk',
+      sender: `${reporterName} <${reporterEmail}>`,
+      necxa_user_id: userId,
+      customer_name: reporterName,
+      customer_email: reporterEmail,
+      customer_phone: reporterProfile?.phone || null,
+      verified: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: ticket, error: ticketErr } = await goobox
+      .from('support_tickets')
+      .insert(ticketPayload)
+      .select('id')
+      .single();
+
+    if (ticketErr && (ticketErr.code === '23514' || ticketErr.message?.includes('source_check'))) {
+      console.warn("[Goobox Sync] source='report' hit check constraint; falling back to source='portal'");
+      const fallback = await goobox
+        .from('support_tickets')
+        .insert({ ...ticketPayload, source: 'portal' })
+        .select('id')
+        .single();
+      ticket = fallback.data;
+      ticketErr = fallback.error;
+    }
+
+    if (!ticketErr && ticket) {
+      gooboxTicketId = ticket.id;
+      // Insert structured message with media attachments so moderators see full context
+      await goobox.from('ticket_messages').insert({
+        ticket_id: ticket.id,
+        sender_type: 'customer',
+        sender: `${reporterName} <${reporterEmail}>`,
+        body: desc,
+        body_html: descHtml,
+        attachments,
+        direction: 'inbound',
+        created_at: new Date().toISOString(),
+      });
+      console.log(`[Goobox Sync] Report mirrored to Goobox ticket: ${gooboxTicketId} with ${attachments.length} attachments`);
+    } else if (ticketErr) {
+      console.warn("[Goobox Sync] Ticket insert warning:", ticketErr.message, ticketErr.code);
+    }
+  } catch (gbErr) {
+    console.warn("[Goobox Sync] Could not mirror report to Goobox:", gbErr);
+  }
+
+  // 5. Automatically add to user_preferences as hidden for the reporter
+  try {
+    await supabase.from('user_preferences').upsert({
+      user_id: userId,
+      target_id: targetId,
+      content_type: targetType,
+      preference_type: 'hidden',
+      created_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,target_id' });
+  } catch (_) {}
+
+  return json({
+    success: true,
+    report_id: reportRecord?.id ?? null,
+    goobox_ticket_id: gooboxTicketId,
+    message: "Report received and queued for Necxa AI analysis and human review by the moderation team at Goobox.",
+    goobox_channel: "goobox.necxa.uk/support",
+  });
+}
+
+
+/**
+ * SYNC-SUPPORT-RESPONSE: Ingests responses from the Goobox team,
+ * and routes them directly to the specific user's chat room and in-app notifications securely.
+ */
+async function handleSyncSupportResponse(payload: any) {
+  const targetUserId = payload.necxa_user_id || payload.user_id;
+  const ticketId = payload.ticket_id;
+  const agentName = payload.agent_name || payload.from_name || "Necxa Support Team";
+  const replyMessage = payload.message || payload.body || payload.content;
+
+  if (!targetUserId) return err("necxa_user_id is required for routing support response");
+  if (!replyMessage) return err("reply message is required");
+
+  // 1. Resolve Necxa Official Support account
+  // IMPORTANT: fallback is the real Necxa Support profile — '00000000-0000-0000-0000-000000000001' does NOT exist
+  // and causes FK failures on direct_chat_rooms, direct_messages, and notifications.actor_id.
+  let supportBotId = "709c2cae-4be0-42db-9f28-37f172c32749";
+  try {
+    const { data: officialProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .or('email.eq.support@necxa.uk,username.eq.necxa_support')
+      .maybeSingle();
+    if (officialProfile?.id) {
+      supportBotId = officialProfile.id;
+    }
+  } catch (_) {}
+
+  // 2. Get or create support chat room with proper metadata
+  let directMessageId = null;
+  try {
+    const { data: roomId } = await supabase.rpc('get_or_create_direct_room', {
+      p_user_a: supportBotId,
+      p_user_b: targetUserId,
+    });
+
+    if (roomId) {
+      // Ensure room has support metadata so isSupport getter works in Flutter
+      await supabase
+        .from('direct_chat_rooms')
+        .update({
+          metadata: {
+            interaction_context: 'support',
+            conversation_label: 'Necxa Support',
+            ticket_id: ticketId,
+          },
+        })
+        .eq('id', roomId);
+
+      // Deduplication check
+      const { count: dupCount } = await supabase
+        .from('direct_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('room_id', roomId)
+        .eq('content', replyMessage);
+
+      if (dupCount && dupCount > 0) {
+        return json({
+          success: true,
+          message: "Already synced",
+          delivered_to: targetUserId,
+          room_id: roomId,
+        });
+      }
+
+      const replyMetadata: Record<string, any> = {
+        source: 'goobox',
+        ticket_id: ticketId,
+        agent_name: agentName,
+        interaction_context: 'support',
+      };
+      if (payload.ticket_reply_id) replyMetadata.ticket_reply_id = payload.ticket_reply_id;
+      if (payload.ticket_message_id) replyMetadata.ticket_message_id = payload.ticket_message_id;
+
+      const { data: insertedMsg } = await supabase
+        .from('direct_messages')
+        .insert({
+          room_id: roomId,
+          sender_id: supportBotId,
+          message_type: 'text',
+          content: replyMessage,
+          metadata: replyMetadata,
+        })
+        .select('id')
+        .single();
+      directMessageId = insertedMsg?.id;
+    }
+  } catch (chatErr) {
+    console.warn("[Support Sync] Could not deliver to direct chat:", chatErr);
+  }
+
+  // 3. Route into user's in-app notifications
+  // IMPORTANT: Necxa DB only allows type in ('like','comment','follow','share','save','mention',
+  //   'listing','content','financial','social','system','listing_viewed')
+  //   and target_type in ('post','listing','profile','comment','system').
+  //   'support_response' and 'support' BOTH violate the check constraints — use 'system'.
+  let notificationId = null;
+  try {
+    const notifRow = {
+      id: crypto.randomUUID(),
+      user_id: targetUserId,
+      actor_id: supportBotId,
+      type: 'system',           // was 'support_response' — violated check constraint
+      title: `Message from ${agentName}`,
+      body: replyMessage.length > 120 ? `${replyMessage.slice(0, 117)}...` : replyMessage,
+      target_id: targetUserId,  // use userId so FK resolves (profiles.id)
+      target_type: 'system',    // was 'support' — violated check constraint
+      notification_type: 'support_response',  // custom discriminator stored in metadata
+      metadata: {
+        notification_type: 'support_response',
+        agent_name: agentName,
+        ticket_id: ticketId,
+        full_content: replyMessage,
+        source: 'goobox',
+        interaction_context: 'support',
+      },
+      dedupe_key: `support:${ticketId || Date.now()}:${crypto.randomUUID().slice(0, 6)}`,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data: insertedNotif, error: notifInsertErr } = await supabase
+      .from('notifications')
+      .insert(notifRow)
+      .select('id')
+      .single();
+    if (notifInsertErr) {
+      console.warn("[Support Sync] Notification insert failed:", notifInsertErr.message, notifInsertErr.code);
+    }
+    notificationId = insertedNotif?.id;
+  } catch (notifErr) {
+    console.warn("[Support Sync] Could not deliver to notifications:", notifErr);
+  }
+
+  return json({
+    success: true,
+    message: "Support response delivered to user chat and notification.",
+    delivered_to: targetUserId,
+    direct_message_id: directMessageId,
+    notification_id: notificationId,
+  });
+}
+
+/**
+ * CREATE-SUPPORT-TICKET: Creates an in-app support ticket in Goobox directly from the Necxa app
+ * and establishes the matching support chat room in Necxa.
+ */
+async function handleCreateSupportTicket(userId: string, payload: any) {
+  const subject = payload.subject || 'Support Request';
+  const message = payload.message || '';
+  const category = payload.category || 'general';
+  const priority = payload.priority || 'medium';
+
+  if (!message) return err("message is required");
+
+  // Fetch user profile
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, email, phone')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const userName = profile?.full_name || 'Necxa User';
+  const userEmail = profile?.email || `${userId}@users.necxa.uk`;
+
+  // Resolve support bot
+  let supportBotId = "709c2cae-4be0-42db-9f28-37f172c32749";
+  try {
+    const { data: sp } = await supabase.from('profiles').select('id')
+      .or('email.eq.support@necxa.uk,username.eq.necxa_support').maybeSingle();
+    if (sp?.id) supportBotId = sp.id;
+  } catch (_) {}
+
+  // 1. Create ticket in Goobox
+  let gooboxTicketId: string | null = null;
+  try {
+    const ticketPayload = {
+      subject: subject.slice(0, 200),
+      snippet: message.slice(0, 120),
+      status: 'open',
+      priority,
+      source: 'in_app',
+      inbox: 'support@necxa.uk',
+      sender: `${userName} <${userEmail}>`,
+      necxa_user_id: userId,
+      customer_name: userName,
+      customer_email: userEmail,
+      customer_phone: profile?.phone || null,
+      verified: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: ticket, error: ticketErr } = await goobox
+      .from('support_tickets')
+      .insert(ticketPayload)
+      .select('id')
+      .single();
+
+    if (ticketErr && (ticketErr.code === '23514' || ticketErr.message?.includes('source_check'))) {
+      console.warn("[CreateTicket] source='in_app' hit check constraint; falling back to source='portal'");
+      const fallback = await goobox
+        .from('support_tickets')
+        .insert({ ...ticketPayload, source: 'portal' })
+        .select('id')
+        .single();
+      ticket = fallback.data;
+      ticketErr = fallback.error;
+    }
+
+    if (!ticketErr && ticket) {
+      gooboxTicketId = ticket.id;
+      await goobox.from('ticket_messages').insert({
+        ticket_id: ticket.id,
+        sender_type: 'customer',
+        sender: `${userName} <${userEmail}>`,
+        body: `[Category: ${category}]\n\n${message}`,
+        direction: 'inbound',
+        created_at: new Date().toISOString(),
+      });
+      console.log(`[CreateTicket] Ticket created in Goobox: ${gooboxTicketId}`);
+    } else if (ticketErr) {
+      console.warn("[CreateTicket] Goobox ticket insert failed:", ticketErr.message, ticketErr.code);
+    }
+  } catch (gbErr) {
+    console.warn("[CreateTicket] Goobox error:", gbErr);
+  }
+
+  // 2. Create or get Necxa support chat room with support metadata
+  let roomId: string | null = null;
+  try {
+    const { data: rid } = await supabase.rpc('get_or_create_direct_room', {
+      p_user_a: supportBotId,
+      p_user_b: userId,
+    });
+    roomId = rid;
+    if (roomId) {
+      await supabase.from('direct_chat_rooms').update({
+        metadata: {
+          interaction_context: 'support',
+          conversation_label: 'Necxa Support',
+          ...(gooboxTicketId ? { ticket_id: gooboxTicketId } : {}),
+        },
+      }).eq('id', roomId);
+
+      // Send the initial message as support bot (system confirmation)
+      await supabase.from('direct_messages').insert({
+        room_id: roomId,
+        sender_id: supportBotId,
+        message_type: 'text',
+        content: `✅ Your support request has been received.\n\nSubject: ${subject}\n\nOur team will respond shortly. You can continue messaging here.`,
+        metadata: { interaction_context: 'support', source: 'system' },
+      });
+
+      // Also echo user's message into the room
+      await supabase.from('direct_messages').insert({
+        room_id: roomId,
+        sender_id: userId,
+        message_type: 'text',
+        content: message,
+        metadata: {
+          interaction_context: 'support',
+          ...(gooboxTicketId ? { ticket_id: gooboxTicketId } : {}),
+        },
+      });
+    }
+  } catch (chatErr) {
+    console.warn("[CreateTicket] Chat room setup error:", chatErr);
+  }
+
+  return json({
+    success: true,
+    ticket_id: gooboxTicketId,
+    room_id: roomId,
+    message: "Support ticket created. Our team will respond shortly.",
+  });
+}
+
+/**
+ * FORWARD-SUPPORT-MESSAGE: When a user types in the Necxa support chat,
+ * this forwards their message to Goobox ticket_messages and bumps updated_at.
+ */
+async function handleForwardSupportMessage(userId: string, payload: any) {
+  const message = payload.message || payload.content || '';
+  const ticketId = payload.ticket_id;
+  const roomId = payload.room_id;
+
+  if (!message) return err("message is required");
+  if (!ticketId) return json({ success: true, forwarded: false, reason: "no ticket_id — skipping forward" });
+
+  const { data: profile } = await supabase
+    .from('profiles').select('full_name, email').eq('id', userId).maybeSingle();
+  const userName = profile?.full_name || 'Necxa User';
+  const userEmail = profile?.email || `${userId}@users.necxa.uk`;
+
+  try {
+    const { error: msgErr } = await goobox.from('ticket_messages').insert({
+      ticket_id: ticketId,
+      sender_type: 'customer',
+      sender: `${userName} <${userEmail}>`,
+      body: message,
+      direction: 'inbound',
+      created_at: new Date().toISOString(),
+    });
+    if (msgErr) console.warn("[ForwardSupport] ticket_messages insert:", msgErr.message);
+
+    // Bump ticket updated_at so Goobox inbox sorts it to top
+    await goobox.from('support_tickets')
+      .update({ updated_at: new Date().toISOString(), status: 'open' })
+      .eq('id', ticketId);
+
+    return json({ success: true, forwarded: true });
+  } catch (e) {
+    console.warn("[ForwardSupport] Error forwarding to Goobox:", e);
+    return json({ success: true, forwarded: false, reason: String(e) });
+  }
+}
+
+/**
+ * FETCH-USER-SUPPORT-MESSAGES: Allows the Necxa user to securely view their
+ * active support tickets and messages from the Goobox team. Also auto-syncs any
+ * new Goobox agent replies that haven't been delivered to the user's chat yet.
+ */
+async function handleFetchUserSupportMessages(userId: string) {
+  try {
+    const { data: tickets, error } = await goobox
+      .from('support_tickets')
+      .select('id, subject, snippet, status, priority, created_at, updated_at')
+      .eq('necxa_user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.warn("[Goobox] Error fetching tickets for user:", error.message);
+      return json({ success: true, tickets: [] });
+    }
+
+    // Auto-sync any pending agent replies not yet delivered to Necxa chat
+    if (tickets && tickets.length > 0) {
+      try {
+        for (const ticket of tickets.slice(0, 5)) {
+          // 1. Check ticket_replies (standard Goobox outbound replies)
+          const { data: replies } = await goobox
+            .from('ticket_replies')
+            .select('id, body, sender, created_at')
+            .eq('ticket_id', ticket.id)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+          if (replies && replies.length > 0) {
+            for (const r of replies) {
+              const { count } = await supabase.from('direct_messages')
+                .select('id', { count: 'exact', head: true })
+                .contains('metadata', { ticket_reply_id: r.id });
+
+              if (count === 0) {
+                await handleSyncSupportResponse({
+                  necxa_user_id: userId,
+                  ticket_id: ticket.id,
+                  ticket_reply_id: r.id,
+                  message: r.body,
+                  agent_name: r.sender || 'Necxa Support Team',
+                });
+                console.log(`[AutoSync] Delivered pending Goobox ticket_reply: ${r.id}`);
+              }
+            }
+          }
+
+          // 2. Also check ticket_messages (agent messages)
+          const { data: messages } = await goobox
+            .from('ticket_messages')
+            .select('id, body, sender_type, sender, created_at')
+            .eq('ticket_id', ticket.id)
+            .or('direction.eq.outbound,sender_type.eq.agent')
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+          if (messages && messages.length > 0) {
+            for (const msg of messages) {
+              const { count } = await supabase.from('direct_messages')
+                .select('id', { count: 'exact', head: true })
+                .contains('metadata', { ticket_message_id: msg.id });
+
+              if (count === 0) {
+                await handleSyncSupportResponse({
+                  necxa_user_id: userId,
+                  ticket_id: ticket.id,
+                  ticket_message_id: msg.id,
+                  message: msg.body,
+                  agent_name: msg.sender || 'Necxa Support Team',
+                });
+                console.log(`[AutoSync] Delivered pending Goobox ticket_message: ${msg.id}`);
+              }
+            }
+          }
+        }
+      } catch (autoSyncErr) {
+        console.warn("[AutoSync] Error during auto-sync:", autoSyncErr);
+      }
+    }
+
+    return json({
+      success: true,
+      tickets: tickets || [],
+    });
+  } catch (e) {
+    console.error("[Goobox] Fetch user support failed:", e);
+    return json({ success: true, tickets: [] });
+
+  }
 }
 
 /**
@@ -878,110 +1928,229 @@ async function handleVerifyAsset(userId: string, payload: any) {
   return json({ success: true, verified: true, asset_id });
 }
 
-/**
- * TRIGGER-NOTIFICATION: Centralized social alert orchestration via Redis & Supabase.
- */
-async function handleTriggerNotification(userId: string, payload: any) {
-  const { type, target_id, actor_id, metadata = {} } = payload;
-  const redis = await getRedis();
-  
-  // 1. Determine the recipient (owner of the content or the follow target)
-  let recipientId = target_id;
-  if (['like', 'comment', 'share', 'save'].includes(type)) {
-    const { data: post } = await supabase
-      .from('community_posts')
-      .select('author_id')
-      .eq('id', target_id)
-      .single();
-    if (post) recipientId = post.author_id;
+const notificationTypes = new Set([
+  "like",
+  "comment",
+  "follow",
+  "share",
+  "save",
+  "mention",
+])
+
+async function resolveNotificationRecipient(
+  type: string,
+  targetId: string,
+  targetType: string,
+) {
+  if (type === "follow") return targetId
+
+  if (targetType === "listing") {
+    const { data, error } = await supabase
+      .from("listings")
+      .select("lister_id")
+      .eq("id", targetId)
+      .maybeSingle()
+    if (error) throw error
+    return data?.lister_id as string | undefined
   }
 
-  // Prevent self-notifications
-  if (recipientId === actor_id) return json({ success: true, message: "Self-notification skipped." });
+  const { data, error } = await supabase
+    .from("community_posts")
+    .select("author_id")
+    .eq("id", targetId)
+    .maybeSingle()
+  if (error) throw error
+  return data?.author_id as string | undefined
+}
 
-  const notification = {
-    id: crypto.randomUUID(),
-    type,
-    target_id,
-    actor_id,
-    metadata,
-    created_at: new Date().toISOString(),
-    read: false
-  };
-
-  // 2. High-Performance Redis Delivery (for instant in-app alerts)
-  if (redis) {
-    try {
-      await redis.lpush(`notifications:${recipientId}`, JSON.stringify(notification));
-      await redis.ltrim(`notifications:${recipientId}`, 0, 49); // Keep last 50 for the quick-view
-    } catch (e) {
-      console.error("REDIS Notification Error:", e);
+function notificationCopy(
+  type: string,
+  actorName: string,
+  metadata: Record<string, unknown>,
+) {
+  switch (type) {
+    case "like":
+      return {
+        title: "New like",
+        body: `${actorName} liked your content.`,
+      }
+    case "comment": {
+      const snippet = String(metadata.snippet ?? "").trim()
+      return {
+        title: "New comment",
+        body: snippet
+          ? `${actorName}: ${snippet}`
+          : `${actorName} commented on your content.`,
+      }
     }
+    case "follow":
+      return {
+        title: "New follower",
+        body: `${actorName} started following you.`,
+      }
+    case "share":
+      return {
+        title: "Content shared",
+        body: `${actorName} shared your content.`,
+      }
+    case "save":
+      return {
+        title: "Content saved",
+        body: `${actorName} saved your content.`,
+      }
+    default:
+      return {
+        title: "New activity",
+        body: `${actorName} engaged with your content.`,
+      }
   }
-
-  // 3. Persistent Storage in Supabase
-  try {
-    await supabase.from('notifications').insert({
-      user_id: recipientId,
-      actor_id: actor_id,
-      type: type, // Handled by trigger for 'notification_type'
-      target_id: String(target_id),
-      metadata: metadata
-    });
-  } catch (e) {
-    console.error("SUPABASE Notification Error:", e);
-  }
-
-  return json({ success: true, message: "Neural alert dispatched." });
 }
 
 /**
- * FETCH-NOTIFICATIONS: Retrieve the latest alerts from Redis.
+ * Persist an authenticated engagement notification for the recipient.
  */
-async function handleFetchNotifications(userId: string) {
-  const redis = await getRedis();
-  let notifications: any[] = [];
+async function handleTriggerNotification(userId: string, payload: any) {
+  const type = String(payload.type ?? "")
+  const targetId = String(payload.target_id ?? "")
+  const targetType = payload.target_type === "listing"
+    ? "listing"
+    : type === "follow"
+    ? "profile"
+    : "post"
+  const metadata = payload.metadata &&
+      typeof payload.metadata === "object" &&
+      !Array.isArray(payload.metadata)
+    ? payload.metadata as Record<string, unknown>
+    : {}
 
-  // 1. Try Redis for High-Performance Real-time Alerts
+  if (!notificationTypes.has(type)) return err("Unsupported notification type")
+  if (!targetId) return err("target_id required")
+
+  let recipientId: string | undefined
+  try {
+    recipientId = await resolveNotificationRecipient(type, targetId, targetType)
+  } catch (error) {
+    console.error("Notification recipient lookup failed:", error)
+    return err("Notification target could not be resolved", 404)
+  }
+  if (!recipientId) return err("Notification target was not found", 404)
+  if (recipientId === userId) {
+    return json({ success: true, skipped: "self_notification" })
+  }
+
+  const { data: actor } = await supabase
+    .from("profiles")
+    .select("full_name, avatar_url")
+    .eq("id", userId)
+    .maybeSingle()
+  const actorName = String(actor?.full_name || "Someone")
+  const actorAvatar = toStorageCdnUrl(actor?.avatar_url ?? null)
+  const copy = notificationCopy(type, actorName, metadata)
+  const eventId = type === "comment"
+    ? String(metadata.comment_id ?? payload.idempotency_key ?? crypto.randomUUID())
+    : targetId
+  const dedupeKey = `${type}:${userId}:${targetType}:${eventId}`
+  const notificationId = crypto.randomUUID()
+  const notificationMetadata = {
+    ...metadata,
+    actor_name: actorName,
+    actor_avatar: actorAvatar,
+  }
+  const row = {
+    id: notificationId,
+    user_id: recipientId,
+    actor_id: userId,
+    type,
+    title: copy.title,
+    body: copy.body,
+    target_id: targetId,
+    target_type: targetType,
+    metadata: notificationMetadata,
+    dedupe_key: dedupeKey,
+    is_read: false,
+    created_at: new Date().toISOString(),
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("notifications")
+    .upsert(row, {
+      onConflict: "user_id,dedupe_key",
+      ignoreDuplicates: true,
+    })
+    .select("*")
+    .maybeSingle()
+  if (insertError) {
+    console.error("Notification persistence failed:", insertError)
+    return err("Notification persistence failed", 503)
+  }
+  if (!inserted) {
+    return json({ success: true, skipped: "duplicate" })
+  }
+
+  const redis = await getRedis()
   if (redis) {
     try {
-      const raw = await redis.lrange(`notifications:${userId}`, 0, 49) as string[];
-      notifications = raw.map(r => JSON.parse(r));
-    } catch (e) {
-      console.error("REDIS Fetch Notifs Error:", e);
+      await redis.lpush(
+        `notifications:${recipientId}`,
+        JSON.stringify(inserted),
+      )
+      await redis.ltrim(`notifications:${recipientId}`, 0, 49)
+    } catch (error) {
+      console.error("Notification cache update failed:", error)
     }
   }
 
-  // 2. Fallback to Supabase for Persistent/Missed Alerts
-  if (notifications.length === 0) {
-    try {
-      const { data: dbNotifs } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('is_read', false)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      
-      if (dbNotifs) {
-        notifications = dbNotifs.map(n => ({
-          id: n.id,
-          type: n.type || n.notification_type,
-          title: n.title,
-          body: n.body,
-          target_id: n.target_id,
-          actor_id: n.actor_id,
-          metadata: n.metadata,
-          created_at: n.created_at,
-          read: n.is_read
-        }));
-      }
-    } catch (e) {
-      console.error("SUPABASE Fetch Notifs Fallback Error:", e);
-    }
+  return json({ success: true, data: inserted })
+}
+
+async function handleFetchNotifications(userId: string, payload: any) {
+  const requestedLimit = Number(payload.limit ?? 30)
+  const limit = Math.max(1, Math.min(50, requestedLimit))
+  let query = supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit)
+  if (typeof payload.before === "string" && payload.before) {
+    query = query.lt("created_at", payload.before)
   }
 
-  return json({ success: true, data: notifications });
+  const { data, error } = await query
+  if (error) {
+    console.error("Notification fetch failed:", error)
+    return err("Notifications are temporarily unavailable", 503)
+  }
+  const notifications = data ?? []
+  return json({
+    success: true,
+    data: notifications,
+    next_cursor: notifications.length === limit
+      ? notifications[notifications.length - 1]?.created_at
+      : null,
+  })
+}
+
+async function handleMarkNotificationRead(userId: string, payload: any) {
+  const notificationId = String(payload.notification_id ?? "")
+  if (!notificationId) return err("notification_id required")
+  const { error } = await supabase
+    .from("notifications")
+    .update({ is_read: true, read_at: new Date().toISOString() })
+    .eq("id", notificationId)
+    .eq("user_id", userId)
+  if (error) return err("Notification could not be updated", 503)
+  return json({ success: true })
+}
+
+async function handleMarkAllNotificationsRead(userId: string) {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ is_read: true, read_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("is_read", false)
+  if (error) return err("Notifications could not be updated", 503)
+  return json({ success: true })
 }
 
 /**
@@ -1133,15 +2302,31 @@ Deno.serve(async (req: Request) => {
   try {
     const authHeader = req.headers.get("Authorization");
     const { data: { user } } = await supabase.auth.getUser(authHeader?.replace("Bearer ", "") || "");
-    const userId = user?.id || req.headers.get("x-user-id");
+    const userId = user?.id;
+    const body = await req.json() as { action: string; payload?: Record<string, unknown> };
+    const { payload = {} } = body;
+    const rawAction = body.action || "";
+    const action = rawAction.trim().toLowerCase().replace(/\s*-\s*|\s*_\s*|\s+/g, "-");
+
+    // The one-time cutover is authenticated by a private application key.
+    // It runs before user auth because deployment callers use the project anon
+    // key at the gateway and never receive an end-user session.
+    if (action === "migrate-legacy-engagement") {
+      return handleMigrateLegacyEngagement(user, req);
+    }
+    if (action === "diagnose-engagement") {
+      return handleDiagnoseEngagement(user);
+    }
+
+    // sync-support-response is invoked by Goobox backend webhooks/admins
+    if (action === "sync-support-response") {
+      return handleSyncSupportResponse(payload);
+    }
 
     if (!userId) return err("Unauthorized", 401);
 
-    const body = await req.json() as { action: string; payload?: Record<string, unknown> };
-    const { action, payload = {} } = body;
-
     switch (action) {
-      case "fetch-feed":           return handleFetchFeed(payload);
+      case "fetch-feed":           return handleFetchFeed(userId, payload);
       case "record-usage":         return handleRecordUsage(userId, payload);
       case "toggle-like":          return handleToggleLike(userId, payload);
       case "get-upload-url":       return handleGetUploadUrl(userId, payload);
@@ -1150,12 +2335,15 @@ Deno.serve(async (req: Request) => {
       case "delete-post":          return handleDeletePost(userId, payload);
       case "clear-feed-cache":     return handleClearCache();
       case "trigger-notification": return handleTriggerNotification(userId, payload);
-      case "fetch-notifications":  return handleFetchNotifications(userId);
+      case "fetch-notifications":  return handleFetchNotifications(userId, payload);
+      case "mark-notification-read": return handleMarkNotificationRead(userId, payload);
+      case "mark-all-notifications-read": return handleMarkAllNotificationsRead(userId);
       case "create-comment":       return handleCreateComment(userId, payload);
       case "submit-review":        return handleSubmitReview(userId, payload);
       case "fetch-reviews":        return handleFetchReviews(payload);
-      case "fetch-shop-feed":      return handleFetchShopFeed(payload);
+      case "fetch-shop-feed":      return handleFetchShopFeed(userId, payload);
       case "fetch-comments":       return handleFetchComments(payload);
+      case "fetch-engagement":     return handleFetchEngagement(userId, payload);
       case "fetch-showcase":       return handleFetchShowcase(payload);
       case "create-listing":       return handleCreateListing(userId, payload);
       case "hydrate-post":         return handleHydratePost(payload);
@@ -1163,7 +2351,20 @@ Deno.serve(async (req: Request) => {
       case "fetch-music-discovery":return handleFetchMusicDiscovery();
       case "search-music":         return handleSearchMusic(payload);
       case "search-listings":      return handleSearchListings(payload);
-      default:                     return err(`Unknown action: "${action}"`);
+      case "not-interested":       return handleNotInterested(userId, payload);
+      case "report-content":       return handleSubmitReport(userId, payload);
+      case "sync-support-response":return handleSyncSupportResponse(payload);
+      case "fetch-user-support":
+      case "fetch-support":
+        return handleFetchUserSupportMessages(userId);
+      case "create-support-ticket":
+      case "create-ticket":
+      case "support-ticket":
+        return handleCreateSupportTicket(userId, payload);
+      case "forward-support-message":
+      case "forward-message":
+        return handleForwardSupportMessage(userId, payload);
+      default:                     return err(`Unknown action: "${rawAction}"`);
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

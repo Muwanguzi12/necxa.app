@@ -109,9 +109,10 @@ class _SoundSettingsScreenState extends State<SoundSettingsScreen> {
         trailing: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(color: C.brand.withOpacity(.1), shape: BoxShape.circle),
-          child: const Icon(Icons.play_arrow_rounded, color: C.brand, size: 20),
+          child: Icon(Icons.play_arrow_rounded, color: C.brand, size: 20),
         ),
       ),
     );
   }
 }
+
