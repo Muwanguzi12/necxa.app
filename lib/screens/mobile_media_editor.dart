@@ -4015,19 +4015,23 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       if (selectedTrack.type == TrackType.video) {
         tools.addAll([
           _buildToolButton('Split', () => _splitClip(), Icons.call_split),
-          _buildToolButton('Trim', () => _trimClip(), Icons.content_cut),
+          if (clip.file != null)
+            _buildToolButton('Extract Audio', () => _extractAudioFromClip(selectedTrack, clip), Icons.audiotrack_rounded),
+          if (clip.file != null)
+            _buildToolButton('Freeze', () => _freezeFrameAtPlayhead(selectedTrack, clip), Icons.pause_circle_outline_rounded),
           _buildToolButton('Velocity', () => _adjustSpeed(), Icons.speed),
-          _buildToolButton('Crop', _cropClip, Icons.crop),
+          _buildToolButton('Filter/LUT', _showFilterSheet, Icons.movie_filter),
           _buildToolButton('Adjust', _showAdjustSheet, Icons.tune),
-          _buildToolButton('LUTs', _showFilterSheet, Icons.movie_filter),
+          _buildToolButton('Effects', () => _showEffectLibrarySheet(), Icons.auto_awesome),
+          _buildToolButton('Crop', _cropClip, Icons.crop),
           _buildToolButton('Fade', () => _showFadeSheet(clip), Icons.animation),
+          _buildToolButton('Reverse', _toggleReverse, Icons.swap_horizontal_circle_outlined),
           _buildToolButton('Beauty', _showBeautyStudioSheet, Icons.face_retouching_natural),
           _buildToolButton('Presets', _showFaceEngineSheet, Icons.auto_fix_high),
           _buildToolButton('Mixer', _showAudioMixerSheet, Icons.graphic_eq),
           _buildToolButton('Transform', _showTransformEditorSheet, Icons.transform),
           _buildToolButton('Opacity', () => _adjustOpacity(), Icons.opacity),
-          _buildToolButton('Stickers', _showStickerSheet, Icons.auto_awesome),
-          _buildToolButton('Reverse', _toggleReverse, Icons.swap_horizontal_circle_outlined),
+          _buildToolButton('Stickers', _showStickerSheet, Icons.loyalty_outlined),
           _buildToolButton('Duplicate', () {
             _captureTimeline();
             final dup = clip.copyWith(
@@ -4056,13 +4060,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           selectedTrack.type == TrackType.voiceOver ||
           selectedTrack.type == TrackType.soundEffects) {
         tools.addAll([
+          _buildToolButton('Pro Edit', () => _showProAudioEditorSheet(selectedTrack, clip), Icons.tune_rounded),
           _buildToolButton('Split', _splitClip, Icons.call_split),
           _buildToolButton('Trim', _trimClip, Icons.content_cut),
-          _buildToolButton('Speed', _adjustSpeed, Icons.speed),
+          _buildToolButton('Volume', () => _showProAudioEditorSheet(selectedTrack, clip), Icons.volume_up),
+          _buildToolButton('Fade', () => _showProAudioEditorSheet(selectedTrack, clip), Icons.gradient_rounded),
+          _buildToolButton('Speed', () => _showProAudioEditorSheet(selectedTrack, clip), Icons.speed),
           _buildToolButton('Mixer', _showAudioMixerSheet, Icons.graphic_eq),
-          _buildToolButton('Volume', () => _adjustVolume(), Icons.volume_up),
-          _buildToolButton('Fade', () => _addFade(), Icons.animation),
           _buildToolButton('Reverse', _toggleReverse, Icons.swap_horizontal_circle_outlined),
+          _buildToolButton('Duplicate', () {
+            _captureTimeline();
+            final dup = clip.copyWith(
+              id: '${clip.id}-dup-${DateTime.now().millisecondsSinceEpoch}',
+            );
+            dup.start = clip.start + clip.duration;
+            TimelineModelUtils.insertClip(_tracks, dup, selectedTrack.type);
+            _playback.updateProject(_tracks);
+            setState(() {});
+            _showSnack('Audio clip duplicated');
+          }, Icons.content_copy),
           _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       } else if (selectedTrack.type == TrackType.effects) {
@@ -6755,11 +6771,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                       final isSelected = current.toLowerCase() == item.$1.toLowerCase();
                       return GestureDetector(
                         onTap: () {
+                          final currentIntensity = clip.filter?.intensity ?? 1.0;
                           setModalState(() {});
                           setState(() {
                             clip.filter = item.$1 == 'None'
                                 ? null
-                                : FilterOperation(filterName: item.$1);
+                                : FilterOperation(
+                                    filterName: item.$1,
+                                    intensity: currentIntensity,
+                                  );
                           });
                           _refreshComposition();
                           HapticFeedback.selectionClick();
@@ -6816,6 +6836,71 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     },
                   ),
                 ),
+                if (current != 'None' && clip.filter != null) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Filter Strength',
+                        style: syne(sz: 12, w: FontWeight.w700, c: Colors.white),
+                      ),
+                      Text(
+                        '${((clip.filter?.intensity ?? 1.0) * 100).round()}%',
+                        style: dm(sz: 11, c: C.brand, w: FontWeight.w800),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: (clip.filter?.intensity ?? 1.0).clamp(0.0, 1.0),
+                    activeColor: C.brand,
+                    inactiveColor: Colors.white12,
+                    onChanged: (val) {
+                      setModalState(() {});
+                      setState(() {
+                        clip.filter = FilterOperation(
+                          filterName: clip.filter!.filterName,
+                          intensity: val,
+                        );
+                      });
+                      _refreshComposition();
+                    },
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [0.25, 0.50, 0.75, 1.0].map((preset) {
+                      final active = ((clip.filter?.intensity ?? 1.0) - preset).abs() < 0.05;
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() {});
+                          setState(() {
+                            clip.filter = FilterOperation(
+                              filterName: clip.filter!.filterName,
+                              intensity: preset,
+                            );
+                          });
+                          _refreshComposition();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: active ? C.brand : Colors.white.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: active ? C.brand : Colors.white12),
+                          ),
+                          child: Text(
+                            '${(preset * 100).round()}%',
+                            style: dm(
+                              sz: 10,
+                              c: active ? Colors.black : Colors.white,
+                              w: active ? FontWeight.w800 : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
                 const SizedBox(height: 12),
               ],
             ),
@@ -9010,11 +9095,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     Navigator.pop(context);
                     _trimClip();
                   }),
-                  if (track.type == TrackType.video && clip.file != null)
+                  if (track.type == TrackType.video && clip.file != null) ...[
                     _buildClipActionChip('Extract Audio', () {
                       Navigator.pop(context);
                       _extractAudioFromClip(track, clip);
                     }),
+                    _buildClipActionChip('Freeze', () {
+                      Navigator.pop(context);
+                      _freezeFrameAtPlayhead(track, clip);
+                    }),
+                    _buildClipActionChip('Velocity', () {
+                      Navigator.pop(context);
+                      _adjustSpeed();
+                    }),
+                  ],
                   if (track.type == TrackType.audio ||
                       track.type == TrackType.music ||
                       track.type == TrackType.voiceOver ||
@@ -9173,6 +9267,85 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     });
 
     _showSnack('Audio extracted to Audio track (${_formatDuration(clip.duration)})');
+  }
+
+  void _freezeFrameAtPlayhead(TimelineTrack track, TimelineClip clip) {
+    if (clip.file == null) {
+      _showSnack('Selected clip has no video file to freeze');
+      return;
+    }
+
+    final clipPosition = TimelineModelUtils.relativeTimeForClip(
+      clip,
+      _currentTime,
+    );
+    final minSplit = const Duration(milliseconds: 100);
+    final maxSplit = clip.duration - const Duration(milliseconds: 100);
+
+    // If playhead is inside clip, split there; otherwise use midpoint
+    final freezeTime = (clipPosition > minSplit && clipPosition < maxSplit)
+        ? clipPosition
+        : Duration(milliseconds: (clip.duration.inMilliseconds / 2).round());
+
+    _captureTimeline();
+
+    final constFreezeDuration = const Duration(seconds: 2);
+    final sourceSplit = clip.sourceStart +
+        Duration(milliseconds: (freezeTime.inMilliseconds * clip.speed).round());
+
+    final leftDuration = freezeTime;
+    final rightStart = clip.start + leftDuration + constFreezeDuration;
+    final rightDuration = clip.duration - leftDuration;
+    final rightSourceStart = sourceSplit;
+
+    final freezeClip = TimelineClip(
+      id: 'freeze-${DateTime.now().millisecondsSinceEpoch}',
+      start: clip.start + leftDuration,
+      duration: constFreezeDuration,
+      file: clip.file,
+      sourceStart: sourceSplit,
+      sourceEnd: sourceSplit + const Duration(milliseconds: 33),
+      speed: 0.001,
+      volume: 0.0,
+      operation: TrimOperation(
+        start: sourceSplit,
+        end: sourceSplit + const Duration(milliseconds: 33),
+        maxDuration: clip.duration,
+      ),
+    );
+
+    for (final otherClip in track.clips) {
+      if (otherClip != clip && otherClip.start >= clip.start + leftDuration) {
+        otherClip.start += constFreezeDuration;
+      }
+    }
+
+    if (rightDuration > const Duration(milliseconds: 100)) {
+      final rightClip = clip.copyWith(
+        id: '${clip.id}-after-freeze-${DateTime.now().millisecondsSinceEpoch}',
+        start: rightStart,
+        duration: rightDuration,
+        sourceStart: rightSourceStart,
+      );
+      track.clips.add(rightClip);
+    }
+
+    clip.duration = leftDuration;
+    clip.sourceEnd = sourceSplit;
+    track.clips.add(freezeClip);
+    track.clips.sort((a, b) => a.start.compareTo(b.start));
+
+    _captureTimeline();
+    _playback.updateProject(_tracks);
+    setState(() {
+      _selectedClipIds
+        ..clear()
+        ..add(freezeClip.id);
+      _selectedClip = freezeClip;
+    });
+
+    HapticFeedback.mediumImpact();
+    _showSnack('Freeze frame inserted (2.0s)');
   }
 
   void _showProAudioEditorSheet(TimelineTrack track, TimelineClip clip) {
@@ -9586,15 +9759,27 @@ class _ClipBadgeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final badges = <Widget>[];
 
-    // Speed badge (shown when not 1.0×)
-    if ((clip.speed - 1.0).abs() > 0.01) {
+    // Freeze / Hold badge
+    if (clip.id.startsWith('freeze-') || clip.speed <= 0.005) {
+      badges.add(_textBadge('HOLD', const Color(0xFF38BDF8), Colors.black));
+    }
+
+    // Speed badge (shown when not 1.0× and not freeze)
+    if (clip.speed > 0.005 && (clip.speed - 1.0).abs() > 0.01) {
       final label = '${clip.speed.toStringAsFixed(1)}×';
       badges.add(_textBadge(label, const Color(0xFFFBBF24), Colors.black));
     }
 
-    // FX badge (colour filter applied)
+    // Muted audio badge
+    if (clip.volume == 0.0) {
+      badges.add(_iconBadge(Icons.volume_off, const Color(0xFFEF4444)));
+    }
+
+    // FX badge (colour filter applied with intensity)
     if (clip.filter != null) {
-      badges.add(_iconBadge(Icons.auto_fix_high, const Color(0xFF00E5FF)));
+      final intensityPct = (clip.filter!.intensity * 100).round();
+      final label = intensityPct < 100 ? 'FX $intensityPct%' : 'FX';
+      badges.add(_textBadge(label, const Color(0xFF00E5FF), Colors.black));
     }
 
     // Beauty badge (any skin/makeup effect active)
