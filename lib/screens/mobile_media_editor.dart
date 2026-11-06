@@ -2487,39 +2487,151 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           continue;
         }
 
-        if (clip.operation is! TextOverlay) {
-          continue;
-        }
+        if (clip.operation is TextOverlay) {
+          final overlay = clip.operation as TextOverlay;
+          final alignment = Alignment(
+            (overlay.position.dx * 2) - 1,
+            (overlay.position.dy * 2) - 1,
+          );
 
-        final overlay = clip.operation as TextOverlay;
-        final alignment = Alignment(
-          (overlay.position.dx * 2) - 1,
-          (overlay.position.dy * 2) - 1,
-        );
-
-        widgets.add(
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Align(
-                alignment: alignment,
-                child: Transform.rotate(
-                  angle: overlay.rotation,
-                  child: Transform.scale(
-                    scale: overlay.scale,
-                    child: Text(
-                      overlay.text,
-                      textAlign: TextAlign.center,
-                      style: overlay.style.copyWith(
-                        color: overlay.style.color ?? Colors.white,
-                        fontSize: overlay.style.fontSize ?? 28,
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Align(
+                  alignment: alignment,
+                  child: Transform.rotate(
+                    angle: overlay.rotation,
+                    child: Transform.scale(
+                      scale: overlay.scale,
+                      child: Text(
+                        overlay.text,
+                        textAlign: TextAlign.center,
+                        style: overlay.style.copyWith(
+                          color: overlay.style.color ?? Colors.white,
+                          fontSize: overlay.style.fontSize ?? 28,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
+          );
+        } else if (clip.operation is OverlayOperation) {
+          final overlay = clip.operation as OverlayOperation;
+          final alignment = Alignment(
+            (overlay.position.dx * 2) - 1,
+            (overlay.position.dy * 2) - 1,
+          );
+
+          Widget content;
+          if (overlay.imagePath != null && overlay.imagePath!.isNotEmpty) {
+            final path = overlay.imagePath!;
+            final isAsset = path.startsWith('assets/');
+            final imgSize = (overlay.fontSize * 3.2).clamp(36.0, 320.0);
+            content = isAsset
+                ? Image.asset(
+                    path,
+                    width: imgSize,
+                    height: imgSize,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image_rounded,
+                      color: Colors.white54,
+                    ),
+                  )
+                : Image.file(
+                    File(path),
+                    width: imgSize,
+                    height: imgSize,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image_rounded,
+                      color: Colors.white54,
+                    ),
+                  );
+          } else {
+            // Text or emoji badge sticker
+            final isWord = overlay.text.length > 2;
+            content = Container(
+              padding: isWord
+                  ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
+                  : EdgeInsets.zero,
+              decoration: overlay.backgroundOpacity > 0
+                  ? BoxDecoration(
+                      color: overlay.background
+                          .withValues(alpha: overlay.backgroundOpacity),
+                      borderRadius: BorderRadius.circular(8),
+                      border: overlay.stroke
+                          ? Border.all(color: Colors.white, width: 1.5)
+                          : null,
+                      boxShadow: overlay.shadow
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    )
+                  : null,
+              child: Text(
+                overlay.text,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: overlay.color,
+                  fontSize: overlay.fontSize,
+                  fontWeight: FontWeight.w900,
+                  shadows: overlay.shadow
+                      ? const [
+                          Shadow(
+                            color: Colors.black,
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+              ),
+            );
+          }
+
+          final isClipSelected = _selectedClip?.id == clip.id;
+
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Align(
+                  alignment: alignment,
+                  child: Opacity(
+                    opacity: overlay.opacity.clamp(0.0, 1.0),
+                    child: Transform.rotate(
+                      angle: overlay.rotation,
+                      child: Transform.scale(
+                        scale: overlay.scale,
+                        child: Container(
+                          decoration: isClipSelected
+                              ? BoxDecoration(
+                                  border: Border.all(
+                                    color: const Color(0xFF00E5FF)
+                                        .withValues(alpha: 0.75),
+                                    width: 1.5,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                )
+                              : null,
+                          padding: isClipSelected ? const EdgeInsets.all(4) : EdgeInsets.zero,
+                          child: content,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
       }
     }
 
@@ -3867,6 +3979,79 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           ),
         ],
       );
+    } else if (track.type == TrackType.overlay) {
+      Widget stickerWidget;
+      if (clip.operation is OverlayOperation) {
+        final op = clip.operation as OverlayOperation;
+        if (op.imagePath != null && op.imagePath!.isNotEmpty) {
+          final isAsset = op.imagePath!.startsWith('assets/');
+          stickerWidget = Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: isAsset
+                    ? Image.asset(
+                        op.imagePath!,
+                        width: 22,
+                        height: 22,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.loyalty,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
+                      )
+                    : Image.file(
+                        File(op.imagePath!),
+                        width: 22,
+                        height: 22,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.loyalty,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  op.text.isNotEmpty ? op.text : 'Sticker',
+                  style: dm(sz: 9, c: Colors.white, w: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                _formatDuration(clip.duration),
+                style: dm(sz: 7.5, c: Colors.white70),
+              ),
+            ],
+          );
+        } else {
+          stickerWidget = Row(
+            children: [
+              Text(op.text, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  _formatDuration(clip.duration),
+                  style: dm(sz: 8, c: Colors.white70),
+                ),
+              ),
+            ],
+          );
+        }
+      } else {
+        stickerWidget = Text(
+          'Sticker',
+          style: dm(sz: 9, c: Colors.white, w: FontWeight.w700),
+        );
+      }
+      content = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: stickerWidget,
+      );
     } else {
       content = Padding(
         padding: const EdgeInsets.all(4),
@@ -4526,6 +4711,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           _buildToolButton('Intensity', () => _showEffectEditorSheet(), Icons.tune),
           _buildToolButton('Opacity', () => _showEffectEditorSheet(), Icons.opacity),
           _buildToolButton('Blend', () => _showEffectEditorSheet(), Icons.blur_linear),
+          _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
+        ]);
+      } else if (selectedTrack.type == TrackType.overlay) {
+        tools.addAll([
+          _buildToolButton('Edit', () => _showStickerEditorSheet(clip), Icons.tune),
+          _buildToolButton('Replace', () => _showStickerSheet(), Icons.swap_horiz_rounded),
+          _buildToolButton('Duplicate', _duplicateSelectedClips, Icons.content_copy),
           _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       } else {
@@ -9730,100 +9922,577 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showStickerSheet() {
-    final stickers = [
-      'STAR',
-      'SALE',
-      'NEW',
-      'LIVE',
-      'HOT',
-      'CHECK',
-      '❤️',
-      '🔥',
-      '✨',
-      '⚡',
-      '🎉',
-      '👏',
-      '🎬',
-      '💯',
-      '🚀',
-      '👀',
+    int activeCategory = 0;
+    final categories = const <String>[
+      'App Icons & Logo',
+      '3D Gifts',
+      'Badges',
+      'Emojis',
     ];
+
+    // 1. App Logo & System Icons
+    final appIconStickers = const <_StickerItem>[
+      _StickerItem(label: 'Necxa Logo', assetPath: 'assets/images/logo.png'),
+      _StickerItem(label: 'Necxa Badge', assetPath: 'assets/images/app_icon.png'),
+      _StickerItem(label: 'Glass Icon', assetPath: 'assets/images/app_icon_padded.png'),
+      _StickerItem(label: 'Property', assetPath: 'assets/images/property_icon.png'),
+      _StickerItem(label: 'Transport', assetPath: 'assets/images/transport_icon.png'),
+      _StickerItem(label: 'Marketplace', assetPath: 'assets/images/listing_icon.png'),
+      _StickerItem(label: 'Community', assetPath: 'assets/images/community_icon_colored.png'),
+      _StickerItem(label: 'Mono Logo', assetPath: 'assets/images/community_icon_white.png'),
+      _StickerItem(label: 'Live Stream', assetPath: 'assets/images/live_icon.png'),
+      _StickerItem(label: 'Chat Bubble', assetPath: 'assets/images/chat_icon.png'),
+      _StickerItem(label: 'Notification', assetPath: 'assets/images/notification_icon.png'),
+      _StickerItem(label: 'Upload Hub', assetPath: 'assets/images/upload_icon.png'),
+    ];
+
+    // 2. 3D Gifts & Rewards
+    final giftStickers = const <_StickerItem>[
+      _StickerItem(label: 'Fire', assetPath: 'assets/gifts/fire.png'),
+      _StickerItem(label: 'Crown', assetPath: 'assets/gifts/crown.png'),
+      _StickerItem(label: 'Diamond', assetPath: 'assets/gifts/diamond.png'),
+      _StickerItem(label: 'Gold Star', assetPath: 'assets/gifts/star.png'),
+      _StickerItem(label: 'Trophy', assetPath: 'assets/gifts/trophy.png'),
+      _StickerItem(label: 'Rocket', assetPath: 'assets/gifts/rocket.png'),
+      _StickerItem(label: 'Heart', assetPath: 'assets/gifts/heart.png'),
+      _StickerItem(label: 'Money Bag', assetPath: 'assets/gifts/moneybag.png'),
+      _StickerItem(label: 'Supercar', assetPath: 'assets/gifts/sportscar.png'),
+      _StickerItem(label: 'Private Jet', assetPath: 'assets/gifts/jet.png'),
+      _StickerItem(label: 'Yacht', assetPath: 'assets/gifts/yacht.png'),
+      _StickerItem(label: 'Villa', assetPath: 'assets/gifts/villa.png'),
+      _StickerItem(label: 'Rose', assetPath: 'assets/gifts/rose.png'),
+      _StickerItem(label: 'Applause', assetPath: 'assets/gifts/clap.png'),
+      _StickerItem(label: 'Coffee', assetPath: 'assets/gifts/coffee.png'),
+    ];
+
+    // 3. Badges & Tags
+    final badgeStickers = const <_StickerItem>[
+      _StickerItem(label: 'VERIFIED', emoji: 'VERIFIED', isBadge: true),
+      _StickerItem(label: 'TOP SELLER', emoji: 'TOP SELLER', isBadge: true),
+      _StickerItem(label: 'BEST DEAL', emoji: 'BEST DEAL', isBadge: true),
+      _StickerItem(label: '50% OFF', emoji: '50% OFF', isBadge: true),
+      _StickerItem(label: 'LIMITED', emoji: 'LIMITED', isBadge: true),
+      _StickerItem(label: 'NEW', emoji: 'NEW', isBadge: true),
+      _StickerItem(label: 'HOT', emoji: 'HOT', isBadge: true),
+      _StickerItem(label: 'LIVE NOW', emoji: 'LIVE NOW', isBadge: true),
+    ];
+
+    // 4. Reactions & Emojis
+    final emojiStickers = const <_StickerItem>[
+      _StickerItem(label: 'Fire', emoji: '🔥'),
+      _StickerItem(label: 'Sparkles', emoji: '✨'),
+      _StickerItem(label: 'Heart', emoji: '❤️'),
+      _StickerItem(label: '100', emoji: '💯'),
+      _StickerItem(label: 'Lightning', emoji: '⚡'),
+      _StickerItem(label: 'Party', emoji: '🎉'),
+      _StickerItem(label: 'Crown', emoji: '👑'),
+      _StickerItem(label: 'Diamond', emoji: '💎'),
+      _StickerItem(label: 'Applause', emoji: '👏'),
+      _StickerItem(label: 'Movie', emoji: '🎬'),
+      _StickerItem(label: 'Rocket', emoji: '🚀'),
+      _StickerItem(label: 'Money', emoji: '💸'),
+      _StickerItem(label: 'Shopping', emoji: '🛍️'),
+      _StickerItem(label: 'Tag', emoji: '🏷️'),
+      _StickerItem(label: 'Star Eyes', emoji: '🤩'),
+    ];
+
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.94),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: C.dim),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'STICKERS',
-              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          List<_StickerItem> currentList;
+          switch (activeCategory) {
+            case 0:
+              currentList = appIconStickers;
+              break;
+            case 1:
+              currentList = giftStickers;
+              break;
+            case 2:
+              currentList = badgeStickers;
+              break;
+            default:
+              currentList = emojiStickers;
+              break;
+          }
+
+          return Container(
+            height: 380,
+            decoration: BoxDecoration(
+              color: const Color(0xFF12151E).withValues(alpha: 0.98),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black87,
+                  blurRadius: 24,
+                  offset: Offset(0, -6),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: stickers.map((sticker) {
-                return GestureDetector(
-                  onTap: () {
-                    final isWord = sticker.length > 2;
-                    final overlay = OverlayOperation(
-                      kind: 'sticker',
-                      text: sticker,
-                      fontSize: isWord ? 22.0 : 42.0,
-                      color: isWord ? Colors.black : C.text,
-                      background: isWord ? C.brand : Colors.transparent,
-                      backgroundOpacity: isWord ? 1.0 : 0.0,
-                      stroke: !isWord,
-                      shadow: true,
-                    );
-                    final clip = TimelineClip(
-                      id:
-                          'overlay-sticker-${DateTime.now().millisecondsSinceEpoch}',
-                      start: _currentTime,
-                      duration: const Duration(seconds: 4),
-                      operation: overlay,
-                    );
-                    TimelineModelUtils.insertClip(
-                      _tracks,
-                      clip,
-                      TrackType.overlay,
-                    );
-                    _playback.updateProject(_tracks);
-                    setState(() {});
-                    Navigator.pop(context);
-                    _showSnack('Sticker added to timeline');
-                  },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Top Handle ──────────────────────────────
+                Center(
                   child: Container(
-                    width: 76,
-                    height: 54,
+                    margin: const EdgeInsets.only(top: 8, bottom: 6),
+                    width: 36,
+                    height: 4,
                     decoration: BoxDecoration(
-                      color: C.text.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: C.dim),
-                    ),
-                    child: Center(
-                      child: Text(
-                        sticker,
-                        style: syne(
-                          sz: sticker.length > 2 ? 13 : 24,
-                          w: FontWeight.w900,
-                          c: C.text,
-                        ),
-                      ),
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                );
-              }).toList(),
+                ),
+
+                // ── Header ──────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFBE185D).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.loyalty_rounded,
+                          size: 15,
+                          color: Color(0xFFEC4899),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Sticker Studio',
+                        style: syne(sz: 14, w: FontWeight.w800, c: C.text),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(Icons.close_rounded, size: 18, color: C.dim),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+
+                // ── Category Pills ──────────────────────────
+                SizedBox(
+                  height: 32,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: categories.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 6),
+                    itemBuilder: (context, idx) {
+                      final isSelected = activeCategory == idx;
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() => activeCategory = idx);
+                          HapticFeedback.selectionClick();
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFFEC4899)
+                                : Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFFEC4899)
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Text(
+                            categories[idx],
+                            style: dm(
+                              sz: 11,
+                              w: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              c: isSelected ? Colors.white : C.dim,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Stickers Grid ───────────────────────────
+                Expanded(
+                  child: GridView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 0.88,
+                    ),
+                    itemCount: currentList.length,
+                    itemBuilder: (context, index) {
+                      final item = currentList[index];
+                      return GestureDetector(
+                        onTap: () {
+                          _captureTimeline();
+
+                          // If an overlay clip is already selected, update it in place!
+                          if (_selectedClip != null &&
+                              _selectedClip!.operation is OverlayOperation) {
+                            final op = _selectedClip!.operation as OverlayOperation;
+                            op.text = item.emoji ?? item.label;
+                            op.imagePath = item.assetPath;
+                            _playback.updateProject(_tracks);
+                            setState(() {});
+                            Navigator.pop(context);
+                            _showSnack('Updated sticker to ${item.label}');
+                            HapticFeedback.mediumImpact();
+                            return;
+                          }
+
+                          // Otherwise insert new sticker on overlay track
+                          final overlay = OverlayOperation(
+                            kind: 'sticker',
+                            text: item.emoji ?? item.label,
+                            imagePath: item.assetPath,
+                            fontSize: item.isBadge ? 18.0 : (item.assetPath != null ? 34.0 : 42.0),
+                            color: item.isBadge ? Colors.black : C.text,
+                            background: item.isBadge ? const Color(0xFF00E5FF) : Colors.transparent,
+                            backgroundOpacity: item.isBadge ? 1.0 : 0.0,
+                            stroke: item.isBadge,
+                            shadow: true,
+                            position: const Offset(0.5, 0.5),
+                            scale: 1.0,
+                          );
+
+                          final clip = TimelineClip(
+                            id: 'overlay-sticker-${DateTime.now().millisecondsSinceEpoch}',
+                            start: _currentTime,
+                            duration: const Duration(seconds: 4),
+                            operation: overlay,
+                          );
+
+                          TimelineModelUtils.insertClip(
+                            _tracks,
+                            clip,
+                            TrackType.overlay,
+                          );
+                          _playback.updateProject(_tracks);
+                          setState(() {
+                            _selectedClip = clip;
+                            _selectedTrackId = _tracks
+                                .firstWhere((t) => t.clips.contains(clip))
+                                .id;
+                            _selectedTrackIndex = _tracks.indexWhere(
+                              (t) => t.id == _selectedTrackId,
+                            );
+                          });
+                          Navigator.pop(context);
+                          _showSnack('${item.label} sticker added to timeline');
+                          HapticFeedback.mediumImpact();
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: C.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (item.assetPath != null) ...[
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(6),
+                                    child: Image.asset(
+                                      item.assetPath!,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.broken_image_rounded,
+                                        size: 28,
+                                        color: Colors.white54,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+                                  child: Text(
+                                    item.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: dm(sz: 9.5, w: FontWeight.w600, c: C.dim),
+                                  ),
+                                ),
+                              ] else if (item.isBadge) ...[
+                                Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF00E5FF), Color(0xFF0077B6)],
+                                    ),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    item.emoji ?? item.label,
+                                    style: const TextStyle(
+                                      color: Colors.black,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ] else ...[
+                                Text(
+                                  item.emoji ?? '⭐',
+                                  style: const TextStyle(fontSize: 28),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.label,
+                                  style: dm(sz: 9, c: C.dim),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showStickerEditorSheet(TimelineClip clip) {
+    if (clip.operation is! OverlayOperation) {
+      _showSnack('Select a sticker overlay first');
+      return;
+    }
+
+    final overlay = clip.operation as OverlayOperation;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF141720),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (overlay.imagePath != null && overlay.imagePath!.isNotEmpty)
+                      Image.asset(
+                        overlay.imagePath!,
+                        width: 26,
+                        height: 26,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.loyalty,
+                          size: 20,
+                          color: Color(0xFFEC4899),
+                        ),
+                      )
+                    else
+                      Text(
+                        overlay.text.isNotEmpty ? overlay.text : '🏷️',
+                        style: const TextStyle(fontSize: 22),
+                      ),
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Edit Sticker',
+                          style: dm(sz: 14, w: FontWeight.w700, c: C.text),
+                        ),
+                        Text(
+                          overlay.text.isNotEmpty ? overlay.text : 'Overlay',
+                          style: dm(sz: 10, c: C.dim),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.check_rounded, color: Color(0xFF10B981)),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Size / Scale Slider
+                _buildEffectSlider(
+                  'Size (${(overlay.scale * 100).round()}%)',
+                  overlay.scale,
+                  0.3,
+                  3.0,
+                  (v) {
+                    setModalState(() => overlay.scale = v);
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                // Opacity Slider
+                _buildEffectSlider(
+                  'Opacity (${(overlay.opacity * 100).round()}%)',
+                  overlay.opacity,
+                  0.05,
+                  1.0,
+                  (v) {
+                    setModalState(() => overlay.opacity = v);
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                // Position X
+                _buildEffectSlider(
+                  'Horizontal Position (${(overlay.position.dx * 100).round()}%)',
+                  overlay.position.dx,
+                  0.0,
+                  1.0,
+                  (v) {
+                    setModalState(
+                      () => overlay.position = Offset(v, overlay.position.dy),
+                    );
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                // Position Y
+                _buildEffectSlider(
+                  'Vertical Position (${(overlay.position.dy * 100).round()}%)',
+                  overlay.position.dy,
+                  0.0,
+                  1.0,
+                  (v) {
+                    setModalState(
+                      () => overlay.position = Offset(overlay.position.dx, v),
+                    );
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                const SizedBox(height: 10),
+
+                // Quick Alignment Presets
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildAlignmentButton('Top Left', const Offset(0.2, 0.2), overlay, setModalState),
+                    _buildAlignmentButton('Top Right', const Offset(0.8, 0.2), overlay, setModalState),
+                    _buildAlignmentButton('Center', const Offset(0.5, 0.5), overlay, setModalState),
+                    _buildAlignmentButton('Bottom Left', const Offset(0.2, 0.8), overlay, setModalState),
+                    _buildAlignmentButton('Bottom Right', const Offset(0.8, 0.8), overlay, setModalState),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Action Chips
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildEffectChip('Replace', () {
+                      Navigator.pop(context);
+                      _showStickerSheet();
+                    }),
+                    _buildEffectChip('Duplicate', () {
+                      _duplicateSelectedClips();
+                      Navigator.pop(context);
+                    }),
+                    _buildEffectChip('Delete', () {
+                      _deleteClip();
+                      Navigator.pop(context);
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAlignmentButton(
+    String label,
+    Offset offset,
+    OverlayOperation overlay,
+    void Function(void Function()) setModalState,
+  ) {
+    final isSelected = (overlay.position.dx - offset.dx).abs() < 0.05 &&
+        (overlay.position.dy - offset.dy).abs() < 0.05;
+    return GestureDetector(
+      onTap: () {
+        setModalState(() => overlay.position = offset);
+        setState(() {});
+        _playback.updateProject(_tracks);
+        HapticFeedback.selectionClick();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF00E5FF).withValues(alpha: 0.2)
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF00E5FF) : Colors.white12,
+          ),
+        ),
+        child: Text(
+          label,
+          style: dm(
+            sz: 9.5,
+            w: isSelected ? FontWeight.w700 : FontWeight.w500,
+            c: isSelected ? const Color(0xFF00E5FF) : C.dim,
+          ),
         ),
       ),
     );
@@ -11772,4 +12441,18 @@ class _TealOrangeTintOverlay extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StickerItem {
+  final String label;
+  final String? assetPath;
+  final String? emoji;
+  final bool isBadge;
+
+  const _StickerItem({
+    required this.label,
+    this.assetPath,
+    this.emoji,
+    this.isBadge = false,
+  });
 }
