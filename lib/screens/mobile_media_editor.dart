@@ -7726,10 +7726,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       if (assets.isEmpty) return;
       TimelineClip? lastClip;
       var start = _currentTime;
+      final clipsNeedingProbe = <TimelineClip>[];
+
       for (final asset in assets) {
-        final duration = asset.duration == Duration.zero
-            ? const Duration(seconds: 4)
-            : asset.duration;
+        // If service probed successfully, use real duration.
+        // If not (Duration.zero), insert with 60-min placeholder and re-probe below.
+        final duration = asset.duration > Duration.zero
+            ? asset.duration
+            : const Duration(hours: 1); // generous placeholder, corrected after probe
         final clip = TimelineClip(
           id: asset.id,
           start: start,
@@ -7746,7 +7750,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _playback.updateProject(_tracks);
         start += duration;
         lastClip = clip;
+
+        if (asset.duration == Duration.zero) {
+          clipsNeedingProbe.add(clip);
+        }
       }
+
       if (lastClip != null && mounted) {
         setState(() {
           _selectedClip = lastClip;
@@ -7760,6 +7769,31 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _showSnack(
           '${assets.length} audio file${assets.length == 1 ? '' : 's'} added to timeline',
         );
+      }
+
+      // Async re-probe any clips where duration wasn't available at pick time
+      for (final clip in clipsNeedingProbe) {
+        final op = clip.operation;
+        if (op is! AudioClipOperation) continue;
+        try {
+          final probe = AudioPlayer();
+          final src = op.sourceUrl;
+          if (src.startsWith('http')) {
+            await probe.setSourceUrl(src);
+          } else {
+            await probe.setSourceDeviceFile(src);
+          }
+          final probed = await probe.getDuration();
+          await probe.dispose();
+          if (probed != null && probed > Duration.zero && mounted) {
+            setState(() {
+              clip.duration = probed;
+            });
+            _playback.updateProject(_tracks);
+          }
+        } catch (_) {
+          // Leave the placeholder; user can trim manually
+        }
       }
     } catch (_) {
       if (mounted) _showSnack('Unable to import audio files');
@@ -7802,11 +7836,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       final clip = TimelineClip(
         id: 'music-${DateTime.now().millisecondsSinceEpoch}',
         start: _currentTime,
-        // MusicTrack.duration is stored in seconds. Treating it as
-        // milliseconds reduced nearly every selected song to one second.
+        // MusicTrack.duration is stored in seconds. Use it directly;
+        // if missing, use a 3-min placeholder and probe the real URL below.
         duration: result.duration > 0
             ? result.timelineDuration
-            : const Duration(seconds: 1),
+            : const Duration(minutes: 3),
         operation: AudioClipOperation(
           sourceType: 'music',
           sourceUrl: result.audioUrl,
