@@ -756,16 +756,92 @@ class NecxaAI {
     required File vehicleImage,
     required String issuingCountryCode,
     required bool aiProcessingConsent,
+    Function(int step, String message)? onStepProgress,
   }) async {
     final session = Supabase.instance.client.auth.currentSession;
-    if (session == null)
+    if (session == null) {
       throw Exception("User must be logged in to verify as a driver.");
+    }
 
     try {
-      final driverBase64 = await fileToBase64(driverSelfie);
-      final permitBase64 = await fileToBase64(permitImage);
-      final vehicleBase64 = await fileToBase64(vehicleImage);
+      final country = issuingCountryCode.trim().toUpperCase();
 
+      // Step 1: Live Selfie (Photo 1)
+      onStepProgress?.call(1, 'Verifying Photo 1: Live Selfie with AI Vision...');
+      final driverBase64 = await fileToBase64(driverSelfie);
+      final selfieRes = await Supabase.instance.client.functions.invoke(
+        'verify-transport',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'verify_selfie',
+          'payload': {
+            'driverImageBase64': driverBase64,
+            'aiProcessingConsent': aiProcessingConsent,
+          },
+        },
+      );
+      if (selfieRes.status != 200 || (selfieRes.data is Map && selfieRes.data['verified'] == false && selfieRes.data['decision'] == 'reject')) {
+        final data = selfieRes.data as Map?;
+        return {
+          'verified': false,
+          'step_failed': 1,
+          'decision': data?['decision'] ?? 'reject',
+          'error': data?['error'] ?? 'Live Selfie (Photo 1) failed AI verification.',
+        };
+      }
+
+      // Step 2: Driving Permit (Photo 2)
+      onStepProgress?.call(2, 'Verifying Photo 2: Driving Permit with AI Vision...');
+      final permitBase64 = await fileToBase64(permitImage);
+      final permitRes = await Supabase.instance.client.functions.invoke(
+        'verify-transport',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'verify_permit',
+          'payload': {
+            'permitImageBase64': permitBase64,
+            'issuingCountryCode': country,
+            'aiProcessingConsent': aiProcessingConsent,
+          },
+        },
+      );
+      if (permitRes.status != 200 || (permitRes.data is Map && permitRes.data['verified'] == false && permitRes.data['decision'] == 'reject')) {
+        final data = permitRes.data as Map?;
+        return {
+          'verified': false,
+          'step_failed': 2,
+          'decision': data?['decision'] ?? 'reject',
+          'error': data?['error'] ?? 'Driving Permit (Photo 2) failed AI verification.',
+        };
+      }
+
+      // Step 3: Vehicle Photo (Photo 3)
+      onStepProgress?.call(3, 'Verifying Photo 3: Vehicle Photo & Plate with AI Vision...');
+      final vehicleBase64 = await fileToBase64(vehicleImage);
+      final vehicleRes = await Supabase.instance.client.functions.invoke(
+        'verify-transport',
+        headers: _aiHeaders(),
+        body: {
+          'action': 'verify_vehicle',
+          'payload': {
+            'vehicleImageBase64': vehicleBase64,
+            'issuingCountryCode': country,
+            'aiProcessingConsent': aiProcessingConsent,
+          },
+        },
+      );
+      if (vehicleRes.status != 200 || (vehicleRes.data is Map && vehicleRes.data['verified'] == false && vehicleRes.data['decision'] == 'reject')) {
+        final data = vehicleRes.data as Map?;
+        return {
+          'verified': false,
+          'step_failed': 3,
+          'decision': data?['decision'] ?? 'reject',
+          'error': data?['error'] ?? 'Vehicle Photo (Photo 3) failed AI verification.',
+        };
+      }
+
+      // Final step: Aggregate courier application profile
+      onStepProgress?.call(4, 'Saving courier verification application...');
       final res = await Supabase.instance.client.functions.invoke(
         'verify-transport',
         headers: _aiHeaders(),
@@ -775,7 +851,7 @@ class NecxaAI {
             'driverImageBase64': driverBase64,
             'permitImageBase64': permitBase64,
             'vehicleImageBase64': vehicleBase64,
-            'issuingCountryCode': issuingCountryCode.trim().toUpperCase(),
+            'issuingCountryCode': country,
             'aiProcessingConsent': aiProcessingConsent,
           },
         },

@@ -12,6 +12,7 @@ import 'services/media_compression_service.dart';
 import 'services/listing_sync_service.dart';
 import 'services/local_db_service.dart';
 import 'services/smooth_action.dart';
+import 'services/support_service.dart';
 
 import 'models/property_container.dart';
 import 'models/wallet.dart';
@@ -32,6 +33,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'models/music_models.dart';
 import 'services/music_library_service.dart';
+import 'services/goobox_artist_music_service.dart';
 import 'services/draft_service.dart';
 import 'services/payment_service.dart';
 import 'services/finance_gifting_service.dart';
@@ -54,7 +56,7 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 class AppState extends ChangeNotifier {
   String screen = 'home';
 
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.dark;
   ThemeMode get themeMode => _themeMode;
 
   static AppState? maybeOf(BuildContext context) {
@@ -226,13 +228,14 @@ class AppState extends ChangeNotifier {
       } else if (modeStr == 'ThemeMode.light') {
         _themeMode = ThemeMode.light;
       } else {
-        _themeMode = ThemeMode.system;
+        _themeMode = ThemeMode.dark; // default: dark mode (light = accessibility option)
       }
       C.themeMode = _themeMode;
 
       chatWallpaper = prefs.getString('chatWallpaper') ?? 'solid_black';
 
       await _loadUserLanguage();
+      await _loadArtistStatus();
 
       notifyListeners();
     } catch (_) {}
@@ -240,13 +243,45 @@ class AppState extends ChangeNotifier {
 
   // ── Artist & Distribution ──
   bool isArtist = false;
+  String artistName = '';
+  String artistGenre = '';
+  String artistDistributorLink = '';
   int necxaCoins = 500; // Mock balance for testing
 
   bool get hasDistributionAccess => isArtist && necxaCoins >= 150;
 
-  void setArtistStatus(bool status) {
+  void setArtistStatus(bool status, {
+    String name = '',
+    String genre = '',
+    String distributorLink = '',
+  }) {
     isArtist = status;
+    if (name.isNotEmpty) artistName = name;
+    if (genre.isNotEmpty) artistGenre = genre;
+    if (distributorLink.isNotEmpty) artistDistributorLink = distributorLink;
     notifyListeners();
+    _persistArtistStatus();
+  }
+
+  Future<void> _persistArtistStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isArtist', isArtist);
+      await prefs.setString('artistName', artistName);
+      await prefs.setString('artistGenre', artistGenre);
+      await prefs.setString('artistDistributorLink', artistDistributorLink);
+    } catch (_) {}
+  }
+
+  Future<void> _loadArtistStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      isArtist = prefs.getBool('isArtist') ?? false;
+      artistName = prefs.getString('artistName') ?? '';
+      artistGenre = prefs.getString('artistGenre') ?? '';
+      artistDistributorLink = prefs.getString('artistDistributorLink') ?? '';
+      notifyListeners();
+    } catch (_) {}
   }
 
   void updateCoins(int amount) {
@@ -388,8 +423,18 @@ class AppState extends ChangeNotifier {
 
   String? _shieldError;
   String? get shieldFeedback => _shieldError;
-  void setShieldFeedback(String? message) {
-    _shieldError = message;
+  void setShieldFeedback(Object? message) {
+    if (message == null) {
+      _shieldError = null;
+    } else if (message is String) {
+      _shieldError = message;
+    } else if (message is Map) {
+      final value =
+          message['message'] ?? message['error'] ?? message['feedback'];
+      _shieldError = value is String ? value : message.toString();
+    } else {
+      _shieldError = message.toString();
+    }
     notifyListeners();
   }
 
@@ -397,6 +442,7 @@ class AppState extends ChangeNotifier {
   MusicTrack? initialMusicTrack;
   final DraftService drafts = DraftService();
   final MusicLibraryService music = MusicLibraryService();
+  final GooboxArtistMusicService artistMusic = GooboxArtistMusicService.instance;
   final PaymentService payment = PaymentService();
   final FinanceGiftingService financeGifting = FinanceGiftingService();
   final FinanceLiquidationService liquidation = FinanceLiquidationService();
@@ -500,6 +546,11 @@ class AppState extends ChangeNotifier {
   String? utilityShardId;
   bool isVerifying = false;
   int verificationSubStep = 0; // TRACKS CURRENT CAPTURE STAGE (0-3)
+  void setVerificationSubStep(int step) {
+    verificationSubStep = step;
+    notify();
+  }
+
   IDResult? lastIDResult;
   IDResult? lastIDBackResult;
   SelfieResult? lastSelfieResult;
@@ -632,30 +683,68 @@ class AppState extends ChangeNotifier {
     user?.userMetadata?['username'],
   ]);
 
+  int get myTrustScore {
+    final v = myProfile?['trust_score'];
+    if (v is num) return v.toInt();
+    return 50;
+  }
+
+  double get myReputation {
+    final v = myProfile?['reputation'];
+    if (v is num) return v.toDouble();
+    return (myTrustScore / 10.0).clamp(1.0, 10.0);
+  }
+
+  int get myPostsCount {
+    final v = myProfile?['posts_count'];
+    if (v is num) return v.toInt();
+    return 0;
+  }
+
   Future<void> loadMyProfile() async {
     if (user == null) return;
     final profile = await social.getProfile(user!.id);
     final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
     try {
       final relationships = await social.loadMyFollowRelationships();
+      // RPC may return 'creator_id' or 'user_id' depending on version
       followed
         ..clear()
         ..addAll(
           relationships
-              .map((relationship) => relationship['user_id']?.toString() ?? '')
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
               .where((id) => id.isNotEmpty),
         );
       friends
         ..clear()
         ..addAll(
           relationships
-              .where((relationship) => relationship['is_friend'] == true)
-              .map((relationship) => relationship['user_id']?.toString() ?? '')
+              .where((r) => r['is_friend'] == true)
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
               .where((id) => id.isNotEmpty),
         );
     } catch (error) {
       debugPrint('Follow graph sync deferred: $error');
     }
+
+    // Load blocked users from user_preferences
+    try {
+      final blockedRes = await Supabase.instance.client
+          .from('user_preferences')
+          .select('target_id')
+          .eq('user_id', user!.id)
+          .eq('preference_type', 'blocked');
+      blockedUsers
+        ..clear()
+        ..addAll(
+          (blockedRes as List)
+              .map((r) => r['target_id']?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+    } catch (e) {
+      debugPrint('Blocked users sync deferred: $e');
+    }
+
     final normalizedName = _firstProfileValue([
       profile?['full_name'],
       profile?['display_name'],
@@ -680,6 +769,7 @@ class AppState extends ChangeNotifier {
     };
     notify();
   }
+
 
   Future<void> updateAvatar() async {
     if (user == null) return;
@@ -710,6 +800,39 @@ class AppState extends ChangeNotifier {
         );
       } catch (_) {}
     }
+  }
+
+  Future<bool> updateBio(String newBio) async {
+    if (user == null) return false;
+    final trimmed = newBio.trim();
+    if (trimmed.length > 250) {
+      debugPrint('Bio exceeds maximum length of 250 characters');
+      return false;
+    }
+    bool success = true;
+    // 1. Update Supabase profiles table
+    try {
+      await social.updateProfile(user!.id, {'bio': trimmed});
+    } catch (e) {
+      debugPrint('Error updating bio in Supabase: $e');
+      success = false;
+    }
+    // 2. Update in-memory profile
+    if (myProfile != null) {
+      myProfile!['bio'] = trimmed;
+    }
+    // 3. Update local SQLite cache
+    final localDb = LocalDbService();
+    await localDb.database.then(
+      (db) => db.update(
+        'social_profiles',
+        {'bio': trimmed},
+        where: 'id = ?',
+        whereArgs: [user!.id],
+      ),
+    ).catchError((_) => 0);
+    notify();
+    return success;
   }
 
   // ── Live Streaming State ──
@@ -819,6 +942,9 @@ class AppState extends ChangeNotifier {
   String payMethod = 'momo';
   bool paying = false;
   bool paid = false;
+  /// Set when reserveProperty() creates a pending escrow. PaymentScreen reads this.
+  Map<String, dynamic>? currentEscrowInitiation;
+  String? escrowError;
 
   // ── Gift Engine ──
   String? giftEmoji;
@@ -1410,7 +1536,7 @@ class AppState extends ChangeNotifier {
 
   PropertyContainer? get currentProperty => listingId == null
       ? null
-      : propertyContainers.firstWhere((p) => p.core.id == listingId);
+      : propertyContainers.where((p) => p.core.id == listingId).firstOrNull;
 
   Future<void> loadProperties() async {
     isLoadingProperties = true;
@@ -1477,43 +1603,90 @@ class AppState extends ChangeNotifier {
 
   // ── Property Actions ──
 
-  Future<void> unlockProperty(String id) async {
+    Future<void> unlockProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
     try {
       final res = await SmoothAction.unlockProperty(id);
       if (res['success'] == true) {
-        // Find the property in the local list and mark it as unlocked
+        // Free trial used or already unlocked
         final idx = propertyContainers.indexWhere((p) => p.core.id == id);
         if (idx != -1) {
-          // Re-fetch listing data to get the now-decrypted contact fields
           final raw = await SmoothAction.getProperty(id);
           final refreshed = PropertyContainer.fromJson(raw);
           propertyContainers[idx] = refreshed;
         }
         await loadProperties(); // Full sync
         paid = true;
+      } else if (res['requires_payment'] == true) {
+        // Route to payment screen, free trial was already used
+        listingId = id;
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Unknown error');
       }
-    } catch (e) {
+} catch (e) {
       debugPrint('Unlock Error: $e');
+      if (navigatorKey.currentContext != null) {
+        showDialog(
+          context: navigatorKey.currentContext!,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Unlock Error 🚨', style: TextStyle(color: Colors.red)),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              )
+            ],
+          )
+        );
+      }
     }
     paying = false;
     notify();
   }
 
+  /// Called by PaymentScreen after finance-engine confirms payment succeeded.
+  /// Refreshes the property from SP1 so unlocked credentials are shown
+  /// without re-triggering the unlock gate / free-trial check.
+  Future<void> markPropertyUnlockedAfterPayment(String id) async {
+    try {
+      final idx = propertyContainers.indexWhere((p) => p.core.id == id);
+      if (idx != -1) {
+        final raw = await SmoothAction.getProperty(id);
+        final refreshed = PropertyContainer.fromJson(raw);
+        propertyContainers[idx] = refreshed;
+      }
+      await loadProperties(); // full sync so is_unlocked_by_current_user flips
+      paid = true;
+    } catch (e) {
+      debugPrint('markPropertyUnlockedAfterPayment Error: $e');
+    }
+    notify();
+  }
+
+  /// Step 1: Creates a pending escrow reservation on the Primary DB.
+  /// Step 2: Hands off to the payment screen to process the fiat payment.
   Future<void> reserveProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
     try {
+      // Create the pending escrow record on smooth-action (Primary DB)
       final res = await SmoothAction.createEscrow(id);
       if (res['success'] == true) {
-        await loadProperties();
-        paid = true;
+        // Store the escrow initiation data so PaymentScreen can pick it up
+        currentEscrowInitiation = res;
+        // Navigate to payment screen — PaymentScreen detects escrow mode via currentEscrowInitiation
+        go('payment');
+      } else {
+        throw Exception(res['error'] ?? 'Could not create escrow reservation.');
       }
     } catch (e) {
       debugPrint('Reservation Error: $e');
+      escrowError = e.toString();
     }
     paying = false;
     notify();
@@ -1521,6 +1694,7 @@ class AppState extends ChangeNotifier {
 
   final Set<String> followed = {};
   final Set<String> friends = {};
+  final Set<String> blockedUsers = {};
   final Set<String> liked = {};
   final Set<String> saved = {};
 
@@ -1555,7 +1729,16 @@ class AppState extends ChangeNotifier {
 
   // ── Global Methods ──
   void go(String s, {dynamic extra}) {
-    if (kIsWeb && _isChatRoute(s)) return;
+    if (kIsWeb) {
+      // Guard on web: community, upload, and media editor are removed
+      if (s == 'community' ||
+          s == 'upload' ||
+          s == 'media-editor' ||
+          s == 'responsive_media_editor' ||
+          s == 'pro_media_editor') {
+        s = 'home';
+      }
+    }
     // Prevent push-loops
     if (screen != s) {
       _navigationStack.add(screen);
@@ -1591,7 +1774,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get chatAvailable => !kIsWeb;
+  bool get chatAvailable => true;
 
   bool _isChatRoute(String route) =>
       route == 'chat' ||
@@ -1708,8 +1891,54 @@ class AppState extends ChangeNotifier {
     await social.toggleSavePost(id);
   }
 
-  Future<void> reportContent(String id, String type, String reason) async {
-    await social.reportContent(id, type, reason);
+  // ── Block / Unblock ──
+  bool isBlocked(String userId) => blockedUsers.contains(userId);
+
+  Future<void> blockUser(String userId) async {
+    blockedUsers.add(userId);
+    notify();
+    try {
+      final me = user?.id;
+      if (me == null) return;
+      await Supabase.instance.client.from('user_preferences').upsert({
+        'user_id': me,
+        'target_id': userId,
+        'preference_type': 'blocked',
+        'value': 'true',
+      }, onConflict: 'user_id,target_id,preference_type');
+    } catch (_) {
+      // revert on failure
+      blockedUsers.remove(userId);
+      notify();
+    }
+  }
+
+  Future<void> unblockUser(String userId) async {
+    blockedUsers.remove(userId);
+    notify();
+    try {
+      final me = user?.id;
+      if (me == null) return;
+      await Supabase.instance.client
+          .from('user_preferences')
+          .delete()
+          .eq('user_id', me)
+          .eq('target_id', userId)
+          .eq('preference_type', 'blocked');
+    } catch (_) {
+      // revert on failure
+      blockedUsers.add(userId);
+      notify();
+    }
+  }
+
+  Future<void> reportContent(
+    String id,
+    String type,
+    String reason, {
+    String? details,
+  }) async {
+    await social.reportContent(id, type, reason, details: details);
   }
 
   Future<void> notInterested(String id, String type) async {
@@ -1761,6 +1990,7 @@ class AppState extends ChangeNotifier {
           ncxAmount: price,
           contextType: contextType ?? 'direct',
           contextId: contextId ?? 'general_feed',
+          currentBalance: coinBalance,
         );
 
         if (result.success) {
@@ -2171,10 +2401,13 @@ class AppState extends ChangeNotifier {
   void onAuthStateChange(AuthState state) {
     final authenticatedUserId = state.session?.user.id;
     if (authenticatedUserId != null) {
-      if (_notificationUserId != authenticatedUserId) {
+      final isNewUser = _notificationUserId != authenticatedUserId;
+      if (isNewUser) {
         appNotifications = [];
         _notificationUserId = authenticatedUserId;
         unawaited(NotificationService().clearDisplayedNotifications());
+        // Reload profile immediately so the UI doesn't sit blank after login
+        unawaited(loadMyProfile());
       }
       _syncVault();
       checkSecurityStatus(); // Syncs 2FA, Forex, and Payment Methods
@@ -2192,11 +2425,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // Clear all local data first
     await localDb.clearAllOnLogout();
+    // Reset all user-specific state
+    myProfile = null;
     myTransportOrders = [];
     myDriverOrders = [];
     currentDriverProfile = null;
     isDriver = false;
+    // Reset navigation to home so after re-login the app opens cleanly
+    screen = 'home';
     await Supabase.instance.client.auth.signOut();
     notifyListeners();
   }
@@ -2210,54 +2448,194 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Profile?> getProfile(String id) async {
-    // 1. Check Local Cache first
+    if (id.isEmpty) {
+      if (user != null) {
+        id = user!.id;
+      } else {
+        return null;
+      }
+    }
     final localDb = LocalDbService();
     final cached = await localDb.getProfile(id);
-    if (cached != null) {
-      // Background refresh to keep cache warm
-      _backgroundSyncProfile(id);
+    // Cache hit: only use if we have at least a username or display_name
+    if (cached != null && (cached['display_name'] != null || cached['username'] != null)) {
+      _backgroundSyncProfile(id); // background refresh
       return Profile.fromMap({
         'id': id,
+        'username': cached['username'],
         'full_name': cached['display_name'],
         'avatar_url': cached['photo_url'],
+        'bio': cached['bio'],
         'verified': cached['is_verified'] == 1,
+        'ai_verified': cached['ai_verified'] == 1,
+        'trust_score': cached['trust_score'] ?? 50,
+        'trust_score_tier': cached['trust_score_tier'],
+        'district': cached['district'],
+        'followers_count': cached['followers_count'] ?? 0,
+        'following_count': cached['following_count'] ?? 0,
+        'likes_count': cached['likes_count'] ?? 0,
+        'posts_count': cached['posts_count'] ?? 0,
+        'reputation': cached['reputation'],
+        'created_at': cached['created_at'],
       });
     }
-
     return await syncProfile(id);
   }
 
   Future<Profile?> syncProfile(String id) async {
     try {
-      final res = await Supabase.instance.client
-          .from('profiles')
-          .select()
-          .eq('id', id)
-          .maybeSingle();
+      if (id.isEmpty) {
+        if (user != null) {
+          id = user!.id;
+        } else {
+          return null;
+        }
+      }
 
-      if (res == null) return null;
+      Map<String, dynamic>? res;
+      // Support looking up by UUID or by username
+      if (id.startsWith('@') || !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)) {
+        final cleanUsername = id.replaceAll('@', '').trim();
+        res = await Supabase.instance.client
+            .from('profiles')
+            .select()
+            .ilike('username', cleanUsername)
+            .maybeSingle();
+      } else {
+        res = await Supabase.instance.client
+            .from('profiles')
+            .select()
+            .eq('id', id)
+            .maybeSingle();
+      }
 
-      final profile = Profile.fromMap(res);
+      if (res == null) {
+        // Fallback for current logged-in user if profile row is pending creation
+        if (id == user?.id) {
+          final authName = myProfile?['full_name'] ??
+              user?.userMetadata?['full_name'] ??
+              user?.userMetadata?['display_name'] ??
+              user?.userMetadata?['name'] ??
+              user?.email?.split('@').first ??
+              'Necxa Member';
+          final authUsername = myProfile?['username'] ??
+              user?.userMetadata?['username'] ??
+              user?.email?.split('@').first ??
+              'member';
+          final authAvatar = myProfile?['avatar_url'] ??
+              user?.userMetadata?['avatar_url'] ??
+              user?.userMetadata?['picture'];
+          final authBio = myProfile?['bio']?.toString() ?? '';
 
-      // Update Local Cache
+          return Profile.fromMap({
+            'id': id,
+            'username': authUsername,
+            'full_name': authName,
+            'avatar_url': authAvatar,
+            'bio': authBio,
+            'verified': false,
+            'ai_verified': false,
+            'trust_score': 50,
+            'trust_score_tier': 'standard',
+            'followers_count': 0,
+            'following_count': followed.length,
+            'likes_count': 0,
+            'posts_count': 0,
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        }
+        return null;
+      }
+
+      final enriched = Map<String, dynamic>.from(res);
+      final realId = enriched['id']?.toString() ?? id;
+
+      // If viewing self or if full_name is empty, populate from auth metadata
+      if (realId == user?.id) {
+        final authName = myProfile?['full_name'] ??
+            user?.userMetadata?['full_name'] ??
+            user?.userMetadata?['display_name'] ??
+            user?.userMetadata?['name'] ??
+            user?.email?.split('@').first;
+        if (enriched['full_name'] == null || enriched['full_name'].toString().trim().isEmpty) {
+          enriched['full_name'] = authName;
+        }
+        if (enriched['username'] == null || enriched['username'].toString().trim().isEmpty) {
+          enriched['username'] = myProfile?['username'] ??
+              user?.userMetadata?['username'] ??
+              user?.email?.split('@').first;
+        }
+        if (enriched['avatar_url'] == null || enriched['avatar_url'].toString().trim().isEmpty) {
+          enriched['avatar_url'] = myProfile?['avatar_url'] ??
+              user?.userMetadata?['avatar_url'] ??
+              user?.userMetadata?['picture'];
+        }
+        enriched['following_count'] = followed.length;
+      }
+
+      // ── Real posts count + aggregate likes ────────────────────────
+      try {
+        final pList = await Supabase.instance.client
+            .from('community_posts')
+            .select('id, likes_count')
+            .eq('author_id', realId);
+        enriched['posts_count'] = pList.length;
+        int totalLikes = 0;
+        for (final p in pList) {
+          totalLikes += (p['likes_count'] as num?)?.toInt() ?? 0;
+        }
+        enriched['likes_count'] = totalLikes;
+      } catch (_) {}
+
+      // ── Real trust score & reputation calculation ─────────────────
+      int trustScore = (enriched['trust_score'] is num) ? (enriched['trust_score'] as num).toInt() : 0;
+      if (trustScore == 0) {
+        int computed = 45; // baseline
+        if (enriched['is_verified'] == true || enriched['verified'] == true) computed += 25;
+        if (enriched['ai_verified'] == true) computed += 15;
+        if (enriched['avatar_url'] != null && enriched['avatar_url'].toString().isNotEmpty) computed += 5;
+        if (enriched['bio'] != null && enriched['bio'].toString().isNotEmpty) computed += 5;
+        if (enriched['posts_count'] != null && (enriched['posts_count'] as int) > 0) computed += 5;
+        trustScore = computed.clamp(10, 100);
+        enriched['trust_score'] = trustScore;
+      }
+      double reputation = (enriched['reputation'] is num)
+          ? (enriched['reputation'] as num).toDouble()
+          : (trustScore / 10.0).clamp(1.0, 10.0);
+      enriched['reputation'] = reputation;
+
+      final profile = Profile.fromMap(enriched);
+
+      // ── Persist enriched data to local cache ──────────────────────
       final localDb = LocalDbService();
       await localDb.database.then(
         (db) => db.insert('social_profiles', {
-          'id': id,
+          'id': realId,
+          'username': profile.username,
           'display_name': profile.fullName,
           'photo_url': profile.avatarUrl,
-          'trust_score': 50,
+          'bio': profile.bio,
+          'trust_score': profile.trustScore,
+          'trust_score_tier': profile.trustScoreTier,
           'is_verified': profile.verified ? 1 : 0,
+          'ai_verified': profile.aiVerified ? 1 : 0,
+          'district': profile.district,
+          'followers_count': profile.followersCount,
+          'following_count': profile.followingCount,
+          'likes_count': profile.likesCount,
+          'posts_count': profile.postsCount,
+          'created_at': profile.createdAt.toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace),
-      );
+      ).catchError((_) => 0);
 
-      targetProfileId = id;
+      targetProfileId = realId;
       return profile;
     } catch (e) {
       debugPrint('Profile Sync Failure: $e');
       return null;
     }
   }
+
 
   void _backgroundSyncProfile(String id) async {
     await syncProfile(id);
@@ -2442,9 +2820,35 @@ class AppState extends ChangeNotifier {
       debugPrint('fetchMessages Neural Sync Error: $e');
     }
 
-    // 3. Ensure Realtime is active
+    // 3. If this is a support room, reconcile Goobox agent replies
+    if (activeConversation?.isSupport == true) {
+      await syncSupportMessages(roomId);
+    }
+
+    // 4. Ensure Realtime is active
     if (_msgChannel == null || _currentSubscribedRoomId != roomId) {
       _subscribeToMessages(roomId);
+    }
+  }
+
+  Future<void> syncSupportMessages([String? targetRoomId]) async {
+    final roomId = targetRoomId ?? activeConversation?.id;
+    if (roomId == null) return;
+    try {
+      final ticketId = activeConversation?.metadata?['ticket_id']?.toString();
+      final replies = await SupportService().syncSupportReplies(
+        roomId: roomId,
+        ticketId: ticketId,
+      );
+      if (replies.isNotEmpty) {
+        await localDb.saveMessages(replies);
+        if (activeConversation?.id == roomId) {
+          currentMessages = await localDb.getMessages(roomId);
+          notify();
+        }
+      }
+    } catch (e) {
+      debugPrint('syncSupportMessages Error: $e');
     }
   }
 
@@ -2723,6 +3127,17 @@ class AppState extends ChangeNotifier {
       // Do NOT re-fetch — the Realtime subscription delivers the echo automatically.
       // Triggering fetchMessages here would double-count egress on every send.
       debugPrint('✅ Message dispatched via Realtime pipeline');
+
+      // If this is a support conversation, forward to Goobox ticket thread
+      if (activeConversation?.isSupport == true) {
+        final ticketId = activeConversation?.metadata?['ticket_id'] as String?;
+        final roomId = activeConversation?.id;
+        SupportService().forwardSupportMessage(
+          message: msg,
+          ticketId: ticketId,
+          roomId: roomId,
+        );
+      }
     }
   }
 
@@ -3405,3 +3820,6 @@ class IPResult {
   final String sessionId;
   IPResult({required this.verified, required this.sessionId});
 }
+
+
+

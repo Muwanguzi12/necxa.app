@@ -1582,8 +1582,8 @@ class LocalDbService {
       'id': row['id'],
       'channelId': row['channel_id'],
       'userId': row['user_id'],
-      'user': row['user_name'] ?? 'User',
-      'userName': row['user_name'] ?? 'User',
+      'user': row['user_name'] ?? 'Necxa User',
+      'userName': row['user_name'] ?? 'Necxa User',
       'avatar': row['user_avatar'] ?? '',
       'text': row['text'] ?? '',
       'status': row['status'] ?? 'active',
@@ -1690,7 +1690,7 @@ class LocalDbService {
           'channel_id': channelId,
           'user_id': comment['userId']?.toString(),
           'user_name':
-              (comment['userName'] ?? comment['user'])?.toString() ?? 'User',
+              (comment['userName'] ?? comment['user'])?.toString() ?? 'Necxa User',
           'user_avatar':
               (comment['avatar'] ?? comment['userAvatar'])?.toString() ?? '',
           'text': comment['text']?.toString() ?? '',

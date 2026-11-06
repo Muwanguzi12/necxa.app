@@ -238,6 +238,17 @@ class TimelineHistoryController {
         ? null
         : FilterOperation(filterName: clip.filter!.filterName),
     isHidden: clip.isHidden,
+    proxyFile: clip.proxyFile,
+    isProxyReady: clip.isProxyReady,
+    faceSymmetry: clip.faceSymmetry,
+    symmetryMirrorLeft: clip.symmetryMirrorLeft,
+    skinSmoothing: clip.skinSmoothing,
+    smoothingMode: clip.smoothingMode,
+    skinBrightening: clip.skinBrightening,
+    skinToneMode: clip.skinToneMode,
+    makeupGender: clip.makeupGender,
+    makeupStyle: clip.makeupStyle,
+    makeupIntensity: clip.makeupIntensity,
   );
 
   static EditOperation _cloneOperation(EditOperation operation) {

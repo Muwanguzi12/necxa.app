@@ -166,10 +166,10 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.notifications_none_rounded,
-                          size: 54,
-                          color: C.dim,
+                        Image.asset(
+                          'assets/images/notification_icon.png',
+                          width: 54,
+                          height: 54,
                         ),
                         const SizedBox(height: 14),
                         Text(

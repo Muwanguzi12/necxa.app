@@ -30,7 +30,7 @@ class ChatRoom {
       return label == null || label.isEmpty ? 'Necxa Support' : label;
     }
     final name = otherName?.trim();
-    return name == null || name.isEmpty ? 'Unknown User' : name;
+    return name == null || name.isEmpty ? 'Necxa User' : name;
   }
 
   ChatRoom({

@@ -2,6 +2,7 @@
 // NECXA � New Chat: Find users via email search, phone contacts, or saved contacts
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -103,6 +104,13 @@ class _NewChatScreenState extends State<NewChatScreen>
 
   // -- PHONE CONTACTS -------------------------------------------
   Future<void> _loadPhoneContacts() async {
+    if (kIsWeb) {
+      setState(() {
+        _contactsGranted = false;
+        _contactsLoading = false;
+      });
+      return;
+    }
     setState(() => _contactsLoading = true);
     final status = await Permission.contacts.request();
     if (!status.isGranted) {
@@ -804,14 +812,14 @@ class _NewChatScreenState extends State<NewChatScreen>
       ),
       child: Row(
         children: [
-          _avatar(user['avatar_url'], user['full_name'] ?? '?', 52),
+          _avatar(user['avatar_url'], user['full_name'] ?? user['display_name'] ?? user['username'] ?? '?', 52),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  user['full_name'] ?? 'Unknown',
+                  user['full_name'] ?? user['display_name'] ?? user['username'] ?? 'Necxa User',
                   style: syne(sz: 16, w: FontWeight.w800),
                 ),
                 const SizedBox(height: 2),
@@ -847,7 +855,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     return GestureDetector(
       onTap: () => _openChatWith(
         user['id'],
-        user['full_name'] ?? 'User',
+        user['full_name'] ?? user['display_name'] ?? user['username'] ?? 'Necxa User',
         user['avatar_url'],
       ),
       child: Container(
@@ -860,14 +868,14 @@ class _NewChatScreenState extends State<NewChatScreen>
         ),
         child: Row(
           children: [
-            _avatar(user['avatar_url'], user['full_name'] ?? '?', 46),
+            _avatar(user['avatar_url'], user['full_name'] ?? user['display_name'] ?? user['username'] ?? '?', 46),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    user['full_name'] ?? 'Unknown',
+                    user['full_name'] ?? user['display_name'] ?? user['username'] ?? 'Necxa User',
                     style: syne(sz: 15, w: FontWeight.w700),
                   ),
                   if (user['is_agent'] == true)
@@ -885,7 +893,7 @@ class _NewChatScreenState extends State<NewChatScreen>
   Widget _chatBtn(Map<String, dynamic> user) => GestureDetector(
     onTap: () => _openChatWith(
       user['id'],
-      user['full_name'] ?? 'User',
+      user['full_name'] ?? user['display_name'] ?? user['username'] ?? 'Necxa User',
       user['avatar_url'],
     ),
     child: Container(
