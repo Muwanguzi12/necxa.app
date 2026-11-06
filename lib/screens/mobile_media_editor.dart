@@ -28,7 +28,7 @@ import '../widgets/timeline_playhead_view.dart';
 import '../widgets/timeline_ruler_view.dart';
 
 // Private enum for clip drag modes (top-level so it compiles in class scope)
-enum _ClipDragMode { none, move, resizeLeft, resizeRight, stretch }
+enum _ClipDragMode { none, move, resizeLeft, resizeRight, stretch, rollTrim }
 
 // ══════════════════════════════════════════════════════════════
 // MOBILE MEDIA EDITOR - Responsive adaptation of desktop editor
@@ -117,6 +117,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Duration? _ghostDuration;
   String? _ghostClipId;
   String? _ghostTrackId;
+
+  // Roll trim state — the adjacent clip whose in-point is being rolled
+  // simultaneously with the active clip's out-point.
+  String? _rollAdjacentClipId;
+  Duration? _rollAdjacentOriginalStart;
+  Duration? _rollAdjacentOriginalDuration;
+  // Second ghost for the adjacent (B) clip during roll trim
+  Duration? _ghostBStart;
+  Duration? _ghostBDuration;
 
   // Loop Region & In/Out points
   Duration? _loopIn;
@@ -210,9 +219,34 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       if (_dragStartLocalX! < _clipHandleWidth) {
         _clipDragMode = _ClipDragMode.resizeLeft;
       } else if (_dragStartLocalX! > width - _clipHandleWidth) {
-        _clipDragMode = _isStretchMode
-            ? _ClipDragMode.stretch
-            : _ClipDragMode.resizeRight;
+        if (_isStretchMode) {
+          _clipDragMode = _ClipDragMode.stretch;
+        } else {
+          // Detect adjacent clip abutting this clip's right edge → roll trim
+          final clipEnd = clip.start + clip.duration;
+          const kRollSnapMs = 80; // ms threshold for considering clips adjacent
+          TimelineClip? adjacent;
+          for (final c in track.clips) {
+            if (c.id == clip.id) continue;
+            final gap = (c.start - clipEnd).inMilliseconds.abs();
+            if (gap <= kRollSnapMs && c.start >= clip.start) {
+              adjacent = c;
+              break;
+            }
+          }
+          if (adjacent != null && !_isRippleMode) {
+            _clipDragMode = _ClipDragMode.rollTrim;
+            _rollAdjacentClipId = adjacent.id;
+            _rollAdjacentOriginalStart = adjacent.start;
+            _rollAdjacentOriginalDuration = adjacent.duration;
+            // Snapshot ghost B (adjacent clip's original position)
+            _ghostBStart = adjacent.start;
+            _ghostBDuration = adjacent.duration;
+            HapticFeedback.selectionClick();
+          } else {
+            _clipDragMode = _ClipDragMode.resizeRight;
+          }
+        }
       } else {
         _clipDragMode = _ClipDragMode.move;
       }
@@ -376,6 +410,73 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             }
           }
           break;
+        case _ClipDragMode.rollTrim:
+          // Roll trim: slide A's out-point and B's in-point by the same delta.
+          // Total timeline duration stays constant — no ripple needed.
+          final adjId = _rollAdjacentClipId;
+          if (adjId != null) {
+            TimelineClip? adjClip;
+            for (final c in track.clips) {
+              if (c.id == adjId) { adjClip = c; break; }
+            }
+            if (adjClip != null) {
+              final origADur = _dragOriginalDuration ?? clip.duration;
+              final newADur = origADur + frameDelta;
+              final origBStart = _rollAdjacentOriginalStart ?? adjClip.start;
+              final origBDur = _rollAdjacentOriginalDuration ?? adjClip.duration;
+              final newBStart = origBStart + frameDelta;
+              final newBDur = origBDur - frameDelta;
+
+              // Guard: neither clip may shrink below 100ms
+              if (newADur >= const Duration(milliseconds: 100) &&
+                  newBDur >= const Duration(milliseconds: 100)) {
+                // Extend / retract clip A (out-point)
+                if (clip.operation is TrimOperation) {
+                  final trim = clip.operation as TrimOperation;
+                  final newEnd = _clampDuration(
+                    trim.end + frameDelta,
+                    trim.start + const Duration(milliseconds: 1),
+                    Duration(days: 36500),
+                  );
+                  trim.end = newEnd;
+                  clip.sourceEnd = trim.end;
+                  clip.duration = Duration(
+                    milliseconds:
+                        ((trim.end - trim.start).inMilliseconds / clip.speed)
+                            .round(),
+                  );
+                } else {
+                  clip.duration = newADur;
+                }
+
+                // Retract clip B in-point (start moves right, duration shrinks)
+                if (adjClip.operation is TrimOperation) {
+                  final trim = adjClip.operation as TrimOperation;
+                  final newSrcStart = _clampDuration(
+                    trim.start + frameDelta,
+                    Duration.zero,
+                    trim.end - const Duration(milliseconds: 1),
+                  );
+                  trim.start = newSrcStart;
+                  adjClip.sourceStart = trim.start;
+                  adjClip.start = newBStart;
+                  adjClip.duration = Duration(
+                    milliseconds:
+                        ((trim.end - trim.start).inMilliseconds / adjClip.speed)
+                            .round(),
+                  );
+                } else {
+                  adjClip.start = newBStart;
+                  adjClip.duration = newBDur;
+                }
+
+                clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+                adjClip.isHidden =
+                    adjClip.duration <= const Duration(milliseconds: 150);
+              }
+            }
+          }
+          break;
         case _ClipDragMode.none:
           break;
       }
@@ -415,6 +516,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _ghostTrackId = null;
     _ghostStart = null;
     _ghostDuration = null;
+    // Clear roll trim state
+    _rollAdjacentClipId = null;
+    _rollAdjacentOriginalStart = null;
+    _rollAdjacentOriginalDuration = null;
+    _ghostBStart = null;
+    _ghostBDuration = null;
 
     if (movedClipId != null) {
       TimelineTrack? sourceTrack;
@@ -558,6 +665,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   String _effectsFilter = 'All';
   String _effectsSort = 'Featured';
   EffectPreset? _previewEffect;
+  double _previewEffectIntensity = 0.7;
   bool _showEffectLibrary = false;
   String? _selectedEffectId;
   final List<String> _recentEffectIds = <String>[];
@@ -1566,6 +1674,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           ? _mergeColorMatrices(combinedMatrix, gradeMatrix)
           : gradeMatrix;
     }
+    final effectMatrix = _activeEffectColorMatrix();
+    if (effectMatrix != null) {
+      combinedMatrix = combinedMatrix != null
+          ? _mergeColorMatrices(combinedMatrix, effectMatrix)
+          : effectMatrix;
+    }
 
     if (combinedMatrix != null) {
       result = ColorFiltered(
@@ -1921,6 +2035,39 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return result;
   }
 
+  List<double>? _activeEffectColorMatrix() {
+    if (_previewEffect != null) {
+      final intensity = _previewEffectIntensity;
+      final re = _previewEffect!.toRenderEffects(intensity: intensity);
+      return _buildColorGradeMatrix(
+        brightness: re.brightness,
+        contrast: re.contrast,
+        saturation: re.saturation,
+        hue: re.hue,
+      );
+    }
+    final currentTime = _currentTime;
+    for (final track in _tracks) {
+      if (track.type != TrackType.effects) continue;
+      for (final clip in track.clips) {
+        if (clip.start <= currentTime &&
+            clip.start + clip.duration >= currentTime) {
+          if (clip.operation is EffectOperation) {
+            final op = clip.operation as EffectOperation;
+            final re = op.renderEffects();
+            return _buildColorGradeMatrix(
+              brightness: re.brightness,
+              contrast: re.contrast,
+              saturation: re.saturation,
+              hue: re.hue,
+            );
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   static List<double>? _buildColorGradeMatrix({
     double brightness = 0.0,
     double contrast = 1.0,
@@ -2079,6 +2226,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     final widgets = <Widget>[];
     final currentTime = _currentTime;
 
+    final effectItems = <_ActiveEffectItem>[];
+
     for (final track in _tracks) {
       if (track.type != TrackType.effects) {
         continue;
@@ -2095,54 +2244,226 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         }
 
         final effect = clip.operation as EffectOperation;
-        final renderEffects = effect.renderEffects();
-        final scale = (effect.intensity * 1.1).clamp(0.0, 1.0);
+        final preset = effect.preset;
+        effectItems.add(
+          _ActiveEffectItem(
+            preset: preset,
+            intensity: effect.intensity,
+            opacity: effect.opacity,
+            renderEffects: effect.renderEffects(),
+            visualStyle: preset?.visualStyle ?? 'none',
+            duotoneShadow: preset?.duotoneShadow,
+            duotoneHighlight: preset?.duotoneHighlight,
+          ),
+        );
+      }
+    }
 
+    // Live preview from the minimal effects picker
+    if (_previewEffect != null) {
+      final intensity = _previewEffectIntensity;
+      effectItems.add(
+        _ActiveEffectItem(
+          preset: _previewEffect,
+          intensity: intensity,
+          opacity: _previewEffect!.defaultOpacity,
+          renderEffects: _previewEffect!.toRenderEffects(intensity: intensity),
+          visualStyle: _previewEffect!.visualStyle,
+          duotoneShadow: _previewEffect!.duotoneShadow,
+          duotoneHighlight: _previewEffect!.duotoneHighlight,
+        ),
+      );
+    }
+
+    for (final item in effectItems) {
+      final intensity = item.intensity.clamp(0.0, 1.0);
+      final opacity = item.opacity.clamp(0.0, 1.0);
+      final re = item.renderEffects;
+      final style = item.visualStyle;
+
+      // 1. Optical Blur
+      if (re.blur > 0.01) {
         widgets.add(
           Positioned.fill(
             child: IgnorePointer(
               child: Opacity(
-                opacity: effect.opacity.clamp(0.0, 1.0),
-                child: Stack(
-                  children: [
-                    if (renderEffects.blur > 0.01)
-                      BackdropFilter(
-                        filter: ui.ImageFilter.blur(
-                          sigmaX: renderEffects.blur * 8.0,
-                          sigmaY: renderEffects.blur * 8.0,
-                        ),
-                        child: Container(color: Colors.transparent),
-                      ),
-                    if (renderEffects.vignette > 0.01)
-                      Container(
-                        color: Colors.black.withOpacity(
-                          renderEffects.vignette * 0.32,
-                        ),
-                      ),
-                    if (renderEffects.grain > 0.01)
-                      Container(
-                        color: Colors.white.withOpacity(
-                          renderEffects.grain * 0.08,
-                        ),
-                      ),
-                    if (renderEffects.brightness.abs() > 0.001 ||
-                        renderEffects.contrast > 1.001 ||
-                        renderEffects.saturation != 1.0)
-                      ColorFiltered(
-                        colorFilter: ColorFilter.mode(
-                          Colors.white.withOpacity(
-                            (scale * 0.16).clamp(0.0, 0.16),
-                          ),
-                          BlendMode.softLight,
-                        ),
-                        child: Container(color: Colors.transparent),
-                      ),
-                  ],
+                opacity: opacity,
+                child: BackdropFilter(
+                  filter: ui.ImageFilter.blur(
+                    sigmaX: re.blur * 6.0,
+                    sigmaY: re.blur * 6.0,
+                  ),
+                  child: const SizedBox.expand(),
                 ),
               ),
             ),
           ),
         );
+      }
+
+      // 2. Real feathered Radial Vignette
+      if (re.vignette > 0.01) {
+        widgets.add(
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: (opacity * (re.vignette * 1.6).clamp(0.0, 1.0)),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: Alignment.center,
+                      radius: 0.88,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.88),
+                      ],
+                      stops: const [0.42, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // 3. Film Grain
+      if (re.grain > 0.01) {
+        widgets.add(
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: (opacity * (re.grain * 2.2).clamp(0.0, 0.45)),
+                child: CustomPaint(
+                  painter: GrainPainter(intensity: re.grain * 1.5),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // 4. Style-specific Overlays
+      switch (style) {
+        case 'letterbox':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _CinematicLetterboxOverlay(
+                  intensity: intensity * opacity,
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'vhs':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _VhsEffectOverlay(
+                  intensity: intensity * opacity,
+                  timeMs: currentTime.inMilliseconds,
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'glitch':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _GlitchEffectOverlay(
+                  intensity: intensity * opacity,
+                  timeMs: currentTime.inMilliseconds,
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'datamosh':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _DatamoshEffectOverlay(
+                  intensity: intensity * opacity,
+                  timeMs: currentTime.inMilliseconds,
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'super8':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _Super8EffectOverlay(
+                  intensity: intensity * opacity,
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'scanlines':
+        case 'hologram':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _ScanlinesEffectOverlay(
+                  intensity: intensity * opacity,
+                  isHologram: style == 'hologram',
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'bloom':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _BloomEffectOverlay(
+                  intensity: intensity * opacity,
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'duotone':
+          if (item.duotoneShadow != null && item.duotoneHighlight != null) {
+            widgets.add(
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: _DuotoneTintOverlay(
+                    shadowColor: Color(item.duotoneShadow!),
+                    highlightColor: Color(item.duotoneHighlight!),
+                    intensity: intensity * opacity,
+                  ),
+                ),
+              ),
+            );
+          }
+          break;
+        case 'teal_orange':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _TealOrangeTintOverlay(
+                  intensity: intensity * opacity,
+                ),
+              ),
+            ),
+          );
+          break;
+        case 'matte':
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.08 * intensity),
+                ),
+              ),
+            ),
+          );
+          break;
       }
     }
 
@@ -2166,39 +2487,151 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           continue;
         }
 
-        if (clip.operation is! TextOverlay) {
-          continue;
-        }
+        if (clip.operation is TextOverlay) {
+          final overlay = clip.operation as TextOverlay;
+          final alignment = Alignment(
+            (overlay.position.dx * 2) - 1,
+            (overlay.position.dy * 2) - 1,
+          );
 
-        final overlay = clip.operation as TextOverlay;
-        final alignment = Alignment(
-          (overlay.position.dx * 2) - 1,
-          (overlay.position.dy * 2) - 1,
-        );
-
-        widgets.add(
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Align(
-                alignment: alignment,
-                child: Transform.rotate(
-                  angle: overlay.rotation,
-                  child: Transform.scale(
-                    scale: overlay.scale,
-                    child: Text(
-                      overlay.text,
-                      textAlign: TextAlign.center,
-                      style: overlay.style.copyWith(
-                        color: overlay.style.color ?? Colors.white,
-                        fontSize: overlay.style.fontSize ?? 28,
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Align(
+                  alignment: alignment,
+                  child: Transform.rotate(
+                    angle: overlay.rotation,
+                    child: Transform.scale(
+                      scale: overlay.scale,
+                      child: Text(
+                        overlay.text,
+                        textAlign: TextAlign.center,
+                        style: overlay.style.copyWith(
+                          color: overlay.style.color ?? Colors.white,
+                          fontSize: overlay.style.fontSize ?? 28,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
+          );
+        } else if (clip.operation is OverlayOperation) {
+          final overlay = clip.operation as OverlayOperation;
+          final alignment = Alignment(
+            (overlay.position.dx * 2) - 1,
+            (overlay.position.dy * 2) - 1,
+          );
+
+          Widget content;
+          if (overlay.imagePath != null && overlay.imagePath!.isNotEmpty) {
+            final path = overlay.imagePath!;
+            final isAsset = path.startsWith('assets/');
+            final imgSize = (overlay.fontSize * 3.2).clamp(36.0, 320.0);
+            content = isAsset
+                ? Image.asset(
+                    path,
+                    width: imgSize,
+                    height: imgSize,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image_rounded,
+                      color: Colors.white54,
+                    ),
+                  )
+                : Image.file(
+                    File(path),
+                    width: imgSize,
+                    height: imgSize,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image_rounded,
+                      color: Colors.white54,
+                    ),
+                  );
+          } else {
+            // Text or emoji badge sticker
+            final isWord = overlay.text.length > 2;
+            content = Container(
+              padding: isWord
+                  ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
+                  : EdgeInsets.zero,
+              decoration: overlay.backgroundOpacity > 0
+                  ? BoxDecoration(
+                      color: overlay.background
+                          .withValues(alpha: overlay.backgroundOpacity),
+                      borderRadius: BorderRadius.circular(8),
+                      border: overlay.stroke
+                          ? Border.all(color: Colors.white, width: 1.5)
+                          : null,
+                      boxShadow: overlay.shadow
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    )
+                  : null,
+              child: Text(
+                overlay.text,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: overlay.color,
+                  fontSize: overlay.fontSize,
+                  fontWeight: FontWeight.w900,
+                  shadows: overlay.shadow
+                      ? const [
+                          Shadow(
+                            color: Colors.black,
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+              ),
+            );
+          }
+
+          final isClipSelected = _selectedClip?.id == clip.id;
+
+          widgets.add(
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Align(
+                  alignment: alignment,
+                  child: Opacity(
+                    opacity: overlay.opacity.clamp(0.0, 1.0),
+                    child: Transform.rotate(
+                      angle: overlay.rotation,
+                      child: Transform.scale(
+                        scale: overlay.scale,
+                        child: Container(
+                          decoration: isClipSelected
+                              ? BoxDecoration(
+                                  border: Border.all(
+                                    color: const Color(0xFF00E5FF)
+                                        .withValues(alpha: 0.75),
+                                    width: 1.5,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                )
+                              : null,
+                          padding: isClipSelected ? const EdgeInsets.all(4) : EdgeInsets.zero,
+                          child: content,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
       }
     }
 
@@ -2932,7 +3365,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _ghostStart != null &&
         _ghostDuration != null &&
         (_clipDragMode == _ClipDragMode.resizeLeft ||
-            _clipDragMode == _ClipDragMode.resizeRight);
+            _clipDragMode == _ClipDragMode.resizeRight ||
+            _clipDragMode == _ClipDragMode.rollTrim);
+    // Ghost B — adjacent clip original position during roll trim
+    final showGhostB = _clipDragMode == _ClipDragMode.rollTrim &&
+        _ghostTrackId == track.id &&
+        _ghostBStart != null &&
+        _ghostBDuration != null;
 
     return Container(
       height: 52,
@@ -2941,7 +3380,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // ── Ghost trim outline with Red Overlap Warning ───────────
+          // ── Ghost A trim outline (clip being trimmed) ─────────────
           if (showGhost)
             Positioned(
               left: (_ghostStart!.inMilliseconds / 1000.0) * scale,
@@ -2972,6 +3411,26 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               ),
             ),
 
+          // ── Ghost B: adjacent clip original outline during roll trim ──
+          if (showGhostB)
+            Positioned(
+              left: (_ghostBStart!.inMilliseconds / 1000.0) * scale,
+              top: 2,
+              bottom: 2,
+              width: (_ghostBDuration!.inMilliseconds / 1000.0) * scale,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: const Color(0xFF22D3EE).withValues(alpha: 0.65),
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+
           // ── Clips ─────────────────────────────────────────────
           ...track.clips.map((clip) {
             final left = (clip.start.inMilliseconds / 1000.0) * scale;
@@ -2980,6 +3439,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             final isTrimming = _activeDragClipId == clip.id &&
                 (_clipDragMode == _ClipDragMode.resizeLeft ||
                     _clipDragMode == _ClipDragMode.resizeRight ||
+                    _clipDragMode == _ClipDragMode.rollTrim ||
                     _clipDragMode == _ClipDragMode.stretch);
             final isMoving = _activeDragClipId == clip.id &&
                 _clipDragMode == _ClipDragMode.move;
@@ -2994,15 +3454,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     : const Color(0xFFFBBF24))
                 : const Color(0xFF94A3B8);
 
-            // Right handle: Red on collision, Purple when in stretch mode, Amber when trimming, Slate otherwise
+            // Right handle: Red on collision, Cyan when roll-trimming, Purple when stretching, Amber when trimming, Slate otherwise
             final isStretchActive =
                 _isStretchMode || _clipDragMode == _ClipDragMode.stretch;
+            final isRollActive = _activeDragClipId == clip.id &&
+                _clipDragMode == _ClipDragMode.rollTrim;
             final rightHandleColor = isTrimming
                 ? (hasOverlap
                     ? const Color(0xFFEF4444)
-                    : (isStretchActive
-                        ? const Color(0xFFA855F7)
-                        : const Color(0xFFFBBF24)))
+                    : (isRollActive
+                        ? const Color(0xFF22D3EE) // cyan = roll mode
+                        : (isStretchActive
+                            ? const Color(0xFFA855F7)
+                            : const Color(0xFFFBBF24))))
                 : (isStretchActive
                     ? const Color(0xFFA855F7)
                     : const Color(0xFF94A3B8));
@@ -3514,6 +3978,79 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             ),
           ),
         ],
+      );
+    } else if (track.type == TrackType.overlay) {
+      Widget stickerWidget;
+      if (clip.operation is OverlayOperation) {
+        final op = clip.operation as OverlayOperation;
+        if (op.imagePath != null && op.imagePath!.isNotEmpty) {
+          final isAsset = op.imagePath!.startsWith('assets/');
+          stickerWidget = Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: isAsset
+                    ? Image.asset(
+                        op.imagePath!,
+                        width: 22,
+                        height: 22,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.loyalty,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
+                      )
+                    : Image.file(
+                        File(op.imagePath!),
+                        width: 22,
+                        height: 22,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.loyalty,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  op.text.isNotEmpty ? op.text : 'Sticker',
+                  style: dm(sz: 9, c: Colors.white, w: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                _formatDuration(clip.duration),
+                style: dm(sz: 7.5, c: Colors.white70),
+              ),
+            ],
+          );
+        } else {
+          stickerWidget = Row(
+            children: [
+              Text(op.text, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  _formatDuration(clip.duration),
+                  style: dm(sz: 8, c: Colors.white70),
+                ),
+              ),
+            ],
+          );
+        }
+      } else {
+        stickerWidget = Text(
+          'Sticker',
+          style: dm(sz: 9, c: Colors.white, w: FontWeight.w700),
+        );
+      }
+      content = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: stickerWidget,
       );
     } else {
       content = Padding(
@@ -4174,6 +4711,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           _buildToolButton('Intensity', () => _showEffectEditorSheet(), Icons.tune),
           _buildToolButton('Opacity', () => _showEffectEditorSheet(), Icons.opacity),
           _buildToolButton('Blend', () => _showEffectEditorSheet(), Icons.blur_linear),
+          _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
+        ]);
+      } else if (selectedTrack.type == TrackType.overlay) {
+        tools.addAll([
+          _buildToolButton('Edit', () => _showStickerEditorSheet(clip), Icons.tune),
+          _buildToolButton('Replace', () => _showStickerSheet(), Icons.swap_horiz_rounded),
+          _buildToolButton('Duplicate', _duplicateSelectedClips, Icons.content_copy),
           _buildToolButton('Delete', () => _deleteClip(), Icons.delete_outline),
         ]);
       } else {
@@ -7588,10 +8132,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       if (assets.isEmpty) return;
       TimelineClip? lastClip;
       var start = _currentTime;
+      final clipsNeedingProbe = <TimelineClip>[];
+
       for (final asset in assets) {
-        final duration = asset.duration == Duration.zero
-            ? const Duration(seconds: 4)
-            : asset.duration;
+        // If service probed successfully, use real duration.
+        // If not (Duration.zero), insert with 60-min placeholder and re-probe below.
+        final duration = asset.duration > Duration.zero
+            ? asset.duration
+            : const Duration(hours: 1); // generous placeholder, corrected after probe
         final clip = TimelineClip(
           id: asset.id,
           start: start,
@@ -7608,7 +8156,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _playback.updateProject(_tracks);
         start += duration;
         lastClip = clip;
+
+        if (asset.duration == Duration.zero) {
+          clipsNeedingProbe.add(clip);
+        }
       }
+
       if (lastClip != null && mounted) {
         setState(() {
           _selectedClip = lastClip;
@@ -7622,6 +8175,32 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _showSnack(
           '${assets.length} audio file${assets.length == 1 ? '' : 's'} added to timeline',
         );
+      }
+
+      // Async re-probe any clips where duration wasn't available at pick time
+      for (final clip in clipsNeedingProbe) {
+        final op = clip.operation;
+        if (op is! AudioClipOperation) continue;
+        try {
+          final probe = AudioPlayer();
+          final src = op.sourceUrl;
+          if (src == null) continue;
+          if (src.startsWith('http')) {
+            await probe.setSourceUrl(src);
+          } else {
+            await probe.setSourceDeviceFile(src);
+          }
+          final probed = await probe.getDuration();
+          await probe.dispose();
+          if (probed != null && probed > Duration.zero && mounted) {
+            setState(() {
+              clip.duration = probed;
+            });
+            _playback.updateProject(_tracks);
+          }
+        } catch (_) {
+          // Leave the placeholder; user can trim manually
+        }
       }
     } catch (_) {
       if (mounted) _showSnack('Unable to import audio files');
@@ -7664,11 +8243,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       final clip = TimelineClip(
         id: 'music-${DateTime.now().millisecondsSinceEpoch}',
         start: _currentTime,
-        // MusicTrack.duration is stored in seconds. Treating it as
-        // milliseconds reduced nearly every selected song to one second.
+        // MusicTrack.duration is stored in seconds. Use it directly;
+        // if missing, use a 3-min placeholder and probe the real URL below.
         duration: result.duration > 0
             ? result.timelineDuration
-            : const Duration(seconds: 1),
+            : const Duration(minutes: 3),
         operation: AudioClipOperation(
           sourceType: 'music',
           sourceUrl: result.audioUrl,
@@ -7890,21 +8469,42 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _applySelectedEffect() {
-    if (_selectedEffectId == null) {
-      _showSnack('Select an effect from the library first');
+    if (_selectedEffectId == null && _previewEffect == null) {
+      _showSnack('Select an effect first');
       return;
     }
 
+    final effectId = _selectedEffectId ?? _previewEffect?.id;
     final preset = _effectPresets.firstWhere(
-      (candidate) => candidate.id == _selectedEffectId,
+      (candidate) => candidate.id == effectId,
       orElse: () => _effectPresets.first,
     );
-    final targetStart = _selectedClip != null &&
-            _selectedClip!.operation is! EffectOperation
+    final intensity = _previewEffectIntensity;
+
+    _captureTimeline();
+
+    // If an effect clip is already selected on the timeline, update it in-place!
+    if (_selectedClip != null && _selectedClip!.operation is EffectOperation) {
+      final op = _selectedClip!.operation as EffectOperation;
+      op.presetId = preset.id;
+      op.presetName = preset.name;
+      op.category = preset.category;
+      op.icon = preset.icon;
+      op.intensity = intensity;
+      op.opacity = preset.defaultOpacity;
+      _playback.updateProject(_tracks);
+      setState(() {
+        _previewEffect = null;
+      });
+      _showSnack('Updated effect to ${preset.name}');
+      return;
+    }
+
+    // Otherwise insert new effect clip aligned to selected clip or current time
+    final targetStart = _selectedClip != null
         ? _selectedClip!.start
         : _currentTime;
-    final targetDuration = _selectedClip != null &&
-            _selectedClip!.operation is! EffectOperation
+    final targetDuration = _selectedClip != null
         ? _selectedClip!.duration
         : const Duration(seconds: 4);
 
@@ -7917,13 +8517,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         presetName: preset.name,
         category: preset.category,
         icon: preset.icon,
-        intensity: preset.defaultIntensity,
+        intensity: intensity,
         opacity: preset.defaultOpacity,
         blendMode: preset.defaultBlendMode,
       ),
     );
 
-    _captureTimeline();
     TimelineModelUtils.insertClip(_tracks, clip, TrackType.effects);
     _playback.updateProject(_tracks);
     _recentEffectIds.remove(preset.id);
@@ -7942,252 +8541,405 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showEffectLibrarySheet() {
+    // If an effect clip is currently selected, pre-select its preset
+    if (_selectedClip != null && _selectedClip!.operation is EffectOperation) {
+      final op = _selectedClip!.operation as EffectOperation;
+      _selectedEffectId = op.presetId;
+      _previewEffect = op.preset;
+      _previewEffectIntensity = op.intensity;
+    }
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: C.card,
-      builder: (context) => StatefulBuilder(
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
         builder: (context, setModalState) {
+          final categories = const <String>[
+            'All',
+            'Cinematic',
+            'Retro',
+            'Glitch',
+            'Neon',
+            'Duotone',
+            'Film',
+            'Blur',
+            'Colour',
+          ];
+
           final visiblePresets = _effectPresets.where((preset) {
-            final matchesQuery =
-                _effectsSearchQuery.isEmpty ||
-                [
-                      preset.name,
-                      preset.category,
-                      preset.description,
-                      ...preset.tags,
-                    ]
-                    .join(' ')
-                    .toLowerCase()
-                    .contains(_effectsSearchQuery.toLowerCase());
-            final matchesFilter =
-                _effectsFilter == 'All' || preset.category == _effectsFilter;
-            return matchesQuery && matchesFilter;
+            return _effectsFilter == 'All' || preset.category == _effectsFilter;
           }).toList();
 
-          visiblePresets.sort((a, b) {
-            switch (_effectsSort) {
-              case 'Name':
-                return a.name.compareTo(b.name);
-              case 'Recent':
-                return _recentEffectIds
-                    .indexOf(b.id)
-                    .compareTo(_recentEffectIds.indexOf(a.id));
-              case 'Favorites':
-                return _favoriteEffectIds.contains(b.id) ? 1 : 0;
-              default:
-                return (b.featured ? 1 : 0).compareTo(a.featured ? 1 : 0);
-            }
-          });
+          final activePreset = _previewEffect ??
+              (_selectedEffectId != null
+                  ? EffectPreset.byId(_selectedEffectId)
+                  : null);
 
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+          return Container(
+            height: 310,
+            decoration: BoxDecoration(
+              color: const Color(0xFF12151D).withValues(alpha: 0.98),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.08),
+                width: 1,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black87,
+                  blurRadius: 24,
+                  offset: Offset(0, -6),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Top Drag Handle ─────────────────────────
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 8, bottom: 6),
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+
+                // ── Header Bar ──────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
                     children: [
+                      // Title & Icon
+                      Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: C.brand.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.auto_awesome, size: 15, color: C.brand),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
-                        'Effects Library',
-                        style: syne(sz: 16, w: FontWeight.w800, c: C.text),
+                        'Effects',
+                        style: syne(sz: 14, w: FontWeight.w700, c: C.text),
                       ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Close'),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${visiblePresets.length}',
+                          style: dm(sz: 10, w: FontWeight.w600, c: C.dim),
+                        ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    onChanged: (value) =>
-                        setModalState(() => _effectsSearchQuery = value),
-                    decoration: InputDecoration(
-                      hintText: 'Search effects',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children:
-                          <String>[
-                                'All',
-                                'Cinematic',
-                                'Glitch',
-                                'VHS',
-                                'Blur',
-                                'Retro',
-                                'Film',
-                                'Neon',
-                                'Light',
-                              ]
-                              .map(
-                                (category) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ChoiceChip(
-                                    label: Text(category),
-                                    selected: _effectsFilter == category,
-                                    onSelected: (_) => setModalState(
-                                      () => _effectsFilter = category,
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children:
-                          <String>['Featured', 'Recent', 'Favorites', 'Name']
-                              .map(
-                                (sort) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ChoiceChip(
-                                    label: Text(sort),
-                                    selected: _effectsSort == sort,
-                                    onSelected: (_) => setModalState(
-                                      () => _effectsSort = sort,
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: visiblePresets.length,
-                      itemBuilder: (context, index) {
-                        final preset = visiblePresets[index];
-                        final isFavorite = _favoriteEffectIds.contains(
-                          preset.id,
-                        );
-                        final isSelected = _selectedEffectId == preset.id;
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? C.brand.withOpacity(0.14)
-                                : C.surface,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: isSelected ? C.brand : C.border,
-                            ),
-                          ),
-                          child: ListTile(
-                            leading: Text(
-                              preset.icon,
-                              style: const TextStyle(fontSize: 24),
-                            ),
-                            title: Text(
-                              preset.name,
-                              style: dm(sz: 12, w: FontWeight.w700, c: C.text),
-                            ),
-                            subtitle: Text(
-                              preset.description,
-                              style: dm(sz: 10.5, c: C.dim),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      if (isFavorite) {
-                                        _favoriteEffectIds.remove(preset.id);
-                                      } else {
-                                        _favoriteEffectIds.add(preset.id);
-                                      }
-                                    });
-                                    setModalState(() {});
-                                  },
-                                  icon: Icon(
-                                    isFavorite
-                                        ? Icons.favorite
-                                        : Icons.favorite_outline,
-                                    color: C.brand,
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _selectedEffectId = preset.id;
-                                      _previewEffect = preset;
-                                      _recentEffectIds.remove(preset.id);
-                                      _recentEffectIds.insert(0, preset.id);
-                                    });
-                                    setModalState(() {});
-                                  },
-                                  icon: const Icon(Icons.play_arrow),
-                                ),
-                              ],
-                            ),
-                            onTap: () {
-                              setState(() {
-                                _selectedEffectId = preset.id;
-                                _previewEffect = preset;
-                              });
-                              Navigator.pop(context);
-                              _applySelectedEffect();
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  if (_previewEffect != null) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: C.surface,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Live Preview',
-                            style: dm(sz: 12, w: FontWeight.w700, c: C.text),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Previewing ${_previewEffect!.name} on the selected clip before applying it.',
-                            style: dm(sz: 11, c: C.dim),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
+
+                      // Center Intensity Slider (active when an effect is selected)
+                      if (activePreset != null) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Row(
                             children: [
-                              TextButton(
-                                onPressed: () =>
-                                    setState(() => _previewEffect = null),
-                                child: const Text('Clear Preview'),
+                              Icon(Icons.tune_rounded, size: 13, color: C.dim),
+                              Expanded(
+                                child: SliderTheme(
+                                  data: SliderTheme.of(context).copyWith(
+                                    trackHeight: 2.5,
+                                    thumbShape: const RoundSliderThumbShape(
+                                      enabledThumbRadius: 6,
+                                    ),
+                                    overlayShape: const RoundSliderOverlayShape(
+                                      overlayRadius: 12,
+                                    ),
+                                    activeTrackColor: C.brand,
+                                    inactiveTrackColor: Colors.white12,
+                                    thumbColor: Colors.white,
+                                  ),
+                                  child: Slider(
+                                    value: _previewEffectIntensity.clamp(0.0, 1.0),
+                                    min: 0.0,
+                                    max: 1.0,
+                                    onChanged: (val) {
+                                      setModalState(() => _previewEffectIntensity = val);
+                                      setState(() {});
+                                    },
+                                  ),
+                                ),
                               ),
-                              const SizedBox(width: 8),
-                              ElevatedButton(
-                                onPressed: _applySelectedEffect,
-                                child: const Text('Apply'),
+                              Text(
+                                '${(_previewEffectIntensity * 100).round()}%',
+                                style: dm(sz: 10.5, w: FontWeight.w700, c: C.brand),
                               ),
                             ],
                           ),
-                        ],
+                        ),
+                      ] else ...[
+                        const Spacer(),
+                      ],
+
+                      // Actions: Reset & Done
+                      if (activePreset != null)
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: Icon(Icons.refresh_rounded, size: 18, color: C.dim),
+                          tooltip: 'Reset',
+                          onPressed: () {
+                            setModalState(() {
+                              _previewEffect = null;
+                              _selectedEffectId = null;
+                            });
+                            setState(() {});
+                            HapticFeedback.selectionClick();
+                          },
+                        ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.check_circle_rounded, size: 22, color: Color(0xFF10B981)),
+                        tooltip: 'Apply effect',
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _applySelectedEffect();
+                        },
                       ),
-                    ),
-                  ],
-                ],
-              ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(Icons.close_rounded, size: 18, color: C.dim),
+                        onPressed: () {
+                          setState(() => _previewEffect = null);
+                          Navigator.pop(context);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+
+                // ── Category Pills Row ──────────────────────
+                SizedBox(
+                  height: 32,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: categories.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 6),
+                    itemBuilder: (context, idx) {
+                      final cat = categories[idx];
+                      final isSelected = _effectsFilter == cat;
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() => _effectsFilter = cat);
+                          HapticFeedback.selectionClick();
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? C.brand
+                                : Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isSelected
+                                  ? C.brand
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Text(
+                            cat,
+                            style: dm(
+                              sz: 11,
+                              w: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              c: isSelected ? Colors.white : C.dim,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // ── Minimal Effect Cards Strip ──────────────
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: visiblePresets.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      // Slot 0: "None" / Clean button
+                      if (index == 0) {
+                        final isNoneActive = activePreset == null;
+                        return GestureDetector(
+                          onTap: () {
+                            setModalState(() {
+                              _previewEffect = null;
+                              _selectedEffectId = null;
+                            });
+                            setState(() {});
+                            HapticFeedback.selectionClick();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            width: 74,
+                            decoration: BoxDecoration(
+                              color: isNoneActive
+                                  ? C.brand.withValues(alpha: 0.16)
+                                  : C.surface.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isNoneActive ? C.brand : C.border,
+                                width: isNoneActive ? 1.8 : 1,
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.block_rounded,
+                                  size: 26,
+                                  color: isNoneActive ? C.brand : C.dim,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'None',
+                                  style: dm(
+                                    sz: 10.5,
+                                    w: isNoneActive ? FontWeight.w700 : FontWeight.w500,
+                                    c: isNoneActive ? C.brand : C.dim,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      final preset = visiblePresets[index - 1];
+                      final isSelected = activePreset?.id == preset.id;
+
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() {
+                            _selectedEffectId = preset.id;
+                            _previewEffect = preset;
+                            _previewEffectIntensity = preset.defaultIntensity;
+                          });
+                          setState(() {});
+                          HapticFeedback.selectionClick();
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          width: 76,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? C.brand.withValues(alpha: 0.18)
+                                : C.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected ? C.brand : C.border,
+                              width: isSelected ? 1.8 : 1,
+                            ),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: C.brand.withValues(alpha: 0.3),
+                                      blurRadius: 8,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Stack(
+                            children: [
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      preset.icon,
+                                      style: const TextStyle(fontSize: 26),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                                      child: Text(
+                                        preset.name,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: dm(
+                                          sz: 10.5,
+                                          w: isSelected ? FontWeight.w700 : FontWeight.w600,
+                                          c: isSelected ? Colors.white : C.text,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      preset.category,
+                                      style: dm(sz: 8.5, c: C.dim),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isSelected)
+                                Positioned(
+                                  top: 5,
+                                  right: 5,
+                                  child: Container(
+                                    width: 14,
+                                    height: 14,
+                                    decoration: BoxDecoration(
+                                      color: C.brand,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.check,
+                                      size: 10,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              if (preset.isNew && !isSelected)
+                                Positioned(
+                                  top: 5,
+                                  right: 5,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEC4899),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text(
+                                      'NEW',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 7,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+              ],
             ),
           );
         },
@@ -8206,85 +8958,95 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: C.card,
-      builder: (context) => StatefulBuilder(
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
         builder: (context, setModalState) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Effect Editor',
-                    style: syne(sz: 15, w: FontWeight.w800, c: C.text),
+          return Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF141720),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    operation.presetName,
-                    style: dm(sz: 13, w: FontWeight.w700, c: C.text),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildEffectSlider(
-                    'Intensity',
-                    operation.intensity,
-                    0.0,
-                    1.0,
-                    (value) => setModalState(() => operation.intensity = value),
-                  ),
-                  _buildEffectSlider(
-                    'Opacity',
-                    operation.opacity,
-                    0.0,
-                    1.0,
-                    (value) => setModalState(() => operation.opacity = value),
-                  ),
-                  _buildEffectSlider(
-                    'Start Offset',
-                    operation.startOffset,
-                    0.0,
-                    2.0,
-                    (value) =>
-                        setModalState(() => operation.startOffset = value),
-                  ),
-                  _buildEffectSlider(
-                    'End Offset',
-                    operation.endOffset,
-                    0.0,
-                    2.0,
-                    (value) => setModalState(() => operation.endOffset = value),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildEffectChip(
-                        'Keyframes',
-                        () => _showSnack('Keyframes added'),
-                      ),
-                      _buildEffectChip(
-                        'Copy',
-                        () => _showSnack('Attributes copied'),
-                      ),
-                      _buildEffectChip(
-                        'Paste',
-                        () => _showSnack('Attributes pasted'),
-                      ),
-                      _buildEffectChip(
-                        'Duplicate',
-                        () => _showSnack('Effect duplicated'),
-                      ),
-                      _buildEffectChip(
-                        'Replace',
-                        () => _showEffectLibrarySheet(),
-                      ),
-                      _buildEffectChip('Delete', () => _deleteClip()),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(operation.icon, style: const TextStyle(fontSize: 22)),
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          operation.presetName,
+                          style: dm(sz: 14, w: FontWeight.w700, c: C.text),
+                        ),
+                        Text(
+                          '${operation.category} Effect',
+                          style: dm(sz: 10, c: C.dim),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.check_rounded, color: Color(0xFF10B981)),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _buildEffectSlider(
+                  'Intensity',
+                  operation.intensity,
+                  0.0,
+                  1.0,
+                  (value) {
+                    setModalState(() => operation.intensity = value);
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+                _buildEffectSlider(
+                  'Opacity',
+                  operation.opacity,
+                  0.0,
+                  1.0,
+                  (value) {
+                    setModalState(() => operation.opacity = value);
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildEffectChip('Replace', () {
+                      Navigator.pop(context);
+                      _showEffectLibrarySheet();
+                    }),
+                    _buildEffectChip('Duplicate', () {
+                      _duplicateSelectedClips();
+                      Navigator.pop(context);
+                    }),
+                    _buildEffectChip('Delete', () {
+                      _deleteClip();
+                      Navigator.pop(context);
+                    }),
+                  ],
+                ),
+              ],
             ),
           );
         },
@@ -9160,100 +9922,577 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showStickerSheet() {
-    final stickers = [
-      'STAR',
-      'SALE',
-      'NEW',
-      'LIVE',
-      'HOT',
-      'CHECK',
-      '❤️',
-      '🔥',
-      '✨',
-      '⚡',
-      '🎉',
-      '👏',
-      '🎬',
-      '💯',
-      '🚀',
-      '👀',
+    int activeCategory = 0;
+    final categories = const <String>[
+      'App Icons & Logo',
+      '3D Gifts',
+      'Badges',
+      'Emojis',
     ];
+
+    // 1. App Logo & System Icons
+    final appIconStickers = const <_StickerItem>[
+      _StickerItem(label: 'Necxa Logo', assetPath: 'assets/images/logo.png'),
+      _StickerItem(label: 'Necxa Badge', assetPath: 'assets/images/app_icon.png'),
+      _StickerItem(label: 'Glass Icon', assetPath: 'assets/images/app_icon_padded.png'),
+      _StickerItem(label: 'Property', assetPath: 'assets/images/property_icon.png'),
+      _StickerItem(label: 'Transport', assetPath: 'assets/images/transport_icon.png'),
+      _StickerItem(label: 'Marketplace', assetPath: 'assets/images/listing_icon.png'),
+      _StickerItem(label: 'Community', assetPath: 'assets/images/community_icon_colored.png'),
+      _StickerItem(label: 'Mono Logo', assetPath: 'assets/images/community_icon_white.png'),
+      _StickerItem(label: 'Live Stream', assetPath: 'assets/images/live_icon.png'),
+      _StickerItem(label: 'Chat Bubble', assetPath: 'assets/images/chat_icon.png'),
+      _StickerItem(label: 'Notification', assetPath: 'assets/images/notification_icon.png'),
+      _StickerItem(label: 'Upload Hub', assetPath: 'assets/images/upload_icon.png'),
+    ];
+
+    // 2. 3D Gifts & Rewards
+    final giftStickers = const <_StickerItem>[
+      _StickerItem(label: 'Fire', assetPath: 'assets/gifts/fire.png'),
+      _StickerItem(label: 'Crown', assetPath: 'assets/gifts/crown.png'),
+      _StickerItem(label: 'Diamond', assetPath: 'assets/gifts/diamond.png'),
+      _StickerItem(label: 'Gold Star', assetPath: 'assets/gifts/star.png'),
+      _StickerItem(label: 'Trophy', assetPath: 'assets/gifts/trophy.png'),
+      _StickerItem(label: 'Rocket', assetPath: 'assets/gifts/rocket.png'),
+      _StickerItem(label: 'Heart', assetPath: 'assets/gifts/heart.png'),
+      _StickerItem(label: 'Money Bag', assetPath: 'assets/gifts/moneybag.png'),
+      _StickerItem(label: 'Supercar', assetPath: 'assets/gifts/sportscar.png'),
+      _StickerItem(label: 'Private Jet', assetPath: 'assets/gifts/jet.png'),
+      _StickerItem(label: 'Yacht', assetPath: 'assets/gifts/yacht.png'),
+      _StickerItem(label: 'Villa', assetPath: 'assets/gifts/villa.png'),
+      _StickerItem(label: 'Rose', assetPath: 'assets/gifts/rose.png'),
+      _StickerItem(label: 'Applause', assetPath: 'assets/gifts/clap.png'),
+      _StickerItem(label: 'Coffee', assetPath: 'assets/gifts/coffee.png'),
+    ];
+
+    // 3. Badges & Tags
+    final badgeStickers = const <_StickerItem>[
+      _StickerItem(label: 'VERIFIED', emoji: 'VERIFIED', isBadge: true),
+      _StickerItem(label: 'TOP SELLER', emoji: 'TOP SELLER', isBadge: true),
+      _StickerItem(label: 'BEST DEAL', emoji: 'BEST DEAL', isBadge: true),
+      _StickerItem(label: '50% OFF', emoji: '50% OFF', isBadge: true),
+      _StickerItem(label: 'LIMITED', emoji: 'LIMITED', isBadge: true),
+      _StickerItem(label: 'NEW', emoji: 'NEW', isBadge: true),
+      _StickerItem(label: 'HOT', emoji: 'HOT', isBadge: true),
+      _StickerItem(label: 'LIVE NOW', emoji: 'LIVE NOW', isBadge: true),
+    ];
+
+    // 4. Reactions & Emojis
+    final emojiStickers = const <_StickerItem>[
+      _StickerItem(label: 'Fire', emoji: '🔥'),
+      _StickerItem(label: 'Sparkles', emoji: '✨'),
+      _StickerItem(label: 'Heart', emoji: '❤️'),
+      _StickerItem(label: '100', emoji: '💯'),
+      _StickerItem(label: 'Lightning', emoji: '⚡'),
+      _StickerItem(label: 'Party', emoji: '🎉'),
+      _StickerItem(label: 'Crown', emoji: '👑'),
+      _StickerItem(label: 'Diamond', emoji: '💎'),
+      _StickerItem(label: 'Applause', emoji: '👏'),
+      _StickerItem(label: 'Movie', emoji: '🎬'),
+      _StickerItem(label: 'Rocket', emoji: '🚀'),
+      _StickerItem(label: 'Money', emoji: '💸'),
+      _StickerItem(label: 'Shopping', emoji: '🛍️'),
+      _StickerItem(label: 'Tag', emoji: '🏷️'),
+      _StickerItem(label: 'Star Eyes', emoji: '🤩'),
+    ];
+
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.94),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: C.dim),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'STICKERS',
-              style: syne(sz: 14, w: FontWeight.w900, c: C.text, ls: 2),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          List<_StickerItem> currentList;
+          switch (activeCategory) {
+            case 0:
+              currentList = appIconStickers;
+              break;
+            case 1:
+              currentList = giftStickers;
+              break;
+            case 2:
+              currentList = badgeStickers;
+              break;
+            default:
+              currentList = emojiStickers;
+              break;
+          }
+
+          return Container(
+            height: 380,
+            decoration: BoxDecoration(
+              color: const Color(0xFF12151E).withValues(alpha: 0.98),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black87,
+                  blurRadius: 24,
+                  offset: Offset(0, -6),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: stickers.map((sticker) {
-                return GestureDetector(
-                  onTap: () {
-                    final isWord = sticker.length > 2;
-                    final overlay = OverlayOperation(
-                      kind: 'sticker',
-                      text: sticker,
-                      fontSize: isWord ? 22.0 : 42.0,
-                      color: isWord ? Colors.black : C.text,
-                      background: isWord ? C.brand : Colors.transparent,
-                      backgroundOpacity: isWord ? 1.0 : 0.0,
-                      stroke: !isWord,
-                      shadow: true,
-                    );
-                    final clip = TimelineClip(
-                      id:
-                          'overlay-sticker-${DateTime.now().millisecondsSinceEpoch}',
-                      start: _currentTime,
-                      duration: const Duration(seconds: 4),
-                      operation: overlay,
-                    );
-                    TimelineModelUtils.insertClip(
-                      _tracks,
-                      clip,
-                      TrackType.overlay,
-                    );
-                    _playback.updateProject(_tracks);
-                    setState(() {});
-                    Navigator.pop(context);
-                    _showSnack('Sticker added to timeline');
-                  },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Top Handle ──────────────────────────────
+                Center(
                   child: Container(
-                    width: 76,
-                    height: 54,
+                    margin: const EdgeInsets.only(top: 8, bottom: 6),
+                    width: 36,
+                    height: 4,
                     decoration: BoxDecoration(
-                      color: C.text.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: C.dim),
-                    ),
-                    child: Center(
-                      child: Text(
-                        sticker,
-                        style: syne(
-                          sz: sticker.length > 2 ? 13 : 24,
-                          w: FontWeight.w900,
-                          c: C.text,
-                        ),
-                      ),
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                );
-              }).toList(),
+                ),
+
+                // ── Header ──────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFBE185D).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.loyalty_rounded,
+                          size: 15,
+                          color: Color(0xFFEC4899),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Sticker Studio',
+                        style: syne(sz: 14, w: FontWeight.w800, c: C.text),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(Icons.close_rounded, size: 18, color: C.dim),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+
+                // ── Category Pills ──────────────────────────
+                SizedBox(
+                  height: 32,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: categories.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 6),
+                    itemBuilder: (context, idx) {
+                      final isSelected = activeCategory == idx;
+                      return GestureDetector(
+                        onTap: () {
+                          setModalState(() => activeCategory = idx);
+                          HapticFeedback.selectionClick();
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFFEC4899)
+                                : Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFFEC4899)
+                                  : Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Text(
+                            categories[idx],
+                            style: dm(
+                              sz: 11,
+                              w: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              c: isSelected ? Colors.white : C.dim,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Stickers Grid ───────────────────────────
+                Expanded(
+                  child: GridView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      childAspectRatio: 0.88,
+                    ),
+                    itemCount: currentList.length,
+                    itemBuilder: (context, index) {
+                      final item = currentList[index];
+                      return GestureDetector(
+                        onTap: () {
+                          _captureTimeline();
+
+                          // If an overlay clip is already selected, update it in place!
+                          if (_selectedClip != null &&
+                              _selectedClip!.operation is OverlayOperation) {
+                            final op = _selectedClip!.operation as OverlayOperation;
+                            op.text = item.emoji ?? item.label;
+                            op.imagePath = item.assetPath;
+                            _playback.updateProject(_tracks);
+                            setState(() {});
+                            Navigator.pop(context);
+                            _showSnack('Updated sticker to ${item.label}');
+                            HapticFeedback.mediumImpact();
+                            return;
+                          }
+
+                          // Otherwise insert new sticker on overlay track
+                          final overlay = OverlayOperation(
+                            kind: 'sticker',
+                            text: item.emoji ?? item.label,
+                            imagePath: item.assetPath,
+                            fontSize: item.isBadge ? 18.0 : (item.assetPath != null ? 34.0 : 42.0),
+                            color: item.isBadge ? Colors.black : C.text,
+                            background: item.isBadge ? const Color(0xFF00E5FF) : Colors.transparent,
+                            backgroundOpacity: item.isBadge ? 1.0 : 0.0,
+                            stroke: item.isBadge,
+                            shadow: true,
+                            position: const Offset(0.5, 0.5),
+                            scale: 1.0,
+                          );
+
+                          final clip = TimelineClip(
+                            id: 'overlay-sticker-${DateTime.now().millisecondsSinceEpoch}',
+                            start: _currentTime,
+                            duration: const Duration(seconds: 4),
+                            operation: overlay,
+                          );
+
+                          TimelineModelUtils.insertClip(
+                            _tracks,
+                            clip,
+                            TrackType.overlay,
+                          );
+                          _playback.updateProject(_tracks);
+                          setState(() {
+                            _selectedClip = clip;
+                            _selectedTrackId = _tracks
+                                .firstWhere((t) => t.clips.contains(clip))
+                                .id;
+                            _selectedTrackIndex = _tracks.indexWhere(
+                              (t) => t.id == _selectedTrackId,
+                            );
+                          });
+                          Navigator.pop(context);
+                          _showSnack('${item.label} sticker added to timeline');
+                          HapticFeedback.mediumImpact();
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: C.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (item.assetPath != null) ...[
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(6),
+                                    child: Image.asset(
+                                      item.assetPath!,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.broken_image_rounded,
+                                        size: 28,
+                                        color: Colors.white54,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+                                  child: Text(
+                                    item.label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: dm(sz: 9.5, w: FontWeight.w600, c: C.dim),
+                                  ),
+                                ),
+                              ] else if (item.isBadge) ...[
+                                Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF00E5FF), Color(0xFF0077B6)],
+                                    ),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    item.emoji ?? item.label,
+                                    style: const TextStyle(
+                                      color: Colors.black,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ] else ...[
+                                Text(
+                                  item.emoji ?? '⭐',
+                                  style: const TextStyle(fontSize: 28),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.label,
+                                  style: dm(sz: 9, c: C.dim),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-          ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showStickerEditorSheet(TimelineClip clip) {
+    if (clip.operation is! OverlayOperation) {
+      _showSnack('Select a sticker overlay first');
+      return;
+    }
+
+    final overlay = clip.operation as OverlayOperation;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF141720),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if (overlay.imagePath != null && overlay.imagePath!.isNotEmpty)
+                      Image.asset(
+                        overlay.imagePath!,
+                        width: 26,
+                        height: 26,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.loyalty,
+                          size: 20,
+                          color: Color(0xFFEC4899),
+                        ),
+                      )
+                    else
+                      Text(
+                        overlay.text.isNotEmpty ? overlay.text : '🏷️',
+                        style: const TextStyle(fontSize: 22),
+                      ),
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Edit Sticker',
+                          style: dm(sz: 14, w: FontWeight.w700, c: C.text),
+                        ),
+                        Text(
+                          overlay.text.isNotEmpty ? overlay.text : 'Overlay',
+                          style: dm(sz: 10, c: C.dim),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.check_rounded, color: Color(0xFF10B981)),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Size / Scale Slider
+                _buildEffectSlider(
+                  'Size (${(overlay.scale * 100).round()}%)',
+                  overlay.scale,
+                  0.3,
+                  3.0,
+                  (v) {
+                    setModalState(() => overlay.scale = v);
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                // Opacity Slider
+                _buildEffectSlider(
+                  'Opacity (${(overlay.opacity * 100).round()}%)',
+                  overlay.opacity,
+                  0.05,
+                  1.0,
+                  (v) {
+                    setModalState(() => overlay.opacity = v);
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                // Position X
+                _buildEffectSlider(
+                  'Horizontal Position (${(overlay.position.dx * 100).round()}%)',
+                  overlay.position.dx,
+                  0.0,
+                  1.0,
+                  (v) {
+                    setModalState(
+                      () => overlay.position = Offset(v, overlay.position.dy),
+                    );
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                // Position Y
+                _buildEffectSlider(
+                  'Vertical Position (${(overlay.position.dy * 100).round()}%)',
+                  overlay.position.dy,
+                  0.0,
+                  1.0,
+                  (v) {
+                    setModalState(
+                      () => overlay.position = Offset(overlay.position.dx, v),
+                    );
+                    setState(() {});
+                    _playback.updateProject(_tracks);
+                  },
+                ),
+
+                const SizedBox(height: 10),
+
+                // Quick Alignment Presets
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildAlignmentButton('Top Left', const Offset(0.2, 0.2), overlay, setModalState),
+                    _buildAlignmentButton('Top Right', const Offset(0.8, 0.2), overlay, setModalState),
+                    _buildAlignmentButton('Center', const Offset(0.5, 0.5), overlay, setModalState),
+                    _buildAlignmentButton('Bottom Left', const Offset(0.2, 0.8), overlay, setModalState),
+                    _buildAlignmentButton('Bottom Right', const Offset(0.8, 0.8), overlay, setModalState),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Action Chips
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildEffectChip('Replace', () {
+                      Navigator.pop(context);
+                      _showStickerSheet();
+                    }),
+                    _buildEffectChip('Duplicate', () {
+                      _duplicateSelectedClips();
+                      Navigator.pop(context);
+                    }),
+                    _buildEffectChip('Delete', () {
+                      _deleteClip();
+                      Navigator.pop(context);
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAlignmentButton(
+    String label,
+    Offset offset,
+    OverlayOperation overlay,
+    void Function(void Function()) setModalState,
+  ) {
+    final isSelected = (overlay.position.dx - offset.dx).abs() < 0.05 &&
+        (overlay.position.dy - offset.dy).abs() < 0.05;
+    return GestureDetector(
+      onTap: () {
+        setModalState(() => overlay.position = offset);
+        setState(() {});
+        _playback.updateProject(_tracks);
+        HapticFeedback.selectionClick();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF00E5FF).withValues(alpha: 0.2)
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF00E5FF) : Colors.white12,
+          ),
+        ),
+        child: Text(
+          label,
+          style: dm(
+            sz: 9.5,
+            w: isSelected ? FontWeight.w700 : FontWeight.w500,
+            c: isSelected ? const Color(0xFF00E5FF) : C.dim,
+          ),
         ),
       ),
     );
@@ -10725,4 +11964,495 @@ class _StudioMakeupPainter extends CustomPainter {
   @override
   bool shouldRepaint(_StudioMakeupPainter old) =>
       old.gender != gender || old.style != style || old.intensity != intensity;
+}
+
+// ══════════════════════════════════════════════════════════════
+// REAL EFFECTS ENGINE OVERLAYS & CUSTOM PAINTERS
+// ══════════════════════════════════════════════════════════════
+
+class _ActiveEffectItem {
+  final EffectPreset? preset;
+  final double intensity;
+  final double opacity;
+  final RenderEffects renderEffects;
+  final String visualStyle;
+  final int? duotoneShadow;
+  final int? duotoneHighlight;
+
+  const _ActiveEffectItem({
+    this.preset,
+    required this.intensity,
+    required this.opacity,
+    required this.renderEffects,
+    required this.visualStyle,
+    this.duotoneShadow,
+    this.duotoneHighlight,
+  });
+}
+
+/// 2.39:1 Anamorphic Cinema Scope Letterbox
+class _CinematicLetterboxOverlay extends StatelessWidget {
+  final double intensity;
+  const _CinematicLetterboxOverlay({required this.intensity});
+
+  @override
+  Widget build(BuildContext context) {
+    final barFactor = (0.11 * intensity.clamp(0.0, 1.0));
+    if (barFactor <= 0.001) return const SizedBox.shrink();
+
+    return Stack(
+      children: [
+        Align(
+          alignment: Alignment.topCenter,
+          child: FractionallySizedBox(
+            widthFactor: 1.0,
+            heightFactor: barFactor,
+            child: const ColoredBox(color: Colors.black),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: FractionallySizedBox(
+            widthFactor: 1.0,
+            heightFactor: barFactor,
+            child: const ColoredBox(color: Colors.black),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Retro VHS tape noise, scan lines, tracking jitter, and classic OSD
+class _VhsEffectOverlay extends StatelessWidget {
+  final double intensity;
+  final int timeMs;
+
+  const _VhsEffectOverlay({required this.intensity, required this.timeMs});
+
+  @override
+  Widget build(BuildContext context) {
+    final safeIntensity = intensity.clamp(0.0, 1.0);
+    return CustomPaint(
+      painter: _VhsPainter(intensity: safeIntensity, timeMs: timeMs),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'PLAY ▶',
+                    style: TextStyle(
+                      color: const Color(0xFF22C55E)
+                          .withValues(alpha: 0.85 * safeIntensity),
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                      shadows: const [
+                        Shadow(color: Colors.black, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    'SP',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.75 * safeIntensity),
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      shadows: const [
+                        Shadow(color: Colors.black, blurRadius: 4),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                'REC  0:00:${(timeMs ~/ 1000).toString().padLeft(2, '0')}',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85 * safeIntensity),
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                  shadows: const [
+                    Shadow(color: Colors.black, blurRadius: 4),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VhsPainter extends CustomPainter {
+  final double intensity;
+  final int timeMs;
+
+  _VhsPainter({required this.intensity, required this.timeMs});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    // 1. Horizontal Scanlines
+    final linePaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.18 * intensity)
+      ..strokeWidth = 1.0;
+
+    for (double y = 0; y < size.height; y += 3.5) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+    }
+
+    // 2. Periodic Tracking Glitch Band
+    final trackingPhase = ((timeMs % 2400) / 2400.0);
+    final trackingY = size.height * (0.78 + (trackingPhase * 0.18));
+    final trackingPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.12 * intensity)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+
+    canvas.drawRect(
+      Rect.fromLTWH(0, trackingY, size.width, 14),
+      trackingPaint,
+    );
+
+    // 3. Subtle blue/cyan color shift line
+    final cyanShiftPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: 0.08 * intensity);
+    canvas.drawRect(
+      Rect.fromLTWH(0, (trackingY + 5) % size.height, size.width, 3),
+      cyanShiftPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_VhsPainter old) =>
+      old.intensity != intensity || (old.timeMs ~/ 80) != (timeMs ~/ 80);
+}
+
+/// Digital Glitch with RGB chromatic displacement slices
+class _GlitchEffectOverlay extends StatelessWidget {
+  final double intensity;
+  final int timeMs;
+
+  const _GlitchEffectOverlay({required this.intensity, required this.timeMs});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _GlitchPainter(
+        intensity: intensity.clamp(0.0, 1.0),
+        timeMs: timeMs,
+      ),
+    );
+  }
+}
+
+class _GlitchPainter extends CustomPainter {
+  final double intensity;
+  final int timeMs;
+
+  _GlitchPainter({required this.intensity, required this.timeMs});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final randSeed = (timeMs ~/ 90);
+    final rand = math.Random(randSeed);
+
+    final cyanPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: 0.32 * intensity)
+      ..blendMode = BlendMode.screen;
+
+    final magentaPaint = Paint()
+      ..color = const Color(0xFFFF007F).withValues(alpha: 0.28 * intensity)
+      ..blendMode = BlendMode.screen;
+
+    final sliceCount = (4 + rand.nextInt(4));
+    for (int i = 0; i < sliceCount; i++) {
+      final y = rand.nextDouble() * size.height;
+      final sliceHeight = (6.0 + rand.nextDouble() * 22.0);
+      final offset = (rand.nextDouble() - 0.5) * 24.0 * intensity;
+
+      // Cyan shifted slice
+      canvas.drawRect(
+        Rect.fromLTWH(offset, y, size.width, sliceHeight),
+        cyanPaint,
+      );
+
+      // Magenta shifted slice
+      canvas.drawRect(
+        Rect.fromLTWH(-offset * 0.85, y + 2, size.width, sliceHeight),
+        magentaPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GlitchPainter old) =>
+      old.intensity != intensity || (old.timeMs ~/ 90) != (timeMs ~/ 90);
+}
+
+/// Datamosh Macroblock Compression Artifacts
+class _DatamoshEffectOverlay extends StatelessWidget {
+  final double intensity;
+  final int timeMs;
+
+  const _DatamoshEffectOverlay({required this.intensity, required this.timeMs});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _DatamoshPainter(
+        intensity: intensity.clamp(0.0, 1.0),
+        timeMs: timeMs,
+      ),
+    );
+  }
+}
+
+class _DatamoshPainter extends CustomPainter {
+  final double intensity;
+  final int timeMs;
+
+  _DatamoshPainter({required this.intensity, required this.timeMs});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final rand = math.Random(timeMs ~/ 120);
+    final blockCount = (12 * intensity).round();
+
+    for (int i = 0; i < blockCount; i++) {
+      final bw = 24.0 + rand.nextDouble() * 48.0;
+      final bh = 16.0 + rand.nextDouble() * 32.0;
+      final bx = rand.nextDouble() * (size.width - bw);
+      final by = rand.nextDouble() * (size.height - bh);
+
+      final color = [
+        const Color(0xFF00FFCC),
+        const Color(0xFFFF0066),
+        const Color(0xFFFFEE00),
+        const Color(0xFF0066FF),
+      ][rand.nextInt(4)];
+
+      final blockPaint = Paint()
+        ..color = color.withValues(alpha: 0.24 * intensity)
+        ..blendMode = BlendMode.screen;
+
+      canvas.drawRect(Rect.fromLTWH(bx, by, bw, bh), blockPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DatamoshPainter old) =>
+      old.intensity != intensity || (old.timeMs ~/ 120) != (timeMs ~/ 120);
+}
+
+/// Super 8 Vintage 1970s Rounded Film Gate & Dust
+class _Super8EffectOverlay extends StatelessWidget {
+  final double intensity;
+
+  const _Super8EffectOverlay({required this.intensity});
+
+  @override
+  Widget build(BuildContext context) {
+    final safeIntensity = intensity.clamp(0.0, 1.0);
+    return Stack(
+      children: [
+        // Warm Amber Tint Wash
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Container(
+              color: const Color(0xFFD97706)
+                  .withValues(alpha: 0.10 * safeIntensity),
+            ),
+          ),
+        ),
+        // Rounded vintage projection frame
+        Positioned.fill(
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Colors.black.withValues(alpha: 0.85 * safeIntensity),
+                  width: 14 * safeIntensity,
+                ),
+                borderRadius: BorderRadius.circular(28),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// CRT / Hologram Horizontal Raster Scanlines
+class _ScanlinesEffectOverlay extends StatelessWidget {
+  final double intensity;
+  final bool isHologram;
+
+  const _ScanlinesEffectOverlay({
+    required this.intensity,
+    this.isHologram = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _ScanlinesPainter(
+        intensity: intensity.clamp(0.0, 1.0),
+        isHologram: isHologram,
+      ),
+    );
+  }
+}
+
+class _ScanlinesPainter extends CustomPainter {
+  final double intensity;
+  final bool isHologram;
+
+  _ScanlinesPainter({required this.intensity, required this.isHologram});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final lineColor = isHologram
+        ? const Color(0xFF00E5FF).withValues(alpha: 0.16 * intensity)
+        : Colors.black.withValues(alpha: 0.22 * intensity);
+
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 1.0;
+
+    for (double y = 0; y < size.height; y += 4.0) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+    }
+
+    if (isHologram) {
+      // Subtle cyan vignette wash
+      final holoPaint = Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 0.9,
+          colors: [
+            Colors.transparent,
+            const Color(0xFF00E5FF).withValues(alpha: 0.18 * intensity),
+          ],
+        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+
+      canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), holoPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ScanlinesPainter old) =>
+      old.intensity != intensity || old.isHologram != isHologram;
+}
+
+/// Radiant Bloom / Neon Highlight Soft Glow
+class _BloomEffectOverlay extends StatelessWidget {
+  final double intensity;
+
+  const _BloomEffectOverlay({required this.intensity});
+
+  @override
+  Widget build(BuildContext context) {
+    final safeIntensity = intensity.clamp(0.0, 1.0);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: Alignment.center,
+          radius: 0.75,
+          colors: [
+            Colors.white.withValues(alpha: 0.14 * safeIntensity),
+            const Color(0xFFA855F7).withValues(alpha: 0.08 * safeIntensity),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ),
+      ),
+    );
+  }
+}
+
+/// Dual-tone Gradient Overlay (Duotone Midnight, Rose Gold, etc.)
+class _DuotoneTintOverlay extends StatelessWidget {
+  final Color shadowColor;
+  final Color highlightColor;
+  final double intensity;
+
+  const _DuotoneTintOverlay({
+    required this.shadowColor,
+    required this.highlightColor,
+    required this.intensity,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final safeIntensity = intensity.clamp(0.0, 1.0);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomLeft,
+          end: Alignment.topRight,
+          colors: [
+            shadowColor.withValues(alpha: 0.38 * safeIntensity),
+            highlightColor.withValues(alpha: 0.28 * safeIntensity),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Hollywood Teal & Orange Blockbuster Grade
+class _TealOrangeTintOverlay extends StatelessWidget {
+  final double intensity;
+
+  const _TealOrangeTintOverlay({required this.intensity});
+
+  @override
+  Widget build(BuildContext context) {
+    final safeIntensity = intensity.clamp(0.0, 1.0);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomLeft,
+          end: Alignment.topRight,
+          colors: [
+            const Color(0xFF005F73).withValues(alpha: 0.32 * safeIntensity),
+            const Color(0xFFEE9B00).withValues(alpha: 0.22 * safeIntensity),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StickerItem {
+  final String label;
+  final String? assetPath;
+  final String? emoji;
+  final bool isBadge;
+
+  const _StickerItem({
+    required this.label,
+    this.assetPath,
+    this.emoji,
+    this.isBadge = false,
+  });
 }
