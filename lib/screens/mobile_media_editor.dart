@@ -2932,7 +2932,16 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                   RepaintBoundary(
                     child: GestureDetector(
                       onTap: () => _selectClip(track, clip),
-                      onDoubleTap: () => _trimClip(),
+                      onDoubleTap: () {
+                        if (track.type == TrackType.audio ||
+                            track.type == TrackType.music ||
+                            track.type == TrackType.voiceOver ||
+                            clip.operation is AudioClipOperation) {
+                          _showProAudioEditorSheet(track, clip);
+                        } else {
+                          _trimClip();
+                        }
+                      },
                       onLongPress: () => _enterMultiSelect(track, clip),
                       onPanStart: (details) =>
                           _onClipPanStart(track, clip, details, width),
@@ -3331,29 +3340,89 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     } else if (track.type == TrackType.audio ||
         track.type == TrackType.voiceOver ||
         track.type == TrackType.music) {
+      final op = clip.operation;
+      final label = (op is AudioClipOperation && op.label != null && op.label!.isNotEmpty)
+          ? op.label!
+          : (clip.file != null
+              ? clip.file!.path.split('/').last.split('\\').last
+              : _clipLabelForTrack(track.type));
+      final fadeIn = (op is AudioClipOperation) ? op.fadeIn : 0.0;
+      final fadeOut = (op is AudioClipOperation) ? op.fadeOut : 0.0;
+      final totalSec = clip.duration.inMilliseconds / 1000.0;
+      final fadeInFraction = totalSec > 0 ? (fadeIn / totalSec).clamp(0.0, 0.5) : 0.0;
+      final fadeOutFraction = totalSec > 0 ? (fadeOut / totalSec).clamp(0.0, 0.5) : 0.0;
+      final volumePct = ((op is AudioClipOperation ? op.volume : clip.volume) * 100).round();
+      final isMuted = volumePct == 0;
+
+      final Color audioWaveColor = track.type == TrackType.music
+          ? const Color(0xFF00E5FF)
+          : track.type == TrackType.voiceOver
+              ? const Color(0xFFFBBF24)
+              : const Color(0xFF10B981);
+
       content = Stack(
         fit: StackFit.expand,
         children: [
-          CustomPaint(
-            painter: _WaveformPainter(
-              color: Colors.white.withValues(alpha: 0.5),
-              seed: clip.id.hashCode,
+          // Pro audio background with subtle dark tint
+          Container(
+            decoration: BoxDecoration(
+              color: audioWaveColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
             ),
           ),
+          // Waveform with envelope and fade curves
+          CustomPaint(
+            painter: _ProAudioWaveformPainter(
+              baseColor: audioWaveColor,
+              seed: clip.id.hashCode,
+              volume: clip.volume,
+              fadeInFraction: fadeInFraction,
+              fadeOutFraction: fadeOutFraction,
+            ),
+          ),
+          // Metadata badge header
           Padding(
-            padding: const EdgeInsets.all(4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Row(
               children: [
-                Text(
-                  clip.id,
-                  style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Icon(
+                  track.type == TrackType.music
+                      ? Icons.music_note_rounded
+                      : track.type == TrackType.voiceOver
+                          ? Icons.mic_rounded
+                          : Icons.graphic_eq_rounded,
+                  size: 11,
+                  color: audioWaveColor,
                 ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: dm(sz: 9.5, c: Colors.white, w: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(
+                    isMuted ? 'MUTED' : '$volumePct%',
+                    style: dm(
+                      sz: 8,
+                      c: isMuted ? const Color(0xFFEF4444) : Colors.white70,
+                      w: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 3),
                 Text(
                   _formatDuration(clip.duration),
-                  style: dm(sz: 7, c: Colors.white70),
+                  style: dm(sz: 8, c: Colors.white60, w: FontWeight.w600),
                 ),
               ],
             ),
@@ -3469,7 +3538,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Widget _buildAudioPanel(Size screenSize) {
     final audioTracks = _tracks.where((track) {
-      return track.type == TrackType.music ||
+      return track.type == TrackType.audio ||
+          track.type == TrackType.music ||
           track.type == TrackType.voiceOver ||
           track.type == TrackType.soundEffects;
     }).toList();
@@ -3511,6 +3581,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
+                  _buildActionChip('Extract', Icons.call_split_rounded, _extractAudioFromCurrentVideo),
+                  const SizedBox(width: 8),
                   _buildActionChip('Music', Icons.music_note, _showAudioPicker),
                   const SizedBox(width: 8),
                   _buildActionChip(
@@ -3690,6 +3762,23 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     ),
                   ),
                 ),
+              const SizedBox(width: 8),
+              Material(
+                color: C.surface,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _showProAudioEditorSheet(track, clip),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    child: Icon(
+                      Icons.tune_rounded,
+                      size: 18,
+                      color: Color(0xFF10B981),
+                    ),
+                  ),
+                ),
+              ),
               const SizedBox(width: 8),
               Material(
                 color: C.surface,
@@ -6081,16 +6170,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
 
     if (_isPlaying) {
-      // Pro studio auto-scroll: keep playhead around 30% from the left edge of viewport
-      final target = (playheadPosition - viewport * 0.30).clamp(
-        0.0,
-        _timelineScrollController.position.maxScrollExtent,
-      );
-      if ((offset - target).abs() > 4.0) {
-        _timelineScrollController.jumpTo(target);
+      // Pro studio smooth auto-follow: glide playhead across screen without jumping every frame.
+      // When playhead nears the right boundary (82% of viewport), smoothly pan ahead.
+      final rightBoundary = offset + viewport * 0.82;
+      final leftBoundary = offset + viewport * 0.05;
+      if (playheadPosition > rightBoundary || playheadPosition < leftBoundary) {
+        final target = (playheadPosition - viewport * 0.25).clamp(
+          0.0,
+          _timelineScrollController.position.maxScrollExtent,
+        );
+        if ((offset - target).abs() > 8.0) {
+          _timelineScrollController.animateTo(
+            target,
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+          );
+        }
       }
     } else {
-      const margin = 80.0;
+      const margin = 40.0;
       final visibleStart = offset + margin;
       final visibleEnd = offset + viewport - margin;
 
@@ -8912,6 +9010,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     Navigator.pop(context);
                     _trimClip();
                   }),
+                  if (track.type == TrackType.video && clip.file != null)
+                    _buildClipActionChip('Extract Audio', () {
+                      Navigator.pop(context);
+                      _extractAudioFromClip(track, clip);
+                    }),
+                  if (track.type == TrackType.audio ||
+                      track.type == TrackType.music ||
+                      track.type == TrackType.voiceOver ||
+                      clip.operation is AudioClipOperation)
+                    _buildClipActionChip('Pro Audio Edit', () {
+                      Navigator.pop(context);
+                      _showProAudioEditorSheet(track, clip);
+                    }),
                   _buildClipActionChip('Crop', () {
                     Navigator.pop(context);
                     _showCropSheet(clip);
@@ -8947,6 +9058,454 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _extractAudioFromCurrentVideo() {
+    TimelineClip? targetClip = _selectedClip;
+    TimelineTrack? targetTrack;
+    if (targetClip != null) {
+      for (final track in _tracks) {
+        if (track.clips.contains(targetClip)) {
+          targetTrack = track;
+          break;
+        }
+      }
+    }
+    if (targetClip == null || targetTrack?.type != TrackType.video) {
+      for (final track in _tracks) {
+        if (track.type == TrackType.video) {
+          for (final c in track.clips) {
+            if (_currentTime >= c.start && _currentTime < c.start + c.duration) {
+              targetClip = c;
+              targetTrack = track;
+              break;
+            }
+          }
+          if (targetClip != null) break;
+          if (track.clips.isNotEmpty) {
+            targetClip = track.clips.first;
+            targetTrack = track;
+            break;
+          }
+        }
+      }
+    }
+    if (targetClip != null && targetTrack != null) {
+      _extractAudioFromClip(targetTrack, targetClip);
+    } else {
+      _showSnack('No video clip found on timeline to extract audio from');
+    }
+  }
+
+  void _extractAudioFromClip(TimelineTrack track, TimelineClip clip) {
+    if (clip.file == null) {
+      _showSnack('Selected clip has no file to extract audio from');
+      return;
+    }
+
+    // 1. Mute original video clip so audio isn't duplicated
+    final previousVolume = clip.volume;
+    clip.volume = 0.0;
+
+    // 2. Locate or create an Audio track
+    TimelineTrack? audioTrack;
+    for (final t in _tracks) {
+      if (t.type == TrackType.audio) {
+        audioTrack = t;
+        break;
+      }
+    }
+    if (audioTrack == null) {
+      audioTrack = TimelineTrack(
+        id: 'track-audio-${DateTime.now().millisecondsSinceEpoch}',
+        type: TrackType.audio,
+        clips: [],
+        label: 'Extracted Audio',
+        icon: Icons.graphic_eq_rounded,
+      );
+      final lastVideoIdx = _tracks.lastIndexWhere((t) => t.type == TrackType.video);
+      if (lastVideoIdx != -1 && lastVideoIdx + 1 < _tracks.length) {
+        _tracks.insert(lastVideoIdx + 1, audioTrack);
+      } else {
+        _tracks.add(audioTrack);
+      }
+    }
+
+    // 3. Create synchronized audio clip
+    final fileName = clip.file!.path.split('/').last.split('\\').last;
+    final extractedAudioClip = TimelineClip(
+      id: 'extracted-audio-${DateTime.now().millisecondsSinceEpoch}',
+      start: clip.start,
+      duration: clip.duration,
+      sourceStart: clip.sourceStart,
+      sourceEnd: clip.sourceEnd,
+      speed: clip.speed,
+      volume: previousVolume > 0 ? previousVolume : 1.0,
+      file: clip.file,
+      operation: AudioClipOperation(
+        sourceType: 'extracted',
+        sourceUrl: clip.file!.path,
+        label: 'Audio: $fileName',
+        volume: previousVolume > 0 ? previousVolume : 1.0,
+        speed: clip.speed,
+        startOffset: clip.sourceStart.inMilliseconds / 1000.0,
+        endOffset: clip.sourceEnd != null
+            ? clip.sourceEnd!.inMilliseconds / 1000.0
+            : null,
+      ),
+    );
+
+    audioTrack.clips.add(extractedAudioClip);
+    audioTrack.clips.sort((a, b) => a.start.compareTo(b.start));
+
+    // 4. Update project and register snapshot for undo
+    _captureTimeline();
+    _playback.updateProject(_tracks);
+    setState(() {
+      _selectedClipIds
+        ..clear()
+        ..add(extractedAudioClip.id);
+      _selectedClip = extractedAudioClip;
+    });
+
+    _showSnack('Audio extracted to Audio track (${_formatDuration(clip.duration)})');
+  }
+
+  void _showProAudioEditorSheet(TimelineTrack track, TimelineClip clip) {
+    final operation = clip.operation;
+    final audioOp = operation is AudioClipOperation ? operation : null;
+    double currentVolume = audioOp?.volume ?? clip.volume;
+    double fadeInSec = audioOp?.fadeIn ?? 0.0;
+    double fadeOutSec = audioOp?.fadeOut ?? 0.0;
+    double currentSpeed = audioOp?.speed ?? clip.speed;
+    final maxFade = math.max(0.1, clip.duration.inMilliseconds / 2000.0);
+    final clipLabel = (audioOp?.label != null && audioOp!.label!.isNotEmpty)
+        ? audioOp.label!
+        : (clip.file != null ? clip.file!.path.split('/').last.split('\\').last : 'Audio Clip');
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final volumePct = (currentVolume * 100).round();
+          final String gainDb = currentVolume == 0
+              ? '-∞ dB (Muted)'
+              : currentVolume == 1.0
+                  ? '0.0 dB (Unity)'
+                  : '${currentVolume > 1.0 ? '+' : ''}${(20 * math.log(currentVolume) / math.ln10).toStringAsFixed(1)} dB';
+
+          return Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: Colors.white12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  blurRadius: 20,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.graphic_eq_rounded,
+                          color: Color(0xFF10B981),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              clipLabel,
+                              style: syne(sz: 14, w: FontWeight.w800, c: Colors.white),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Track: ${track.label}  •  ${_formatDuration(clip.duration)}',
+                              style: dm(sz: 11, c: C.dim),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Waveform Preview Bar with Live Fade Curves
+                  Container(
+                    height: 50,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: CustomPaint(
+                        painter: _ProAudioWaveformPainter(
+                          baseColor: const Color(0xFF10B981),
+                          seed: clip.id.hashCode,
+                          volume: currentVolume,
+                          fadeInFraction: (fadeInSec / (clip.duration.inMilliseconds / 1000.0)).clamp(0.0, 0.5),
+                          fadeOutFraction: (fadeOutSec / (clip.duration.inMilliseconds / 1000.0)).clamp(0.0, 0.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // ── 1. VOLUME & GAIN (0% to 200%) ──────────────────────────────
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Volume & Gain', style: syne(sz: 12, w: FontWeight.w700, c: Colors.white)),
+                      Text('$volumePct% ($gainDb)', style: dm(sz: 11, c: const Color(0xFF10B981), w: FontWeight.w700)),
+                    ],
+                  ),
+                  Slider(
+                    value: currentVolume.clamp(0.0, 2.0),
+                    min: 0.0,
+                    max: 2.0,
+                    activeColor: const Color(0xFF10B981),
+                    inactiveColor: Colors.white12,
+                    onChanged: (val) {
+                      setSheetState(() => currentVolume = val);
+                      clip.volume = val;
+                      if (audioOp != null) audioOp.volume = val;
+                      _captureTimeline();
+                      _playback.updateProject(_tracks);
+                      setState(() {});
+                    },
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildPresetChip('Mute', currentVolume == 0.0, () {
+                        setSheetState(() => currentVolume = 0.0);
+                        clip.volume = 0.0;
+                        if (audioOp != null) audioOp.volume = 0.0;
+                        _captureTimeline();
+                        _playback.updateProject(_tracks);
+                        setState(() {});
+                      }),
+                      _buildPresetChip('50%', (currentVolume - 0.5).abs() < 0.05, () {
+                        setSheetState(() => currentVolume = 0.5);
+                        clip.volume = 0.5;
+                        if (audioOp != null) audioOp.volume = 0.5;
+                        _captureTimeline();
+                        _playback.updateProject(_tracks);
+                        setState(() {});
+                      }),
+                      _buildPresetChip('100%', (currentVolume - 1.0).abs() < 0.05, () {
+                        setSheetState(() => currentVolume = 1.0);
+                        clip.volume = 1.0;
+                        if (audioOp != null) audioOp.volume = 1.0;
+                        _captureTimeline();
+                        _playback.updateProject(_tracks);
+                        setState(() {});
+                      }),
+                      _buildPresetChip('150%', (currentVolume - 1.5).abs() < 0.05, () {
+                        setSheetState(() => currentVolume = 1.5);
+                        clip.volume = 1.5;
+                        if (audioOp != null) audioOp.volume = 1.5;
+                        _captureTimeline();
+                        _playback.updateProject(_tracks);
+                        setState(() {});
+                      }),
+                      _buildPresetChip('+6dB', (currentVolume - 2.0).abs() < 0.05, () {
+                        setSheetState(() => currentVolume = 2.0);
+                        clip.volume = 2.0;
+                        if (audioOp != null) audioOp.volume = 2.0;
+                        _captureTimeline();
+                        _playback.updateProject(_tracks);
+                        setState(() {});
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  // ── 2. FADE IN & FADE OUT ────────────────────────────────────
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Fade In', style: syne(sz: 12, w: FontWeight.w700, c: Colors.white)),
+                      Text('${fadeInSec.toStringAsFixed(1)}s', style: dm(sz: 11, c: const Color(0xFF00E5FF), w: FontWeight.w700)),
+                    ],
+                  ),
+                  Slider(
+                    value: fadeInSec.clamp(0.0, maxFade),
+                    min: 0.0,
+                    max: maxFade,
+                    activeColor: const Color(0xFF00E5FF),
+                    inactiveColor: Colors.white12,
+                    onChanged: (val) {
+                      setSheetState(() => fadeInSec = val);
+                      if (audioOp != null) audioOp.fadeIn = val;
+                      _captureTimeline();
+                      _playback.updateProject(_tracks);
+                      setState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Fade Out', style: syne(sz: 12, w: FontWeight.w700, c: Colors.white)),
+                      Text('${fadeOutSec.toStringAsFixed(1)}s', style: dm(sz: 11, c: const Color(0xFFFBBF24), w: FontWeight.w700)),
+                    ],
+                  ),
+                  Slider(
+                    value: fadeOutSec.clamp(0.0, maxFade),
+                    min: 0.0,
+                    max: maxFade,
+                    activeColor: const Color(0xFFFBBF24),
+                    inactiveColor: Colors.white12,
+                    onChanged: (val) {
+                      setSheetState(() => fadeOutSec = val);
+                      if (audioOp != null) audioOp.fadeOut = val;
+                      _captureTimeline();
+                      _playback.updateProject(_tracks);
+                      setState(() {});
+                    },
+                  ),
+                  const SizedBox(height: 18),
+
+                  // ── 3. PLAYBACK SPEED ────────────────────────────────────────
+                  Text('Audio Speed', style: syne(sz: 12, w: FontWeight.w700, c: Colors.white)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((s) {
+                      final active = (currentSpeed - s).abs() < 0.05;
+                      return _buildPresetChip('${s}x', active, () {
+                        setSheetState(() => currentSpeed = s);
+                        clip.speed = s;
+                        if (audioOp != null) audioOp.speed = s;
+                        _captureTimeline();
+                        _playback.updateProject(_tracks);
+                        setState(() {});
+                      });
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ── 4. QUICK ACTION BUTTONS ──────────────────────────────────
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white24),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: const Icon(Icons.content_cut_rounded, size: 16),
+                          label: const Text('Split at Playhead'),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _splitClip();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: Icon(
+                            _activeAudioPreviewUrl != null ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                            size: 18,
+                          ),
+                          label: Text(_activeAudioPreviewUrl != null ? 'Stop' : 'Preview'),
+                          onPressed: () {
+                            if (_activeAudioPreviewUrl != null) {
+                              _stopAudioPreview();
+                            } else {
+                              final src = audioOp?.sourceUrl ?? clip.file?.path;
+                              if (src != null) {
+                                _previewAudioSource(src, clip: clip);
+                              }
+                            }
+                            setSheetState(() {});
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPresetChip(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFF10B981) : Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active ? const Color(0xFF10B981) : Colors.white12,
+          ),
+        ),
+        child: Text(
+          label,
+          style: dm(
+            sz: 11,
+            c: active ? Colors.black : Colors.white,
+            w: active ? FontWeight.w800 : FontWeight.w600,
           ),
         ),
       ),
@@ -9138,9 +9697,10 @@ class _VideoClipThumbnailsState extends State<_VideoClipThumbnails> {
         : 0;
     final largeMedia = fileSizeBytes > 2 * 1024 * 1024 * 1024 || longFormClip;
 
-    // Cinematic filmstrip tiling: 48px tile width seamlessly covers full clip length
-    const double tileWidth = 48.0;
-    final int numThumbnails = (widget.width / tileWidth).ceil().clamp(1, 50);
+    // Optimized filmstrip tiling: 56px tile width clamped between 1 and 16 tiles per clip.
+    // Prevents spawning 50+ concurrent native decoders on zoomed or long clips.
+    const double tileWidth = 56.0;
+    final int numThumbnails = (widget.width / tileWidth).ceil().clamp(1, 16);
     final double actualTileWidth = widget.width / numThumbnails;
 
     return ClipRect(
@@ -9184,10 +9744,42 @@ class _SingleThumbnail extends StatefulWidget {
 class _SingleThumbnailState extends State<_SingleThumbnail> {
   Uint8List? _bytes;
 
+  // Concurrency limiter: maximum 3 simultaneous native thumbnail decodes
+  static int _activeJobs = 0;
+  static const int _maxConcurrent = 3;
+  static final List<Completer<void>> _queue = [];
+
+  static Future<void> _acquireSlot() async {
+    if (_activeJobs < _maxConcurrent) {
+      _activeJobs++;
+      return;
+    }
+    final completer = Completer<void>();
+    _queue.add(completer);
+    await completer.future;
+  }
+
+  static void _releaseSlot() {
+    if (_queue.isNotEmpty) {
+      final next = _queue.removeAt(0);
+      next.complete();
+    } else {
+      _activeJobs = math.max(0, _activeJobs - 1);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _loadThumbnail();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SingleThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.file.path != widget.file.path || oldWidget.timeMs != widget.timeMs) {
+      _loadThumbnail();
+    }
   }
 
   Future<void> _loadThumbnail() async {
@@ -9198,26 +9790,32 @@ class _SingleThumbnailState extends State<_SingleThumbnail> {
 
     final cacheKey = '${widget.file.path}_${widget.timeMs}';
     if (_MobileMediaEditorState._thumbnailCache.containsKey(cacheKey)) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => _bytes = _MobileMediaEditorState._thumbnailCache[cacheKey],
         );
+      }
       return;
     }
 
+    // LRU eviction: remove the oldest entry instead of clearing the entire cache
     if (_MobileMediaEditorState._thumbnailCache.length >=
         _MobileMediaEditorState._maxThumbnailCacheEntries) {
-      _MobileMediaEditorState._thumbnailCache.clear();
+      final oldestKey = _MobileMediaEditorState._thumbnailCache.keys.first;
+      _MobileMediaEditorState._thumbnailCache.remove(oldestKey);
     }
 
+    await _acquireSlot();
     try {
+      if (!mounted) return;
+      // Fast preview thumbnail: 120x80 @ quality 20 loads 4x faster with minimal RAM
       final bytes = await VideoThumbnail.thumbnailData(
         video: widget.file.path,
         imageFormat: ImageFormat.JPEG,
         timeMs: widget.timeMs,
-        quality: 24,
-        maxWidth: 240,
-        maxHeight: 160,
+        quality: 20,
+        maxWidth: 120,
+        maxHeight: 80,
       );
       if (bytes != null) {
         _MobileMediaEditorState._thumbnailCache[cacheKey] = bytes;
@@ -9225,6 +9823,8 @@ class _SingleThumbnailState extends State<_SingleThumbnail> {
       }
     } catch (e) {
       debugPrint('Thumbnail error: $e');
+    } finally {
+      _releaseSlot();
     }
   }
 
@@ -9273,6 +9873,68 @@ class _WaveformPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _WaveformPainter oldDelegate) {
     return oldDelegate.color != color || oldDelegate.seed != seed;
+  }
+}
+
+class _ProAudioWaveformPainter extends CustomPainter {
+  final Color baseColor;
+  final int seed;
+  final double volume;
+  final double fadeInFraction;
+  final double fadeOutFraction;
+
+  _ProAudioWaveformPainter({
+    required this.baseColor,
+    required this.seed,
+    this.volume = 1.0,
+    this.fadeInFraction = 0.0,
+    this.fadeOutFraction = 0.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+    final random = math.Random(seed);
+    const spacing = 3.5;
+    final barPaint = Paint()
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    final centerY = size.height / 2;
+
+    for (double x = 2; x < size.width - 2; x += spacing) {
+      final progress = x / size.width;
+      var envelope = 1.0;
+      if (fadeInFraction > 0 && progress < fadeInFraction) {
+        envelope = (progress / fadeInFraction).clamp(0.05, 1.0);
+      }
+      if (fadeOutFraction > 0 && progress > (1.0 - fadeOutFraction)) {
+        envelope = ((1.0 - progress) / fadeOutFraction).clamp(0.05, 1.0);
+      }
+
+      final rawAmp = (random.nextDouble() * 0.75 + 0.25);
+      final amp = (rawAmp * envelope * volume.clamp(0.1, 1.5)).clamp(0.08, 0.95);
+      final barH = amp * (size.height - 6);
+
+      barPaint.color = baseColor.withValues(
+        alpha: (0.4 + envelope * 0.55).clamp(0.2, 1.0),
+      );
+
+      canvas.drawLine(
+        Offset(x, centerY - barH / 2),
+        Offset(x, centerY + barH / 2),
+        barPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProAudioWaveformPainter oldDelegate) {
+    return oldDelegate.baseColor != baseColor ||
+        oldDelegate.seed != seed ||
+        oldDelegate.volume != volume ||
+        oldDelegate.fadeInFraction != fadeInFraction ||
+        oldDelegate.fadeOutFraction != fadeOutFraction;
   }
 }
 
