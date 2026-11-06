@@ -28,7 +28,7 @@ import '../widgets/timeline_playhead_view.dart';
 import '../widgets/timeline_ruler_view.dart';
 
 // Private enum for clip drag modes (top-level so it compiles in class scope)
-enum _ClipDragMode { none, move, resizeLeft, resizeRight, stretch }
+enum _ClipDragMode { none, move, resizeLeft, resizeRight, stretch, rollTrim }
 
 // ══════════════════════════════════════════════════════════════
 // MOBILE MEDIA EDITOR - Responsive adaptation of desktop editor
@@ -117,6 +117,15 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Duration? _ghostDuration;
   String? _ghostClipId;
   String? _ghostTrackId;
+
+  // Roll trim state — the adjacent clip whose in-point is being rolled
+  // simultaneously with the active clip's out-point.
+  String? _rollAdjacentClipId;
+  Duration? _rollAdjacentOriginalStart;
+  Duration? _rollAdjacentOriginalDuration;
+  // Second ghost for the adjacent (B) clip during roll trim
+  Duration? _ghostBStart;
+  Duration? _ghostBDuration;
 
   // Loop Region & In/Out points
   Duration? _loopIn;
@@ -210,9 +219,34 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       if (_dragStartLocalX! < _clipHandleWidth) {
         _clipDragMode = _ClipDragMode.resizeLeft;
       } else if (_dragStartLocalX! > width - _clipHandleWidth) {
-        _clipDragMode = _isStretchMode
-            ? _ClipDragMode.stretch
-            : _ClipDragMode.resizeRight;
+        if (_isStretchMode) {
+          _clipDragMode = _ClipDragMode.stretch;
+        } else {
+          // Detect adjacent clip abutting this clip's right edge → roll trim
+          final clipEnd = clip.start + clip.duration;
+          const kRollSnapMs = 80; // ms threshold for considering clips adjacent
+          TimelineClip? adjacent;
+          for (final c in track.clips) {
+            if (c.id == clip.id) continue;
+            final gap = (c.start - clipEnd).inMilliseconds.abs();
+            if (gap <= kRollSnapMs && c.start >= clip.start) {
+              adjacent = c;
+              break;
+            }
+          }
+          if (adjacent != null && !_isRippleMode) {
+            _clipDragMode = _ClipDragMode.rollTrim;
+            _rollAdjacentClipId = adjacent.id;
+            _rollAdjacentOriginalStart = adjacent.start;
+            _rollAdjacentOriginalDuration = adjacent.duration;
+            // Snapshot ghost B (adjacent clip's original position)
+            _ghostBStart = adjacent.start;
+            _ghostBDuration = adjacent.duration;
+            HapticFeedback.selectionClick();
+          } else {
+            _clipDragMode = _ClipDragMode.resizeRight;
+          }
+        }
       } else {
         _clipDragMode = _ClipDragMode.move;
       }
@@ -376,6 +410,73 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             }
           }
           break;
+        case _ClipDragMode.rollTrim:
+          // Roll trim: slide A's out-point and B's in-point by the same delta.
+          // Total timeline duration stays constant — no ripple needed.
+          final adjId = _rollAdjacentClipId;
+          if (adjId != null) {
+            TimelineClip? adjClip;
+            for (final c in track.clips) {
+              if (c.id == adjId) { adjClip = c; break; }
+            }
+            if (adjClip != null) {
+              final origADur = _dragOriginalDuration ?? clip.duration;
+              final newADur = origADur + frameDelta;
+              final origBStart = _rollAdjacentOriginalStart ?? adjClip.start;
+              final origBDur = _rollAdjacentOriginalDuration ?? adjClip.duration;
+              final newBStart = origBStart + frameDelta;
+              final newBDur = origBDur - frameDelta;
+
+              // Guard: neither clip may shrink below 100ms
+              if (newADur >= const Duration(milliseconds: 100) &&
+                  newBDur >= const Duration(milliseconds: 100)) {
+                // Extend / retract clip A (out-point)
+                if (clip.operation is TrimOperation) {
+                  final trim = clip.operation as TrimOperation;
+                  final newEnd = _clampDuration(
+                    trim.end + frameDelta,
+                    trim.start + const Duration(milliseconds: 1),
+                    Duration(days: 36500),
+                  );
+                  trim.end = newEnd;
+                  clip.sourceEnd = trim.end;
+                  clip.duration = Duration(
+                    milliseconds:
+                        ((trim.end - trim.start).inMilliseconds / clip.speed)
+                            .round(),
+                  );
+                } else {
+                  clip.duration = newADur;
+                }
+
+                // Retract clip B in-point (start moves right, duration shrinks)
+                if (adjClip.operation is TrimOperation) {
+                  final trim = adjClip.operation as TrimOperation;
+                  final newSrcStart = _clampDuration(
+                    trim.start + frameDelta,
+                    Duration.zero,
+                    trim.end - const Duration(milliseconds: 1),
+                  );
+                  trim.start = newSrcStart;
+                  adjClip.sourceStart = trim.start;
+                  adjClip.start = newBStart;
+                  adjClip.duration = Duration(
+                    milliseconds:
+                        ((trim.end - trim.start).inMilliseconds / adjClip.speed)
+                            .round(),
+                  );
+                } else {
+                  adjClip.start = newBStart;
+                  adjClip.duration = newBDur;
+                }
+
+                clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+                adjClip.isHidden =
+                    adjClip.duration <= const Duration(milliseconds: 150);
+              }
+            }
+          }
+          break;
         case _ClipDragMode.none:
           break;
       }
@@ -415,6 +516,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _ghostTrackId = null;
     _ghostStart = null;
     _ghostDuration = null;
+    // Clear roll trim state
+    _rollAdjacentClipId = null;
+    _rollAdjacentOriginalStart = null;
+    _rollAdjacentOriginalDuration = null;
+    _ghostBStart = null;
+    _ghostBDuration = null;
 
     if (movedClipId != null) {
       TimelineTrack? sourceTrack;
@@ -2932,7 +3039,13 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _ghostStart != null &&
         _ghostDuration != null &&
         (_clipDragMode == _ClipDragMode.resizeLeft ||
-            _clipDragMode == _ClipDragMode.resizeRight);
+            _clipDragMode == _ClipDragMode.resizeRight ||
+            _clipDragMode == _ClipDragMode.rollTrim);
+    // Ghost B — adjacent clip original position during roll trim
+    final showGhostB = _clipDragMode == _ClipDragMode.rollTrim &&
+        _ghostTrackId == track.id &&
+        _ghostBStart != null &&
+        _ghostBDuration != null;
 
     return Container(
       height: 52,
@@ -2941,7 +3054,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // ── Ghost trim outline with Red Overlap Warning ───────────
+          // ── Ghost A trim outline (clip being trimmed) ─────────────
           if (showGhost)
             Positioned(
               left: (_ghostStart!.inMilliseconds / 1000.0) * scale,
@@ -2972,6 +3085,26 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               ),
             ),
 
+          // ── Ghost B: adjacent clip original outline during roll trim ──
+          if (showGhostB)
+            Positioned(
+              left: (_ghostBStart!.inMilliseconds / 1000.0) * scale,
+              top: 2,
+              bottom: 2,
+              width: (_ghostBDuration!.inMilliseconds / 1000.0) * scale,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: const Color(0xFF22D3EE).withValues(alpha: 0.65),
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+
           // ── Clips ─────────────────────────────────────────────
           ...track.clips.map((clip) {
             final left = (clip.start.inMilliseconds / 1000.0) * scale;
@@ -2980,6 +3113,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             final isTrimming = _activeDragClipId == clip.id &&
                 (_clipDragMode == _ClipDragMode.resizeLeft ||
                     _clipDragMode == _ClipDragMode.resizeRight ||
+                    _clipDragMode == _ClipDragMode.rollTrim ||
                     _clipDragMode == _ClipDragMode.stretch);
             final isMoving = _activeDragClipId == clip.id &&
                 _clipDragMode == _ClipDragMode.move;
@@ -2994,15 +3128,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     : const Color(0xFFFBBF24))
                 : const Color(0xFF94A3B8);
 
-            // Right handle: Red on collision, Purple when in stretch mode, Amber when trimming, Slate otherwise
+            // Right handle: Red on collision, Cyan when roll-trimming, Purple when stretching, Amber when trimming, Slate otherwise
             final isStretchActive =
                 _isStretchMode || _clipDragMode == _ClipDragMode.stretch;
+            final isRollActive = _activeDragClipId == clip.id &&
+                _clipDragMode == _ClipDragMode.rollTrim;
             final rightHandleColor = isTrimming
                 ? (hasOverlap
                     ? const Color(0xFFEF4444)
-                    : (isStretchActive
-                        ? const Color(0xFFA855F7)
-                        : const Color(0xFFFBBF24)))
+                    : (isRollActive
+                        ? const Color(0xFF22D3EE) // cyan = roll mode
+                        : (isStretchActive
+                            ? const Color(0xFFA855F7)
+                            : const Color(0xFFFBBF24))))
                 : (isStretchActive
                     ? const Color(0xFFA855F7)
                     : const Color(0xFF94A3B8));
