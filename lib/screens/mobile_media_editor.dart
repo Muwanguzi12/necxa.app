@@ -1535,13 +1535,37 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         ),
       ),
     );
-    final filterMatrix = _filterMatrix(clip.filter?.filterName);
+    final filterMatrix = _filterMatrix(
+      clip.filter?.filterName,
+      clip.filter?.intensity ?? 1.0,
+    );
     final beautyMatrix = !_previewOriginal ? _clipBeautyMatrix(clip) : null;
-    final combinedMatrix = beautyMatrix != null
-        ? (filterMatrix != null
-            ? _mergeColorMatrices(filterMatrix, beautyMatrix)
-            : beautyMatrix)
-        : filterMatrix;
+    final effectiveBrightness =
+        clip.brightness != 0.0 ? clip.brightness : _brightness;
+    final effectiveContrast =
+        clip.contrast != 1.0 ? clip.contrast : _contrast;
+    final effectiveSaturation =
+        clip.saturation != 1.0 ? clip.saturation : _saturation;
+    final effectiveHue = clip.hue != 0.0 ? clip.hue : _hue;
+
+    final gradeMatrix = _buildColorGradeMatrix(
+      brightness: effectiveBrightness,
+      contrast: effectiveContrast,
+      saturation: effectiveSaturation,
+      hue: effectiveHue,
+    );
+
+    List<double>? combinedMatrix = filterMatrix;
+    if (beautyMatrix != null) {
+      combinedMatrix = combinedMatrix != null
+          ? _mergeColorMatrices(combinedMatrix, beautyMatrix)
+          : beautyMatrix;
+    }
+    if (gradeMatrix != null) {
+      combinedMatrix = combinedMatrix != null
+          ? _mergeColorMatrices(combinedMatrix, gradeMatrix)
+          : gradeMatrix;
+    }
 
     if (combinedMatrix != null) {
       result = ColorFiltered(
@@ -1659,22 +1683,27 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       );
     }
 
-    if (_effectBlur > 0) {
+    final effectiveBlur = clip.blur > 0 ? clip.blur : _effectBlur;
+    final effectiveVignette =
+        clip.vignette > 0 ? clip.vignette : _effectVignette;
+    final effectiveGrain = clip.grain > 0 ? clip.grain : _effectGrain;
+
+    if (effectiveBlur > 0) {
       result = ImageFiltered(
         imageFilter: ui.ImageFilter.blur(
-          sigmaX: _effectBlur,
-          sigmaY: _effectBlur,
+          sigmaX: effectiveBlur,
+          sigmaY: effectiveBlur,
         ),
         child: result,
       );
     }
 
-    if (_effectVignette > 0 || _effectGrain > 0) {
+    if (effectiveVignette > 0 || effectiveGrain > 0) {
       result = Stack(
         fit: StackFit.passthrough,
         children: [
           result,
-          if (_effectVignette > 0)
+          if (effectiveVignette > 0)
             Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
@@ -1683,7 +1712,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                       colors: [
                         Colors.transparent,
                         Colors.black.withOpacity(
-                          (0.72 * _effectVignette).clamp(0.0, 1.0),
+                          (0.72 * effectiveVignette).clamp(0.0, 1.0),
                         ),
                       ],
                       stops: const [0.55, 1.0],
@@ -1692,11 +1721,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                 ),
               ),
             ),
-          if (_effectGrain > 0)
+          if (effectiveGrain > 0)
             Positioned.fill(
               child: IgnorePointer(
                 child: CustomPaint(
-                  painter: GrainPainter(intensity: _effectGrain),
+                  painter: GrainPainter(intensity: effectiveGrain),
                 ),
               ),
             ),
@@ -1707,7 +1736,29 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     return result;
   }
 
-  List<double>? _filterMatrix(String? filterName) {
+  List<double>? _filterMatrix(String? filterName, [double intensity = 1.0]) {
+    final base = _rawFilterMatrix(filterName);
+    if (base == null) return null;
+    return _lerpFilterMatrix(base, intensity);
+  }
+
+  static List<double> _lerpFilterMatrix(List<double> base, double intensity) {
+    if (intensity >= 0.999) return base;
+    const identity = <double>[
+      1.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 1.0, 0.0,
+    ];
+    final t = intensity.clamp(0.0, 1.0);
+    final result = List<double>.filled(20, 0.0);
+    for (int i = 0; i < 20; i++) {
+      result[i] = identity[i] + (base[i] - identity[i]) * t;
+    }
+    return result;
+  }
+
+  List<double>? _rawFilterMatrix(String? filterName) {
     switch (filterName?.toLowerCase()) {
       case 'warm':
         return const <double>[
@@ -1868,6 +1919,41 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       result[y * 5 + 4] = a[y * 5 + 4] + b[y * 5 + 4];
     }
     return result;
+  }
+
+  static List<double>? _buildColorGradeMatrix({
+    double brightness = 0.0,
+    double contrast = 1.0,
+    double saturation = 1.0,
+    double hue = 0.0,
+  }) {
+    if (brightness == 0.0 &&
+        contrast == 1.0 &&
+        saturation == 1.0 &&
+        hue == 0.0) {
+      return null;
+    }
+    final c = contrast;
+    final b = brightness * 255.0 + 128.0 * (1.0 - contrast);
+
+    const lr = 0.2126;
+    const lg = 0.7152;
+    const lb = 0.0722;
+    final invSat = 1.0 - saturation;
+    final sr = invSat * lr;
+    final sg = invSat * lg;
+    final sb = invSat * lb;
+
+    // Warmth / tint shift if hue != 0
+    final rWarmth = hue > 0 ? (hue * 14.0) : 0.0;
+    final bCool = hue < 0 ? (-hue * 14.0) : 0.0;
+
+    return <double>[
+      c * (sr + saturation), c * sg, c * sb, 0.0, b + rWarmth,
+      c * sr, c * (sg + saturation), c * sb, 0.0, b,
+      c * sr, c * sg, c * (sb + saturation), 0.0, b + bCool,
+      0.0, 0.0, 0.0, 1.0, 0.0,
+    ];
   }
 
   List<double>? _clipBeautyMatrix(TimelineClip clip) {
@@ -7813,10 +7899,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       (candidate) => candidate.id == _selectedEffectId,
       orElse: () => _effectPresets.first,
     );
+    final targetStart = _selectedClip != null &&
+            _selectedClip!.operation is! EffectOperation
+        ? _selectedClip!.start
+        : _currentTime;
+    final targetDuration = _selectedClip != null &&
+            _selectedClip!.operation is! EffectOperation
+        ? _selectedClip!.duration
+        : const Duration(seconds: 4);
+
     final clip = TimelineClip(
       id: 'effect-${DateTime.now().millisecondsSinceEpoch}',
-      start: _currentTime,
-      duration: const Duration(seconds: 8),
+      start: targetStart,
+      duration: targetDuration,
       operation: EffectOperation(
         presetId: preset.id,
         presetName: preset.name,
@@ -8591,84 +8686,274 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _showAdjustSheet() {
+    _captureTimeline();
+    final clip = _selectedClip ?? _compositionVisualClip;
+
+    final presets = [
+      ('Default', 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, Icons.refresh),
+      ('Punchy', 0.05, 1.25, 1.35, 0.0, 0.10, 0.0, 0.0, Icons.flare),
+      ('Cinematic', -0.05, 1.30, 0.90, -0.08, 0.35, 0.0, 0.0, Icons.movie_filter),
+      ('Warm Gold', 0.04, 1.12, 1.15, 0.18, 0.15, 0.0, 0.0, Icons.wb_sunny),
+      ('Cool Tone', 0.02, 1.10, 0.95, -0.20, 0.20, 0.0, 0.0, Icons.ac_unit),
+      ('Moody Film', -0.10, 1.35, 0.80, 0.0, 0.45, 0.25, 0.0, Icons.nightlight_round),
+      ('Matte Vintage', -0.04, 0.88, 0.85, 0.06, 0.25, 0.20, 0.0, Icons.camera_roll),
+    ];
+
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: C.card,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            border: Border.all(color: C.dim),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'COLOR GRADING (GPU)',
-                style: syne(sz: 14, w: FontWeight.w900, ls: 2),
+        builder: (context, setModalState) {
+          final curB = clip?.brightness ?? _brightness;
+          final curC = clip?.contrast ?? _contrast;
+          final curS = clip?.saturation ?? _saturation;
+          final curH = clip?.hue ?? _hue;
+          final curV = clip?.vignette ?? _effectVignette;
+          final curG = clip?.grain ?? _effectGrain;
+          final curBlur = clip?.blur ?? _effectBlur;
+
+          void updateValues({
+            double? b,
+            double? c,
+            double? s,
+            double? h,
+            double? v,
+            double? g,
+            double? blur,
+          }) {
+            setModalState(() {
+              if (b != null) {
+                if (clip != null) clip.brightness = b;
+                _brightness = b;
+              }
+              if (c != null) {
+                if (clip != null) clip.contrast = c;
+                _contrast = c;
+              }
+              if (s != null) {
+                if (clip != null) clip.saturation = s;
+                _saturation = s;
+              }
+              if (h != null) {
+                if (clip != null) clip.hue = h;
+                _hue = h;
+              }
+              if (v != null) {
+                if (clip != null) clip.vignette = v;
+                _effectVignette = v;
+              }
+              if (g != null) {
+                if (clip != null) clip.grain = g;
+                _effectGrain = g;
+              }
+              if (blur != null) {
+                if (clip != null) clip.blur = blur;
+                _effectBlur = blur;
+              }
+            });
+            setState(() {});
+            _refreshComposition();
+          }
+
+          return Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            decoration: BoxDecoration(
+              color: C.card,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border.all(color: C.dim),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            clip != null ? 'CLIP COLOR GRADING' : 'COLOR GRADING',
+                            style: syne(sz: 14, w: FontWeight.w900, ls: 1.5),
+                          ),
+                          Text(
+                            clip != null
+                                ? 'Grading selected clip independently'
+                                : 'Master project color grading',
+                            style: dm(sz: 10, c: C.sub),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFF10B981).withOpacity(0.4),
+                          ),
+                        ),
+                        child: Text(
+                          'PRO GPU',
+                          style: dm(sz: 9, c: const Color(0xFF10B981), w: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  // Quick Presets Carousel
+                  SizedBox(
+                    height: 36,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: presets.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) {
+                        final p = presets[i];
+                        final isSel = (curB - p.$2).abs() < 0.02 &&
+                            (curC - p.$3).abs() < 0.05 &&
+                            (curS - p.$4).abs() < 0.05;
+                        return GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            updateValues(
+                              b: p.$2,
+                              c: p.$3,
+                              s: p.$4,
+                              h: p.$5,
+                              v: p.$6,
+                              g: p.$7,
+                              blur: p.$8,
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isSel
+                                  ? C.brand.withOpacity(0.2)
+                                  : C.surface.withOpacity(0.8),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: isSel ? C.brand : Colors.white12,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(p.$9, size: 12, color: isSel ? C.brand : Colors.white70),
+                                const SizedBox(width: 4),
+                                Text(
+                                  p.$1,
+                                  style: dm(
+                                    sz: 11,
+                                    w: isSel ? FontWeight.w700 : FontWeight.w500,
+                                    c: isSel ? C.brand : Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildAdjustSlider('Brightness', curB, -0.5, 0.5, (v) {
+                    updateValues(b: v);
+                  }),
+                  _buildAdjustSlider('Contrast', curC, 0.5, 1.5, (v) {
+                    updateValues(c: v);
+                  }),
+                  _buildAdjustSlider('Saturation', curS, 0.0, 2.0, (v) {
+                    updateValues(s: v);
+                  }),
+                  _buildAdjustSlider('Warmth / Tint', curH, -1.0, 1.0, (v) {
+                    updateValues(h: v);
+                  }),
+                  _buildAdjustSlider('Vignette', curV, 0.0, 1.0, (v) {
+                    updateValues(v: v);
+                  }),
+                  _buildAdjustSlider('Film Grain', curG, 0.0, 1.0, (v) {
+                    updateValues(g: v);
+                  }),
+                  _buildAdjustSlider('Blur', curBlur, 0.0, 10.0, (v) {
+                    updateValues(blur: v);
+                  }),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          HapticFeedback.mediumImpact();
+                          updateValues(
+                            b: 0.0,
+                            c: 1.0,
+                            s: 1.0,
+                            h: 0.0,
+                            v: 0.0,
+                            g: 0.0,
+                            blur: 0.0,
+                          );
+                        },
+                        icon: const Icon(Icons.restart_alt, size: 16, color: Colors.white54),
+                        label: Text(
+                          'RESET',
+                          style: syne(sz: 11, w: FontWeight.w800, c: Colors.white54),
+                        ),
+                      ),
+                      if (clip != null)
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            HapticFeedback.heavyImpact();
+                            int count = 0;
+                            for (final track in _tracks) {
+                              if (track.type == TrackType.video) {
+                                for (final c in track.clips) {
+                                  c.brightness = curB;
+                                  c.contrast = curC;
+                                  c.saturation = curS;
+                                  c.hue = curH;
+                                  c.vignette = curV;
+                                  c.grain = curG;
+                                  c.blur = curBlur;
+                                  count++;
+                                }
+                              }
+                            }
+                            _refreshComposition();
+                            Navigator.pop(context);
+                            _showSnack('Color grading applied to all $count video clips');
+                          },
+                          icon: const Icon(Icons.done_all, size: 16),
+                          label: const Text('APPLY TO ALL CLIPS'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: C.brand,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            textStyle: syne(sz: 11, w: FontWeight.w800),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
-              _buildAdjustSlider('Brightness', _brightness, -0.5, 0.5, (v) {
-                setModalState(() => _brightness = v);
-                setState(() => _brightness = v);
-              }),
-              _buildAdjustSlider('Contrast', _contrast, 0.5, 1.5, (v) {
-                setModalState(() => _contrast = v);
-                setState(() => _contrast = v);
-              }),
-              _buildAdjustSlider('Saturation', _saturation, 0.0, 2.0, (v) {
-                setModalState(() => _saturation = v);
-                setState(() => _saturation = v);
-              }),
-              _buildAdjustSlider('Hue', _hue, -3.14, 3.14, (v) {
-                setModalState(() => _hue = v);
-                setState(() => _hue = v);
-              }),
-              _buildAdjustSlider('Vignette', _effectVignette, 0.0, 1.0, (v) {
-                setModalState(() => _effectVignette = v);
-                setState(() => _effectVignette = v);
-              }),
-              _buildAdjustSlider('Grain', _effectGrain, 0.0, 1.0, (v) {
-                setModalState(() => _effectGrain = v);
-                setState(() => _effectGrain = v);
-              }),
-              _buildAdjustSlider('Blur', _effectBlur, 0.0, 10.0, (v) {
-                setModalState(() => _effectBlur = v);
-                setState(() => _effectBlur = v);
-              }),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () {
-                  setModalState(() {
-                    _brightness = 0.0;
-                    _contrast = 1.0;
-                    _saturation = 1.0;
-                    _hue = 0.0;
-                    _effectVignette = 0.0;
-                    _effectGrain = 0.0;
-                    _effectBlur = 0.0;
-                  });
-                  setState(() {
-                    _brightness = 0.0;
-                    _contrast = 1.0;
-                    _saturation = 1.0;
-                    _hue = 0.0;
-                    _effectVignette = 0.0;
-                    _effectGrain = 0.0;
-                    _effectBlur = 0.0;
-                  });
-                },
-                child: Text(
-                  'RESET ALL',
-                  style: syne(sz: 11, w: FontWeight.w900, c: C.brand),
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -9808,6 +10093,17 @@ class _ClipBadgeRow extends StatelessWidget {
         const Color(0xFF00E5FF),
         Colors.black,
       ));
+    }
+
+    // Color grade badge (custom contrast, brightness, saturation, hue or vignette)
+    if (clip.brightness != 0.0 ||
+        clip.contrast != 1.0 ||
+        clip.saturation != 1.0 ||
+        clip.hue != 0.0 ||
+        clip.vignette > 0.0 ||
+        clip.grain > 0.0 ||
+        clip.blur > 0.0) {
+      badges.add(_iconBadge(Icons.tune, const Color(0xFF10B981)));
     }
 
     if (badges.isEmpty) return const SizedBox.shrink();
