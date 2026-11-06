@@ -751,6 +751,13 @@ class TimelineClip {
   int makeupGender;
   int makeupStyle;
   double makeupIntensity;
+  double brightness;
+  double contrast;
+  double saturation;
+  double hue;
+  double vignette;
+  double grain;
+  double blur;
 
   TimelineClip({
     required this.id,
@@ -769,6 +776,13 @@ class TimelineClip {
     this.makeupGender = 0,
     this.makeupStyle = 0,
     this.makeupIntensity = 0.7,
+    this.brightness = 0.0,
+    this.contrast = 1.0,
+    this.saturation = 1.0,
+    this.hue = 0.0,
+    this.vignette = 0.0,
+    this.grain = 0.0,
+    this.blur = 0.0,
     this.sourceStart = Duration.zero,
     this.sourceEnd,
     this.speed = 1.0,
@@ -798,6 +812,13 @@ class TimelineClip {
     int? makeupGender,
     int? makeupStyle,
     double? makeupIntensity,
+    double? brightness,
+    double? contrast,
+    double? saturation,
+    double? hue,
+    double? vignette,
+    double? grain,
+    double? blur,
     Duration? sourceStart,
     Duration? sourceEnd,
     double? speed,
@@ -826,6 +847,13 @@ class TimelineClip {
       makeupGender: makeupGender ?? this.makeupGender,
       makeupStyle: makeupStyle ?? this.makeupStyle,
       makeupIntensity: makeupIntensity ?? this.makeupIntensity,
+      brightness: brightness ?? this.brightness,
+      contrast: contrast ?? this.contrast,
+      saturation: saturation ?? this.saturation,
+      hue: hue ?? this.hue,
+      vignette: vignette ?? this.vignette,
+      grain: grain ?? this.grain,
+      blur: blur ?? this.blur,
       sourceStart: sourceStart ?? this.sourceStart,
       sourceEnd: sourceEnd ?? this.sourceEnd,
       speed: speed ?? this.speed,
