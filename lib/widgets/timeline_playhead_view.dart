@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 
 import '../models/edit_models.dart';
 import '../services/timeline_snap_engine.dart';
-import '../theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TimelinePlayheadView
@@ -80,6 +79,9 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
   bool _isFineScrub = false;
   DateTime? _lastDragTime;
   double? _lastDragX;
+  Duration _dragStartSeekTime = Duration.zero;
+  double _accumulatedDeltaX = 0.0;
+  double _lastKnownScrollOffset = 0.0;
 
   @override
   void initState() {
@@ -108,6 +110,7 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
       (t.inMicroseconds / Duration.microsecondsPerSecond) * _scale;
 
   Duration _xToTime(double x) {
+    if (_scale <= 0) return Duration.zero;
     final secs = x / _scale;
     return Duration(microseconds: (secs * Duration.microsecondsPerSecond).round());
   }
@@ -115,7 +118,11 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
   // ── Drag & seek logic ─────────────────────────────────────────────────────
 
   void _onDragStart(DragStartDetails details) {
-    _updateRenderBoxLeft();
+    _dragStartSeekTime = widget.currentTime;
+    _accumulatedDeltaX = 0.0;
+    _lastKnownScrollOffset = widget.scrollController.hasClients
+        ? widget.scrollController.offset
+        : 0.0;
     _lastDragTime = DateTime.now();
     _lastDragX = details.globalPosition.dx;
     setState(() {
@@ -134,9 +141,14 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
-    final scrollOffset = widget.scrollController.hasClients
+    // Account for scroll movements during scrubbing
+    final currentScroll = widget.scrollController.hasClients
         ? widget.scrollController.offset
         : 0.0;
+    final scrollDelta = currentScroll - _lastKnownScrollOffset;
+    _lastKnownScrollOffset = currentScroll;
+
+    _accumulatedDeltaX += details.delta.dx + scrollDelta;
 
     // Velocity detection: slow scrub triggers fine-grain frame preview
     final now = DateTime.now();
@@ -157,11 +169,16 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
       }
     }
 
-    final rawX =
-        (details.globalPosition.dx - _renderBoxLeft) + scrollOffset;
-    final rawTime = _xToTime(rawX.clamp(0.0, double.infinity));
+    final rawTime = _dragStartSeekTime + _xToTime(_accumulatedDeltaX);
+    final clampedRawTime = Duration(
+      microseconds: rawTime.inMicroseconds.clamp(
+        0,
+        widget.totalDuration.inMicroseconds,
+      ),
+    );
+
     final snapped = TimelineSnapEngine.snap(
-      rawTime,
+      clampedRawTime,
       widget.tracks,
       pixelsPerSecond: widget.pixelsPerSecond,
       zoom: widget.zoom,
@@ -169,7 +186,7 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
     );
 
     // Trigger snap feedback only when a new snap is applied.
-    if (snapped != rawTime && widget.snappingEnabled) {
+    if (snapped != clampedRawTime && widget.snappingEnabled) {
       _triggerSnapFeedback();
     }
 
@@ -181,14 +198,6 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
         ),
       ),
     );
-  }
-
-  double _renderBoxLeft = 0.0;
-
-  void _updateRenderBoxLeft() {
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    _renderBoxLeft = box.localToGlobal(Offset.zero).dx;
   }
 
   void _triggerSnapFeedback() {
@@ -205,9 +214,11 @@ class _TimelinePlayheadViewState extends State<TimelinePlayheadView>
   @override
   Widget build(BuildContext context) {
     final x = _timeToX(widget.currentTime);
+    // Center the 24px wide needle container exactly at x
+    final left = (x - 12.0).clamp(0.0, double.infinity);
 
     return Positioned(
-      left: x,
+      left: left,
       top: 0,
       bottom: 0,
       child: GestureDetector(
