@@ -467,7 +467,9 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
   }
 
   Widget _inventory() {
-    final listings = _dashboard!.listings;
+    final listings = _dashboard!.listings
+        .where(CommerceDashboardData.isProductListing)
+        .toList();
     if (listings.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),

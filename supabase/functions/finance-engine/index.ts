@@ -1876,8 +1876,9 @@ serve(async (req) => {
       const listingOwnerFilter = `user_id.eq.${user.id},lister_id.eq.${user.id}`;
       let listingsQuery = userSupabase
         .from("listings")
-        .select("id, title, media_url, price, stock_count, status, created_at, updated_at")
+        .select("id, title, media_url, price, stock_count, status, created_at, updated_at, is_property_listing, category")
         .or(listingOwnerFilter)
+        .or("is_property_listing.is.null,is_property_listing.eq.false")
         .order(updatedSince ? "updated_at" : "created_at", { ascending: false })
         .limit(300);
       if (updatedSince) {
@@ -1888,19 +1889,34 @@ serve(async (req) => {
         listingsQuery,
         userSupabase
           .from("listings")
-          .select("id", { count: "exact", head: true })
+          .select("id, category, is_property_listing")
           .or(listingOwnerFilter)
+          .or("is_property_listing.is.null,is_property_listing.eq.false")
           .eq("status", "active"),
         userSupabase
           .from("listings")
-          .select("id", { count: "exact", head: true })
+          .select("id, category, is_property_listing")
           .or(listingOwnerFilter)
+          .or("is_property_listing.is.null,is_property_listing.eq.false")
           .lte("stock_count", 5),
       ]);
       if (listingsResult.error) throw new Error(listingsResult.error.message);
       if (activeListingsResult.error) throw new Error(activeListingsResult.error.message);
       if (lowStockResult.error) throw new Error(lowStockResult.error.message);
-      const inventoryListings = (listingsResult.data ?? []) as Record<string, unknown>[];
+
+      const propertyCategories = new Set([
+        "APARTMENT", "HOUSE", "VILLA", "COMMERCIAL", "LAND", "RESIDENTIAL", "REAL_ESTATE", "PROPERTY"
+      ]);
+      const isProductListing = (l: Record<string, unknown>) => {
+        if (l.is_property_listing === true) return false;
+        const cat = String(l.category ?? "").toUpperCase();
+        if (propertyCategories.has(cat)) return false;
+        return true;
+      };
+
+      const inventoryListings = ((listingsResult.data ?? []) as Record<string, unknown>[]).filter(isProductListing);
+      const activeProductCount = ((activeListingsResult.data ?? []) as Record<string, unknown>[]).filter(isProductListing).length;
+      const lowStockProductCount = ((lowStockResult.data ?? []) as Record<string, unknown>[]).filter(isProductListing).length;
 
       const { data: orders, error: ordersError } = await supabase
         .from("commerce_orders")
@@ -1971,8 +1987,8 @@ serve(async (req) => {
         isDelta: updatedSince !== null,
         syncCursor,
         dashboard: {
-          activeListings: activeListingsResult.count ?? 0,
-          lowStockListings: lowStockResult.count ?? 0,
+          activeListings: activeProductCount,
+          lowStockListings: lowStockProductCount,
           totalOrders: sellerOrders.length,
           openOrders: sellerOrders.filter((order) => !["completed", "cancelled", "refunded"].includes(order.status)).length,
           grossSalesUgx,
@@ -2237,6 +2253,27 @@ serve(async (req) => {
       if (sourceUpdateError) throw new Error(sourceUpdateError.message);
       const syncedListing = await syncCommerceListing(listingId, true);
       return json({ success: true, listing: syncedListing });
+    }
+
+    if (action === "delete_commerce_listing") {
+      const listingId = String(body.listingId ?? "");
+      if (!listingId) {
+        return json({ success: false, message: "A valid listingId is required." }, 400);
+      }
+      const { data: ownedListing } = await userSupabase
+        .from("listings")
+        .select("id, user_id, lister_id")
+        .eq("id", listingId)
+        .maybeSingle();
+      if (!ownedListing || (ownedListing.user_id !== user.id && ownedListing.lister_id !== user.id)) {
+        return json({ success: false, message: "Only the listing owner can delete this listing." }, 403);
+      }
+      const { error: deleteError } = await userSupabase
+        .from("listings")
+        .delete()
+        .eq("id", listingId);
+      if (deleteError) throw new Error(deleteError.message);
+      return json({ success: true, message: "Listing deleted successfully." });
     }
 
     if (action === "review_eligibility") {
