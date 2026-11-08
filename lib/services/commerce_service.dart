@@ -17,24 +17,48 @@ class CommerceDashboardData {
     this.syncCursor,
   });
 
-  factory CommerceDashboardData.fromJson(Map<String, dynamic> json) =>
-      CommerceDashboardData(
-        activeListings: _integer(json['activeListings']),
-        lowStockListings: _integer(json['lowStockListings']),
-        totalOrders: _integer(json['totalOrders']),
-        openOrders: _integer(json['openOrders']),
-        grossSalesUgx: _integer(json['grossSalesUgx']),
-        releasedEarningsUgx: _integer(json['releasedEarningsUgx']),
-        heldEarningsUgx: _integer(json['heldEarningsUgx']),
-        ratingAverage: _number(json['ratingAverage']),
-        ratingCount: _integer(json['ratingCount']),
-        listings: _maps(json['listings']),
-        recentOrders: _maps(
-          json['recentOrders'],
-        ).map(CommerceOrder.fromJson).toList(),
-        isDelta: json['isDelta'] == true,
-        syncCursor: json['syncCursor']?.toString(),
-      );
+  static bool isProductListing(Map<String, dynamic> listing) {
+    if (listing['is_property_listing'] == true) return false;
+    final cat = listing['category']?.toString().toUpperCase() ?? '';
+    const propertyCategories = {
+      'APARTMENT',
+      'HOUSE',
+      'VILLA',
+      'COMMERCIAL',
+      'LAND',
+      'RESIDENTIAL',
+      'REAL_ESTATE',
+      'PROPERTY',
+    };
+    if (propertyCategories.contains(cat)) return false;
+    return true;
+  }
+
+  factory CommerceDashboardData.fromJson(Map<String, dynamic> json) {
+    final rawListings = _maps(json['listings']);
+    final productListings = rawListings.where(isProductListing).toList();
+
+    return CommerceDashboardData(
+      activeListings: productListings.where((l) => l['status'] == 'active').length,
+      lowStockListings: productListings.where((l) {
+        final stock = (l['stock_count'] as num?)?.round() ?? 0;
+        return stock <= 5;
+      }).length,
+      totalOrders: _integer(json['totalOrders']),
+      openOrders: _integer(json['openOrders']),
+      grossSalesUgx: _integer(json['grossSalesUgx']),
+      releasedEarningsUgx: _integer(json['releasedEarningsUgx']),
+      heldEarningsUgx: _integer(json['heldEarningsUgx']),
+      ratingAverage: _number(json['ratingAverage']),
+      ratingCount: _integer(json['ratingCount']),
+      listings: productListings,
+      recentOrders: _maps(
+        json['recentOrders'],
+      ).map(CommerceOrder.fromJson).toList(),
+      isDelta: json['isDelta'] == true,
+      syncCursor: json['syncCursor']?.toString(),
+    );
+  }
 
   final int activeListings;
   final int lowStockListings;
@@ -54,12 +78,16 @@ class CommerceDashboardData {
     if (!update.isDelta) return update;
     final listingsById = <String, Map<String, dynamic>>{
       for (final listing in listings)
-        if (listing['id'] != null) listing['id'].toString(): listing,
+        if (listing['id'] != null && isProductListing(listing))
+          listing['id'].toString(): listing,
     };
     for (final listing in update.listings) {
       final id = listing['id']?.toString();
-      if (id != null && id.isNotEmpty) listingsById[id] = listing;
+      if (id != null && id.isNotEmpty && isProductListing(listing)) {
+        listingsById[id] = listing;
+      }
     }
+    final mergedListings = listingsById.values.toList();
     final ordersById = {for (final order in recentOrders) order.id: order};
     for (final order in update.recentOrders) {
       ordersById[order.id] = order;
@@ -67,8 +95,11 @@ class CommerceDashboardData {
     final mergedOrders = ordersById.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return CommerceDashboardData(
-      activeListings: update.activeListings,
-      lowStockListings: update.lowStockListings,
+      activeListings: mergedListings.where((l) => l['status'] == 'active').length,
+      lowStockListings: mergedListings.where((l) {
+        final stock = (l['stock_count'] as num?)?.round() ?? 0;
+        return stock <= 5;
+      }).length,
       totalOrders: update.totalOrders,
       openOrders: update.openOrders,
       grossSalesUgx: update.grossSalesUgx,
@@ -76,7 +107,7 @@ class CommerceDashboardData {
       heldEarningsUgx: update.heldEarningsUgx,
       ratingAverage: update.ratingAverage,
       ratingCount: update.ratingCount,
-      listings: listingsById.values.toList(),
+      listings: mergedListings,
       recentOrders: mergedOrders.take(10).toList(),
       syncCursor: update.syncCursor,
     );
