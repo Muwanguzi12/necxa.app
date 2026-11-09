@@ -168,6 +168,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   // Multi-track Sequencer State
   late List<VideoClip> _sequence;
   int _activeClipIndex = 0;
+  int? _timelineDragIndex;
+  String? _timelineDragMode;
+  double _timelineDragOriginX = 0;
+  double _timelineDragDeltaX = 0;
+  double _timelineOriginalStart = 0;
+  double _timelineOriginalEnd = 0;
 
   // Professional Metadata
   final Map<int, TransitionOperation> _transitions = {};
@@ -1571,6 +1577,79 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
+  Widget _buildSequenceTimeline() {
+    if (_sequence.isEmpty) {
+      return Container(height: 76, alignment: Alignment.center,
+        decoration: BoxDecoration(color: C.text.withOpacity(0.035), borderRadius: BorderRadius.circular(8)),
+        child: Text('Add media to start your timeline', style: dm(sz: 10, c: C.dim)));
+    }
+    const pixelsPerSecond = 42.0;
+    return SizedBox(height: 82, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3), child: Row(children: [
+        Text('TIMELINE', style: syne(sz: 9, w: FontWeight.w900, c: C.dim, ls: 1)), const Spacer(),
+        Text('Drag edges to trim · Drag body to shift', style: dm(sz: 8, c: C.dim)),
+      ])),
+      Expanded(child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: List.generate(_sequence.length, (index) {
+        final clip = _sequence[index];
+        final seconds = (clip.end - clip.start) / clip.speed;
+        final width = (seconds * pixelsPerSecond).clamp(72.0, 190.0).toDouble();
+        final selected = index == _activeClipIndex;
+        final dragging = _timelineDragIndex == index;
+        return Transform.translate(offset: Offset(dragging ? _timelineDragDeltaX : 0, 0), child: GestureDetector(
+          onTap: () { setState(() => _activeClipIndex = index); _loadClip(index); },
+          onPanStart: (details) {
+            if (_videoTrackLocked) return;
+            _saveHistory();
+            setState(() {
+              _timelineDragIndex = index; _timelineDragOriginX = details.globalPosition.dx; _timelineDragDeltaX = 0;
+              _timelineOriginalStart = clip.start; _timelineOriginalEnd = clip.end; _activeClipIndex = index;
+              _timelineDragMode = details.localPosition.dx <= 14 ? 'trim-start' :
+                (details.localPosition.dx >= width - 14 ? 'trim-end' : 'move');
+            });
+          },
+          onPanUpdate: (details) {
+            if (_timelineDragIndex != index || _timelineDragMode == null) return;
+            final dx = details.globalPosition.dx - _timelineDragOriginX;
+            setState(() {
+              _timelineDragDeltaX = dx;
+              if (_timelineDragMode == 'trim-start') {
+                final delta = dx / pixelsPerSecond * clip.speed;
+                clip.start = (_timelineOriginalStart + delta).clamp(0.0, _timelineOriginalEnd - 0.1).toDouble();
+              } else if (_timelineDragMode == 'trim-end') {
+                final delta = dx / pixelsPerSecond * clip.speed;
+                clip.end = (_timelineOriginalEnd + delta).clamp(clip.start + 0.1, clip.duration).toDouble();
+              }
+            });
+          },
+          onPanEnd: (_) {
+            final mode = _timelineDragMode; final dx = _timelineDragDeltaX;
+            setState(() {
+              if (mode == 'move' && dx.abs() >= 36) {
+                final target = (index + (dx > 0 ? 1 : -1)).clamp(0, _sequence.length - 1);
+                if (target != index) { final moved = _sequence.removeAt(index); _sequence.insert(target, moved); _activeClipIndex = target; HapticFeedback.selectionClick(); }
+              }
+              _timelineDragIndex = null; _timelineDragMode = null; _timelineDragDeltaX = 0;
+            });
+            _syncSharedProjectFromSequence();
+            if (_videoController != null && mode != 'move') { _videoController!.seekTo(Duration(milliseconds: (clip.start * 1000).round())); }
+          },
+          child: Container(width: width, margin: const EdgeInsets.only(right: 4, top: 3, bottom: 3),
+            decoration: BoxDecoration(color: selected ? C.brand.withOpacity(0.24) : const Color(0xFF243247),
+              borderRadius: BorderRadius.circular(6), border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12), width: selected ? 1.5 : 1)),
+            child: Stack(children: [
+              Positioned.fill(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(clip.isVideo ? Icons.movie_outlined : Icons.image_outlined, size: 13, color: C.text), const Spacer(),
+                Text('Clip ${index + 1}', maxLines: 1, overflow: TextOverflow.ellipsis, style: syne(sz: 9, w: FontWeight.w800, c: C.text)),
+                Text('${seconds.toStringAsFixed(1)}s', style: dm(sz: 8, c: C.sub)),
+              ]))),
+              Positioned(left: 0, top: 0, bottom: 0, width: 12, child: Container(decoration: BoxDecoration(color: C.brand.withOpacity(0.55), borderRadius: const BorderRadius.horizontal(left: Radius.circular(5))), child: const Icon(Icons.drag_indicator, size: 10, color: Colors.white))),
+              Positioned(right: 0, top: 0, bottom: 0, width: 12, child: Container(decoration: BoxDecoration(color: C.brand.withOpacity(0.55), borderRadius: const BorderRadius.horizontal(right: Radius.circular(5))), child: const Icon(Icons.drag_indicator, size: 10, color: Colors.white))),
+            ]),
+          ),
+        ));
+      })))),
+    ]));
+  }
   Widget _buildEditorDock() {
     final dockHeight = (MediaQuery.of(context).size.height * 0.38)
         .clamp(318.0, 382.0)
@@ -1651,7 +1730,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             ),
             SizedBox(height: 8),
             _buildBottomNav(),
-            SizedBox(height: 10),
+            SizedBox(height: 8),
+            _buildSequenceTimeline(),
+            SizedBox(height: 8),
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
@@ -2639,8 +2720,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     final currentPos = _videoController!.value.position.inMilliseconds / 1000.0;
     final activeClip = _sequence[_activeClipIndex];
 
-    // Safety check: ensure split isn't at the very start or end
-    if (currentPos <= 0.5 || currentPos >= (activeClip.duration - 0.5)) {
+    // Player position is source-media time: split within the trimmed range.
+    if (currentPos <= activeClip.start + 0.05 ||
+        currentPos >= activeClip.end - 0.05) {
       _feedback("Too close to edge to split");
       return;
     }
@@ -2659,7 +2741,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       _sequence.insert(_activeClipIndex + 1, newClip);
 
       HapticFeedback.mediumImpact();
-      _feedback("Clip Split! ??");
+      _feedback("Clip split");
     });
     _syncSharedProjectFromSequence();
   }
