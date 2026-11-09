@@ -158,7 +158,7 @@ class NecxaEffectsEngine {
     if (meta.isNone || intensity <= 0.001) return '';
     final t = intensity.clamp(0.0, 1.0);
 
-    if (meta.colorMatrixPreset == 'grayscale') {
+    if (meta.colorMatrixPreset == 'grayscale' || meta.displayName.toLowerCase() == 'noir') {
       final c = 1.0 + (meta.contrast - 1.0) * t;
       return 'hue=s=0,eq=contrast=${c.toStringAsFixed(3)}';
     }
