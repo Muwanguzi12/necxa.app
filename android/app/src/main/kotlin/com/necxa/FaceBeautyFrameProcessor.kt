@@ -193,7 +193,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                         source.width, source.height, bounds, amount)
                     warpPlane(source.dataU, source.strideU, output.dataU, output.strideU,
                         source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
-                    warpPlane(source.dataV, source.strideV, output.dataV, output.dataV,
+                    warpPlane(source.dataV, source.strideV, output.dataV, output.strideV,
                         source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
                     lastSymmetryNanos = System.nanoTime() - symmetryStartedAt
                     if (lastSymmetryNanos > SYMMETRY_BUDGET_NANOS) {
