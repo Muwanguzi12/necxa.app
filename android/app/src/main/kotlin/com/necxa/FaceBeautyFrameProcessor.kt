@@ -186,7 +186,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                     val symmetryStartedAt = System.nanoTime()
                     warpPlane(source.dataY, source.strideY, output.dataY, output.strideY,
                         source.width, source.height, bounds, amount)
-                    warpPlane(source.dataU, source.strideU, output.dataU, output.dataU, 
+                    warpPlane(source.dataU, source.strideU, output.dataU, output.strideU,
                         source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
                     warpPlane(source.dataV, source.strideV, output.dataV, output.dataV,
                         source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
