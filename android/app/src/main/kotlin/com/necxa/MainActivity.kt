@@ -59,6 +59,9 @@ class MainActivity : FlutterFragmentActivity() {
           processor.contrast = (call.argument<Double>("contrast") ?: 1.0).toFloat()
           processor.saturation = (call.argument<Double>("saturation") ?: 1.0).toFloat()
           processor.warmth = (call.argument<Double>("warmth") ?: 0.0).toFloat()
+          processor.makeupGender = (call.argument<Int>("makeupGender") ?: 0)
+          processor.makeupStyle = (call.argument<Int>("makeupStyle") ?: 0)
+          processor.makeupIntensity = (call.argument<Double>("makeupIntensity") ?: 0.0).toFloat()
           processors[trackId] = processor
           track.addProcessor(processor)
           result.success(true)
@@ -84,6 +87,9 @@ class MainActivity : FlutterFragmentActivity() {
             processor.contrast = (call.argument<Double>("contrast") ?: 1.0).toFloat()
             processor.saturation = (call.argument<Double>("saturation") ?: 1.0).toFloat()
             processor.warmth = (call.argument<Double>("warmth") ?: 0.0).toFloat()
+            processor.makeupGender = (call.argument<Int>("makeupGender") ?: 0)
+            processor.makeupStyle = (call.argument<Int>("makeupStyle") ?: 0)
+            processor.makeupIntensity = (call.argument<Double>("makeupIntensity") ?: 0.0).toFloat()
             if (call.hasArgument("mirrorLeft")) {
               processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
             }
