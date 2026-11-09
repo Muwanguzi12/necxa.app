@@ -1764,24 +1764,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         ? 0.0
         : _catalogueFilterIntensity.clamp(0.0, 1.0);
     final smoothing = _previewOriginal ? 0.0 : _beautySmoothing.clamp(0.0, 1.0);
-    final brightness = _previewOriginal
-        ? 0.0
-        : (((filter?.brightness ?? 0.0) * filterStrength) +
-                (_beautyWhitening * 0.08))
-            .clamp(-0.25, 0.25);
-    final contrast = (1.0 +
-            ((filter?.contrast ?? 1.0) - 1.0) * filterStrength)
-        .clamp(0.5, 1.8);
-    final saturation = (1.0 +
-            ((filter?.saturation ?? 1.0) - 1.0) * filterStrength)
-        .clamp(0.0, 2.0);
-    final toneWarmth = _previewOriginal || _beautyWhitening <= 0
-        ? 0.0
-        : (_skinBrighteningTone == 0
-            ? 0.12
-            : (_skinBrighteningTone == 1 ? -0.08 : 0.0));
-    final warmth = (((filter?.hue ?? 0.0) * filterStrength) + toneWarmth)
-        .clamp(-0.5, 0.5);
+    final nativeParameters = NecxaEffectsEngine.nativeParametersForMeta(
+      filter,
+      intensity: filterStrength,
+      skinBrightening: _previewOriginal ? 0.0 : _beautyWhitening,
+      skinTone: _skinBrighteningTone,
+    );
+    final brightness = nativeParameters.brightness;
+    final contrast = nativeParameters.contrast;
+    final saturation = nativeParameters.saturation;
+    final warmth = nativeParameters.warmth;
     final makeupGender = _previewOriginal ? 0 : _makeupGender;
     final makeupIntensity = _previewOriginal ? 0.0 : _makeupIntensity.clamp(0.0, 1.0);
     final symmetry = _previewOriginal ? 0.0 : _faceSymmetry.clamp(0.0, 1.0);
