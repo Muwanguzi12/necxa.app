@@ -107,13 +107,20 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 }
 
                 if (smooth > 0.01f && bounds != null) {
-                    applySkinSmoothing(source.dataY, source.strideY, output.dataY,
+                    applySkinSmoothing(source.dataY, source.strideY, source.dataU,
+                        source.strideU, source.dataV, source.strideV, output.dataY,
                         output.strideY, source.width, source.height, bounds, smooth)
                 }
-                applyColourGrade(output.dataY, output.strideY, source.width, source.height,
-                    bright, contrastAmount)
-                applyChromaGrade(output.dataU, output.strideU, output.dataV, output.strideV,
-                    source.width / 2, source.height / 2, saturationAmount, warmthAmount)
+                if (kotlin.math.abs(bright) >= 0.001f ||
+                    kotlin.math.abs(contrastAmount - 1f) >= 0.001f) {
+                    applyColourGrade(output.dataY, output.strideY, source.width, source.height,
+                        bright, contrastAmount)
+                }
+                if (kotlin.math.abs(saturationAmount - 1f) >= 0.001f ||
+                    kotlin.math.abs(warmthAmount) >= 0.001f) {
+                    applyChromaGrade(output.dataU, output.strideU, output.dataV, output.strideV,
+                        source.width / 2, source.height / 2, saturationAmount, warmthAmount)
+                }
 
                 output.dataY.position(0)
                 output.dataU.position(0)
@@ -220,6 +227,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
      */
     private fun applySkinSmoothing(
         source: ByteBuffer, sourceStride: Int,
+        sourceU: ByteBuffer, sourceUStride: Int,
+        sourceV: ByteBuffer, sourceVStride: Int,
         target: ByteBuffer, targetStride: Int,
         width: Int, height: Int, bounds: Rect, amount: Float
     ) {
@@ -234,6 +243,13 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
             val sourceRow = row * sourceStride
             for (col in left until right) {
                 val index = rowOffset + col
+                val chromaIndexU = (row / 2) * sourceUStride + (col / 2)
+                val chromaIndexV = (row / 2) * sourceVStride + (col / 2)
+                val u = sourceU.get(chromaIndexU).toInt() and 0xff
+                val v = sourceV.get(chromaIndexV).toInt() and 0xff
+                // Broad YUV skin-chroma gate avoids softening most background pixels,
+                // clothing and high-contrast facial features.
+                val skinMask = if (u in 65..145 && v in 125..195) 1f else 0.18f
                 val centre = source.get(sourceRow + col).toInt() and 0xff
                 val horizontal = ((source.get(sourceRow + col - 1).toInt() and 0xff) +
                     (source.get(sourceRow + col + 1).toInt() and 0xff)) * 0.5f
@@ -241,7 +257,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                     (source.get(sourceRow + sourceStride + col).toInt() and 0xff)) * 0.5f
                 val localAverage = (centre * 0.5f) + (horizontal * 0.25f) + (vertical * 0.25f)
                 val current = target.get(index).toInt() and 0xff
-                target.put(index, (current * (1f - blend) + localAverage * blend)
+                val pixelBlend = blend * skinMask
+                target.put(index, (current * (1f - pixelBlend) + localAverage * pixelBlend)
                     .toInt().coerceIn(0, 255).toByte())
             }
         }
