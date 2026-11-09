@@ -132,8 +132,7 @@ class NecxaEffectsEngine {
     final toneWarmth = skinBrightening <= 0
         ? 0.0
         : (skinTone == 0 ? 0.12 : (skinTone == 1 ? -0.08 : 0.0));
-    final warmth = (((meta?.hue ?? 0.0) * strength) + toneWarmth)
-        .clamp(-0.5, 0.5)
+    final warmth = toneWarmth.clamp(-0.5, 0.5)
         .toDouble();
     return NativeEffectParameters(
       brightness: brightness,
