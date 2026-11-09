@@ -17,7 +17,7 @@ class FaceCoordinateMapperTest {
     }
 
     @Test fun clockwiseTwoSeventyMapsBackToRawBuffer() {
-        assertEquals(FramePoint(188f, 34f), FaceCoordinateMapper.mapPoint(34f, 12f, 100, 200, 270))
+        assertEquals(FramePoint(88f, 34f), FaceCoordinateMapper.mapPoint(34f, 12f, 100, 200, 270))
     }
 
     @Test fun rotatedRectIsClampedToRawFrame() {
