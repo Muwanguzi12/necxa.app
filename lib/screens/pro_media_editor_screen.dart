@@ -1625,7 +1625,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             final mode = _timelineDragMode; final dx = _timelineDragDeltaX;
             setState(() {
               if (mode == 'move' && dx.abs() >= 36) {
-                final target = (index + (dx > 0 ? 1 : -1)).clamp(0, _sequence.length - 1);
+                final target = (index + (dx > 0 ? 1 : -1)).clamp(0, _sequence.length - 1).toInt();
                 if (target != index) { final moved = _sequence.removeAt(index); _sequence.insert(target, moved); _activeClipIndex = target; HapticFeedback.selectionClick(); }
               }
               _timelineDragIndex = null; _timelineDragMode = null; _timelineDragDeltaX = 0;
@@ -2716,6 +2716,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _handleSplit() {
+    if (_sequence.isEmpty || _videoController == null ||
+        !_videoController!.value.isInitialized ||
+        _activeClipIndex < 0 || _activeClipIndex >= _sequence.length) {
+      _feedback("Select a video clip before splitting");
+      return;
+    }
     _saveHistory();
     final currentPos = _videoController!.value.position.inMilliseconds / 1000.0;
     final activeClip = _sequence[_activeClipIndex];
@@ -2747,6 +2753,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _handleDeleteClip() {
+    if (_sequence.isEmpty || _activeClipIndex < 0 ||
+        _activeClipIndex >= _sequence.length) return;
     _saveHistory();
     setState(() {
       _sequence.removeAt(_activeClipIndex);
