@@ -96,7 +96,8 @@ void main() {
       expect(native.brightness, closeTo(0.09, 0.0001));
       expect(native.contrast, closeTo(1.1, 0.0001));
       expect(native.saturation, closeTo(1.15, 0.0001));
-      expect(native.warmth, closeTo(0.145, 0.0001));
+      expect(native.hue, closeTo(0.025, 0.0001));
+      expect(native.warmth, closeTo(0.12, 0.0001));
     });
 
     test('Original native preview maps to neutral parameters', () {
@@ -109,6 +110,7 @@ void main() {
       expect(native.brightness, 0.0);
       expect(native.contrast, 1.0);
       expect(native.saturation, 1.0);
+      expect(native.hue, 0.0);
       expect(native.warmth, 0.0);
     });
 
