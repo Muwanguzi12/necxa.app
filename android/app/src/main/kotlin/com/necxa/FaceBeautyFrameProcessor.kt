@@ -27,6 +27,11 @@ import kotlin.math.min
 internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProcessing {
     @Volatile var intensity: Float = 0.35f
     @Volatile var mirrorLeft: Boolean? = null
+    @Volatile var smoothing: Float = 0f
+    @Volatile var brightness: Float = 0f
+    @Volatile var contrast: Float = 1f
+    @Volatile var saturation: Float = 1f
+    @Volatile var warmth: Float = 0f
 
     private val detector: FaceDetector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
@@ -55,7 +60,16 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     override fun onFrame(frame: VideoFrame): VideoFrame {
         if (closed) return frame
         val amount = intensity.coerceIn(0f, 1f)
-        if (amount <= 0.01f) {
+        val smooth = smoothing.coerceIn(0f, 1f)
+        val bright = brightness.coerceIn(-0.25f, 0.25f)
+        val contrastAmount = contrast.coerceIn(0.5f, 1.8f)
+        val saturationAmount = saturation.coerceIn(0f, 2f)
+        val warmthAmount = warmth.coerceIn(-0.5f, 0.5f)
+        val needsFace = amount > 0.01f || smooth > 0.01f
+        if (!needsFace && kotlin.math.abs(bright) < 0.001f &&
+            kotlin.math.abs(contrastAmount - 1f) < 0.001f &&
+            kotlin.math.abs(saturationAmount - 1f) < 0.001f &&
+            kotlin.math.abs(warmthAmount) < 0.001f) {
             face = null
             return frame
         }
@@ -72,25 +86,34 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
             var sourceReleased = false
             try {
                 frameCount++
-                if (frameCount % 10 == 0 && detecting.compareAndSet(false, true)) {
+                if (needsFace && frameCount % 6 == 0 && detecting.compareAndSet(false, true)) {
                     detect(source, frame.rotation)
                 }
 
                 val bounds = face
-                if (bounds == null) {
-                    // No face yet — pass through original frame, release source cleanly
-                    source.release()
-                    sourceReleased = true
-                    return frame
-                }
                 output = JavaI420Buffer.allocate(source.width, source.height)
 
-                warpPlane(source.dataY, source.strideY, output.dataY, output.strideY,
-                    source.width, source.height, bounds, amount)
-                warpPlane(source.dataU, source.strideU, output.dataU, output.strideU,
-                    source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
-                warpPlane(source.dataV, source.strideV, output.dataV, output.strideV,
-                    source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
+                if (amount > 0.01f && bounds != null) {
+                    warpPlane(source.dataY, source.strideY, output.dataY, output.strideY,
+                        source.width, source.height, bounds, amount)
+                    warpPlane(source.dataU, source.strideU, output.dataU, output.strideU,
+                        source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
+                    warpPlane(source.dataV, source.strideV, output.dataV, output.strideV,
+                        source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
+                } else {
+                    copyPlane(source.dataY, source.strideY, output.dataY, output.strideY, source.width, source.height)
+                    copyPlane(source.dataU, source.strideU, output.dataU, output.strideU, source.width / 2, source.height / 2)
+                    copyPlane(source.dataV, source.strideV, output.dataV, output.strideV, source.width / 2, source.height / 2)
+                }
+
+                if (smooth > 0.01f && bounds != null) {
+                    applySkinSmoothing(source.dataY, source.strideY, output.dataY,
+                        output.strideY, source.width, source.height, bounds, smooth)
+                }
+                applyColourGrade(output.dataY, output.strideY, source.width, source.height,
+                    bright, contrastAmount)
+                applyChromaGrade(output.dataU, output.strideU, output.dataV, output.strideV,
+                    source.width / 2, source.height / 2, saturationAmount, warmthAmount)
 
                 output.dataY.position(0)
                 output.dataU.position(0)
@@ -180,6 +203,86 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 .addOnCompleteListener { detecting.set(false) }
         } catch (_: Throwable) {
             detecting.set(false)
+        }
+    }
+
+    private fun copyPlane(
+        src: ByteBuffer, srcStride: Int, dst: ByteBuffer, dstStride: Int,
+        width: Int, height: Int
+    ) {
+        for (row in 0 until height) copyRowChunk(src, row * srcStride, dst, row * dstStride, width)
+    }
+
+    /**
+     * Lightweight face-region luma smoothing. It blends a small 3x3 neighbourhood
+     * with the original frame only inside the detected face bounds; no full-frame
+     * bitmap, texture upload, or per-frame temporary allocation is required.
+     */
+    private fun applySkinSmoothing(
+        source: ByteBuffer, sourceStride: Int,
+        target: ByteBuffer, targetStride: Int,
+        width: Int, height: Int, bounds: Rect, amount: Float
+    ) {
+        val left = max(1, bounds.left).coerceAtMost(width - 1)
+        val right = min(width - 1, bounds.right)
+        val top = max(1, bounds.top).coerceAtMost(height - 1)
+        val bottom = min(height - 1, bounds.bottom)
+        val blend = amount.coerceIn(0f, 1f) * 0.28f
+        if (left >= right || top >= bottom || blend <= 0f) return
+        for (row in top until bottom) {
+            val rowOffset = row * targetStride
+            val sourceRow = row * sourceStride
+            for (col in left until right) {
+                val index = rowOffset + col
+                val centre = source.get(sourceRow + col).toInt() and 0xff
+                val horizontal = ((source.get(sourceRow + col - 1).toInt() and 0xff) +
+                    (source.get(sourceRow + col + 1).toInt() and 0xff)) * 0.5f
+                val vertical = ((source.get(sourceRow - sourceStride + col).toInt() and 0xff) +
+                    (source.get(sourceRow + sourceStride + col).toInt() and 0xff)) * 0.5f
+                val localAverage = (centre * 0.5f) + (horizontal * 0.25f) + (vertical * 0.25f)
+                val current = target.get(index).toInt() and 0xff
+                target.put(index, (current * (1f - blend) + localAverage * blend)
+                    .toInt().coerceIn(0, 255).toByte())
+            }
+        }
+    }
+
+    private fun applyColourGrade(
+        plane: ByteBuffer, stride: Int, width: Int, height: Int,
+        brightness: Float, contrast: Float
+    ) {
+        val offset = brightness * 255f
+        for (row in 0 until height) {
+            val rowOffset = row * stride
+            for (col in 0 until width) {
+                val index = rowOffset + col
+                val value = plane.get(index).toInt() and 0xff
+                val graded = ((value - 128f) * contrast + 128f + offset)
+                    .toInt().coerceIn(0, 255)
+                plane.put(index, graded.toByte())
+            }
+        }
+    }
+
+    private fun applyChromaGrade(
+        uPlane: ByteBuffer, uStride: Int,
+        vPlane: ByteBuffer, vStride: Int,
+        width: Int, height: Int, saturation: Float, warmth: Float
+    ) {
+        val warmOffset = warmth * 18f
+        for (row in 0 until height) {
+            for (col in 0 until width) {
+                val uIndex = row * uStride + col
+                val vIndex = row * vStride + col
+                val u = uPlane.get(uIndex).toInt() and 0xff
+                val v = vPlane.get(vIndex).toInt() and 0xff
+                val gradedU = ((u - 128f) * saturation + 128f - warmOffset)
+                    .toInt().coerceIn(0, 255)
+                val gradedV = ((v - 128f) * saturation + 128f + warmOffset)
+                    .toInt().coerceIn(0, 255)
+                uPlane.put(uIndex, gradedU.toByte())
+                vPlane.put(vIndex, gradedV.toByte())
+            }
         }
     }
 
