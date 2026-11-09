@@ -248,8 +248,16 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 if (!sourceReleased) source.release()
                 if (!outputRetained) output?.release()
             }
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
             processingErrorCount++
+            // Java/Kotlin-side failures are retained in logcat. A SIGSEGV or
+            // other native fatal signal still requires Android tombstone/logcat.
+            android.util.Log.e(
+                "NecxaFaceEffects",
+                "Frame processing failed; passing through original frame " +
+                    "(${frame.buffer.width}x${frame.buffer.height})",
+                error
+            )
             frame
         } finally {
             val elapsed = System.nanoTime() - frameStartedAt
