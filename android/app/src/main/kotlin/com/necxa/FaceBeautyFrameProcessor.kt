@@ -61,6 +61,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     private var frameCount = 0
     private var missedDetectionCount = 0
     @Volatile private var averageFrameNanos = 0L
+    @Volatile private var maxFrameNanos = 0L
+    @Volatile private var slowFrameCount = 0L
     @Volatile private var processedFrameCount = 0L
     @Volatile private var processingErrorCount = 0L
     @Volatile private var closed = false
@@ -191,12 +193,16 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
             val elapsed = System.nanoTime() - frameStartedAt
             averageFrameNanos = if (averageFrameNanos == 0L) elapsed
                 else (averageFrameNanos * 7L + elapsed) / 8L
+            if (elapsed > maxFrameNanos) maxFrameNanos = elapsed
+            if (elapsed > 33_333_333L) slowFrameCount++
             processedFrameCount++
         }
     }
 
     fun performanceStats(): Map<String, Long> = mapOf(
         "averageFrameNanos" to averageFrameNanos,
+        "maxFrameNanos" to maxFrameNanos,
+        "slowFramesOver33ms" to slowFrameCount,
         "processedFrames" to processedFrameCount,
         "processingErrors" to processingErrorCount
     )
