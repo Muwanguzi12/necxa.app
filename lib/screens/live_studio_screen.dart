@@ -117,6 +117,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _hostInGreenRoom = false;
   bool _startingBroadcast = false;
   bool _faceSymmetryProcessorAttached = false;
+  String? _attachedEffectsTrackId;
+  Future<void> _effectsOperation = Future<void>.value();
   Timer? _faceSymmetryUpdateTimer;
   static const MethodChannel _faceSymmetryChannel =
       MethodChannel('com.necxa/live_beauty');
@@ -1281,14 +1283,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   @override
   void dispose() {
     _faceSymmetryUpdateTimer?.cancel();
-    final symmetryTrack = widget.state.live.room?.localParticipant
-        ?.videoTrackPublications.firstOrNull?.track;
-    if (_faceSymmetryProcessorAttached && symmetryTrack != null) {
-      unawaited(_faceSymmetryChannel.invokeMethod<void>('detach', {
-        'trackId': symmetryTrack.mediaStreamTrack.id,
-      }).catchError((Object error) {
-        debugPrint('Necxa Live: Face processor cleanup failed: $error');
-      }));
+    final attachedTrackId = _attachedEffectsTrackId;
+    _attachedEffectsTrackId = null;
+    _faceSymmetryProcessorAttached = false;
+    if (attachedTrackId != null) {
+      // Wait behind any in-flight attach/update so dispose cannot leave a
+      // processor attached after the screen has gone away.
+      _effectsOperation = _effectsOperation
+          .catchError((Object error) {
+            debugPrint('Necxa Live: Pending effects operation failed: $error');
+          })
+          .then((_) => _faceSymmetryChannel.invokeMethod<void>('detach', {
+                'trackId': attachedTrackId,
+              }))
+          .catchError((Object error) {
+            debugPrint('Necxa Live: Face processor cleanup failed: $error');
+          });
+      unawaited(_effectsOperation);
     }
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
@@ -1731,81 +1742,111 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
   void _scheduleLiveEffectsProcessing() {
     _faceSymmetryUpdateTimer?.cancel();
-    _faceSymmetryUpdateTimer = Timer(const Duration(milliseconds: 80), () async {
-      final track = widget.state.live.room?.localParticipant
-          ?.videoTrackPublications.firstOrNull?.track;
-      if (track == null) return;
-      final trackId = track.mediaStreamTrack.id;
-      if (trackId == null || trackId.isEmpty) return;
-
-      final filter = _activeCatalogueFilter;
-      final filterStrength = filter == null || filter.isNone
-          ? 0.0
-          : _catalogueFilterIntensity.clamp(0.0, 1.0);
-      final smoothing = _beautySmoothing.clamp(0.0, 1.0);
-      final brightness = (((filter?.brightness ?? 0.0) * filterStrength) +
-              (_beautyWhitening * 0.08))
-          .clamp(-0.25, 0.25);
-      final contrast = (1.0 +
-              ((filter?.contrast ?? 1.0) - 1.0) * filterStrength)
-          .clamp(0.5, 1.8);
-      final saturation = (1.0 +
-              ((filter?.saturation ?? 1.0) - 1.0) * filterStrength)
-          .clamp(0.0, 2.0);
-      final toneWarmth = _beautyWhitening <= 0
-          ? 0.0
-          : (_skinBrighteningTone == 0
-              ? 0.12
-              : (_skinBrighteningTone == 1 ? -0.08 : 0.0));
-      final warmth = (((filter?.hue ?? 0.0) * filterStrength) + toneWarmth)
-          .clamp(-0.5, 0.5);
-      final needsProcessor = _faceSymmetry > 0.01 ||
-          smoothing > 0.01 ||
-          brightness.abs() > 0.001 ||
-          (contrast - 1.0).abs() > 0.001 ||
-          (saturation - 1.0).abs() > 0.001 ||
-          warmth.abs() > 0.001;
-
-      try {
-        if (!needsProcessor) {
-          if (!_faceSymmetryProcessorAttached) return;
-          await _faceSymmetryChannel.invokeMethod<void>('detach', {
-            'trackId': trackId,
-          });
-          if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-          return;
-        }
-
-        final config = <String, Object>{
-          'trackId': trackId,
-          'symmetry': _faceSymmetry.clamp(0.0, 1.0),
-          'mirrorLeft': _symmetryMirrorLeft,
-          'smoothing': smoothing,
-          'brightness': brightness,
-          'contrast': contrast,
-          'saturation': saturation,
-          'warmth': warmth,
-        };
-        if (_faceSymmetryProcessorAttached) {
-          await _faceSymmetryChannel.invokeMethod<void>('setEffects', config);
-        } else {
-          await _faceSymmetryChannel.invokeMethod<void>('attach', {
-            ...config,
-            'intensity': _faceSymmetry.clamp(0.0, 1.0),
-          });
-          if (mounted) setState(() => _faceSymmetryProcessorAttached = true);
-        }
-      } on PlatformException catch (error) {
-        debugPrint('Necxa Live: Native effects processor error: ${error.message}');
-        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-      } on MissingPluginException {
-        debugPrint('Necxa Live: Native effects are unavailable on this platform.');
-        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-      } catch (error) {
-        debugPrint('Necxa Live: Could not update live effects: $error');
-        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-      }
+    _faceSymmetryUpdateTimer = Timer(const Duration(milliseconds: 80), () {
+      // Serialize native channel operations. Rapid slider changes and camera
+      // switches must never race attach, update, and detach calls.
+      _effectsOperation = _effectsOperation
+          .catchError((Object error) {
+            debugPrint('Necxa Live: Previous effects operation failed: $error');
+          })
+          .then((_) => _applyLiveEffectsProcessing());
     });
+  }
+
+  Future<void> _applyLiveEffectsProcessing() async {
+    if (!mounted) return;
+    final track = widget.state.live.room?.localParticipant
+        ?.videoTrackPublications.firstOrNull?.track;
+    final trackId = track?.mediaStreamTrack.id;
+    final filter = _activeCatalogueFilter;
+    final filterStrength = filter == null || filter.isNone
+        ? 0.0
+        : _catalogueFilterIntensity.clamp(0.0, 1.0);
+    final smoothing = _beautySmoothing.clamp(0.0, 1.0);
+    final brightness = (((filter?.brightness ?? 0.0) * filterStrength) +
+            (_beautyWhitening * 0.08))
+        .clamp(-0.25, 0.25);
+    final contrast = (1.0 +
+            ((filter?.contrast ?? 1.0) - 1.0) * filterStrength)
+        .clamp(0.5, 1.8);
+    final saturation = (1.0 +
+            ((filter?.saturation ?? 1.0) - 1.0) * filterStrength)
+        .clamp(0.0, 2.0);
+    final toneWarmth = _beautyWhitening <= 0
+        ? 0.0
+        : (_skinBrighteningTone == 0
+            ? 0.12
+            : (_skinBrighteningTone == 1 ? -0.08 : 0.0));
+    final warmth = (((filter?.hue ?? 0.0) * filterStrength) + toneWarmth)
+        .clamp(-0.5, 0.5);
+    final needsProcessor = _faceSymmetry > 0.01 ||
+        smoothing > 0.01 ||
+        brightness.abs() > 0.001 ||
+        (contrast - 1.0).abs() > 0.001 ||
+        (saturation - 1.0).abs() > 0.001 ||
+        warmth.abs() > 0.001;
+
+    try {
+      // A camera flip or track replacement invalidates the previous attachment.
+      final previousTrackId = _attachedEffectsTrackId;
+      if (previousTrackId != null && previousTrackId != trackId) {
+        await _faceSymmetryChannel.invokeMethod<void>('detach', {
+          'trackId': previousTrackId,
+        });
+        _attachedEffectsTrackId = null;
+        _faceSymmetryProcessorAttached = false;
+      }
+
+      if (trackId == null || trackId.isEmpty || !needsProcessor) {
+        final attachedId = _attachedEffectsTrackId;
+        if (attachedId != null) {
+          await _faceSymmetryChannel.invokeMethod<void>('detach', {
+            'trackId': attachedId,
+          });
+          _attachedEffectsTrackId = null;
+        }
+        if (mounted) {
+          setState(() => _faceSymmetryProcessorAttached = false);
+        }
+        return;
+      }
+
+      final config = <String, Object>{
+        'trackId': trackId,
+        'symmetry': _faceSymmetry.clamp(0.0, 1.0),
+        'mirrorLeft': _symmetryMirrorLeft,
+        'smoothing': smoothing,
+        'brightness': brightness,
+        'contrast': contrast,
+        'saturation': saturation,
+        'warmth': warmth,
+      };
+
+      if (_attachedEffectsTrackId == trackId) {
+        await _faceSymmetryChannel.invokeMethod<void>('setEffects', config);
+      } else {
+        await _faceSymmetryChannel.invokeMethod<void>('attach', {
+          ...config,
+          'intensity': _faceSymmetry.clamp(0.0, 1.0),
+        });
+        _attachedEffectsTrackId = trackId;
+      }
+      if (mounted) {
+        setState(() => _faceSymmetryProcessorAttached = true);
+      }
+    } on PlatformException catch (error) {
+      debugPrint('Necxa Live: Native effects processor error: ${error.message}');
+      _attachedEffectsTrackId = null;
+      if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
+    } on MissingPluginException {
+      debugPrint('Necxa Live: Native effects are unavailable on this platform.');
+      _attachedEffectsTrackId = null;
+      if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
+    } catch (error) {
+      debugPrint('Necxa Live: Could not update live effects: $error');
+      _attachedEffectsTrackId = null;
+      if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
+    }
   }
 
   Widget _buildHostGreenRoom() {
