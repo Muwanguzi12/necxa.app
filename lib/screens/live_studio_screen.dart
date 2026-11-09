@@ -1760,10 +1760,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         ?.videoTrackPublications.firstOrNull?.track;
     final trackId = track?.mediaStreamTrack.id;
     final filter = _activeCatalogueFilter;
-    final filterStrength = filter == null || filter.isNone
+    final filterStrength = _previewOriginal || filter == null || filter.isNone
         ? 0.0
         : _catalogueFilterIntensity.clamp(0.0, 1.0);
-    final smoothing = _beautySmoothing.clamp(0.0, 1.0);
+    final smoothing = _previewOriginal ? 0.0 : _beautySmoothing.clamp(0.0, 1.0);
     final brightness = (((filter?.brightness ?? 0.0) * filterStrength) +
             (_beautyWhitening * 0.08))
         .clamp(-0.25, 0.25);
@@ -1780,7 +1780,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             : (_skinBrighteningTone == 1 ? -0.08 : 0.0));
     final warmth = (((filter?.hue ?? 0.0) * filterStrength) + toneWarmth)
         .clamp(-0.5, 0.5);
-    final needsProcessor = _faceSymmetry > 0.01 ||
+    final makeupGender = _previewOriginal ? 0 : _makeupGender;
+    final makeupIntensity = _previewOriginal ? 0.0 : _makeupIntensity.clamp(0.0, 1.0);
+    final symmetry = _previewOriginal ? 0.0 : _faceSymmetry.clamp(0.0, 1.0);
+    final needsProcessor = makeupGender > 0 && makeupIntensity > 0.01 ||
+        symmetry > 0.01 ||
         smoothing > 0.01 ||
         brightness.abs() > 0.001 ||
         (contrast - 1.0).abs() > 0.001 ||
@@ -1814,13 +1818,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
       final config = <String, Object>{
         'trackId': trackId,
-        'symmetry': _faceSymmetry.clamp(0.0, 1.0),
+        'symmetry': symmetry,
         'mirrorLeft': _symmetryMirrorLeft,
         'smoothing': smoothing,
         'brightness': brightness,
         'contrast': contrast,
         'saturation': saturation,
         'warmth': warmth,
+        'makeupGender': makeupGender,
+        'makeupStyle': _makeupStyle,
+        'makeupIntensity': makeupIntensity,
       };
 
       if (_attachedEffectsTrackId == trackId) {
@@ -1828,7 +1835,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       } else {
         await _faceSymmetryChannel.invokeMethod<void>('attach', {
           ...config,
-          'intensity': _faceSymmetry.clamp(0.0, 1.0),
+          'intensity': symmetry,
         });
         _attachedEffectsTrackId = trackId;
       }
@@ -3359,6 +3366,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           _makeupIntensity = 0.6;
                         }
                       });
+                      _scheduleLiveEffectsProcessing();
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3394,6 +3402,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       onTap: () {
                         HapticFeedback.selectionClick();
                         update(() => _makeupStyle = item.$1);
+                        _scheduleLiveEffectsProcessing();
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3436,7 +3445,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           value: _makeupIntensity,
                           min: 0,
                           max: 1,
-                          onChanged: (v) => update(() => _makeupIntensity = v),
+                          onChanged: (v) {
+                            update(() => _makeupIntensity = v);
+                            _scheduleLiveEffectsProcessing();
+                          },
                         ),
                       ),
                     ),
@@ -3954,23 +3966,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
     }
 
-    // Studio Makeup (Women & Men): subtle blush, lip tint, contour, and brow definition
-    if (!_previewOriginal && _makeupGender > 0 && _makeupIntensity > 0.05) {
-      video = Stack(
-        fit: StackFit.expand,
-        children: [
-          video,
-          Positioned.fill(
-            child: _StudioMakeupOverlay(
-              gender: _makeupGender,
-              style: _makeupStyle,
-              intensity: _makeupIntensity,
-            ),
-          ),
-        ],
-      );
-    }
-
+    // Makeup is rendered by the face-landmark native processor on the
+    // outgoing camera track. Avoid a screen-centred preview-only overlay.
+    
     // Grid overlay
     if (_showGrid) {
       video = Stack(
@@ -7343,145 +7341,6 @@ class _FacialSymmetryPainter extends CustomPainter {
   @override
   bool shouldRepaint(_FacialSymmetryPainter old) =>
       old.intensity != intensity || old.mirrorLeft != mirrorLeft;
-}
-
-/// Real-time Studio Makeup overlay for women and men.
-class _StudioMakeupOverlay extends StatelessWidget {
-  final int gender; // 1 = Women, 2 = Men
-  final int style;
-  final double intensity;
-
-  const _StudioMakeupOverlay({
-    required this.gender,
-    required this.style,
-    required this.intensity,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: CustomPaint(
-        painter: _StudioMakeupPainter(
-          gender: gender,
-          style: style,
-          intensity: intensity,
-        ),
-      ),
-    );
-  }
-}
-
-class _StudioMakeupPainter extends CustomPainter {
-  final int gender;
-  final int style;
-  final double intensity;
-
-  _StudioMakeupPainter({
-    required this.gender,
-    required this.style,
-    required this.intensity,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final m = intensity.clamp(0.0, 1.0);
-
-    if (gender == 1) {
-      // ── Women: Soft Cheek Blush & Hydrating Lip Tint ─────────
-      final blushColor = style == 0
-          ? const Color(0xFFFF5277) // Rosy Glow (petal rose)
-          : style == 1
-              ? const Color(0xFFFF8A65) // Natural Nude (soft peach)
-              : const Color(0xFFE91E63); // Sunset Glam (berry blush)
-
-      final blushAlpha = (m * 0.17).clamp(0.0, 0.22);
-      final blushRadius = size.width * 0.22;
-
-      // Left cheek blush
-      final leftCheek = Offset(cx - (size.width * 0.20), size.height * 0.44);
-      final leftBlushPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            blushColor.withValues(alpha: blushAlpha),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: leftCheek, radius: blushRadius));
-      canvas.drawCircle(leftCheek, blushRadius, leftBlushPaint);
-
-      // Right cheek blush
-      final rightCheek = Offset(cx + (size.width * 0.20), size.height * 0.44);
-      final rightBlushPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            blushColor.withValues(alpha: blushAlpha),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: rightCheek, radius: blushRadius));
-      canvas.drawCircle(rightCheek, blushRadius, rightBlushPaint);
-
-      // Lip hydration & tint
-      final lipCenter = Offset(cx, size.height * 0.58);
-      final lipRadius = size.width * 0.11;
-      final lipAlpha = (m * 0.15).clamp(0.0, 0.20);
-      final lipPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            blushColor.withValues(alpha: lipAlpha),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: lipCenter, radius: lipRadius));
-      canvas.drawCircle(lipCenter, lipRadius, lipPaint);
-    } else if (gender == 2) {
-      // ── Men: Groomed Jaw Contour & Brow Framing ───────────────
-      final contourAlpha = (m * 0.14).clamp(0.0, 0.18);
-      final contourColor = style == 2
-          ? const Color(0xFF6D4C41) // Sun-Kissed bronze
-          : const Color(0xFF37474F); // Clean / Sharp sculpted contour
-
-      // Jawline shading: subtle shadow gradient along jaw contour
-      final jawPath = Path()
-        ..moveTo(cx - (size.width * 0.35), size.height * 0.56)
-        ..quadraticBezierTo(
-          cx - (size.width * 0.26), size.height * 0.70,
-          cx, size.height * 0.73,
-        )
-        ..quadraticBezierTo(
-          cx + (size.width * 0.26), size.height * 0.70,
-          cx + (size.width * 0.35), size.height * 0.56,
-        );
-
-      final jawPaint = Paint()
-        ..color = contourColor.withValues(alpha: contourAlpha)
-        ..strokeWidth = size.width * 0.08
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
-
-      canvas.drawPath(jawPath, jawPaint);
-
-      // Brow definition accent: subtle contrast enhancement
-      final browPaint = Paint()
-        ..color = Colors.black.withValues(alpha: contourAlpha * 0.6)
-        ..strokeWidth = size.width * 0.04
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-
-      canvas.drawLine(
-        Offset(cx - (size.width * 0.22), size.height * 0.35),
-        Offset(cx - (size.width * 0.06), size.height * 0.34),
-        browPaint,
-      );
-      canvas.drawLine(
-        Offset(cx + (size.width * 0.06), size.height * 0.34),
-        Offset(cx + (size.width * 0.22), size.height * 0.35),
-        browPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_StudioMakeupPainter old) =>
-      old.gender != gender || old.style != style || old.intensity != intensity;
 }
 
 class _ReticleViewfinder extends StatelessWidget {
