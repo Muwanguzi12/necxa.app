@@ -298,8 +298,31 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         for (row in top until bottom) {
             val rowOffset = row * targetStride
             val sourceRow = row * sourceStride
-            for (col in left until right) {
-                if (faceOutline.size >= 3 && !insidePolygon(col.toFloat(), row.toFloat(), faceOutline)) continue
+            // The face oval is effectively convex for this mask. Calculate one
+            // scanline span per row instead of testing every pixel against every
+            // contour point (important on entry-level phones).
+            var maskLeft = left
+            var maskRight = right
+            if (faceOutline.size >= 3) {
+                var minX = Float.POSITIVE_INFINITY
+                var maxX = Float.NEGATIVE_INFINITY
+                var previous = faceOutline.last()
+                for (point in faceOutline) {
+                    if ((point.y > row) != (previous.y > row)) {
+                        val crossX = point.x +
+                            (previous.x - point.x) * (row - point.y) /
+                            (previous.y - point.y)
+                        minX = min(minX, crossX)
+                        maxX = max(maxX, crossX)
+                    }
+                    previous = point
+                }
+                if (!minX.isFinite() || !maxX.isFinite()) continue
+                maskLeft = max(left, minX.toInt())
+                maskRight = min(right, maxX.toInt())
+                if (maskLeft >= maskRight) continue
+            }
+            for (col in maskLeft until maskRight) {
                 val index = rowOffset + col
                 val chromaIndexU = (row / 2) * sourceUStride + (col / 2)
                 val chromaIndexV = (row / 2) * sourceVStride + (col / 2)
