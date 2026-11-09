@@ -1729,46 +1729,80 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
   }
 
-  void _scheduleFaceSymmetryProcessing(double intensity) {
+  void _scheduleLiveEffectsProcessing() {
     _faceSymmetryUpdateTimer?.cancel();
     _faceSymmetryUpdateTimer = Timer(const Duration(milliseconds: 80), () async {
       final track = widget.state.live.room?.localParticipant
           ?.videoTrackPublications.firstOrNull?.track;
       if (track == null) return;
       final trackId = track.mediaStreamTrack.id;
-      // Guard: trackId must be non-null and non-empty, otherwise the native plugin won't find the track
       if (trackId == null || trackId.isEmpty) return;
+
+      final filter = _activeCatalogueFilter;
+      final filterStrength = filter == null || filter.isNone
+          ? 0.0
+          : _catalogueFilterIntensity.clamp(0.0, 1.0);
+      final smoothing = _beautySmoothing.clamp(0.0, 1.0);
+      final brightness = (((filter?.brightness ?? 0.0) * filterStrength) +
+              (_beautyWhitening * 0.08))
+          .clamp(-0.25, 0.25);
+      final contrast = (1.0 +
+              ((filter?.contrast ?? 1.0) - 1.0) * filterStrength)
+          .clamp(0.5, 1.8);
+      final saturation = (1.0 +
+              ((filter?.saturation ?? 1.0) - 1.0) * filterStrength)
+          .clamp(0.0, 2.0);
+      final toneWarmth = _beautyWhitening <= 0
+          ? 0.0
+          : (_skinBrighteningTone == 0
+              ? 0.12
+              : (_skinBrighteningTone == 1 ? -0.08 : 0.0));
+      final warmth = (((filter?.hue ?? 0.0) * filterStrength) + toneWarmth)
+          .clamp(-0.5, 0.5);
+      final needsProcessor = _faceSymmetry > 0.01 ||
+          smoothing > 0.01 ||
+          brightness.abs() > 0.001 ||
+          (contrast - 1.0).abs() > 0.001 ||
+          (saturation - 1.0).abs() > 0.001 ||
+          warmth.abs() > 0.001;
+
       try {
-        if (intensity <= 0.01) {
+        if (!needsProcessor) {
           if (!_faceSymmetryProcessorAttached) return;
           await _faceSymmetryChannel.invokeMethod<void>('detach', {
             'trackId': trackId,
           });
           if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-        } else if (_faceSymmetryProcessorAttached) {
-          await _faceSymmetryChannel.invokeMethod<void>('setIntensity', {
-            'trackId': trackId,
-            'intensity': intensity,
-            'mirrorLeft': _symmetryMirrorLeft,
-          });
+          return;
+        }
+
+        final config = <String, Object>{
+          'trackId': trackId,
+          'symmetry': _faceSymmetry.clamp(0.0, 1.0),
+          'mirrorLeft': _symmetryMirrorLeft,
+          'smoothing': smoothing,
+          'brightness': brightness,
+          'contrast': contrast,
+          'saturation': saturation,
+          'warmth': warmth,
+        };
+        if (_faceSymmetryProcessorAttached) {
+          await _faceSymmetryChannel.invokeMethod<void>('setEffects', config);
         } else {
           await _faceSymmetryChannel.invokeMethod<void>('attach', {
-            'trackId': trackId,
-            'intensity': intensity,
-            'mirrorLeft': _symmetryMirrorLeft,
+            ...config,
+            'intensity': _faceSymmetry.clamp(0.0, 1.0),
           });
-          // Only mark attached AFTER the native call confirms success (no exception)
           if (mounted) setState(() => _faceSymmetryProcessorAttached = true);
         }
       } on PlatformException catch (error) {
-        debugPrint('Necxa Live: Face symmetry processor error: ${error.message}');
-        // If attach/setIntensity fails, reset state so next call retries attach cleanly
+        debugPrint('Necxa Live: Native effects processor error: ${error.message}');
         if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       } on MissingPluginException {
-        debugPrint('Necxa Live: Face symmetry processor is not available on this platform.');
+        debugPrint('Necxa Live: Native effects are unavailable on this platform.');
         if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       } catch (error) {
-        debugPrint('Necxa Live: Could not update face symmetry: $error');
+        debugPrint('Necxa Live: Could not update live effects: $error');
         if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       }
     });
@@ -2949,7 +2983,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       _makeupStyle = 0;
                       _makeupIntensity = 0.6;
                     });
-                    _scheduleFaceSymmetryProcessing(0);
+                    _scheduleLiveEffectsProcessing();
                   },
                   child: Text('Reset', style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600)),
                 ),
@@ -3017,6 +3051,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               _activeCatalogueFilter = null;
                               _activeFilterIndex = 0;
                             });
+                            _scheduleLiveEffectsProcessing();
                           },
                         ),
                         // Dynamic Catalogue Filter Cards
@@ -3032,6 +3067,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               update(() {
                                 _activeCatalogueFilter = filter;
                               });
+                              _scheduleLiveEffectsProcessing();
                             },
                           );
                         }),
@@ -3058,7 +3094,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         value: _catalogueFilterIntensity,
                         min: 0,
                         max: 1,
-                        onChanged: (v) => update(() => _catalogueFilterIntensity = v),
+                        onChanged: (v) {
+                          update(() => _catalogueFilterIntensity = v);
+                          _scheduleLiveEffectsProcessing();
+                        },
                       ),
                     ),
                   ),
@@ -3075,7 +3114,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               icon: Icons.face_retouching_natural,
               label: 'Skin Smoothing',
               value: _beautySmoothing,
-              onChanged: (v) => update(() => _beautySmoothing = v),
+              onChanged: (v) {
+                update(() => _beautySmoothing = v);
+                _scheduleLiveEffectsProcessing();
+              },
             ),
             if (_beautySmoothing > 0) ...[
               const SizedBox(height: 6),
@@ -3089,6 +3131,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         onTap: () {
                           HapticFeedback.selectionClick();
                           update(() => _skinSmoothingMode = item.$1);
+                          _scheduleLiveEffectsProcessing();
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3117,7 +3160,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               icon: Icons.wb_sunny_outlined,
               label: 'Skin Brightening',
               value: _beautyWhitening,
-              onChanged: (v) => update(() => _beautyWhitening = v),
+              onChanged: (v) {
+                update(() => _beautyWhitening = v);
+                _scheduleLiveEffectsProcessing();
+              },
             ),
             if (_beautyWhitening > 0) ...[
               const SizedBox(height: 6),
@@ -3131,6 +3177,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         onTap: () {
                           HapticFeedback.selectionClick();
                           update(() => _skinBrighteningTone = item.$1);
+                          _scheduleLiveEffectsProcessing();
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3161,7 +3208,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               value: _faceSymmetry,
               onChanged: (v) {
                 update(() => _faceSymmetry = v);
-                _scheduleFaceSymmetryProcessing(v);
+                _scheduleLiveEffectsProcessing(v);
               },
             ),
             if (_faceSymmetry > 0) ...[
@@ -3176,7 +3223,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = true);
                         if (_faceSymmetry > 0.01) {
-                          _scheduleFaceSymmetryProcessing(_faceSymmetry);
+                          _scheduleLiveEffectsProcessing(_faceSymmetry);
                         }
                       },
                       child: Container(
@@ -3201,7 +3248,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = false);
                         if (_faceSymmetry > 0.01) {
-                          _scheduleFaceSymmetryProcessing(_faceSymmetry);
+                          _scheduleLiveEffectsProcessing(_faceSymmetry);
                         }
                       },
                       child: Container(
