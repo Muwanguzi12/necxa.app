@@ -20,11 +20,8 @@ import kotlin.math.min
  * for the WebRTC local camera track.
  *
  * Optimizations:
- * 1. Zero-heap-allocation memory pool for NV21 buffers and row chunks.
- * 2. Bulk native row copy (memcpy) for ~95% of non-facial pixels, slashing CPU usage.
- * 3. Throttled ML Kit face detection (1 in 10 frames) with grace-period smoothing.
- * 4. Anatomical vertical weight curve to sculpt jawline & cheeks while preserving natural eyes.
- * 5. Directional symmetry balancing (mirrorLeft/mirrorRight) support.
+ * Reuses conversion/row buffers, throttles on-device ML Kit detection, and
+ * degrades face-processing quality when frame processing exceeds its budget.
  */
 internal data class FaceLandmarkState(
     val bounds: Rect,
@@ -95,6 +92,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
             kotlin.math.abs(saturationAmount - 1f) < 0.001f &&
             kotlin.math.abs(warmthAmount) < 0.001f) {
             face = null
+            faceLandmarks = null
             return frame
         }
 
@@ -124,7 +122,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                     kotlin.math.abs(contrastAmount - 1f) >= 0.001f ||
                     kotlin.math.abs(saturationAmount - 1f) >= 0.001f ||
                     kotlin.math.abs(warmthAmount) >= 0.001f
-                if (bounds == null && smooth <= 0.01f && !hasColourGrade && (makeupMode == 0 || makeupAmount <= 0.01f)) {
+                if (bounds == null && smooth <= 0.01f && !hasColourGrade &&
+                    (makeupMode == 0 || makeupAmount <= 0.01f || faceLandmarks == null)) {
                     // Symmetry is enabled but no face has been detected yet: preserve
                     // the original frame without allocating/copying an identical I420 buffer.
                     source.release()
