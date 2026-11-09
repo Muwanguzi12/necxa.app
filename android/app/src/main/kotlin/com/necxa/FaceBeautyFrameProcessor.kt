@@ -35,31 +35,6 @@ internal data class FaceLandmarkState(
     val lowerLip: List<PointF>
 )
 
-internal object FaceCoordinateMapper {
-    fun mapPoint(x: Float, y: Float, width: Int, height: Int, rotation: Int): PointF =
-        when (((rotation % 360) + 360) % 360) {
-            90 -> PointF(y, height - x)
-            180 -> PointF(width - x, height - y)
-            270 -> PointF(width - y, x)
-            else -> PointF(x, y)
-        }
-
-    fun mapRect(rect: Rect, width: Int, height: Int, rotation: Int): Rect {
-        val corners = listOf(
-            mapPoint(rect.left.toFloat(), rect.top.toFloat(), width, height, rotation),
-            mapPoint(rect.right.toFloat(), rect.top.toFloat(), width, height, rotation),
-            mapPoint(rect.left.toFloat(), rect.bottom.toFloat(), width, height, rotation),
-            mapPoint(rect.right.toFloat(), rect.bottom.toFloat(), width, height, rotation)
-        )
-        return Rect(
-            corners.minOf { it.x }.toInt().coerceIn(0, width),
-            corners.minOf { it.y }.toInt().coerceIn(0, height),
-            corners.maxOf { it.x }.toInt().coerceIn(0, width),
-            corners.maxOf { it.y }.toInt().coerceIn(0, height)
-        )
-    }
-}
-
 internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProcessing {
     @Volatile var intensity: Float = 0.35f
     @Volatile var mirrorLeft: Boolean? = null
@@ -262,9 +237,13 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                         if (missedDetectionCount > 4) { face = null; faceLandmarks = null }
                     } else {
                         missedDetectionCount = 0
-                        val mapped = FaceCoordinateMapper.mapRect(detected.boundingBox, w, h, rotation)
+                        val mapped = FaceCoordinateMapper.mapRect(
+                            detected.boundingBox.left, detected.boundingBox.top,
+                            detected.boundingBox.right, detected.boundingBox.bottom, w, h, rotation
+                        )
+                        val mappedRect = Rect(mapped.left, mapped.top, mapped.right, mapped.bottom)
                         val old = face
-                        val smoothed = if (old == null) mapped else Rect(
+                        val smoothed = if (old == null) mappedRect else Rect(
                             blend(old.left, mapped.left), blend(old.top, mapped.top),
                             blend(old.right, mapped.right), blend(old.bottom, mapped.bottom)
                         )
@@ -272,6 +251,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                         fun contour(type: Int): List<PointF> =
                             detected.getContour(type)?.points?.map { p ->
                                 FaceCoordinateMapper.mapPoint(p.x, p.y, w, h, rotation)
+                                    .let { PointF(it.x, it.y) }
                             } ?: emptyList()
                         faceLandmarks = FaceLandmarkState(
                             smoothed, contour(FaceContour.FACE),
