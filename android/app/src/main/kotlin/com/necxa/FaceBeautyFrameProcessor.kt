@@ -105,11 +105,16 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         val requestedSymmetry = intensity.coerceIn(0f, 1f)
         // Native safety gate: resolution, heap headroom, and a short circuit
         // breaker are checked before any symmetry pixel loop is entered.
+        val runtime = Runtime.getRuntime()
+        val availableHeapBytes = runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory()
+        val nativeHeapFreeBytes = android.os.Debug.getNativeHeapFreeSize()
+        val memoryHeadroomOk = availableHeapBytes >= MIN_FREE_HEAP_BYTES &&
+            nativeHeapFreeBytes >= MIN_FREE_HEAP_BYTES
         val symmetryAllowed = requestedSymmetry > 0.01f &&
             frame.buffer.width <= MAX_SYMMETRY_WIDTH &&
             frame.buffer.height <= MAX_SYMMETRY_HEIGHT &&
             frame.buffer.width.toLong() * frame.buffer.height.toLong() <= MAX_SYMMETRY_PIXELS &&
-            Runtime.getRuntime().freeMemory() >= MIN_FREE_HEAP_BYTES &&
+            memoryHeadroomOk &&
             System.nanoTime() >= symmetryDisabledUntilNanos &&
             averageCost <= 28_000_000L
         val amount = if (symmetryAllowed) requestedSymmetry else 0f
@@ -119,7 +124,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 frame.buffer.width > MAX_SYMMETRY_WIDTH ||
                     frame.buffer.height > MAX_SYMMETRY_HEIGHT ||
                     frame.buffer.width.toLong() * frame.buffer.height.toLong() > MAX_SYMMETRY_PIXELS -> BYPASS_RESOLUTION
-                Runtime.getRuntime().freeMemory() < MIN_FREE_HEAP_BYTES -> BYPASS_MEMORY
+                !memoryHeadroomOk -> BYPASS_MEMORY
                 System.nanoTime() < symmetryDisabledUntilNanos -> BYPASS_COOLDOWN
                 else -> BYPASS_BUDGET
             }
@@ -270,8 +275,10 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         "symmetryDisabledUntilNanos" to symmetryDisabledUntilNanos,
         "lastBypassReason" to lastBypassReason,
         "freeHeapBytes" to Runtime.getRuntime().freeMemory(),
+        "availableHeapBytes" to (Runtime.getRuntime().maxMemory() - Runtime.getRuntime().totalMemory() + Runtime.getRuntime().freeMemory()),
         "maxHeapBytes" to Runtime.getRuntime().maxMemory(),
-        "nativeHeapBytes" to android.os.Debug.getNativeHeapAllocatedSize()
+        "nativeHeapAllocatedBytes" to android.os.Debug.getNativeHeapAllocatedSize(),
+        "nativeHeapFreeBytes" to android.os.Debug.getNativeHeapFreeSize()
     )
 
     private fun detect(buffer: org.webrtc.VideoFrame.I420Buffer, rotation: Int) {
