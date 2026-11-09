@@ -3208,7 +3208,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               value: _faceSymmetry,
               onChanged: (v) {
                 update(() => _faceSymmetry = v);
-                _scheduleLiveEffectsProcessing(v);
+                _scheduleLiveEffectsProcessing();
               },
             ),
             if (_faceSymmetry > 0) ...[
@@ -3223,7 +3223,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = true);
                         if (_faceSymmetry > 0.01) {
-                          _scheduleLiveEffectsProcessing(_faceSymmetry);
+                          _scheduleLiveEffectsProcessing();
                         }
                       },
                       child: Container(
@@ -3248,7 +3248,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = false);
                         if (_faceSymmetry > 0.01) {
-                          _scheduleLiveEffectsProcessing(_faceSymmetry);
+                          _scheduleLiveEffectsProcessing();
                         }
                       },
                       child: Container(
