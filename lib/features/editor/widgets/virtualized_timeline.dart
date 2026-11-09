@@ -15,6 +15,12 @@ class VirtualizedTimeline extends StatefulWidget {
   final Widget Function(TimelineTrack)? trackHeaderBuilder;
   final Duration playheadPosition;
   final bool showPlayhead;
+  final bool rippleMode;
+  final bool snappingEnabled;
+  final double snapThresholdPixels;
+  final ValueChanged<List<TimelineTrack>>? onTimelineChanged;
+  final void Function(TimelineClip, TimelineTrack, Duration)? onClipMoved;
+  final void Function(TimelineClip, TimelineTrack, Duration, Duration)? onClipTrimmed;
 
   const VirtualizedTimeline({
     super.key,
@@ -28,6 +34,12 @@ class VirtualizedTimeline extends StatefulWidget {
     this.trackHeaderBuilder,
     this.playheadPosition = Duration.zero,
     this.showPlayhead = true,
+    this.rippleMode = true,
+    this.snappingEnabled = true,
+    this.snapThresholdPixels = 10,
+    this.onTimelineChanged,
+    this.onClipMoved,
+    this.onClipTrimmed,
   });
 
   @override
@@ -42,6 +54,16 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
   // Visible range tracking
   double _visibleStartSeconds = 0;
   double _visibleEndSeconds = 0;
+
+  String? _dragClipId;
+  TimelineTrack? _dragTrack;
+  String? _dragMode;
+  double _dragOriginGlobalX = 0;
+  Duration _originalStart = Duration.zero;
+  Duration _originalDuration = Duration.zero;
+  Duration _originalSourceStart = Duration.zero;
+  Duration? _originalSourceEnd;
+  Duration _lastAppliedDelta = Duration.zero;
   
   @override
   void initState() {
@@ -189,12 +211,41 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
               return Positioned(
                 left: clipX,
                 top: 4,
-                width: clipWidth,
+                width: clipWidth.clamp(24.0, double.infinity),
                 height: widget.timelineHeight - 8,
                 child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   onTap: () => widget.onClipTap?.call(clip, track),
                   onLongPress: () => widget.onClipLongPress?.call(clip, track),
-                  child: widget.clipBuilder?.call(clip, track) ?? _buildDefaultClip(clip, track),
+                  onPanStart: (details) => _beginClipDrag(
+                    clip, track, details.localPosition.dx, details.globalPosition.dx,
+                  ),
+                  onPanUpdate: (details) => _updateClipDrag(details.globalPosition.dx),
+                  onPanEnd: (_) => _finishClipDrag(),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      widget.clipBuilder?.call(clip, track) ?? _buildDefaultClip(clip, track),
+                      Positioned(left: 0, top: 0, bottom: 0, width: 12,
+                        child: IgnorePointer(child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.22),
+                            borderRadius: const BorderRadius.horizontal(left: Radius.circular(4)),
+                          ),
+                          child: const Center(child: Icon(Icons.drag_indicator, size: 11, color: Colors.white)),
+                        )),
+                      ),
+                      Positioned(right: 0, top: 0, bottom: 0, width: 12,
+                        child: IgnorePointer(child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.22),
+                            borderRadius: const BorderRadius.horizontal(right: Radius.circular(4)),
+                          ),
+                          child: const Center(child: Icon(Icons.drag_indicator, size: 11, color: Colors.white)),
+                        )),
+                      ),
+                    ],
+                  ),
                 ),
               );
             }),
@@ -202,6 +253,156 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
         ),
       );
     }).toList();
+  }
+
+  void _beginClipDrag(
+    TimelineClip clip,
+    TimelineTrack track,
+    double localX,
+    double globalX,
+  ) {
+    if (track.isLocked) return;
+    _dragClipId = clip.id;
+    _dragTrack = track;
+    _dragMode = localX <= 14
+        ? 'trim-start'
+        : (localX >= clip.duration.inMilliseconds / 1000 * widget.pixelsPerSecond - 14
+            ? 'trim-end'
+            : 'move');
+    _dragOriginGlobalX = globalX;
+    _originalStart = clip.start;
+    _originalDuration = clip.duration;
+    _originalSourceStart = clip.sourceStart;
+    _originalSourceEnd = clip.sourceEnd;
+    _lastAppliedDelta = Duration.zero;
+  }
+
+  void _updateClipDrag(double globalX) {
+    final id = _dragClipId;
+    final track = _dragTrack;
+    final mode = _dragMode;
+    if (id == null || track == null || mode == null || widget.pixelsPerSecond <= 0) return;
+    final clip = track.clips.where((item) => item.id == id).firstOrNull;
+    if (clip == null) return;
+
+    final deltaMs = ((globalX - _dragOriginGlobalX) / widget.pixelsPerSecond * 1000).round();
+    final delta = Duration(milliseconds: deltaMs);
+    final minDuration = const Duration(milliseconds: 100);
+
+    if (mode == 'move') {
+      var target = _originalStart + delta;
+      if (target < Duration.zero) target = Duration.zero;
+      if (widget.snappingEnabled) target = _snapStart(clip, track, target);
+      clip.start = target;
+      _lastAppliedDelta = target - _originalStart;
+    } else if (mode == 'trim-start') {
+      final maxTrim = _originalDuration - minDuration;
+      final applied = delta.inMilliseconds.clamp(-_originalStart.inMilliseconds, maxTrim.inMilliseconds);
+      var newStart = _originalStart + Duration(milliseconds: applied);
+      var newSourceStart = _originalSourceStart + Duration(milliseconds: (applied * clip.speed).round());
+      if (newSourceStart < Duration.zero) {
+        final correction = Duration.zero - newSourceStart;
+        newStart += correction;
+        newSourceStart = Duration.zero;
+      }
+      clip.start = newStart;
+      clip.duration = _originalDuration - (newStart - _originalStart);
+      clip.sourceStart = newSourceStart;
+      if (clip.sourceEnd != null) {
+        clip.sourceEnd = _originalSourceEnd;
+      }
+      if (clip.operation is TrimOperation) {
+        (clip.operation as TrimOperation).start = newSourceStart;
+      }
+      _lastAppliedDelta = newStart - _originalStart;
+    } else {
+      final applied = delta.inMilliseconds.clamp(
+        -(_originalDuration - minDuration).inMilliseconds,
+        24 * 60 * 60 * 1000,
+      );
+      final nextDuration = _originalDuration + Duration(milliseconds: applied);
+      clip.duration = nextDuration;
+      clip.sourceEnd = _originalSourceEnd == null
+          ? null
+          : _originalSourceEnd! + Duration(milliseconds: (applied * clip.speed).round());
+      if (clip.operation is TrimOperation && clip.sourceEnd != null) {
+        (clip.operation as TrimOperation).end = clip.sourceEnd!;
+      }
+      _lastAppliedDelta = nextDuration - _originalDuration;
+    }
+
+    setState(() {});
+  }
+
+  Duration _snapStart(TimelineClip moving, TimelineTrack track, Duration target) {
+    final candidates = <Duration>[widget.playheadPosition];
+    for (final other in track.clips) {
+      if (other.id == moving.id) continue;
+      candidates
+        ..add(other.start)
+        ..add(other.start + other.duration);
+    }
+    final threshold = Duration(
+      milliseconds: (widget.snapThresholdPixels / widget.pixelsPerSecond * 1000).round(),
+    );
+    var best = target;
+    var bestDistance = threshold.inMilliseconds + 1;
+    for (final candidate in candidates) {
+      final distance = (candidate - target).inMilliseconds.abs();
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
+  void _finishClipDrag() {
+    final id = _dragClipId;
+    final track = _dragTrack;
+    final mode = _dragMode;
+    if (id == null || track == null || mode == null) return;
+    final clip = track.clips.where((item) => item.id == id).firstOrNull;
+    if (clip != null) {
+      if (mode == 'move') {
+        widget.onClipMoved?.call(clip, track, clip.start);
+      } else {
+        if (widget.rippleMode && _lastAppliedDelta.inMilliseconds > 0) {
+          final oldEnd = _originalStart + _originalDuration;
+          for (final other in track.clips) {
+            if (other.id != clip.id && other.start >= oldEnd) {
+              other.start -= _lastAppliedDelta;
+            }
+          }
+        }
+        widget.onClipTrimmed?.call(
+          clip, track, clip.sourceStart, clip.sourceEnd ?? (clip.sourceStart + Duration(milliseconds: (clip.duration.inMilliseconds * clip.speed).round())),
+        );
+      }
+      track.clips.sort((a, b) => a.start.compareTo(b.start));
+      widget.onTimelineChanged?.call(widget.tracks);
+    }
+    _dragClipId = null;
+    _dragTrack = null;
+    _dragMode = null;
+    _lastAppliedDelta = Duration.zero;
+    setState(() {});
+  }
+
+  void deleteClip(TimelineClip clip, TimelineTrack track) {
+    if (track.isLocked) return;
+    final removedStart = clip.start;
+    final removedDuration = clip.duration;
+    track.clips.removeWhere((item) => item.id == clip.id);
+    if (widget.rippleMode) {
+      for (final other in track.clips) {
+        if (other.start >= removedStart + removedDuration) {
+          other.start -= removedDuration;
+        }
+      }
+    }
+    widget.onTimelineChanged?.call(widget.tracks);
+    setState(() {});
   }
 
   Widget _buildDefaultTrackHeader(TimelineTrack track) {
