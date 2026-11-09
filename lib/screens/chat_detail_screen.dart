@@ -11,6 +11,7 @@ import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
+import '../widgets/follow_sync_button.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final AppState state;
@@ -184,6 +185,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             onPressed: () => s.goBack(),
           ),
           actions: [
+            if (!conv.isSupport && (conv.otherPartyId ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: FollowSyncButton(
+                  state: s,
+                  targetUserId: conv.otherPartyId!,
+                  compact: true,
+                ),
+              ),
             IconButton(
               icon: Icon(Icons.settings, color: C.sub),
               onPressed: () => _showChatSettings(s),

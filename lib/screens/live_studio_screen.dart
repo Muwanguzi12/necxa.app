@@ -1,4 +1,4 @@
-import 'package:livekit_client/livekit_client.dart';
+﻿import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
@@ -13,6 +13,7 @@ import '../services/finance_gifting_service.dart';
 import '../widgets/live_overlays.dart';
 import '../widgets/checkout_container.dart';
 import '../widgets/vault_buy_shards_overlay.dart';
+import '../widgets/follow_sync_button.dart';
 import '../services/ai_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
@@ -5192,6 +5193,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 GestureDetector(
                   onTap: _showProductPicker,
                   child: _hudCircleButton(Icons.push_pin_outlined),
+                ),
+              ],
+              if (!widget.isHost && (_hostUserId ?? '').isNotEmpty) ...[
+                const SizedBox(width: 7),
+                FollowSyncButton(
+                  state: widget.state,
+                  targetUserId: _hostUserId!,
+                  compact: true,
                 ),
               ],
               const SizedBox(width: 7),
