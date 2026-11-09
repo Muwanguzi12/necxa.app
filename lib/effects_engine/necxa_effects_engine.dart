@@ -7,12 +7,14 @@ class NativeEffectParameters {
   final double brightness;
   final double contrast;
   final double saturation;
+  final double hue;
   final double warmth;
 
   const NativeEffectParameters({
     required this.brightness,
     required this.contrast,
     required this.saturation,
+    required this.hue,
     required this.warmth,
   });
 
@@ -20,6 +22,7 @@ class NativeEffectParameters {
     'brightness': brightness,
     'contrast': contrast,
     'saturation': saturation,
+    'hue': hue,
     'warmth': warmth,
   };
 }
@@ -125,6 +128,7 @@ class NecxaEffectsEngine {
             ((meta?.saturation ?? 1.0) - 1.0) * strength)
         .clamp(0.0, 2.0)
         .toDouble();
+    final hue = ((meta?.hue ?? 0.0) * strength).clamp(-math.pi, math.pi).toDouble();
     final toneWarmth = skinBrightening <= 0
         ? 0.0
         : (skinTone == 0 ? 0.12 : (skinTone == 1 ? -0.08 : 0.0));
@@ -135,6 +139,7 @@ class NecxaEffectsEngine {
       brightness: brightness,
       contrast: contrast,
       saturation: saturation,
+      hue: hue,
       warmth: warmth,
     );
   }
