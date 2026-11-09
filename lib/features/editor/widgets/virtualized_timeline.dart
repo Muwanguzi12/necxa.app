@@ -298,7 +298,7 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
       _lastAppliedDelta = target - _originalStart;
     } else if (mode == 'trim-start') {
       final maxTrim = _originalDuration - minDuration;
-      final applied = delta.inMilliseconds.clamp(-_originalStart.inMilliseconds, maxTrim.inMilliseconds);
+      final applied = delta.inMilliseconds.clamp(-_originalStart.inMilliseconds, maxTrim.inMilliseconds).toInt();
       final appliedDuration = Duration(milliseconds: applied);
       var newSourceStart = _originalSourceStart + Duration(milliseconds: (applied * clip.speed).round());
       if (newSourceStart < Duration.zero) newSourceStart = Duration.zero;
@@ -316,7 +316,7 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
       final applied = delta.inMilliseconds.clamp(
         -(_originalDuration - minDuration).inMilliseconds,
         24 * 60 * 60 * 1000,
-      );
+      ).toInt();
       final nextDuration = _originalDuration + Duration(milliseconds: applied);
       clip.duration = nextDuration;
       clip.sourceEnd = _originalSourceEnd == null
