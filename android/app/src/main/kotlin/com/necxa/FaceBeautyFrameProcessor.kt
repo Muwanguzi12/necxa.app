@@ -91,6 +91,17 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 }
 
                 val bounds = face
+                val hasColourGrade = kotlin.math.abs(bright) >= 0.001f ||
+                    kotlin.math.abs(contrastAmount - 1f) >= 0.001f ||
+                    kotlin.math.abs(saturationAmount - 1f) >= 0.001f ||
+                    kotlin.math.abs(warmthAmount) >= 0.001f
+                if (bounds == null && smooth <= 0.01f && !hasColourGrade) {
+                    // Symmetry is enabled but no face has been detected yet: preserve
+                    // the original frame without allocating/copying an identical I420 buffer.
+                    source.release()
+                    sourceReleased = true
+                    return frame
+                }
                 output = JavaI420Buffer.allocate(source.width, source.height)
 
                 if (amount > 0.01f && bounds != null) {
