@@ -1,8 +1,10 @@
 package com.necxa
 
 import android.graphics.Rect
+import android.graphics.PointF
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceContour
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.cloudwebrtc.webrtc.video.LocalVideoTrack
@@ -24,6 +26,40 @@ import kotlin.math.min
  * 4. Anatomical vertical weight curve to sculpt jawline & cheeks while preserving natural eyes.
  * 5. Directional symmetry balancing (mirrorLeft/mirrorRight) support.
  */
+internal data class FaceLandmarkState(
+    val bounds: Rect,
+    val faceOutline: List<PointF>,
+    val leftCheek: List<PointF>,
+    val rightCheek: List<PointF>,
+    val upperLip: List<PointF>,
+    val lowerLip: List<PointF>
+)
+
+internal object FaceCoordinateMapper {
+    fun mapPoint(x: Float, y: Float, width: Int, height: Int, rotation: Int): PointF =
+        when (((rotation % 360) + 360) % 360) {
+            90 -> PointF(y, height - x)
+            180 -> PointF(width - x, height - y)
+            270 -> PointF(width - y, x)
+            else -> PointF(x, y)
+        }
+
+    fun mapRect(rect: Rect, width: Int, height: Int, rotation: Int): Rect {
+        val corners = listOf(
+            mapPoint(rect.left.toFloat(), rect.top.toFloat(), width, height, rotation),
+            mapPoint(rect.right.toFloat(), rect.top.toFloat(), width, height, rotation),
+            mapPoint(rect.left.toFloat(), rect.bottom.toFloat(), width, height, rotation),
+            mapPoint(rect.right.toFloat(), rect.bottom.toFloat(), width, height, rotation)
+        )
+        return Rect(
+            corners.minOf { it.x }.toInt().coerceIn(0, width),
+            corners.minOf { it.y }.toInt().coerceIn(0, height),
+            corners.maxOf { it.x }.toInt().coerceIn(0, width),
+            corners.maxOf { it.y }.toInt().coerceIn(0, height)
+        )
+    }
+}
+
 internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProcessing {
     @Volatile var intensity: Float = 0.35f
     @Volatile var mirrorLeft: Boolean? = null
@@ -32,11 +68,14 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     @Volatile var contrast: Float = 1f
     @Volatile var saturation: Float = 1f
     @Volatile var warmth: Float = 0f
+    @Volatile var makeupGender: Int = 0
+    @Volatile var makeupStyle: Int = 0
+    @Volatile var makeupIntensity: Float = 0f
 
     private val detector: FaceDetector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
             .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
             .setMinFaceSize(0.15f)
@@ -45,6 +84,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
 
     private val detecting = AtomicBoolean(false)
     @Volatile private var face: Rect? = null
+    @Volatile private var faceLandmarks: FaceLandmarkState? = null
     private var frameCount = 0
     private var missedDetectionCount = 0
     @Volatile private var closed = false
@@ -65,7 +105,9 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         val contrastAmount = contrast.coerceIn(0.5f, 1.8f)
         val saturationAmount = saturation.coerceIn(0f, 2f)
         val warmthAmount = warmth.coerceIn(-0.5f, 0.5f)
-        val needsFace = amount > 0.01f || smooth > 0.01f
+        val makeupAmount = makeupIntensity.coerceIn(0f, 1f)
+        val makeupMode = makeupGender.coerceIn(0, 2)
+        val needsFace = amount > 0.01f || smooth > 0.01f || (makeupMode > 0 && makeupAmount > 0.01f)
         if (!needsFace && kotlin.math.abs(bright) < 0.001f &&
             kotlin.math.abs(contrastAmount - 1f) < 0.001f &&
             kotlin.math.abs(saturationAmount - 1f) < 0.001f &&
@@ -95,7 +137,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                     kotlin.math.abs(contrastAmount - 1f) >= 0.001f ||
                     kotlin.math.abs(saturationAmount - 1f) >= 0.001f ||
                     kotlin.math.abs(warmthAmount) >= 0.001f
-                if (bounds == null && smooth <= 0.01f && !hasColourGrade) {
+                if (bounds == null && smooth <= 0.01f && !hasColourGrade && (makeupMode == 0 || makeupAmount <= 0.01f)) {
                     // Symmetry is enabled but no face has been detected yet: preserve
                     // the original frame without allocating/copying an identical I420 buffer.
                     source.release()
@@ -120,7 +162,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 if (smooth > 0.01f && bounds != null) {
                     applySkinSmoothing(source.dataY, source.strideY, source.dataU,
                         source.strideU, source.dataV, source.strideV, output.dataY,
-                        output.strideY, source.width, source.height, bounds, smooth)
+                        output.strideY, source.width, source.height, bounds, smooth,
+                        faceLandmarks?.faceOutline.orEmpty())
                 }
                 if (kotlin.math.abs(bright) >= 0.001f ||
                     kotlin.math.abs(contrastAmount - 1f) >= 0.001f) {
@@ -131,6 +174,13 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                     kotlin.math.abs(warmthAmount) >= 0.001f) {
                     applyChromaGrade(output.dataU, output.strideU, output.dataV, output.strideV,
                         source.width / 2, source.height / 2, saturationAmount, warmthAmount)
+                }
+                if (makeupMode > 0 && makeupAmount > 0.01f) {
+                    faceLandmarks?.let {
+                        applyMakeup(output.dataU, output.strideU, output.dataV, output.strideV,
+                            source.width / 2, source.height / 2, it, makeupMode,
+                            makeupStyle.coerceIn(0, 2), makeupAmount)
+                    }
                 }
 
                 output.dataY.position(0)
@@ -153,70 +203,62 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         try {
             val w = buffer.width
             val h = buffer.height
-            val requiredSize = w * h * 3 / 2
-            val nv21 = getOrCreateNv21(requiredSize)
-
+            val nv21 = getOrCreateNv21(w * h * 3 / 2)
             val y = buffer.dataY
-            val strideY = buffer.strideY
-            if (strideY == w) {
-                y.position(0)
-                y.limit(w * h)
-                nv21.put(y)
+            if (buffer.strideY == w) {
+                y.position(0); y.limit(w * h); nv21.put(y)
             } else {
                 val rowBytes = getTransferBuffer(w)
                 for (row in 0 until h) {
-                    y.position(row * strideY)
-                    y.get(rowBytes, 0, w)
-                    nv21.put(rowBytes, 0, w)
+                    y.position(row * buffer.strideY); y.get(rowBytes, 0, w); nv21.put(rowBytes, 0, w)
                 }
             }
-
-            val u = buffer.dataU
-            val v = buffer.dataV
-            val strideU = buffer.strideU
-            val strideV = buffer.strideV
             val halfW = w / 2
             val halfH = h / 2
             ensureUvCaches(halfW)
-
             for (row in 0 until halfH) {
-                v.position(row * strideV)
-                v.get(vRowCache, 0, halfW)
-                u.position(row * strideU)
-                u.get(uRowCache, 0, halfW)
-
+                buffer.dataV.position(row * buffer.strideV)
+                buffer.dataV.get(vRowCache, 0, halfW)
+                buffer.dataU.position(row * buffer.strideU)
+                buffer.dataU.get(uRowCache, 0, halfW)
                 var idx = 0
-                for (c in 0 until halfW) {
-                    uvInterleavedCache[idx++] = vRowCache[c]
-                    uvInterleavedCache[idx++] = uRowCache[c]
+                for (col in 0 until halfW) {
+                    uvInterleavedCache[idx++] = vRowCache[col]
+                    uvInterleavedCache[idx++] = uRowCache[col]
                 }
                 nv21.put(uvInterleavedCache, 0, w)
             }
-
             nv21.flip()
             val image = InputImage.fromByteBuffer(nv21, w, h, rotation, InputImage.IMAGE_FORMAT_NV21)
             detector.process(image)
                 .addOnSuccessListener { faces ->
-                    val next = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }?.boundingBox
-                    if (next == null) {
+                    val detected = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                    if (detected == null) {
                         missedDetectionCount++
-                        if (missedDetectionCount > 4) {
-                            face = null
-                        }
+                        if (missedDetectionCount > 4) { face = null; faceLandmarks = null }
                     } else {
                         missedDetectionCount = 0
+                        val mapped = FaceCoordinateMapper.mapRect(detected.boundingBox, w, h, rotation)
                         val old = face
-                        face = if (old == null) Rect(next) else Rect(
-                            blend(old.left, next.left), blend(old.top, next.top),
-                            blend(old.right, next.right), blend(old.bottom, next.bottom)
+                        val smoothed = if (old == null) mapped else Rect(
+                            blend(old.left, mapped.left), blend(old.top, mapped.top),
+                            blend(old.right, mapped.right), blend(old.bottom, mapped.bottom)
+                        )
+                        face = smoothed
+                        fun contour(type: Int): List<PointF> =
+                            detected.getContour(type)?.points?.map { p ->
+                                FaceCoordinateMapper.mapPoint(p.x, p.y, w, h, rotation)
+                            } ?: emptyList()
+                        faceLandmarks = FaceLandmarkState(
+                            smoothed, contour(FaceContour.FACE),
+                            contour(FaceContour.LEFT_CHEEK), contour(FaceContour.RIGHT_CHEEK),
+                            contour(FaceContour.UPPER_LIP_TOP), contour(FaceContour.LOWER_LIP_BOTTOM)
                         )
                     }
                 }
                 .addOnFailureListener {
                     missedDetectionCount++
-                    if (missedDetectionCount > 4) {
-                        face = null
-                    }
+                    if (missedDetectionCount > 4) { face = null; faceLandmarks = null }
                 }
                 .addOnCompleteListener { detecting.set(false) }
         } catch (_: Throwable) {
@@ -241,7 +283,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         sourceU: ByteBuffer, sourceUStride: Int,
         sourceV: ByteBuffer, sourceVStride: Int,
         target: ByteBuffer, targetStride: Int,
-        width: Int, height: Int, bounds: Rect, amount: Float
+        width: Int, height: Int, bounds: Rect, amount: Float,
+        faceOutline: List<PointF>
     ) {
         val left = max(1, bounds.left).coerceAtMost(width - 1)
         val right = min(width - 1, bounds.right)
@@ -253,6 +296,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
             val rowOffset = row * targetStride
             val sourceRow = row * sourceStride
             for (col in left until right) {
+                if (faceOutline.size >= 3 && !insidePolygon(col.toFloat(), row.toFloat(), faceOutline)) continue
                 val index = rowOffset + col
                 val chromaIndexU = (row / 2) * sourceUStride + (col / 2)
                 val chromaIndexV = (row / 2) * sourceVStride + (col / 2)
@@ -273,6 +317,105 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                     .toInt().coerceIn(0, 255).toByte())
             }
         }
+    }
+
+    private fun applyMakeup(
+        u: ByteBuffer, uStride: Int, v: ByteBuffer, vStride: Int,
+        width: Int, height: Int, landmarks: FaceLandmarkState,
+        gender: Int, style: Int, intensity: Float
+    ) {
+        val bounds = landmarks.bounds
+        val amount = intensity.coerceIn(0f, 1f)
+        if (gender == 1) {
+            val cheek = when (style) { 1 -> Pair(145f, 164f); 2 -> Pair(158f, 178f); else -> Pair(153f, 174f) }
+            val radius = (bounds.width() * 0.105f).coerceAtLeast(5f) * 0.5f
+            listOf(landmarks.leftCheek, landmarks.rightCheek).forEach { points ->
+                if (points.isNotEmpty()) {
+                    val cx = points.map { it.x }.average().toFloat() * 0.5f
+                    val cy = points.map { it.y }.average().toFloat() * 0.5f
+                    tintSoftCircle(u, uStride, v, vStride, width, height, cx, cy,
+                        radius, cheek.first, cheek.second, amount * 0.48f)
+                }
+            }
+            val lips = landmarks.upperLip + landmarks.lowerLip.asReversed()
+            if (lips.size >= 6) {
+                val polygon = lips.map { PointF(it.x * 0.5f, it.y * 0.5f) }
+                val left = max(0, polygon.minOf { it.x }.toInt())
+                val right = min(width - 1, polygon.maxOf { it.x }.toInt())
+                val top = max(0, polygon.minOf { it.y }.toInt())
+                val bottom = min(height - 1, polygon.maxOf { it.y }.toInt())
+                val lip = when (style) { 1 -> Pair(151f, 166f); 2 -> Pair(166f, 190f); else -> Pair(160f, 181f) }
+                for (row in top..bottom) for (col in left..right) {
+                    if (insidePolygon(col.toFloat(), row.toFloat(), polygon))
+                        blendChroma(u, uStride, v, vStride, col, row, lip.first, lip.second, amount * 0.62f)
+                }
+            }
+        } else if (gender == 2 && landmarks.faceOutline.size >= 4) {
+            val jaw = landmarks.faceOutline.filter { it.y >= bounds.top + bounds.height() * 0.52f }
+            if (jaw.size >= 2) {
+                val left = max(0, bounds.left / 2); val right = min(width - 1, bounds.right / 2)
+                val top = max(0, (bounds.top + bounds.height() * 0.52f).toInt() / 2)
+                val bottom = min(height - 1, bounds.bottom / 2)
+                val tint = if (style == 2) Pair(119f, 139f) else Pair(124f, 137f)
+                val radius = (bounds.width() * 0.018f).coerceAtLeast(2f)
+                for (row in top..bottom) for (col in left..right) {
+                    var nearest = Float.MAX_VALUE
+                    for (i in 0 until jaw.lastIndex)
+                        nearest = min(nearest, distanceToSegment(col * 2f, row * 2f, jaw[i], jaw[i + 1]))
+                    if (nearest <= radius * 2f) {
+                        val fade = (1f - nearest / (radius * 2f)).coerceIn(0f, 1f)
+                        blendChroma(u, uStride, v, vStride, col, row, tint.first, tint.second, amount * 0.24f * fade)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun tintSoftCircle(
+        u: ByteBuffer, uStride: Int, v: ByteBuffer, vStride: Int,
+        width: Int, height: Int, cx: Float, cy: Float, radius: Float,
+        targetU: Float, targetV: Float, strength: Float
+    ) {
+        if (radius <= 0f) return
+        val left = max(0, (cx - radius * 2).toInt()); val right = min(width - 1, (cx + radius * 2).toInt())
+        val top = max(0, (cy - radius * 2).toInt()); val bottom = min(height - 1, (cy + radius * 2).toInt())
+        for (row in top..bottom) for (col in left..right) {
+            val distance = kotlin.math.hypot(col - cx, row - cy)
+            val falloff = (1f - distance / (radius * 2f)).coerceIn(0f, 1f)
+            val alpha = strength * falloff * falloff
+            if (alpha > 0.005f) blendChroma(u, uStride, v, vStride, col, row, targetU, targetV, alpha)
+        }
+    }
+
+    private fun blendChroma(
+        u: ByteBuffer, uStride: Int, v: ByteBuffer, vStride: Int,
+        x: Int, y: Int, targetU: Float, targetV: Float, alpha: Float
+    ) {
+        val ui = y * uStride + x; val vi = y * vStride + x
+        val a = alpha.coerceIn(0f, 1f)
+        val oldU = u.get(ui).toInt() and 0xff; val oldV = v.get(vi).toInt() and 0xff
+        u.put(ui, (oldU * (1f - a) + targetU * a).toInt().coerceIn(0, 255).toByte())
+        v.put(vi, (oldV * (1f - a) + targetV * a).toInt().coerceIn(0, 255).toByte())
+    }
+
+    private fun insidePolygon(x: Float, y: Float, points: List<PointF>): Boolean {
+        var inside = false
+        var j = points.lastIndex
+        for (i in points.indices) {
+            val a = points[i]; val b = points[j]
+            if ((a.y > y) != (b.y > y) &&
+                x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) inside = !inside
+            j = i
+        }
+        return inside
+    }
+
+    private fun distanceToSegment(x: Float, y: Float, a: PointF, b: PointF): Float {
+        val dx = b.x - a.x; val dy = b.y - a.y
+        val length2 = dx * dx + dy * dy
+        if (length2 <= 0.0001f) return kotlin.math.hypot(x - a.x, y - a.y)
+        val t = (((x - a.x) * dx + (y - a.y) * dy) / length2).coerceIn(0f, 1f)
+        return kotlin.math.hypot(x - (a.x + t * dx), y - (a.y + t * dy))
     }
 
     private fun applyColourGrade(
@@ -462,6 +605,8 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     fun close() {
         closed = true
         cachedNv21 = null
+        face = null
+        faceLandmarks = null
         try {
             detector.close()
         } catch (_: Throwable) {}
