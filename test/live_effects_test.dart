@@ -75,6 +75,43 @@ void main() {
       expect(halfMatrix[4], greaterThan(zeroMatrix[4]));
     });
 
+    test('Native live settings share catalogue intensity and tone mapping', () {
+      const meta = NecxaFilterMeta(
+        id: 'shared_test',
+        displayName: 'Shared Test',
+        category: 'color',
+        brightness: 0.1,
+        contrast: 1.2,
+        saturation: 1.3,
+        hue: 0.05,
+      );
+
+      final native = NecxaEffectsEngine.nativeParametersForMeta(
+        meta,
+        intensity: 0.5,
+        skinBrightening: 0.5,
+        skinTone: 0,
+      );
+
+      expect(native.brightness, closeTo(0.09, 0.0001));
+      expect(native.contrast, closeTo(1.1, 0.0001));
+      expect(native.saturation, closeTo(1.15, 0.0001));
+      expect(native.warmth, closeTo(0.145, 0.0001));
+    });
+
+    test('Original native preview maps to neutral parameters', () {
+      final native = NecxaEffectsEngine.nativeParametersForMeta(
+        NecxaFilterMeta.none,
+        intensity: 1.0,
+        skinBrightening: 0.0,
+      );
+
+      expect(native.brightness, 0.0);
+      expect(native.contrast, 1.0);
+      expect(native.saturation, 1.0);
+      expect(native.warmth, 0.0);
+    });
+
     test('FFmpeg filter generator builds valid video filter strings', () {
       const meta = NecxaFilterMeta(
         id: 'vivid_test',
