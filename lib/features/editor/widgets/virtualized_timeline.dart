@@ -206,7 +206,7 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
             // Virtualized clips
             ...visibleClips.map((clip) {
               final clipX = clip.start.inSeconds * widget.pixelsPerSecond;
-              final clipWidth = clip.duration.inSeconds * widget.pixelsPerSecond;
+              final clipWidth = clip.duration.inMilliseconds / 1000 * widget.pixelsPerSecond;
               
               return Positioned(
                 left: clipX,
@@ -282,8 +282,9 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
     final track = _dragTrack;
     final mode = _dragMode;
     if (id == null || track == null || mode == null || widget.pixelsPerSecond <= 0) return;
-    final clip = track.clips.where((item) => item.id == id).firstOrNull;
-    if (clip == null) return;
+    final matches = track.clips.where((item) => item.id == id);
+    if (matches.isEmpty) return;
+    final clip = matches.first;
 
     final deltaMs = ((globalX - _dragOriginGlobalX) / widget.pixelsPerSecond * 1000).round();
     final delta = Duration(milliseconds: deltaMs);
@@ -298,15 +299,11 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
     } else if (mode == 'trim-start') {
       final maxTrim = _originalDuration - minDuration;
       final applied = delta.inMilliseconds.clamp(-_originalStart.inMilliseconds, maxTrim.inMilliseconds);
-      var newStart = _originalStart + Duration(milliseconds: applied);
+      final appliedDuration = Duration(milliseconds: applied);
       var newSourceStart = _originalSourceStart + Duration(milliseconds: (applied * clip.speed).round());
-      if (newSourceStart < Duration.zero) {
-        final correction = Duration.zero - newSourceStart;
-        newStart += correction;
-        newSourceStart = Duration.zero;
-      }
-      clip.start = newStart;
-      clip.duration = _originalDuration - (newStart - _originalStart);
+      if (newSourceStart < Duration.zero) newSourceStart = Duration.zero;
+      clip.start = _originalStart;
+      clip.duration = _originalDuration - appliedDuration;
       clip.sourceStart = newSourceStart;
       if (clip.sourceEnd != null) {
         clip.sourceEnd = _originalSourceEnd;
@@ -314,7 +311,7 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
       if (clip.operation is TrimOperation) {
         (clip.operation as TrimOperation).start = newSourceStart;
       }
-      _lastAppliedDelta = newStart - _originalStart;
+      _lastAppliedDelta = clip.duration - _originalDuration;
     } else {
       final applied = delta.inMilliseconds.clamp(
         -(_originalDuration - minDuration).inMilliseconds,
@@ -362,16 +359,22 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
     final track = _dragTrack;
     final mode = _dragMode;
     if (id == null || track == null || mode == null) return;
-    final clip = track.clips.where((item) => item.id == id).firstOrNull;
-    if (clip != null) {
+    final matches = track.clips.where((item) => item.id == id);
+    if (matches.isNotEmpty) {
+      final clip = matches.first;
       if (mode == 'move') {
         widget.onClipMoved?.call(clip, track, clip.start);
       } else {
-        if (widget.rippleMode && _lastAppliedDelta.inMilliseconds > 0) {
+        if (widget.rippleMode && mode != 'move') {
           final oldEnd = _originalStart + _originalDuration;
-          for (final other in track.clips) {
-            if (other.id != clip.id && other.start >= oldEnd) {
-              other.start -= _lastAppliedDelta;
+          final newEnd = clip.start + clip.duration;
+          final endShift = newEnd - oldEnd;
+          if (endShift != Duration.zero) {
+            for (final other in track.clips) {
+              if (other.id != clip.id && other.start >= oldEnd) {
+                other.start += endShift;
+                if (other.start < Duration.zero) other.start = Duration.zero;
+              }
             }
           }
         }
@@ -458,7 +461,7 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
   }
 
   Widget _buildPlayhead() {
-    final playheadX = widget.playheadPosition.inSeconds * widget.pixelsPerSecond;
+    final playheadX = widget.playheadPosition.inMilliseconds / 1000 * widget.pixelsPerSecond;
     
     return Positioned(
       left: playheadX,
@@ -492,7 +495,7 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
     double maxDuration = 0;
     for (final track in widget.tracks) {
       for (final clip in track.clips) {
-        final clipEnd = clip.start.inSeconds.toDouble() + clip.duration.inSeconds.toDouble();
+        final clipEnd = clip.start.inMilliseconds / 1000 + clip.duration.inMilliseconds / 1000;
         if (clipEnd > maxDuration) {
           maxDuration = clipEnd;
         }
@@ -527,8 +530,8 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
 
   List<TimelineClip> _getVisibleClips(TimelineTrack track) {
     return track.clips.where((clip) {
-      final clipStart = clip.start.inSeconds;
-      final clipEnd = clipStart + clip.duration.inSeconds;
+      final clipStart = clip.start.inMilliseconds / 1000;
+      final clipEnd = clipStart + clip.duration.inMilliseconds / 1000;
       
       // Check if clip overlaps with visible range
       return clipEnd >= _visibleStartSeconds && clipStart <= _visibleEndSeconds;
