@@ -164,18 +164,16 @@ class NecxaEffectsEngine {
       return 'hue=s=0,eq=contrast=${c.toStringAsFixed(3)}';
     }
 
+    final native = nativeParametersForMeta(meta, intensity: t);
     final parts = <String>[];
-    final br = (meta.brightness * t).clamp(-1.0, 1.0);
-    final co = (1.0 + (meta.contrast - 1.0) * t).clamp(0.0, 2.0);
-    final sa = (1.0 + (meta.saturation - 1.0) * t).clamp(0.0, 3.0);
-
     parts.add(
-      'eq=brightness=${br.toStringAsFixed(4)}:contrast=${co.toStringAsFixed(4)}:saturation=${sa.toStringAsFixed(4)}',
+      'eq=brightness=${native.brightness.toStringAsFixed(4)}:'
+      'contrast=${native.contrast.toStringAsFixed(4)}:'
+      'saturation=${native.saturation.toStringAsFixed(4)}',
     );
 
-    final hueAngle = meta.hue * t;
-    if (hueAngle.abs() > 0.001) {
-      final hueDeg = (hueAngle * 180.0 / math.pi).toStringAsFixed(2);
+    if (native.hue.abs() > 0.001) {
+      final hueDeg = (native.hue * 180.0 / math.pi).toStringAsFixed(2);
       parts.add('hue=h=$hueDeg');
     }
 
