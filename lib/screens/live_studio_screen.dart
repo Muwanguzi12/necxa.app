@@ -3922,7 +3922,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
 
     // Beauty skin smoothing: multi-pass edge-preserving porcelain diffusion
-    if (!_previewOriginal && _beautySmoothing > 0.01) {
+    if (!_previewOriginal && _beautySmoothing > 0.01 && !_faceSymmetryProcessorAttached) {
       final intensity = _beautySmoothing.clamp(0.0, 1.0);
       final glowColor = _skinSmoothingMode == 1
           ? const Color(0xFFFFF6EB) // Radiant / porcelain glow
@@ -4000,7 +4000,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
 
     // Colour filter (Normal/none = identity so free when inactive)
-    if (!_previewOriginal && hasActiveFilter) {
+    if (!_previewOriginal && hasActiveFilter && !_faceSymmetryProcessorAttached) {
       video = ColorFiltered(
         colorFilter: ColorFilter.matrix(combinedMatrix),
         child: video,
