@@ -65,7 +65,30 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     @Volatile private var slowFrameCount = 0L
     @Volatile private var processedFrameCount = 0L
     @Volatile private var processingErrorCount = 0L
+    @Volatile private var symmetryBypassCount = 0L
+    @Volatile private var symmetryBudgetOverruns = 0L
+    @Volatile private var symmetryResolutionBypasses = 0L
+    @Volatile private var symmetryMemoryBypasses = 0L
+    @Volatile private var lastSymmetryNanos = 0L
+    @Volatile private var symmetryDisabledUntilNanos = 0L
+    @Volatile private var lastBypassReason = 0L
     @Volatile private var closed = false
+
+    // Symmetry is deliberately more restrictive than colour processing.
+    // Keep its per-frame work bounded on entry-level Android devices.
+    private companion object {
+        const val MAX_SYMMETRY_WIDTH = 1280
+        const val MAX_SYMMETRY_HEIGHT = 720
+        const val MAX_SYMMETRY_PIXELS = 700_000
+        const val SYMMETRY_BUDGET_NANOS = 8_000_000L
+        const val SYMMETRY_COOLDOWN_NANOS = 3_000_000_000L
+        const val MIN_FREE_HEAP_BYTES = 32L * 1024L * 1024L
+        const val BYPASS_NONE = 0L
+        const val BYPASS_RESOLUTION = 1L
+        const val BYPASS_MEMORY = 2L
+        const val BYPASS_BUDGET = 3L
+        const val BYPASS_COOLDOWN = 4L
+    }
 
     // Zero-allocation buffer caches (reused across frames to eliminate GC and battery drain)
     private var cachedNv21: ByteBuffer? = null
@@ -79,9 +102,30 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         if (closed) return frame
         val frameStartedAt = System.nanoTime()
         val averageCost = averageFrameNanos
-        // Under sustained load, reduce expensive face warping first and slow
-        // detector cadence. Colour grading remains available.
-        val amount = if (averageCost > 28_000_000L) 0f else intensity.coerceIn(0f, 1f)
+        val requestedSymmetry = intensity.coerceIn(0f, 1f)
+        // Native safety gate: resolution, heap headroom, and a short circuit
+        // breaker are checked before any symmetry pixel loop is entered.
+        val symmetryAllowed = requestedSymmetry > 0.01f &&
+            frame.buffer.width <= MAX_SYMMETRY_WIDTH &&
+            frame.buffer.height <= MAX_SYMMETRY_HEIGHT &&
+            frame.buffer.width.toLong() * frame.buffer.height.toLong() <= MAX_SYMMETRY_PIXELS &&
+            Runtime.getRuntime().freeMemory() >= MIN_FREE_HEAP_BYTES &&
+            System.nanoTime() >= symmetryDisabledUntilNanos &&
+            averageCost <= 28_000_000L
+        val amount = if (symmetryAllowed) requestedSymmetry else 0f
+        if (requestedSymmetry > 0.01f && !symmetryAllowed) {
+            symmetryBypassCount++
+            lastBypassReason = when {
+                frame.buffer.width > MAX_SYMMETRY_WIDTH ||
+                    frame.buffer.height > MAX_SYMMETRY_HEIGHT ||
+                    frame.buffer.width.toLong() * frame.buffer.height.toLong() > MAX_SYMMETRY_PIXELS -> BYPASS_RESOLUTION
+                Runtime.getRuntime().freeMemory() < MIN_FREE_HEAP_BYTES -> BYPASS_MEMORY
+                System.nanoTime() < symmetryDisabledUntilNanos -> BYPASS_COOLDOWN
+                else -> BYPASS_BUDGET
+            }
+            if (lastBypassReason == BYPASS_RESOLUTION) symmetryResolutionBypasses++
+            if (lastBypassReason == BYPASS_MEMORY) symmetryMemoryBypasses++
+        }
         val smooth = (if (averageCost > 18_000_000L) smoothing * 0.5f else smoothing).coerceIn(0f, 1f)
         val bright = brightness.coerceIn(-0.25f, 0.25f)
         val contrastAmount = contrast.coerceIn(0.5f, 1.8f)
@@ -139,12 +183,25 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 output = JavaI420Buffer.allocate(source.width, source.height)
 
                 if (amount > 0.01f && bounds != null) {
+                    val symmetryStartedAt = System.nanoTime()
                     warpPlane(source.dataY, source.strideY, output.dataY, output.strideY,
                         source.width, source.height, bounds, amount)
-                    warpPlane(source.dataU, source.strideU, output.dataU, output.strideU,
+                    warpPlane(source.dataU, source.strideU, output.dataU, output.dataU, 
                         source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
-                    warpPlane(source.dataV, source.strideV, output.dataV, output.strideV,
+                    warpPlane(source.dataV, source.strideV, output.dataV, output.dataV,
                         source.width / 2, source.height / 2, scale(bounds, 0.5f), amount)
+                    lastSymmetryNanos = System.nanoTime() - symmetryStartedAt
+                    if (lastSymmetryNanos > SYMMETRY_BUDGET_NANOS) {
+                        // Fail open: restore unwarped pixels, trip the breaker,
+                        // then continue smoothing/colour/makeup independently.
+                        copyPlane(source.dataY, source.strideY, output.dataY, output.strideY, source.width, source.height)
+                        copyPlane(source.dataU, source.strideU, output.dataU, output.strideU, source.width / 2, source.height / 2)
+                        copyPlane(source.dataV, source.strideV, output.dataV, output.strideV, source.width / 2, source.height / 2)
+                        symmetryBudgetOverruns++
+                        symmetryBypassCount++
+                        lastBypassReason = BYPASS_BUDGET
+                        symmetryDisabledUntilNanos = System.nanoTime() + SYMMETRY_COOLDOWN_NANOS
+                    }
                 } else {
                     copyPlane(source.dataY, source.strideY, output.dataY, output.strideY, source.width, source.height)
                     copyPlane(source.dataU, source.strideU, output.dataU, output.strideU, source.width / 2, source.height / 2)
@@ -204,7 +261,17 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         "maxFrameNanos" to maxFrameNanos,
         "slowFramesOver33ms" to slowFrameCount,
         "processedFrames" to processedFrameCount,
-        "processingErrors" to processingErrorCount
+        "processingErrors" to processingErrorCount,
+        "symmetryBypasses" to symmetryBypassCount,
+        "symmetryBudgetOverruns" to symmetryBudgetOverruns,
+        "symmetryResolutionBypasses" to symmetryResolutionBypasses,
+        "symmetryMemoryBypasses" to symmetryMemoryBypasses,
+        "lastSymmetryNanos" to lastSymmetryNanos,
+        "symmetryDisabledUntilNanos" to symmetryDisabledUntilNanos,
+        "lastBypassReason" to lastBypassReason,
+        "freeHeapBytes" to Runtime.getRuntime().freeMemory(),
+        "maxHeapBytes" to Runtime.getRuntime().maxMemory(),
+        "nativeHeapBytes" to android.os.Debug.getNativeHeapAllocatedSize()
     )
 
     private fun detect(buffer: org.webrtc.VideoFrame.I420Buffer, rotation: Int) {
