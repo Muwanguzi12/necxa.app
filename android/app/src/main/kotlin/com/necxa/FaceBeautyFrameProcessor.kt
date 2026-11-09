@@ -87,6 +87,9 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     @Volatile private var faceLandmarks: FaceLandmarkState? = null
     private var frameCount = 0
     private var missedDetectionCount = 0
+    @Volatile private var averageFrameNanos = 0L
+    @Volatile private var processedFrameCount = 0L
+    @Volatile private var processingErrorCount = 0L
     @Volatile private var closed = false
 
     // Zero-allocation buffer caches (reused across frames to eliminate GC and battery drain)
@@ -99,8 +102,12 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
 
     override fun onFrame(frame: VideoFrame): VideoFrame {
         if (closed) return frame
-        val amount = intensity.coerceIn(0f, 1f)
-        val smooth = smoothing.coerceIn(0f, 1f)
+        val frameStartedAt = System.nanoTime()
+        val averageCost = averageFrameNanos
+        // Under sustained load, reduce expensive face warping first and slow
+        // detector cadence. Colour grading remains available.
+        val amount = if (averageCost > 28_000_000L) 0f else intensity.coerceIn(0f, 1f)
+        val smooth = (if (averageCost > 18_000_000L) smoothing * 0.5f else smoothing).coerceIn(0f, 1f)
         val bright = brightness.coerceIn(-0.25f, 0.25f)
         val contrastAmount = contrast.coerceIn(0.5f, 1.8f)
         val saturationAmount = saturation.coerceIn(0f, 2f)
@@ -128,7 +135,12 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
             var sourceReleased = false
             try {
                 frameCount++
-                if (needsFace && frameCount % 6 == 0 && detecting.compareAndSet(false, true)) {
+                val detectionInterval = when {
+                    averageCost > 28_000_000L -> 15
+                    averageCost > 20_000_000L -> 10
+                    else -> 6
+                }
+                if (needsFace && frameCount % detectionInterval == 0 && detecting.compareAndSet(false, true)) {
                     detect(source, frame.rotation)
                 }
 
@@ -195,9 +207,21 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 if (!outputRetained) output?.release()
             }
         } catch (_: Throwable) {
+            processingErrorCount++
             frame
+        } finally {
+            val elapsed = System.nanoTime() - frameStartedAt
+            averageFrameNanos = if (averageFrameNanos == 0L) elapsed
+                else (averageFrameNanos * 7L + elapsed) / 8L
+            processedFrameCount++
         }
     }
+
+    fun performanceStats(): Map<String, Long> = mapOf(
+        "averageFrameNanos" to averageFrameNanos,
+        "processedFrames" to processedFrameCount,
+        "processingErrors" to processingErrorCount
+    )
 
     private fun detect(buffer: org.webrtc.VideoFrame.I420Buffer, rotation: Int) {
         try {
@@ -380,7 +404,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         val left = max(0, (cx - radius * 2).toInt()); val right = min(width - 1, (cx + radius * 2).toInt())
         val top = max(0, (cy - radius * 2).toInt()); val bottom = min(height - 1, (cy + radius * 2).toInt())
         for (row in top..bottom) for (col in left..right) {
-            val distance = kotlin.math.hypot(col - cx, row - cy)
+            val distance = kotlin.math.sqrt(((col - cx) * (col - cx) + (row - cy) * (row - cy)).toDouble()).toFloat()
             val falloff = (1f - distance / (radius * 2f)).coerceIn(0f, 1f)
             val alpha = strength * falloff * falloff
             if (alpha > 0.005f) blendChroma(u, uStride, v, vStride, col, row, targetU, targetV, alpha)
@@ -413,9 +437,9 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     private fun distanceToSegment(x: Float, y: Float, a: PointF, b: PointF): Float {
         val dx = b.x - a.x; val dy = b.y - a.y
         val length2 = dx * dx + dy * dy
-        if (length2 <= 0.0001f) return kotlin.math.hypot(x - a.x, y - a.y)
+        if (length2 <= 0.0001f) return kotlin.math.sqrt(((x - a.x) * (x - a.x) + (y - a.y) * (y - a.y)).toDouble()).toFloat()
         val t = (((x - a.x) * dx + (y - a.y) * dy) / length2).coerceIn(0f, 1f)
-        return kotlin.math.hypot(x - (a.x + t * dx), y - (a.y + t * dy))
+        return kotlin.math.sqrt(((x - (a.x + t * dx)) * (x - (a.x + t * dx)) + (y - (a.y + t * dy)) * (y - (a.y + t * dy))).toDouble()).toFloat()
     }
 
     private fun applyColourGrade(
