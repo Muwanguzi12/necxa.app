@@ -1773,6 +1773,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final brightness = nativeParameters.brightness;
     final contrast = nativeParameters.contrast;
     final saturation = nativeParameters.saturation;
+    final hue = nativeParameters.hue;
     final warmth = nativeParameters.warmth;
     final makeupGender = _previewOriginal ? 0 : _makeupGender;
     final makeupIntensity = _previewOriginal ? 0.0 : _makeupIntensity.clamp(0.0, 1.0);
@@ -1783,6 +1784,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         brightness.abs() > 0.001 ||
         (contrast - 1.0).abs() > 0.001 ||
         (saturation - 1.0).abs() > 0.001 ||
+        hue.abs() > 0.001 ||
         warmth.abs() > 0.001;
 
     try {
@@ -1818,6 +1820,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         'brightness': brightness,
         'contrast': contrast,
         'saturation': saturation,
+        'hue': hue,
         'warmth': warmth,
         'makeupGender': makeupGender,
         'makeupStyle': _makeupStyle,
