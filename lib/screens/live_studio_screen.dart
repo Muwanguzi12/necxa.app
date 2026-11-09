@@ -1283,24 +1283,25 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   @override
   void dispose() {
     _faceSymmetryUpdateTimer?.cancel();
-    final attachedTrackId = _attachedEffectsTrackId;
-    _attachedEffectsTrackId = null;
     _faceSymmetryProcessorAttached = false;
-    if (attachedTrackId != null) {
-      // Wait behind any in-flight attach/update so dispose cannot leave a
-      // processor attached after the screen has gone away.
-      _effectsOperation = _effectsOperation
-          .catchError((Object error) {
-            debugPrint('Necxa Live: Pending effects operation failed: $error');
-          })
-          .then((_) => _faceSymmetryChannel.invokeMethod<void>('detach', {
-                'trackId': attachedTrackId,
-              }))
-          .catchError((Object error) {
-            debugPrint('Necxa Live: Face processor cleanup failed: $error');
+    // Resolve the attached ID only after any in-flight attach/update finishes.
+    // This closes the race where dispose runs while attach is awaiting native.
+    _effectsOperation = _effectsOperation
+        .catchError((Object error) {
+          debugPrint('Necxa Live: Pending effects operation failed: $error');
+        })
+        .then((_) async {
+          final attachedTrackId = _attachedEffectsTrackId;
+          _attachedEffectsTrackId = null;
+          if (attachedTrackId == null) return;
+          await _faceSymmetryChannel.invokeMethod<void>('detach', {
+            'trackId': attachedTrackId,
           });
-      unawaited(_effectsOperation);
-    }
+        })
+        .catchError((Object error) {
+          debugPrint('Necxa Live: Face processor cleanup failed: $error');
+        });
+    unawaited(_effectsOperation);
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
     _giftStatsTimer?.cancel();
