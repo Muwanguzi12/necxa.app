@@ -115,18 +115,22 @@ class NecxaEffectsEngine {
         : intensity.clamp(0.0, 1.0);
     final brightness = (((meta?.brightness ?? 0.0) * strength) +
             (skinBrightening.clamp(0.0, 1.0) * 0.08))
-        .clamp(-0.25, 0.25);
+        .clamp(-0.25, 0.25)
+        .toDouble();
     final contrast = (1.0 +
             ((meta?.contrast ?? 1.0) - 1.0) * strength)
-        .clamp(0.5, 1.8);
+        .clamp(0.5, 1.8)
+        .toDouble();
     final saturation = (1.0 +
             ((meta?.saturation ?? 1.0) - 1.0) * strength)
-        .clamp(0.0, 2.0);
+        .clamp(0.0, 2.0)
+        .toDouble();
     final toneWarmth = skinBrightening <= 0
         ? 0.0
         : (skinTone == 0 ? 0.12 : (skinTone == 1 ? -0.08 : 0.0));
     final warmth = (((meta?.hue ?? 0.0) * strength) + toneWarmth)
-        .clamp(-0.5, 0.5);
+        .clamp(-0.5, 0.5)
+        .toDouble();
     return NativeEffectParameters(
       brightness: brightness,
       contrast: contrast,
