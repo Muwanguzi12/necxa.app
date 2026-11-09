@@ -162,8 +162,9 @@ class NecxaEffectsEngine {
     final t = intensity.clamp(0.0, 1.0);
 
     if (meta.colorMatrixPreset == 'grayscale' || meta.displayName.toLowerCase() == 'noir') {
-      final c = 1.0 + (meta.contrast - 1.0) * t;
-      return 'hue=s=0,eq=contrast=${c.toStringAsFixed(3)}';
+      final native = nativeParametersForMeta(meta, intensity: t);
+      return 'eq=brightness=${native.brightness.toStringAsFixed(4)}:'
+          'contrast=${native.contrast.toStringAsFixed(4)}:saturation=0';
     }
 
     final native = nativeParametersForMeta(meta, intensity: t);
