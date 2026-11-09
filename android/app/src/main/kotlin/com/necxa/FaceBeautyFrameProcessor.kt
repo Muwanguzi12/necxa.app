@@ -39,6 +39,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     @Volatile var brightness: Float = 0f
     @Volatile var contrast: Float = 1f
     @Volatile var saturation: Float = 1f
+    @Volatile var hue: Float = 0f
     @Volatile var warmth: Float = 0f
     @Volatile var makeupGender: Int = 0
     @Volatile var makeupStyle: Int = 0
@@ -83,6 +84,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         val bright = brightness.coerceIn(-0.25f, 0.25f)
         val contrastAmount = contrast.coerceIn(0.5f, 1.8f)
         val saturationAmount = saturation.coerceIn(0f, 2f)
+        val hueAmount = hue.coerceIn(-3.14159f, 3.14159f)
         val warmthAmount = warmth.coerceIn(-0.5f, 0.5f)
         val makeupAmount = makeupIntensity.coerceIn(0f, 1f)
         val makeupMode = makeupGender.coerceIn(0, 2)
@@ -90,6 +92,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
         if (!needsFace && kotlin.math.abs(bright) < 0.001f &&
             kotlin.math.abs(contrastAmount - 1f) < 0.001f &&
             kotlin.math.abs(saturationAmount - 1f) < 0.001f &&
+            kotlin.math.abs(hueAmount) < 0.001f &&
             kotlin.math.abs(warmthAmount) < 0.001f) {
             face = null
             faceLandmarks = null
@@ -121,6 +124,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 val hasColourGrade = kotlin.math.abs(bright) >= 0.001f ||
                     kotlin.math.abs(contrastAmount - 1f) >= 0.001f ||
                     kotlin.math.abs(saturationAmount - 1f) >= 0.001f ||
+                    kotlin.math.abs(hueAmount) >= 0.001f ||
                     kotlin.math.abs(warmthAmount) >= 0.001f
                 if (bounds == null && smooth <= 0.01f && !hasColourGrade &&
                     (makeupMode == 0 || makeupAmount <= 0.01f || faceLandmarks == null)) {
@@ -159,7 +163,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                 if (kotlin.math.abs(saturationAmount - 1f) >= 0.001f ||
                     kotlin.math.abs(warmthAmount) >= 0.001f) {
                     applyChromaGrade(output.dataU, output.strideU, output.dataV, output.strideV,
-                        source.width / 2, source.height / 2, saturationAmount, warmthAmount)
+                        source.width / 2, source.height / 2, saturationAmount, hueAmount, warmthAmount)
                 }
                 if (makeupMode > 0 && makeupAmount > 0.01f) {
                     faceLandmarks?.let {
@@ -464,18 +468,22 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
     private fun applyChromaGrade(
         uPlane: ByteBuffer, uStride: Int,
         vPlane: ByteBuffer, vStride: Int,
-        width: Int, height: Int, saturation: Float, warmth: Float
+        width: Int, height: Int, saturation: Float, hue: Float, warmth: Float
     ) {
         val warmOffset = warmth * 18f
+        val cosHue = kotlin.math.cos(hue.toDouble()).toFloat()
+        val sinHue = kotlin.math.sin(hue.toDouble()).toFloat()
         for (row in 0 until height) {
             for (col in 0 until width) {
                 val uIndex = row * uStride + col
                 val vIndex = row * vStride + col
                 val u = uPlane.get(uIndex).toInt() and 0xff
                 val v = vPlane.get(vIndex).toInt() and 0xff
-                val gradedU = ((u - 128f) * saturation + 128f - warmOffset)
+                val chromaU = (u - 128f) * saturation
+                val chromaV = (v - 128f) * saturation
+                val gradedU = (chromaU * cosHue - chromaV * sinHue + 128f - warmOffset)
                     .toInt().coerceIn(0, 255)
-                val gradedV = ((v - 128f) * saturation + 128f + warmOffset)
+                val gradedV = (chromaU * sinHue + chromaV * cosHue + 128f + warmOffset)
                     .toInt().coerceIn(0, 255)
                 uPlane.put(uIndex, gradedU.toByte())
                 vPlane.put(vIndex, gradedV.toByte())
