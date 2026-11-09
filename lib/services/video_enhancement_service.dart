@@ -87,6 +87,7 @@ class RenderEffects {
   final double blur;
   final double grain;
   final NecxaFilterMeta? necxaFilter;
+  final double necxaFilterIntensity;
 
   const RenderEffects({
     this.brightness = 0.0,
@@ -97,6 +98,7 @@ class RenderEffects {
     this.blur = 0.0,
     this.grain = 0.0,
     this.necxaFilter,
+    this.necxaFilterIntensity = 1.0,
   });
 }
 
@@ -636,7 +638,10 @@ class VideoEnhancementService {
   String _globalVisualFilters(RenderEffects effects, int width, int height) {
     final filters = <String>[];
     if (effects.necxaFilter != null && !effects.necxaFilter!.isNone) {
-      final f = NecxaEffectsEngine.buildFfmpegEqFilter(effects.necxaFilter!);
+      final f = NecxaEffectsEngine.buildFfmpegEqFilter(
+        effects.necxaFilter!,
+        intensity: effects.necxaFilterIntensity,
+      );
       if (f.isNotEmpty) {
         filters.add(f);
       }
