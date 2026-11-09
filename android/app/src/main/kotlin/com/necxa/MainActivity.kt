@@ -36,6 +36,11 @@ class MainActivity : FlutterFragmentActivity() {
     MethodChannel(engine.dartExecutor.binaryMessenger, faceEffectChannelName).setMethodCallHandler { call, result ->
       val trackId = call.argument<String>("trackId")
       when (call.method) {
+        "getStats" -> {
+          val processor = trackId?.let(processors::get)
+          if (processor == null) result.error("not_attached", "Effect is not attached", null)
+          else result.success(processor.performanceStats())
+        }
         "attach" -> {
           if (trackId == null) {
             result.error("missing_track", "Camera track is unavailable", null)
