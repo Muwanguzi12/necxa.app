@@ -290,22 +290,22 @@ class EditorExportService {
     final t = intensity.clamp(0.0, 1.0);
     final meta = FilterCatalogueService.findByName(name);
     if (meta != null && !meta.isNone) {
-      final hueDeg = meta.hue * 180.0 / 3.141592653589793;
       final isNoirOrGrayscale = meta.colorMatrixPreset == 'grayscale' ||
           meta.displayName.toLowerCase() == 'noir';
       return RenderEffects(
-        brightness: base.brightness + (meta.brightness * t),
-        contrast: base.contrast * (1.0 + (meta.contrast - 1.0) * t),
-        saturation: isNoirOrGrayscale
-            ? 0
-            : (base.saturation * (1.0 + (meta.saturation - 1.0) * t)),
-        hue: base.hue + (hueDeg * t),
+        brightness: base.brightness,
+        contrast: base.contrast,
+        saturation: base.saturation,
+        hue: base.hue,
         vignette: (meta.displayName.toLowerCase() == 'cinema' || isNoirOrGrayscale)
             ? (0.25 * t)
             : base.vignette,
         blur: base.blur,
         grain: base.grain,
+        necxaFilter: meta,
+        necxaFilterIntensity: t,
       );
+
     }
 
     switch (name.toLowerCase()) {
