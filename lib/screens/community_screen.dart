@@ -18,6 +18,7 @@ import 'sound_hub_screen.dart';
 import 'live_studio_screen.dart';
 import '../widgets/checkout_overlay.dart';
 import '../widgets/necxa_experience_sheet.dart';
+import '../widgets/follow_sync_button.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/commerce_service.dart';
@@ -3100,14 +3101,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               const SizedBox(width: 12),
 
               // Follow Button
-              _FollowButton(
-                onTap: () {
-                  _startCollapseTimer();
-                  final authorId = widget.post['author_id'];
-                  if (authorId != null) {
-                    widget.state.toggleFollow(authorId);
-                  }
-                },
+              FollowSyncButton(
+                state: widget.state,
+                targetUserId: widget.post['author_id']?.toString() ?? '',
+                compact: true,
+                onToggled: _startCollapseTimer,
               ),
 
               const SizedBox(width: 8),
@@ -3483,60 +3481,6 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 }
 
 // ── UI HELPERS ─────────────────────────────────────────────────────────────
-
-class _FollowButton extends StatefulWidget {
-  final VoidCallback onTap;
-  const _FollowButton({required this.onTap});
-
-  @override
-  State<_FollowButton> createState() => _FollowButtonState();
-}
-
-class _FollowButtonState extends State<_FollowButton> {
-  bool _following = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        setState(() => _following = !_following);
-        widget.onTap();
-      },
-      child: AnimatedScale(
-        scale: 1.0,
-        duration: const Duration(milliseconds: 100),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: _following
-                ? null
-                : const LinearGradient(
-                    colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
-                  ),
-            color: _following ? C.dim : null,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: _following
-                ? null
-                : [
-                    BoxShadow(
-                      color: const Color(0xFF00E5FF).withOpacity(0.3),
-                      blurRadius: 8,
-                    ),
-                  ],
-          ),
-          child: Text(
-            _following ? 'Following' : 'Follow',
-            style: syne(
-              sz: 11,
-              w: FontWeight.w900,
-              c: _following ? C.text : Colors.black,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class PillarVsync extends TickerProvider {
   final TickerProvider tp;
@@ -4412,13 +4356,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
               const SizedBox(width: 12),
 
               // Follow Button
-              _FollowButton(
-                onTap: () {
-                  _startCollapseTimer();
-                  if (authorId != null) {
-                    widget.state.toggleFollow(authorId!);
-                  }
-                },
+              FollowSyncButton(
+                state: widget.state,
+                targetUserId: authorId ?? '',
+                compact: true,
+                onToggled: _startCollapseTimer,
               ),
 
               const SizedBox(width: 8),

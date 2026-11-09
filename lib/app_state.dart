@@ -705,27 +705,7 @@ class AppState extends ChangeNotifier {
     if (user == null) return;
     final profile = await social.getProfile(user!.id);
     final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
-    try {
-      final relationships = await social.loadMyFollowRelationships();
-      // RPC may return 'creator_id' or 'user_id' depending on version
-      followed
-        ..clear()
-        ..addAll(
-          relationships
-              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
-              .where((id) => id.isNotEmpty),
-        );
-      friends
-        ..clear()
-        ..addAll(
-          relationships
-              .where((r) => r['is_friend'] == true)
-              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
-              .where((id) => id.isNotEmpty),
-        );
-    } catch (error) {
-      debugPrint('Follow graph sync deferred: $error');
-    }
+    await refreshFollowRelationships();
 
     // Load blocked users from user_preferences
     try {
@@ -1840,6 +1820,31 @@ class AppState extends ChangeNotifier {
   void toggleSave(String id) {
     saved.contains(id) ? saved.remove(id) : saved.add(id);
     notify();
+  }
+
+  Future<void> refreshFollowRelationships() async {
+    if (user == null) return;
+    try {
+      final relationships = await social.loadMyFollowRelationships();
+      followed
+        ..clear()
+        ..addAll(
+          relationships
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      friends
+        ..clear()
+        ..addAll(
+          relationships
+              .where((r) => r['is_friend'] == true)
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      notify();
+    } catch (error) {
+      debugPrint('Follow graph refresh error: $error');
+    }
   }
 
   bool isFollowingSync(String id) => followed.contains(id); // Restored Method
