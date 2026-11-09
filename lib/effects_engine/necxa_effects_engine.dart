@@ -3,6 +3,27 @@ import 'package:flutter/widgets.dart';
 import '../services/filter_catalogue_service.dart';
 
 /// Builds mathematically precise ColorFilter matrices and FFmpeg eq filter strings for NECXA effects.
+class NativeEffectParameters {
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double warmth;
+
+  const NativeEffectParameters({
+    required this.brightness,
+    required this.contrast,
+    required this.saturation,
+    required this.warmth,
+  });
+
+  Map<String, double> toMap() => {
+    'brightness': brightness,
+    'contrast': contrast,
+    'saturation': saturation,
+    'warmth': warmth,
+  };
+}
+
 class NecxaEffectsEngine {
   // Named matrix presets (4x5 row-major, Flutter ColorFilter.matrix format).
   static const Map<String, List<double>> _namedMatrices = {
@@ -78,6 +99,39 @@ class NecxaEffectsEngine {
       contrast: 1.0 + (meta.contrast - 1.0) * t,
       saturation: 1.0 + (meta.saturation - 1.0) * t,
       hue: meta.hue * t,
+    );
+  }
+
+  /// Maps a catalogue preset to the native I420 processor's controls.
+  /// The same catalogue values feed Flutter preview and FFmpeg export.
+  static NativeEffectParameters nativeParametersForMeta(
+    NecxaFilterMeta? meta, {
+    double intensity = 1.0,
+    double skinBrightening = 0.0,
+    int skinTone = 0,
+  }) {
+    final strength = meta == null || meta.isNone
+        ? 0.0
+        : intensity.clamp(0.0, 1.0);
+    final brightness = (((meta?.brightness ?? 0.0) * strength) +
+            (skinBrightening.clamp(0.0, 1.0) * 0.08))
+        .clamp(-0.25, 0.25);
+    final contrast = (1.0 +
+            ((meta?.contrast ?? 1.0) - 1.0) * strength)
+        .clamp(0.5, 1.8);
+    final saturation = (1.0 +
+            ((meta?.saturation ?? 1.0) - 1.0) * strength)
+        .clamp(0.0, 2.0);
+    final toneWarmth = skinBrightening <= 0
+        ? 0.0
+        : (skinTone == 0 ? 0.12 : (skinTone == 1 ? -0.08 : 0.0));
+    final warmth = (((meta?.hue ?? 0.0) * strength) + toneWarmth)
+        .clamp(-0.5, 0.5);
+    return NativeEffectParameters(
+      brightness: brightness,
+      contrast: contrast,
+      saturation: saturation,
+      warmth: warmth,
     );
   }
 
