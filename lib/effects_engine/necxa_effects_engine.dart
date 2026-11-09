@@ -124,10 +124,13 @@ class NecxaEffectsEngine {
             ((meta?.contrast ?? 1.0) - 1.0) * strength)
         .clamp(0.5, 1.8)
         .toDouble();
-    final saturation = (1.0 +
-            ((meta?.saturation ?? 1.0) - 1.0) * strength)
-        .clamp(0.0, 2.0)
-        .toDouble();
+    final isMonochrome = meta?.colorMatrixPreset == 'grayscale' ||
+        meta?.displayName.toLowerCase() == 'noir';
+    final saturation = isMonochrome
+        ? 0.0
+        : (1.0 + ((meta?.saturation ?? 1.0) - 1.0) * strength)
+            .clamp(0.0, 2.0)
+            .toDouble();
     final hue = ((meta?.hue ?? 0.0) * strength).clamp(-math.pi, math.pi).toDouble();
     final toneWarmth = skinBrightening <= 0
         ? 0.0
