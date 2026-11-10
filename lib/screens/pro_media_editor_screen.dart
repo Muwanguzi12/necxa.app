@@ -1774,7 +1774,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   final endSeconds = overlay.end.clamp(0.0, 1.0) * duration;
                   final left = startSeconds * pixelsPerSecond;
                   final width = math.max(18.0,
-                    (endSeconds - startSeconds) * pixelsPerSecond);
+                    (endSeconds - startSeconds) * pixelsPerSecond).toDouble();
                   final top = index * 34.0 + 2;
                   final selected = _timelineOverlaySelected == index;
                   return Positioned(
@@ -1785,6 +1785,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         _showEditTextLayerSheet(index);
                       },
                       onPanStart: (details) {
+                        _saveHistory();
                         _timelineOverlayDragIndex = index;
                         _timelineOverlayDragOriginX = details.globalPosition.dx;
                         _timelineOverlayDragStart = overlay.start;
@@ -1807,7 +1808,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       },
                       onPanEnd: (_) {
                         _timelineOverlayDragIndex = null;
-                        _saveHistory();
                         _syncSharedProjectFromSequence();
                       },
                       onPanCancel: () => _timelineOverlayDragIndex = null,
