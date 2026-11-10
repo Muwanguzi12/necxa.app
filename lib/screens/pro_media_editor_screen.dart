@@ -365,8 +365,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       operation: AudioClipOperation(sourceType: operation.sourceType,
         sourceUrl: operation.sourceUrl, label: operation.label, volume: value,
         speed: operation.speed, reverse: operation.reverse, fadeIn: operation.fadeIn,
-        fadeOut: operation.fadeOut, startOffset: operation.startOffset,
-        endOffset: operation.endOffset),
+        fadeOut: operation.fadeOut, pan: operation.pan, muted: operation.muted,
+        solo: operation.solo, volumeAutomation: operation.volumeAutomation,
+        startOffset: operation.startOffset, endOffset: operation.endOffset),
     ), recordHistory: false);
   }
 
@@ -1297,10 +1298,19 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _lastTimelineAudioSync = playhead;
     try {
       final activeIds = <String>{};
+      final visibleAudioClips = _project.tracks.where((item) => item.isVisible)
+          .expand((item) => item.clips)
+          .where((item) => !item.isHidden && item.operation is AudioClipOperation)
+          .toList();
+      final hasSoloAudio = visibleAudioClips.any((clip) {
+        final operation = clip.operation as AudioClipOperation;
+        return operation.solo && !operation.muted;
+      });
       for (final track in _project.tracks.where((item) => item.isVisible)) {
         for (final clip in track.clips.where((item) => !item.isHidden)) {
           final operation = clip.operation;
           if (operation is! AudioClipOperation) continue;
+          if (operation.muted || (hasSoloAudio && !operation.solo)) continue;
           final clipEnd = clip.start + clip.duration;
           if (playhead < clip.start || playhead >= clipEnd) continue;
           final source = clip.file?.path ?? operation.sourceUrl;
@@ -1371,9 +1381,27 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           if (fadeOut > 0 && remaining < fadeOut) {
             fade = math.min(fade, (remaining / fadeOut).clamp(0.0, 1.0));
           }
-          final baseVolume = clip.volume == 1.0
-              ? operation.volume
-              : clip.volume;
+          final baseVolume = clip.volume == 1.0 ? operation.volume : clip.volume;
+          final automation = List<AudioVolumePoint>.from(operation.volumeAutomation)
+            ..sort((a, b) => a.time.compareTo(b.time));
+          var automationVolume = 1.0;
+          if (automation.isNotEmpty) {
+            if (elapsed <= automation.first.time) {
+              automationVolume = automation.first.volume;
+            } else if (elapsed >= automation.last.time) {
+              automationVolume = automation.last.volume;
+            } else {
+              for (var pointIndex = 0; pointIndex < automation.length - 1; pointIndex++) {
+                final from = automation[pointIndex];
+                final to = automation[pointIndex + 1];
+                if (elapsed < from.time || elapsed > to.time) continue;
+                final span = to.time - from.time;
+                final progress = span <= 0 ? 1.0 : (elapsed - from.time) / span;
+                automationVolume = from.volume + (to.volume - from.volume) * progress;
+                break;
+              }
+            }
+          }
           var duckingFactor = 1.0;
           if (operation.sourceType == 'music') {
             final voiceoverActive = _project.tracks.any(
@@ -1396,10 +1424,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             if (voiceoverActive) duckingFactor = 0.30;
           }
           await player.setVolume(
-            (baseVolume * fade * duckingFactor)
-                .clamp(0.0, 1.0)
-                .toDouble(),
+            (baseVolume * fade * duckingFactor * automationVolume)
+                .clamp(0.0, 1.0).toDouble(),
           );
+          try {
+            await player.setBalance(operation.pan.clamp(-1.0, 1.0).toDouble());
+          } catch (_) {}
           if (sourceChanged || _timelineAudioSpeeds[clip.id] != speed) {
             try {
               await player.setPlaybackRate(speed.clamp(0.5, 2.0).toDouble());
