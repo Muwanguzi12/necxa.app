@@ -4218,6 +4218,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         operation: AudioClipOperation(sourceType: operation.sourceType, sourceUrl: operation.sourceUrl,
           label: operation.label, volume: operation.volume, speed: operation.speed,
           reverse: operation.reverse, fadeIn: operation.fadeIn, fadeOut: operation.fadeOut,
+          pan: operation.pan, muted: operation.muted, solo: operation.solo,
+          volumeAutomation: operation.volumeAutomation,
           startOffset: 0, endOffset: end),
       ));
     }
