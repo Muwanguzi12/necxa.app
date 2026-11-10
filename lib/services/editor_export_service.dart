@@ -273,6 +273,7 @@ class EditorExportService {
               animationIn: operation.animationIn,
               animationOut: operation.animationOut,
               depthLayer: operation.depthLayer,
+              themeId: operation.themeId,
             ),
           );
         } else if (operation is TextOverlay) {
