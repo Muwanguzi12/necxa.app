@@ -327,6 +327,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         track.isVisible = visible;
       }
     });
+    final playback = _project.playback.state;
+    unawaited(
+      _syncTimelineAudio(
+        playback.currentTime,
+        playing: playback.isPlaying,
+        force: true,
+      ),
+    );
   }
 
   void _setOriginalVolume(double value) {
