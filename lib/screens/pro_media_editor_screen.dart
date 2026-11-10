@@ -1553,14 +1553,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         );
         _project.upsertClip(
           type,
-          TimelineClip(
-            id: clip.id,
-            start: clip.start,
-            duration: clip.duration,
-            file: clip.file,
-            volume: clip.volume,
-            operation: updated,
-          ),
+          clip.copyWith(operation: updated),
           recordHistory: false,
         );
         unawaited(_syncTimelineAudio(
@@ -1578,6 +1571,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     required AudioClipOperation operation,
     required TrackType type,
     required double automationVolume,
+    required StateSetter setModalState,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1594,7 +1588,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 value: operation.pan.clamp(-1.0, 1.0).toDouble(),
                 min: -1,
                 max: 1,
-                onChanged: (value) => _updateAudioMixer(type, pan: value),
+                onChanged: (value) {
+                  _updateAudioMixer(type, pan: value);
+                  setModalState(() {});
+                },
                 activeColor: C.brand,
               ),
             ),
@@ -1608,7 +1605,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           value: operation.muted,
           onChanged: (value) {
             _updateAudioMixer(type, muted: value);
-            setState(() {});
+            setModalState(() {});
           },
         ),
         SwitchListTile(
@@ -1618,7 +1615,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           value: operation.solo,
           onChanged: (value) {
             _updateAudioMixer(type, solo: value);
-            setState(() {});
+            setModalState(() {});
           },
         ),
         Align(
@@ -1626,7 +1623,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           child: TextButton.icon(
             onPressed: () {
               _updateAudioMixer(type, automationVolume: automationVolume);
-              setState(() {});
+              setModalState(() {});
               _feedback('Volume keyframe added at the playhead');
             },
             icon: Icon(Icons.add, size: 15),
@@ -1680,6 +1677,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   operation: _musicOperation!,
                   type: TrackType.music,
                   automationVolume: _bgmVolume,
+                  setModalState: setModalState,
                 ),
               ],
               if (_voiceOperation != null) ...[
@@ -1689,6 +1687,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   operation: _voiceOperation!,
                   type: TrackType.voiceOver,
                   automationVolume: _voiceVolume,
+                  setModalState: setModalState,
                 ),
               ],
               SizedBox(height: 20),
