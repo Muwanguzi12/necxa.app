@@ -445,6 +445,7 @@ class VideoEnhancementService {
         timelineDuration: track.timelineDuration,
         fadeIn: track.fadeIn,
         fadeOut: track.fadeOut,
+        duckingIntervals: track.duckingIntervals,
       ));
     }
     if (backgroundMusicPath != null &&
@@ -779,9 +780,12 @@ class VideoEnhancementService {
           )
           .join('+');
       final baseVolume = track.volume.clamp(0.0, 4.0).toStringAsFixed(3);
+      final duckingFactor = track.duckingIntervals.isEmpty
+          ? 0.3
+          : track.duckingIntervals.first.factor.clamp(0.0, 1.0);
       final volumeFilter = duckingConditions.isEmpty
           ? 'volume=$baseVolume'
-          : "volume='${baseVolume}*if(gt($duckingConditions\\,0)\\,0.3\\,1)'";
+          : "volume='${baseVolume}*if(gt($duckingConditions\\,0)\\,${duckingFactor.toStringAsFixed(3)}\\,1)'";
       filterComplex +=
           "[$index:a]atrim=start=${track.sourceStart}$trimEnd$trimDuration,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,$volumeFilter,aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
       audioSources += '[$label]';
