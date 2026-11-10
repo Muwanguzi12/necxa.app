@@ -79,10 +79,10 @@ class SubjectSegmentationService {
         try {
           final framePattern = p.join(frameDir.path, 'frame_%04d.jpg');
           final extract = await FFmpegKit.execute(
-            "-hide_banner -loglevel error -ss $batchStart "
-            "-t $_batchDurationSeconds -i "${_escape(sourceVideo.path)}" "
-            "-vf "fps=$_fps,scale=$_maxWidth:-2" -q:v 5 -vsync 0 "
-            "-y "${_escape(framePattern)}"",
+            '-hide_banner -loglevel error -ss $batchStart '
+            '-t $_batchDurationSeconds -i "${_escape(sourceVideo.path)}" '
+            '-vf "fps=$_fps,scale=$_maxWidth:-2" -q:v 5 -vsync 0 '
+            '-y "${_escape(framePattern)}"',
           );
           if (!ReturnCode.isSuccess(await extract.getReturnCode())) {
             throw StateError('Could not decode a video batch for segmentation.');
@@ -146,16 +146,16 @@ class SubjectSegmentationService {
           }
         }
 
-        if (framesEndedAtLimit(frameCount)) break;
+        if (frameCount >= _maxFrames) break;
       }
 
       if (_cancelled || frameCount == 0) return null;
 
       final maskPattern = p.join(maskDir.path, 'mask_%06d.png');
       final encode = await FFmpegKit.execute(
-        "-hide_banner -loglevel error -framerate $_fps "
-        "-i "${_escape(maskPattern)}" -an -vf format=gray "
-        "-c:v ffv1 -pix_fmt gray -y "${_escape(maskVideo.path)}"",
+        '-hide_banner -loglevel error -framerate $_fps '
+        '-i "${_escape(maskPattern)}" -an -vf format=gray '
+        '-c:v ffv1 -pix_fmt gray -y "${_escape(maskVideo.path)}"',
       );
       if (!ReturnCode.isSuccess(await encode.getReturnCode()) ||
           !maskVideo.existsSync() ||
@@ -183,8 +183,6 @@ class SubjectSegmentationService {
       } catch (_) {}
     }
   }
-
-  bool framesEndedAtLimit(int count) => count >= _maxFrames;
 
   String _escape(String value) => value.replaceAll('"', r'\"');
 }
