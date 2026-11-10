@@ -4391,7 +4391,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var start = overlay.start.clamp(0.0, 1.0).toDouble();
     var end = overlay.end.clamp(start + 0.001, 1.0).toDouble();
     var fontSize = overlay.fontSize.clamp(16.0, 64.0).toDouble();
-    var fontFamily = overlay.fontFamily;
+    var fontFamily = overlay.fontFamily.toLowerCase() == 'syne' ? 'Roboto' : overlay.fontFamily;
     var selectedColor = overlay.color;
     var animationIn = overlay.animationIn;
     var animationOut = overlay.animationOut;
