@@ -708,7 +708,7 @@ class VideoEnhancementService {
         };
         final fontPath = overlay.fontFilePath;
         final fontOption = fontPath != null && fontPath.isNotEmpty
-            ? "fontfile='${fontPath.replaceAll('\\\\', '\\\\\\\\').replaceAll(':', '\\\\:').replaceAll(\"'\", \"\\\\'\")}'"
+            ? "fontfile='$fontPath'"
             : "font='$font'";
         final normalizedX = overlay.x.clamp(0.0, 1.0);
         final baseX = overlay.align == 'left'
