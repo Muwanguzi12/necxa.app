@@ -12,6 +12,84 @@ import 'package:uuid/uuid.dart';
 class AudioEnhancementService {
   static final Uuid _uuid = Uuid();
 
+  /// Applies one of the public studio effects and writes a new audio file.
+  /// Effect strength is normalized to 0..1; source audio is never overwritten.
+  Future<File> applyEffect({
+    required File inputAudio,
+    required AudioEffect effect,
+    double amount = 0.5,
+    void Function(double)? onProgress,
+  }) async {
+    _validateInput(inputAudio);
+    final strength = _unit(amount, 'amount');
+    if (strength == 0) {
+      throw ArgumentError('Effect amount must be greater than zero.');
+    }
+
+    final filters = <String>[];
+    switch (effect) {
+      case AudioEffect.reverb:
+        final delay = (35 + strength * 115).round();
+        final decay = 0.12 + strength * 0.55;
+        filters.add('aecho=0.85:0.9:$delay:${_number(decay)}');
+        break;
+      case AudioEffect.echo:
+        final delay = (90 + strength * 410).round();
+        final decay = 0.15 + strength * 0.65;
+        filters.add('aecho=0.8:0.88:$delay:${_number(decay)}');
+        break;
+      case AudioEffect.chorus:
+        // Multi-voice chorus using FFmpeg's native chorus filter.
+        filters.add(
+          'chorus=0.7:0.9:'
+          '${(18 + strength * 42).round()}|${(28 + strength * 54).round()}:'
+          '0.35|0.25:0.25|0.4:${_number(1.2 + strength * 2.8)}|${_number(0.8 + strength * 2.0)}',
+        );
+        break;
+      case AudioEffect.flanger:
+        filters.add(
+          'flanger=delay=${_number(1 + strength * 4)}:'
+          'depth=${_number(1 + strength * 5)}:'
+          'regen=${_number(strength * 45)}:'
+          'width=${_number(50 + strength * 50)}:'
+          'speed=${_number(0.1 + strength * 0.8)}',
+        );
+        break;
+      case AudioEffect.distortion:
+        filters.add(
+          'asoftclip=type=atan:threshold=${_number(1 - strength * 0.75)}:'
+          'output=1:oversample=4',
+        );
+        break;
+      case AudioEffect.robot:
+        // Tremolo plus short, metallic reflections creates a robot-style
+        // modulation; this is an effect, not AI voice conversion.
+        filters
+          ..add('tremolo=f=${_number(18 + strength * 42)}:d=${_number(0.35 + strength * 0.55)}')
+          ..add('aecho=0.8:0.75:18:0.45');
+        break;
+      case AudioEffect.telephone:
+        filters
+          ..add('highpass=f=300')
+          ..add('lowpass=f=3400')
+          ..add('acompressor=threshold=-20dB:ratio=3:attack=10:release=120');
+        break;
+      case AudioEffect.stadium:
+        filters
+          ..add('aecho=0.8:0.92:'
+              '${(75 + strength * 175).round()}|${(110 + strength * 240).round()}:'
+              '${_number(0.35 + strength * 0.35)}|${_number(0.2 + strength * 0.25)}');
+        break;
+    }
+
+    return _renderAudio(
+      inputAudio: inputAudio,
+      filters: filters,
+      onProgress: onProgress,
+      outputLabel: 'effect_${effect.name}',
+    );
+  }
+
   Future<File> enhanceAudio({
     required File inputAudio,
     AudioEnhancementOptions options = const AudioEnhancementOptions(),
