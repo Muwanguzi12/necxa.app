@@ -5015,12 +5015,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   Future<void> _loadProjectTextFonts() async {
+    var restoredAny = false;
     for (final overlay in _overlays) {
       final path = overlay.fontFilePath;
       if (path == null || path.isEmpty || !overlay.fontFamily.startsWith('NecxaFont_')) continue;
-      try { await _registerTextFont(overlay.fontFamily, path); }
+      try { await _registerTextFont(overlay.fontFamily, path); restoredAny = true; }
       catch (error) { debugPrint('Text Studio font restore failed: $error'); }
     }
+    if (restoredAny && mounted) setState(() {});
   }
 
   Future<Map<String, String>?> _pickTextFont() async {
