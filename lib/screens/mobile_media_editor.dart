@@ -8555,6 +8555,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _showSnack('${asset.name} added to the sound-effects timeline');
   }
 
+  // Opens the shared preset library and applies the chosen effect to the selected clip.
   void _toggleEffectLibrary() => _showEffectLibrarySheet();
 
   void _showEffectLibrarySheet() {
