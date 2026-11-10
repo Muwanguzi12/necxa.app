@@ -1217,28 +1217,36 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _videoController!.play();
 
     // 3. Start Music
-    if (_selectedTrack != null) {
-      double musicPos = (globalTime - _audioOffset).clamp(
-        0.0,
-        _audioEnd - _audioStart,
-      );
-      if (globalTime >= _audioOffset &&
-          globalTime < (_audioOffset + (_audioEnd - _audioStart))) {
-        await _musicPlayer.seek(
-          Duration(milliseconds: (musicPos * 1000).toInt()),
-        );
+    final musicClip = _musicClip;
+    final music = _musicOperation;
+    if (musicClip != null && music?.sourceUrl != null) {
+      final musicEnd = _audioOffset + (_audioEnd - _audioStart);
+      if (globalTime >= _audioOffset && globalTime < musicEnd) {
+        await _musicPlayer.setSource(UrlSource(music!.sourceUrl!));
+        await _musicPlayer.setVolume(_bgmVolume);
+        final musicPos = (globalTime - _audioOffset + _audioStart)
+            .clamp(_audioStart, _audioEnd);
+        await _musicPlayer.seek(Duration(milliseconds: (musicPos * 1000).round()));
         await _musicPlayer.resume();
       } else {
         await _musicPlayer.pause();
       }
+    } else {
+      await _musicPlayer.pause();
     }
 
-    // 4. Start Voiceover
-    if (_voiceOverFile != null) {
-      await _voicePlayer.seek(
-        Duration(milliseconds: (globalTime * 1000).toInt()),
-      );
+    // Voiceover source, timing and gain are read from its project clip.
+    final voiceClip = _voiceClip;
+    if (voiceClip?.file != null &&
+        globalTime >= voiceClip!.start.inMilliseconds / 1000.0 &&
+        globalTime < (voiceClip.start + voiceClip.duration).inMilliseconds / 1000.0) {
+      await _voicePlayer.setSource(DeviceFileSource(voiceClip.file!.path));
+      await _voicePlayer.setVolume(_voiceVolume);
+      final voicePosition = globalTime - voiceClip.start.inMilliseconds / 1000.0;
+      await _voicePlayer.seek(Duration(milliseconds: (voicePosition * 1000).round()));
       await _voicePlayer.resume();
+    } else {
+      await _voicePlayer.pause();
     }
   }
 
