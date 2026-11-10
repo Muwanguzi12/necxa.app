@@ -229,93 +229,93 @@ class EditorExportService {
     var effects = const RenderEffects();
     for (final track in tracks.where((item) => item.isVisible)) {
       for (final clip in track.clips.where((item) => !item.isHidden)) {
-      final operation = clip.operation;
-      if (operation is OverlayOperation) {
-        overlays.add(
-          RenderOverlay(
-            type: operation.kind,
-            text: operation.text,
-            start: clip.start.inMilliseconds / 1000,
-            end: (clip.start + clip.duration).inMilliseconds / 1000,
-            x: operation.position.dx,
-            y: operation.position.dy,
-            scale: operation.scale,
-            rotation: operation.rotation,
-            opacity: operation.opacity,
-            fontSize: operation.fontSize,
-            color: operation.color,
-            background: operation.background,
-            backgroundOpacity: operation.backgroundOpacity,
-            shadow: operation.shadow,
-            align: operation.align,
-            fontFamily: operation.fontFamily,
-            stroke: operation.stroke,
-            animationIn: operation.animationIn,
-            animationOut: operation.animationOut,
-            depthLayer: operation.depthLayer,
-          ),
-        );
-      } else if (operation is TextOverlay) {
-        overlays.add(
-          RenderOverlay(
-            type: 'text',
-            text: operation.text,
-            start: clip.start.inMilliseconds / 1000,
-            end: (clip.start + clip.duration).inMilliseconds / 1000,
-            x: operation.position.dx,
-            y: operation.position.dy,
-            scale: operation.scale,
-            rotation: operation.rotation,
-            fontSize: operation.style.fontSize ?? 28,
-            color: operation.style.color ?? C.text,
-          ),
-        );
-      } else if (operation is TransitionOperation) {
-        if (visualClips.length < 2) continue;
-        var afterIndex = 0;
-        for (var index = 0; index < visualClips.length - 1; index++) {
-          if (clip.start >= visualClips[index].start) afterIndex = index;
-        }
-        transitions.add(
-          RenderTransition(
-            afterClipIndex: afterIndex.clamp(0, visualClips.length - 2),
-            presetId: operation.presetId,
-            duration: operation.duration,
-          ),
-        );
-      } else if (operation is AudioClipOperation) {
-        final path = clip.file?.path ?? operation.sourceUrl;
-        final effectiveVolume = clip.volume == 1.0
-            ? operation.volume
-            : clip.volume;
-        final effectiveSpeed = clip.speed == 1.0
-            ? operation.speed
-            : clip.speed;
-        if (path != null && path.isNotEmpty && effectiveVolume > 0) {
-          audioTracks.add(
-            RenderAudioTrack(
-              path: path,
-              sourceStart:
-                  operation.startOffset ??
-                  clip.sourceStart.inMilliseconds / 1000,
-              sourceEnd:
-                  operation.endOffset ??
-                  (clip.sourceEnd == null
-                      ? null
-                      : clip.sourceEnd!.inMilliseconds / 1000),
-              timelineStart: clip.start.inMilliseconds / 1000,
-              volume: effectiveVolume,
-              speed: effectiveSpeed,
-              reverse: clip.isReversed || operation.reverse,
-              timelineDuration: clip.duration.inMilliseconds / 1000,
-              fadeIn: operation.fadeIn,
-              fadeOut: operation.fadeOut,
+        final operation = clip.operation;
+        if (operation is OverlayOperation) {
+          overlays.add(
+            RenderOverlay(
+              type: operation.kind,
+              text: operation.text,
+              start: clip.start.inMilliseconds / 1000,
+              end: (clip.start + clip.duration).inMilliseconds / 1000,
+              x: operation.position.dx,
+              y: operation.position.dy,
+              scale: operation.scale,
+              rotation: operation.rotation,
+              opacity: operation.opacity,
+              fontSize: operation.fontSize,
+              color: operation.color,
+              background: operation.background,
+              backgroundOpacity: operation.backgroundOpacity,
+              shadow: operation.shadow,
+              align: operation.align,
+              fontFamily: operation.fontFamily,
+              stroke: operation.stroke,
+              animationIn: operation.animationIn,
+              animationOut: operation.animationOut,
+              depthLayer: operation.depthLayer,
             ),
           );
+        } else if (operation is TextOverlay) {
+          overlays.add(
+            RenderOverlay(
+              type: 'text',
+              text: operation.text,
+              start: clip.start.inMilliseconds / 1000,
+              end: (clip.start + clip.duration).inMilliseconds / 1000,
+              x: operation.position.dx,
+              y: operation.position.dy,
+              scale: operation.scale,
+              rotation: operation.rotation,
+              fontSize: operation.style.fontSize ?? 28,
+              color: operation.style.color ?? C.text,
+            ),
+          );
+        } else if (operation is TransitionOperation) {
+          if (visualClips.length < 2) continue;
+          var afterIndex = 0;
+          for (var index = 0; index < visualClips.length - 1; index++) {
+            if (clip.start >= visualClips[index].start) afterIndex = index;
+          }
+          transitions.add(
+            RenderTransition(
+              afterClipIndex: afterIndex.clamp(0, visualClips.length - 2),
+              presetId: operation.presetId,
+              duration: operation.duration,
+            ),
+          );
+        } else if (operation is AudioClipOperation) {
+          final path = clip.file?.path ?? operation.sourceUrl;
+          final effectiveVolume = clip.volume == 1.0
+              ? operation.volume
+              : clip.volume;
+          final effectiveSpeed = clip.speed == 1.0
+              ? operation.speed
+              : clip.speed;
+          if (path != null && path.isNotEmpty && effectiveVolume > 0) {
+            audioTracks.add(
+              RenderAudioTrack(
+                path: path,
+                sourceStart:
+                    operation.startOffset ??
+                    clip.sourceStart.inMilliseconds / 1000,
+                sourceEnd:
+                    operation.endOffset ??
+                    (clip.sourceEnd == null
+                        ? null
+                        : clip.sourceEnd!.inMilliseconds / 1000),
+                timelineStart: clip.start.inMilliseconds / 1000,
+                volume: effectiveVolume,
+                speed: effectiveSpeed,
+                reverse: clip.isReversed || operation.reverse,
+                timelineDuration: clip.duration.inMilliseconds / 1000,
+                fadeIn: operation.fadeIn,
+                fadeOut: operation.fadeOut,
+              ),
+            );
+          }
+        } else if (operation is EffectOperation) {
+          effects = operation.renderEffects();
         }
-      } else if (operation is EffectOperation) {
-        effects = operation.renderEffects();
-      }
       }
     }
     FilterOperation? filter;
