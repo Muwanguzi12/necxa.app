@@ -675,10 +675,10 @@ class VideoEnhancementService {
         };
         final themeStroke = overlay.stroke || overlay.themeId == 'bold';
         final shadowColor = switch (overlay.themeId) {
-          'neon' => '\#00F2FF',
-          'karaoke' => '\#FFD166',
-          'afro' => '\#FF8A3D',
-          _ => '0.0,0.0,0.0',
+          'neon' => '#00F2FF',
+          'karaoke' => '#FFD166',
+          'afro' => '#FF8A3D',
+          _ => '#000000',
         };
         final shadow = themeShadow
             ? ":shadowcolor=$shadowColor@0.75:shadowx=2:shadowy=2"
