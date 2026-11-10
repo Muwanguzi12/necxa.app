@@ -759,7 +759,9 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
       final uploadedStorageUrl = await _uploadUserPhoto(file);
       _uploadedStorageUrl = uploadedStorageUrl;
 
-      if (_category == ExperienceCategory.homeLiving ||\n          _category == ExperienceCategory.electronics ||\n          _category == ExperienceCategory.general) {
+      if (_category == ExperienceCategory.homeLiving ||
+          _category == ExperienceCategory.electronics ||
+          _category == ExperienceCategory.general) {
         // Spatial placement for room, desk, electronics, furniture:
         // Transition immediately to interactive placement mode so user can drag & scale product in real-time
         if (garmentUrl.isNotEmpty && uploadedStorageUrl != null) {
@@ -769,28 +771,33 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
           if (mounted) {
             setState(() {
               _isProcessing = false;
-              _aiResultImages = images;
-              _activeStep = 3;
+              _aiResultImages = [];
+              _activeStep = 1;
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Could not upload your photo. Check your connection and try again.'),
+                duration: Duration(seconds: 4),
+              ),
+            );
           }
         }
       } else {
-        // Fashion category: AI Try-On
+        // AI try-on for fashion and beauty/jewelry products
         if (garmentUrl.isNotEmpty && uploadedStorageUrl != null) {
           await _runTryOn(garmentUrl: garmentUrl, userPhotoUrl: uploadedStorageUrl);
         } else {
-          // If storage upload had an issue, fallback gracefully to variations so user is never blocked
           _stopProcessingTimer();
           if (mounted) {
             setState(() {
               _isProcessing = false;
-              _aiResultImages = images;
-              _activeStep = 3;
+              _aiResultImages = [];
+              _activeStep = 1;
             });
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Showing interactive product preview while AI models calibrate.'),
-                duration: Duration(seconds: 3),
+                content: Text('Could not upload your photo. Check your connection and try again.'),
+                duration: Duration(seconds: 4),
               ),
             );
           }
