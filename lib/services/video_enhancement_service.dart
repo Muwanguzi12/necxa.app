@@ -60,6 +60,8 @@ class RenderOverlay {
   final Color background;
   final double backgroundOpacity;
   final bool shadow;
+  final String animationIn;
+  final String animationOut;
 
   RenderOverlay({
     required this.type,
@@ -77,6 +79,8 @@ class RenderOverlay {
     this.background = Colors.black,
     this.backgroundOpacity = 0.0,
     this.shadow = true,
+    this.animationIn = 'none',
+    this.animationOut = 'none',
   });
 }
 
@@ -453,10 +457,30 @@ class VideoEnhancementService {
         final shadow = overlay.shadow
             ? ":shadowcolor=black@0.65:shadowx=2:shadowy=2"
             : "";
-        final xExpr = "(w-text_w)*${overlay.x.clamp(0.0, 1.0)}";
-        final yExpr = "(h-text_h)*${overlay.y.clamp(0.0, 1.0)}";
+        final baseX = "(w-text_w)*${overlay.x.clamp(0.0, 1.0)}";
+        final baseY = "(h-text_h)*${overlay.y.clamp(0.0, 1.0)}";
+        const animationSeconds = 0.35;
+        var alphaExpr = "1";
+        var xExpr = baseX;
+        var yExpr = baseY;
+        if (overlay.animationIn == 'fade') {
+          alphaExpr = "if(lt(t,$startTime+$animationSeconds),max(0,(t-$startTime)/$animationSeconds),1)";
+        } else if (overlay.animationIn == 'slide_up') {
+          yExpr = "if(lt(t,$startTime+$animationSeconds),$baseY+(1-(t-$startTime)/$animationSeconds)*36,$baseY)";
+        } else if (overlay.animationIn == 'slide_left') {
+          xExpr = "if(lt(t,$startTime+$animationSeconds),$baseX+(1-(t-$startTime)/$animationSeconds)*48,$baseX)";
+        } else if (overlay.animationIn == 'pop') {
+          alphaExpr = "if(lt(t,$startTime+0.08),max(0,(t-$startTime)/0.08),1)";
+        }
+        if (overlay.animationOut == 'fade') {
+          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
+        } else if (overlay.animationOut == 'slide_up') {
+          yExpr = "if(gt(t,$endTime-$animationSeconds),$baseY-(1-($endTime-t)/$animationSeconds)*36,$yExpr)";
+        } else if (overlay.animationOut == 'slide_left') {
+          xExpr = "if(gt(t,$endTime-$animationSeconds),$baseX-(1-($endTime-t)/$animationSeconds)*48,$xExpr)";
+        }
         filterComplex +=
-            "[$currentVideo]drawtext=text='$text':x='$xExpr':y='$yExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow:enable='between(t,$startTime,$endTime)'[$nextLabel];";
+            "[$currentVideo]drawtext=text='$text':x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow:enable='between(t,$startTime,$endTime)'[$nextLabel];";
       } else {
         continue;
       }
