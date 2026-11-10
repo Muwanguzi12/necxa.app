@@ -4107,7 +4107,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     ]),
                     sectionTitle('Text size'),
                     Slider(
-                      value: fontSize.clamp(16.0, 64.0),
+                      value: fontSize.clamp(16.0, 64.0).toDouble(),
                       min: 16,
                       max: 64,
                       divisions: 24,
