@@ -1,85 +1,125 @@
-name: Build APK
+name: Necxa Android CI & Release
 
 on:
   push:
-    branches: [ main, fix/listing-wizard-liveness, feature/unified-realtime-effects-engine ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: necxa-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  build:
+  quality:
+    name: Flutter quality checks
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.sha }}
-        submodules: false
-        fetch-depth: 0
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: false
+          fetch-depth: 0
 
-    # ── Free up disk space (~10GB) before heavy Flutter/FFmpeg build ──
-    - name: Free disk space
-      run: |
-        echo "=== Disk before cleanup ==="
-        df -h
-        sudo rm -rf /usr/local/lib/android/sdk/emulator
-        sudo rm -rf /usr/local/lib/android/sdk/system-images
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
-        sudo rm -rf /opt/hostedtoolcache/go
-        sudo rm -rf /opt/hostedtoolcache/node
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/.ghcup
-        sudo apt-get clean
-        docker image prune -af || true
-        echo "=== Disk after cleanup ==="
-        df -h
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
 
-    - name: Setup Java
-      uses: actions/setup-java@v5
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+      - name: Get dependencies
+        run: flutter pub get
 
-    - name: Setup Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        channel: 'stable'
-        cache: true
+      - name: Check Dart formatting
+        run: dart format --set-exit-if-changed --dry-run lib/
 
-    - name: Print build info
-      run: |
-        echo "==== BUILD INFO ===="
-        echo "Commit : $GITHUB_SHA"
-        echo "Branch : $GITHUB_REF_NAME"
-        echo "Run    : $GITHUB_RUN_NUMBER"
-        git log --oneline -5
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-    - name: Clean previous build artefacts
-      run: flutter clean
+      - name: Run tests
+        run: flutter test --coverage
 
-    - name: Get fresh dependencies
-      run: flutter pub get
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+        continue-on-error: true
 
-    - name: Build APK Release (split per ABI)
-      env:
-        GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
-        ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.0.12077973
-        ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/27.0.12077973
-      run: flutter build apk --release --split-per-abi
+  build:
+    name: Build and identify release APKs
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: false
+          fetch-depth: 0
 
-    - name: Add build provenance
-      run: |
-        printf "commit=%s\nbranch=%s\nrun=%s\n" \
-          "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" \
-          > build/app/outputs/flutter-apk/BUILD_INFO.txt
+      - name: Free disk space
+        run: |
+          echo "=== Disk before cleanup ==="
+          df -h
+          sudo rm -rf /usr/local/lib/android/sdk/emulator
+          sudo rm -rf /usr/local/lib/android/sdk/system-images
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /opt/hostedtoolcache/go
+          sudo rm -rf /opt/hostedtoolcache/node
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/.ghcup
+          sudo apt-get clean
+          docker image prune -af || true
+          echo "=== Disk after cleanup ==="
+          df -h
 
-    - name: Upload Release APKs
-      uses: actions/upload-artifact@v4
-      with:
-        name: necxa-apk-${{ github.run_number }}-${{ github.sha }}
-        path: |
-          build/app/outputs/flutter-apk/app-*-release.apk
-          build/app/outputs/flutter-apk/BUILD_INFO.txt
-        retention-days: 30
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Print build identity
+        run: |
+          echo "Commit : $GITHUB_SHA"
+          echo "Branch : $GITHUB_REF_NAME"
+          echo "Run    : $GITHUB_RUN_NUMBER"
+          flutter --version
+          git log --oneline -5
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build release APKs once
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.0.12077973
+          ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/27.0.12077973
+        run: flutter build apk --release --split-per-abi
+
+      - name: Write build provenance
+        run: |
+          printf "commit=%s\\nbranch=%s\\nrun=%s\\n" \\
+            "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" \\
+            > build/app/outputs/flutter-apk/BUILD_INFO.txt
+
+      - name: Upload release APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: necxa-android-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            build/app/outputs/flutter-apk/app-*-release.apk
+            build/app/outputs/flutter-apk/BUILD_INFO.txt
+          if-no-files-found: error
+          retention-days: 30
