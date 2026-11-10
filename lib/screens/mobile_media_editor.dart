@@ -8555,6 +8555,179 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _showSnack('${asset.name} added to the sound-effects timeline');
   }
 
+  void _toggleEffectLibrary() {
+    _showEffectLibrarySheet();
+  }
+
+  void _showEffectLibrarySheet() {
+    final target = _selectedClip ?? _compositionVisualClip;
+    if (target == null) {
+      _showSnack('Select a video or image clip before adding an effect');
+      return;
+    }
+
+    setState(() {
+      _showEffectLibrary = true;
+    });
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => SafeArea(
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetContext).size.height * 0.72,
+          ),
+          decoration: const BoxDecoration(
+            color: Color(0xFF141720),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Effect library',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close effect library',
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _effectPresets.length,
+                  itemBuilder: (context, index) {
+                    final preset = _effectPresets[index];
+                    final selected = preset.id == _selectedEffectId;
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: C.card,
+                        child: Text(preset.icon),
+                      ),
+                      title: Text(
+                        preset.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        preset.description,
+                        style: const TextStyle(color: Colors.white60),
+                      ),
+                      trailing: selected
+                          ? const Icon(Icons.check_circle, color: C.brand)
+                          : const Icon(Icons.chevron_right, color: Colors.white54),
+                      selected: selected,
+                      onTap: () {
+                        setState(() {
+                          _selectedEffectId = preset.id;
+                          _previewEffect = preset;
+                          _previewEffectIntensity = preset.defaultIntensity;
+                        });
+                        Navigator.pop(sheetContext);
+                        _applySelectedEffect();
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).whenComplete(() {
+      if (mounted) {
+        setState(() {
+          _showEffectLibrary = false;
+        });
+      }
+    });
+  }
+
+  void _applySelectedEffect() {
+    final preset = EffectPreset.byId(_selectedEffectId ?? '');
+    if (preset == null) {
+      _showEffectLibrarySheet();
+      return;
+    }
+
+    final target = _selectedClip ?? _compositionVisualClip;
+    if (target == null) {
+      _showSnack('Select a video or image clip before adding an effect');
+      return;
+    }
+
+    _captureTimeline();
+    final operation = EffectOperation(
+      presetId: preset.id,
+      presetName: preset.name,
+      category: preset.category,
+      icon: preset.icon,
+      intensity: _previewEffectIntensity.clamp(0.0, 1.0).toDouble(),
+      opacity: preset.defaultOpacity,
+      blendMode: preset.defaultBlendMode,
+    );
+    final effectClip = TimelineClip(
+      id: 'effect-${DateTime.now().microsecondsSinceEpoch}',
+      start: target.start,
+      duration: target.duration,
+      operation: operation,
+    );
+
+    setState(() {
+      TimelineTrack? effectsTrack;
+      for (final track in _tracks) {
+        if (track.type == TrackType.effects && !track.isLocked) {
+          effectsTrack = track;
+          break;
+        }
+      }
+      if (effectsTrack == null) {
+        effectsTrack = TimelineTrack(
+          id: 'track-effects-${DateTime.now().millisecondsSinceEpoch}',
+          type: TrackType.effects,
+          clips: <TimelineClip>[],
+          label: 'Effects',
+          icon: Icons.auto_awesome,
+        );
+        final videoIndex = _tracks.lastIndexWhere(
+          (track) => track.type == TrackType.video,
+        );
+        _tracks.insert(
+          videoIndex >= 0 ? videoIndex + 1 : _tracks.length,
+          effectsTrack,
+        );
+      }
+      effectsTrack.clips.add(effectClip);
+      _selectedClip = effectClip;
+      _selectedClipIds
+        ..clear()
+        ..add(effectClip.id);
+      _selectedTrackId = effectsTrack.id;
+      _selectedTrackIndex = _tracks.indexOf(effectsTrack);
+    });
+
+    _playback.updateProject(_tracks);
+    _queueCompositionSync();
+    _showSnack('${preset.name} added to the effects timeline');
+  }
+
   Future<void> _showEffectEditorSheet() async {
     _captureTimeline();
     if (_selectedClip == null || _selectedClip!.operation is! EffectOperation) {
