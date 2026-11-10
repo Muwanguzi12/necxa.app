@@ -299,6 +299,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               offsetX: clip.transform.position.dx,
               offsetY: clip.transform.position.dy,
               opacity: clip.transform.opacity,
+              filter: clip.filter == null ? null : ImageFilter.values.firstWhere(
+                (value) => value.name == clip.filter!.filterName,
+                orElse: () => ImageFilter.normal,
+              ),
+              brightness: clip.brightness,
+              contrast: clip.contrast,
+              saturation: clip.saturation,
+              hue: clip.hue,
+              vignette: clip.vignette,
+              grain: clip.grain,
+              blur: clip.blur,
               isReversed: clip.isReversed,
             ),
           )
@@ -1760,6 +1771,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           _activeClipIndex = index;
                           if (_selectedClips.isEmpty) _multiSelectMode = false;
                         });
+                        _loadClip(index);
                       } else {
                         setState(() {
                           _activeClipIndex = index;
@@ -1774,6 +1786,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         if (!_selectedClips.add(clip)) _selectedClips.remove(clip);
                         _activeClipIndex = index;
                       });
+                      _loadClip(index);
                       HapticFeedback.selectionClick();
                     },
                     onPanStart: (details) {
