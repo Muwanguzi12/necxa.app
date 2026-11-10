@@ -297,33 +297,56 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
       clip.start = target;
       _lastAppliedDelta = target - _originalStart;
     } else if (mode == 'trim-start') {
-      final maxTrim = _originalDuration - minDuration;
-      final applied = delta.inMilliseconds.clamp(-_originalStart.inMilliseconds, maxTrim.inMilliseconds).toInt();
+      // A clip shorter than the minimum trim length cannot be trimmed further.
+      final maxTrimMs = (_originalDuration - minDuration).inMilliseconds;
+      if (maxTrimMs < 0 || clip.speed <= 0) return;
+      final applied = delta.inMilliseconds
+          .clamp(-_originalStart.inMilliseconds, maxTrimMs)
+          .toInt();
       final appliedDuration = Duration(milliseconds: applied);
-      var newSourceStart = _originalSourceStart + Duration(milliseconds: (applied * clip.speed).round());
+      var newSourceStart = _originalSourceStart +
+          Duration(milliseconds: (applied * clip.speed).round());
       if (newSourceStart < Duration.zero) newSourceStart = Duration.zero;
+      final preservedSourceEnd = _originalSourceEnd ??
+          (_originalSourceStart +
+              Duration(milliseconds: (_originalDuration.inMilliseconds * clip.speed).round()));
       clip.start = _originalStart;
       clip.duration = _originalDuration - appliedDuration;
       clip.sourceStart = newSourceStart;
-      if (clip.sourceEnd != null) {
-        clip.sourceEnd = _originalSourceEnd;
-      }
+      clip.sourceEnd = preservedSourceEnd;
       if (clip.operation is TrimOperation) {
-        (clip.operation as TrimOperation).start = newSourceStart;
+        final trim = clip.operation as TrimOperation;
+        trim.start = newSourceStart;
+        trim.end = preservedSourceEnd;
       }
       _lastAppliedDelta = clip.duration - _originalDuration;
     } else {
-      final applied = delta.inMilliseconds.clamp(
-        -(_originalDuration - minDuration).inMilliseconds,
-        24 * 60 * 60 * 1000,
-      ).toInt();
+      if (clip.speed <= 0) return;
+      final minimumDeltaMs = -(_originalDuration - minDuration).inMilliseconds;
+      final originalSourceEnd = _originalSourceEnd ??
+          (_originalSourceStart +
+              Duration(milliseconds: (_originalDuration.inMilliseconds * clip.speed).round()));
+      final maximumSourceEnd = clip.operation is TrimOperation
+          ? (clip.operation as TrimOperation).maxDuration
+          : originalSourceEnd;
+      final availableSourceMs =
+          (maximumSourceEnd - clip.sourceStart).inMilliseconds;
+      final maximumDurationMs = (availableSourceMs / clip.speed).floor();
+      final maximumDeltaMs = math.max(
+        0,
+        maximumDurationMs - _originalDuration.inMilliseconds,
+      );
+      if (maximumDeltaMs <= 0 && delta.inMilliseconds > 0) return;
+      final applied = delta.inMilliseconds
+          .clamp(minimumDeltaMs, maximumDeltaMs)
+          .toInt();
       final nextDuration = _originalDuration + Duration(milliseconds: applied);
+      final nextSourceEnd = clip.sourceStart +
+          Duration(milliseconds: (nextDuration.inMilliseconds * clip.speed).round());
       clip.duration = nextDuration;
-      clip.sourceEnd = _originalSourceEnd == null
-          ? null
-          : _originalSourceEnd! + Duration(milliseconds: (applied * clip.speed).round());
-      if (clip.operation is TrimOperation && clip.sourceEnd != null) {
-        (clip.operation as TrimOperation).end = clip.sourceEnd!;
+      clip.sourceEnd = nextSourceEnd;
+      if (clip.operation is TrimOperation) {
+        (clip.operation as TrimOperation).end = nextSourceEnd;
       }
       _lastAppliedDelta = nextDuration - _originalDuration;
     }
