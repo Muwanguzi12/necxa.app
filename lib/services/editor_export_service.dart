@@ -201,6 +201,7 @@ class EditorExportService {
             background: operation.background,
             backgroundOpacity: operation.backgroundOpacity,
             shadow: operation.shadow,
+            align: operation.align,
             animationIn: operation.animationIn,
             animationOut: operation.animationOut,
           ),
