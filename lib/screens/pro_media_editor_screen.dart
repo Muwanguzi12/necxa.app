@@ -4879,7 +4879,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       : o.align == 'right'
                           ? TextAlign.right
                           : TextAlign.center;
-                  final fontFamily = o.fontFilePath != null && o.fontFilePath!.isNotEmpty
+                  final customFontAvailable = o.fontFilePath != null &&
+                      o.fontFilePath!.isNotEmpty &&
+                      _loadedTextFontFamilies.contains(o.fontFamily) &&
+                      File(o.fontFilePath!).existsSync();
+                  final fontFamily = customFontAvailable
                       ? o.fontFamily
                       : switch (o.themeId) {
                     'afro' => 'serif',
@@ -5030,14 +5034,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     if (result == null || result.files.isEmpty) return null;
     final selected = result.files.single;
     final bytes = selected.bytes ?? (selected.path == null ? null : await File(selected.path!).readAsBytes());
-    if (bytes == null || bytes.isEmpty) throw StateError('Could not read the selected font file.');
+    if (bytes == null || bytes.length < 4) throw StateError('Could not read the selected font file.');
+    final isTrueType = bytes[0] == 0 && bytes[1] == 1 && bytes[2] == 0 && bytes[3] == 0;
+    final signature = String.fromCharCodes(bytes.take(4));
+    if (!isTrueType && signature != 'OTTO' && signature != 'ttcf') {
+      throw StateError('The selected file is not a supported TTF or OTF font.');
+    }
     final support = await getApplicationSupportDirectory();
     final fontDirectory = Directory('${support.path}/necxa_fonts');
     await fontDirectory.create(recursive: true);
     final safeName = selected.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    final destination = File('${fontDirectory.path}/$safeName');
+    final fontHash = bytes.fold<int>(0, (hash, byte) => ((hash * 31) + byte) & 0x7fffffff);
+    final destination = File('${fontDirectory.path}/${fontHash}_$safeName');
     await destination.writeAsBytes(bytes, flush: true);
-    final family = 'NecxaFont_${safeName.hashCode.abs()}';
+    final family = 'NecxaFont_$fontHash';
     await _registerTextFont(family, destination.path);
     return {'family': family, 'path': destination.path};
   }
