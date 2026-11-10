@@ -4004,7 +4004,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   children: [
                     Row(children: [
                       Expanded(child: Text('TEXT STUDIO', style: syne(sz: 16, w: FontWeight.w900, c: C.text, ls: 1))),
-                      IconButton(onPressed: () => Navigator.pop(sheetContext), icon: Icon(Icons.close, color: C.sub)),
+                      IconButton(onPressed: isTranscribing ? null : () => Navigator.pop(sheetContext), icon: Icon(Icons.close, color: C.sub)),
                     ]),
                     Text('Build captions, lyrics videos and animated titles.', style: dm(sz: 11, c: C.sub)),
                     const SizedBox(height: 14),
@@ -4324,7 +4324,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                   clipDuration > 0;
                               final segment = hasAiTiming ? aiCaptionSegments![index] : null;
                               final layerStart = hasAiTiming
-                                  ? ((clipOffset + (segment!['start'] as num).toDouble()) / duration).clamp(0.0, 1.0).toDouble()
+                                  ? ((clipOffset + (segment!['start'] as num).toDouble()) / duration).clamp(0.0, 0.999).toDouble()
                                   : start + interval * index;
                               final layerEnd = hasAiTiming
                                   ? ((clipOffset + (segment!['end'] as num).toDouble()) / duration).clamp(layerStart + 0.001, 1.0).toDouble()
