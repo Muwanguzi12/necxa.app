@@ -264,6 +264,45 @@ class VideoEnhancementService {
     return '${tempDir.path}/vibe_${DateTime.now().millisecondsSinceEpoch}.mp4';
   }
 
+  /// Builds a temporary reverse-playback source for an audio timeline clip.
+  /// The original source remains untouched; final export reverses from the
+  /// authoritative TimelineClip operation independently.
+  Future<File?> createReversedAudioPreview({
+    required String source,
+    required double sourceStart,
+    required double sourceEnd,
+  }) async {
+    if (!_isSupportedAudioSource(source) ||
+        sourceEnd <= sourceStart ||
+        !sourceStart.isFinite ||
+        !sourceEnd.isFinite) {
+      return null;
+    }
+    final tempDir = await getTemporaryDirectory();
+    final outputPath =
+        '${tempDir.path}/necxa_reverse_audio_${DateTime.now().microsecondsSinceEpoch}.m4a';
+    final duration = sourceEnd - sourceStart;
+    final command =
+        "-i '${_escapePath(source)}' -ss $sourceStart -t $duration "
+        "-vn -af areverse -c:a aac -b:a 192k -y '${_escapePath(outputPath)}'";
+    try {
+      final session = await FFmpegKit.execute(command);
+      final code = await session.getReturnCode();
+      final output = File(outputPath);
+      if (ReturnCode.isSuccess(code) &&
+          output.existsSync() &&
+          output.lengthSync() > 0) {
+        return output;
+      }
+      debugPrint(
+        'Reverse audio preview failed: ${await session.getAllLogsAsString()}',
+      );
+    } catch (error) {
+      debugPrint('Reverse audio preview error: $error');
+    }
+    return null;
+  }
+
   /// Combine multiple clips into a single video file
   Future<File?> combineSequence({
     required List<ClipData> clips,
