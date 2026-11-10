@@ -4803,6 +4803,16 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               animationScale = 0.88 + (0.12 * enterProgress);
               animationOpacity *= enterProgress;
               break;
+            case 'zoom':
+              animationScale = 0.55 + (0.45 * enterProgress);
+              animationOpacity *= enterProgress;
+              break;
+            case 'bounce':
+              animationOffset += Offset(
+                0,
+                -18 * math.sin(enterProgress * math.pi) * (1 - enterProgress),
+              );
+              break;
           }
           switch (o.animationOut) {
             case 'fade':
@@ -4817,6 +4827,16 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             case 'pop':
               animationScale *= 0.82 + (0.18 * exitProgress);
               animationOpacity *= exitProgress;
+              break;
+            case 'zoom':
+              animationScale *= 0.55 + (0.45 * exitProgress);
+              animationOpacity *= exitProgress;
+              break;
+            case 'bounce':
+              animationOffset += Offset(
+                0,
+                18 * math.sin(exitProgress * math.pi) * (1 - exitProgress),
+              );
               break;
           }
           return Positioned.fill(
@@ -4971,7 +4991,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       'bold': {'label': 'Bold', 'color': const Color(0xFFFFFFFF), 'size': 38.0, 'shadow': true},
       'afro': {'label': 'Afro glow', 'color': const Color(0xFFFFB45C), 'size': 32.0, 'shadow': true},
     };
-    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop'];
+    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop', 'zoom', 'bounce'];
     const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
 
     showModalBottomSheet<void>(
@@ -5387,7 +5407,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var animationOut = overlay.animationOut;
     var depthLayer = overlay.depthLayer;
     const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
-    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop'];
+    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop', 'zoom', 'bounce'];
     final duration = _totalDuration > 0 ? _totalDuration : 30.0;
 
     showModalBottomSheet<void>(
