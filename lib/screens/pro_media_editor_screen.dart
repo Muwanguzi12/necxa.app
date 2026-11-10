@@ -4353,11 +4353,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         },
                       ),
                     ),
-                    if (contentMode == 'captions')
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10),
-                        child: Text('AI speech-to-text still needs its Supabase 2 transcription function. These manual caption layers work offline and can be retimed individually.', style: dm(sz: 10, c: C.dim)),
-                      ),
                   ],
                 ),
               ),
