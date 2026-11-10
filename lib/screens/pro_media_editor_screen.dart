@@ -3618,7 +3618,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   List<VideoClip> get _effectTargets {
     if (_selectedClips.isNotEmpty) return _selectedClips.toList();
     if (_sequence.isEmpty) return <VideoClip>[];
-    return <VideoClip>[_sequence[_activeClipIndex.clamp(0, _sequence.length - 1)]];
+    return <VideoClip>[_sequence[_activeClipIndex.clamp(0, _sequence.length - 1).toInt()]];
   }
 
   void _syncLookControlsFromClip(VideoClip clip) {
