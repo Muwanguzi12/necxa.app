@@ -62,6 +62,7 @@ class RenderOverlay {
   final bool shadow;
   final String animationIn;
   final String animationOut;
+  final String align;
 
   RenderOverlay({
     required this.type,
@@ -81,6 +82,7 @@ class RenderOverlay {
     this.shadow = true,
     this.animationIn = 'none',
     this.animationOut = 'none',
+    this.align = 'center',
   });
 }
 
@@ -457,7 +459,12 @@ class VideoEnhancementService {
         final shadow = overlay.shadow
             ? ":shadowcolor=black@0.65:shadowx=2:shadowy=2"
             : "";
-        final baseX = "(w-text_w)*${overlay.x.clamp(0.0, 1.0)}";
+        final normalizedX = overlay.x.clamp(0.0, 1.0);
+        final baseX = overlay.align == 'left'
+            ? "w*${normalizedX}"
+            : overlay.align == 'right'
+                ? "w*${normalizedX}-text_w"
+                : "(w-text_w)*${normalizedX}";
         final baseY = "(h-text_h)*${overlay.y.clamp(0.0, 1.0)}";
         const animationSeconds = 0.35;
         var alphaExpr = "1";
