@@ -8555,9 +8555,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _showSnack('${asset.name} added to the sound-effects timeline');
   }
 
-  void _toggleEffectLibrary() {
-    _showEffectLibrarySheet();
-  }
+  void _toggleEffectLibrary() => _showEffectLibrarySheet();
 
   void _showEffectLibrarySheet() {
     final target = _selectedClip ?? _compositionVisualClip;
@@ -8566,10 +8564,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       return;
     }
 
-    setState(() {
-      _showEffectLibrary = true;
-    });
-
+    setState(() => _showEffectLibrary = true);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -8584,28 +8579,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Effect library',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Close effect library',
-                      onPressed: () => Navigator.pop(sheetContext),
-                      icon: const Icon(Icons.close, color: Colors.white70),
-                    ),
-                  ],
+              ListTile(
+                title: const Text(
+                  'Effect library',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                trailing: IconButton(
+                  onPressed: () => Navigator.pop(sheetContext),
+                  icon: const Icon(Icons.close, color: Colors.white70),
                 ),
               ),
               Expanded(
@@ -8613,7 +8599,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                   itemCount: _effectPresets.length,
                   itemBuilder: (context, index) {
                     final preset = _effectPresets[index];
-                    final selected = preset.id == _selectedEffectId;
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: C.card,
@@ -8621,19 +8606,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                       ),
                       title: Text(
                         preset.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: const TextStyle(color: Colors.white),
                       ),
                       subtitle: Text(
                         preset.description,
                         style: const TextStyle(color: Colors.white60),
                       ),
-                      trailing: selected
+                      trailing: preset.id == _selectedEffectId
                           ? const Icon(Icons.check_circle, color: C.brand)
-                          : const Icon(Icons.chevron_right, color: Colors.white54),
-                      selected: selected,
+                          : const Icon(
+                              Icons.chevron_right,
+                              color: Colors.white54,
+                            ),
                       onTap: () {
                         setState(() {
                           _selectedEffectId = preset.id;
@@ -8653,9 +8637,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       ),
     ).whenComplete(() {
       if (mounted) {
-        setState(() {
-          _showEffectLibrary = false;
-        });
+        setState(() => _showEffectLibrary = false);
       }
     });
   }
@@ -8674,20 +8656,19 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
 
     _captureTimeline();
-    final operation = EffectOperation(
-      presetId: preset.id,
-      presetName: preset.name,
-      category: preset.category,
-      icon: preset.icon,
-      intensity: _previewEffectIntensity.clamp(0.0, 1.0).toDouble(),
-      opacity: preset.defaultOpacity,
-      blendMode: preset.defaultBlendMode,
-    );
     final effectClip = TimelineClip(
       id: 'effect-${DateTime.now().microsecondsSinceEpoch}',
       start: target.start,
       duration: target.duration,
-      operation: operation,
+      operation: EffectOperation(
+        presetId: preset.id,
+        presetName: preset.name,
+        category: preset.category,
+        icon: preset.icon,
+        intensity: _previewEffectIntensity.clamp(0.0, 1.0).toDouble(),
+        opacity: preset.defaultOpacity,
+        blendMode: preset.defaultBlendMode,
+      ),
     );
 
     setState(() {
