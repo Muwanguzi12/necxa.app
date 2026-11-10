@@ -68,6 +68,7 @@ class RenderOverlay {
   final String depthLayer;
   final String themeId;
   final List<Map<String, dynamic>> wordTimings;
+  final String? fontFilePath;
 
   RenderOverlay({
     required this.type,
@@ -93,6 +94,7 @@ class RenderOverlay {
     this.depthLayer = 'foreground',
     this.themeId = 'cinematic',
     this.wordTimings = const <Map<String, dynamic>>[],
+    this.fontFilePath,
   });
 }
 
@@ -704,6 +706,10 @@ class VideoEnhancementService {
               _ => 'Roboto',
             },
         };
+        final fontPath = overlay.fontFilePath;
+        final fontOption = fontPath != null && fontPath.isNotEmpty
+            ? "fontfile='${fontPath.replaceAll('\\\\', '\\\\\\\\').replaceAll(':', '\\\\:').replaceAll(\"'\", \"\\\\'\")}'"
+            : "font='$font'";
         final normalizedX = overlay.x.clamp(0.0, 1.0);
         final baseX = overlay.align == 'left'
             ? "w*${normalizedX}"
@@ -749,7 +755,7 @@ class VideoEnhancementService {
           fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.82+0.18*max(0,(t-$startTime)/0.35)),if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.82+0.18*max(0,($endTime-t)/$animationSeconds)),$baseFontSize))'";
         }
         filterComplex +=
-            "[$currentVideo]drawtext=text='$text':font='$font':x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow$border:enable='between(t,$startTime,$endTime)'[$nextLabel];";
+            "[$currentVideo]drawtext=text='$text':$fontOption:x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow$border:enable='between(t,$startTime,$endTime)'[$nextLabel];";
         // Karaoke words are layered over the base lyric line. Their timestamps
         // are relative to the overlay start and are preserved from ASR.
         var wordInputLabel = nextLabel;
@@ -780,7 +786,7 @@ class VideoEnhancementService {
           final wordStartTime = double.parse(startTime) + wordStartOffset;
           final wordEndTime = double.parse(startTime) + wordEndOffset;
           filterComplex +=
-              "[$wordInputLabel]drawtext=text='$safeWord':font='$font':x='(w-$phraseWidth)/2+$wordOffset':y='$baseY':fontsize=$baseFontSize:fontcolor=$highlightColor:enable='between(t,$wordStartTime,$wordEndTime)'[$wordOutputLabel];";
+              "[$wordInputLabel]drawtext=text='$safeWord':$fontOption:x='(w-$phraseWidth)/2+$wordOffset':y='$baseY':fontsize=$baseFontSize:fontcolor=$highlightColor:enable='between(t,$wordStartTime,$wordEndTime)'[$wordOutputLabel];";
           wordInputLabel = wordOutputLabel;
         }
         currentVideo = wordInputLabel;
