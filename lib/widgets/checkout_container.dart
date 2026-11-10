@@ -661,6 +661,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
         );
+        if (!mounted) return;
         setState(() {
           _coordinates =
               "${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}";
@@ -671,6 +672,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
         throw 'Location permission denied';
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(
         context,
@@ -871,6 +873,7 @@ class _CheckoutContainerState extends State<CheckoutContainer> {
                   throw Exception("Payment method not supported yet.");
                 }
               } catch (e) {
+                if (!mounted) return;
                 setState(() => _loading = false);
                 ScaffoldMessenger.of(
                   context,
