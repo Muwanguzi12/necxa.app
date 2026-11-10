@@ -172,6 +172,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   final AudioPlayer _voicePlayer = AudioPlayer();
   final Map<String, AudioPlayer> _timelineAudioPlayers = <String, AudioPlayer>{};
   final Map<String, String> _timelineAudioSources = <String, String>{};
+  final Map<String, double> _timelineAudioSpeeds = <String, double>{};
   bool _syncingTimelineAudio = false;
   Duration _lastTimelineAudioSync = Duration.zero;
   final MusicLibraryService _musicService = MusicLibraryService();
@@ -1259,6 +1260,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _syncPlay() async {
+    await _musicPlayer.stop();
+    await _voicePlayer.stop();
     final controller = _videoController;
     if (controller != null && controller.value.isInitialized) {
       await controller.play();
@@ -1276,11 +1279,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     bool force = false,
   }) async {
     if (_syncingTimelineAudio) return;
-    if (!force &&
-        (playhead - _lastTimelineAudioSync).abs() <
-            const Duration(milliseconds: 100)) {
-      return;
-    }
+    final syncDelta = playhead >= _lastTimelineAudioSync
+        ? playhead - _lastTimelineAudioSync
+        : _lastTimelineAudioSync - playhead;
+    if (!force && syncDelta < const Duration(milliseconds: 100)) return;
     _syncingTimelineAudio = true;
     _lastTimelineAudioSync = playhead;
     try {
@@ -1344,10 +1346,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           final baseVolume = clip.volume == 1.0
               ? operation.volume
               : clip.volume;
-          await player.setVolume((baseVolume * fade).clamp(0.0, 1.0));
-          try {
-            await player.setPlaybackRate(speed.clamp(0.5, 2.0));
-          } catch (_) {}
+          await player.setVolume(
+            (baseVolume * fade).clamp(0.0, 1.0).toDouble(),
+          );
+          if (sourceChanged || _timelineAudioSpeeds[clip.id] != speed) {
+            try {
+              await player.setPlaybackRate(speed.clamp(0.5, 2.0).toDouble());
+              _timelineAudioSpeeds[clip.id] = speed;
+            } catch (_) {}
+          }
           if (playing) {
             await player.resume();
           } else {
