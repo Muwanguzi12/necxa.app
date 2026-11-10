@@ -3911,17 +3911,48 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     ),
                   );
                 } else {
-                  child = Text(
-                    o.text,
-                    textAlign: o.align == 'left' ? TextAlign.left : (o.align == 'right' ? TextAlign.right : TextAlign.center),
-                    style: TextStyle(
-                      fontSize: o.fontSize,
-                      fontFamily: o.fontFamily.toLowerCase() == 'syne' ? 'Roboto' : o.fontFamily,
-                      color: o.color.withOpacity(o.opacity),
-                      fontWeight: FontWeight.bold,
-                      shadows: o.shadow
-                          ? [Shadow(blurRadius: 8, color: Colors.black54)]
-                          : null,
+                  final textAlign = o.align == 'left'
+                      ? TextAlign.left
+                      : o.align == 'right'
+                          ? TextAlign.right
+                          : TextAlign.center;
+                  final fontFamily = o.fontFamily.toLowerCase() == 'syne'
+                      ? 'Roboto'
+                      : o.fontFamily;
+                  final fillStyle = TextStyle(
+                    fontSize: o.fontSize,
+                    fontFamily: fontFamily,
+                    color: o.color.withOpacity(o.opacity),
+                    fontWeight: FontWeight.bold,
+                    shadows: o.shadow
+                        ? [Shadow(blurRadius: 8, color: Colors.black54)]
+                        : null,
+                  );
+                  child = Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: o.background.withOpacity(o.backgroundOpacity),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (o.stroke)
+                          Text(
+                            o.text,
+                            textAlign: textAlign,
+                            style: TextStyle(
+                              fontSize: o.fontSize,
+                              fontFamily: fontFamily,
+                              fontWeight: FontWeight.bold,
+                              foreground: ui.Paint()
+                                ..style = ui.PaintingStyle.stroke
+                                ..strokeWidth = 2
+                                ..color = Colors.black,
+                            ),
+                          ),
+                        Text(o.text, textAlign: textAlign, style: fillStyle),
+                      ],
                     ),
                   );
                 }
@@ -3933,20 +3964,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     child: child,
                   ),
                 );
+                final left = o.align == 'left'
+                    ? x
+                    : o.align == 'right'
+                        ? x - 300
+                        : x - 150;
                 return Positioned(
-                  left: x,
-                  top: y,
-                  child: Transform.translate(
-                    offset: Offset(-150, -50), // Center approximation
-                    child: Transform.rotate(
-                      angle: o.rotation,
-                      child: Transform.scale(
-                        scale: o.scale * animationScale,
-                        child: SizedBox(
-                          width: 300,
-                          height: 100,
-                          child: Center(child: child),
-                        ),
+                  left: left,
+                  top: y - 50,
+                  child: Transform.rotate(
+                    angle: o.rotation,
+                    child: Transform.scale(
+                      scale: o.scale * animationScale,
+                      child: SizedBox(
+                        width: 300,
+                        height: 100,
+                        child: Center(child: child),
                       ),
                     ),
                   ),
