@@ -6799,7 +6799,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       }
 
     }
-    final operation = clip.operation;
     final baseVolume = operation is AudioClipOperation && clip.volume == 1.0
         ? operation.volume
         : clip.volume;
