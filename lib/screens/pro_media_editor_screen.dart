@@ -173,6 +173,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   final Map<String, AudioPlayer> _timelineAudioPlayers = <String, AudioPlayer>{};
   final Map<String, String> _timelineAudioSources = <String, String>{};
   final Map<String, double> _timelineAudioSpeeds = <String, double>{};
+  final Map<String, File> _timelineReversedAudioCache = <String, File>{};
   bool _syncingTimelineAudio = false;
   Duration _lastTimelineAudioSync = Duration.zero;
   final MusicLibraryService _musicService = MusicLibraryService();
@@ -1285,33 +1286,50 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           if (playhead < clip.start || playhead >= clipEnd) continue;
           final source = clip.file?.path ?? operation.sourceUrl;
           if (source == null || source.isEmpty) continue;
-          // Reverse is rendered in the master export. Do not play the source
-          // forwards in preview and falsely present it as a synchronized reverse.
-          if (clip.isReversed || operation.reverse) continue;
+          final elapsed =
+              (playhead - clip.start).inMicroseconds /
+              Duration.microsecondsPerSecond;
+          final speed = clip.speed == 1.0 ? operation.speed : clip.speed;
+          final sourceStart =
+              operation.startOffset ?? clip.sourceStart.inMilliseconds / 1000.0;
+          final reversed = clip.isReversed || operation.reverse;
+          var previewSource = source;
+          var targetSeconds = sourceStart + elapsed * speed;
+          if (reversed) {
+            final sourceEnd = operation.endOffset ??
+                (clip.sourceEnd?.inMilliseconds ?? 0) / 1000.0;
+            final resolvedEnd = sourceEnd > sourceStart
+                ? sourceEnd
+                : sourceStart +
+                    (clip.duration.inMilliseconds / 1000.0) * speed;
+            final cacheKey = '$source|$sourceStart|$resolvedEnd';
+            var reversedFile = _timelineReversedAudioCache[cacheKey];
+            if (reversedFile == null || !await reversedFile.exists()) {
+              reversedFile = await _videoService.createReversedAudioPreview(
+                source: source,
+                sourceStart: sourceStart,
+                sourceEnd: resolvedEnd,
+              );
+              if (reversedFile == null) continue;
+              _timelineReversedAudioCache[cacheKey] = reversedFile;
+            }
+            previewSource = reversedFile.path;
+            targetSeconds = elapsed * speed;
+          }
 
           activeIds.add(clip.id);
           final player = _timelineAudioPlayers.putIfAbsent(
             clip.id,
             AudioPlayer.new,
           );
-          final sourceChanged = _timelineAudioSources[clip.id] != source;
+          final sourceChanged =
+              _timelineAudioSources[clip.id] != previewSource;
           if (sourceChanged) {
             await player.stop();
             await player.setReleaseMode(ReleaseMode.stop);
-            await player.setSource(
-              source.startsWith('http')
-                  ? UrlSource(source)
-                  : DeviceFileSource(source),
-            );
-            _timelineAudioSources[clip.id] = source;
+            await player.setSource(DeviceFileSource(previewSource));
+            _timelineAudioSources[clip.id] = previewSource;
           }
-
-          final elapsed =
-              (playhead - clip.start).inMicroseconds / Duration.microsecondsPerSecond;
-          final speed = clip.speed == 1.0 ? operation.speed : clip.speed;
-          final sourceStart =
-              operation.startOffset ?? clip.sourceStart.inMilliseconds / 1000.0;
-          final targetSeconds = sourceStart + elapsed * speed;
           final currentPosition = await player.getCurrentPosition();
           if (sourceChanged ||
               currentPosition == null ||
