@@ -787,7 +787,7 @@ class VideoEnhancementService {
       } else {
         continue;
       }
-      currentVideo = nextLabel;
+      if (overlay.wordTimings.isEmpty) currentVideo = nextLabel;
     }
 
     // 3. MIXING ALL AUDIO SOURCES
