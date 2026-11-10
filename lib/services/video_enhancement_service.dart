@@ -869,7 +869,7 @@ class VideoEnhancementService {
                 'between(t+${track.timelineStart.toStringAsFixed(3)}\\,${interval.start.toStringAsFixed(3)}\\,${interval.end.toStringAsFixed(3)})',
           )
           .join('+');
-      final baseVolume = track.volume.clamp(0.0, 4.0).toStringAsFixed(3);
+      final baseVolume = track.volume.clamp(0.0, 1.0).toStringAsFixed(3);
       final duckingFactor = track.duckingIntervals.isEmpty
           ? 0.3
           : track.duckingIntervals.first.factor.clamp(0.0, 1.0);
@@ -881,14 +881,14 @@ class VideoEnhancementService {
         ..sort((a, b) => a['time']!.compareTo(b['time']!));
       var automationFilter = '';
       if (automation.isNotEmpty) {
-        var expression = automation.last['volume']!.clamp(0.0, 4.0).toStringAsFixed(3);
+        var expression = automation.last['volume']!.clamp(0.0, 1.0).toStringAsFixed(3);
         for (var pointIndex = automation.length - 2; pointIndex >= 0; pointIndex--) {
           final point = automation[pointIndex];
           final next = automation[pointIndex + 1];
           final start = point['time']!.clamp(0.0, track.timelineDuration);
           final end = next['time']!.clamp(start + 0.001, track.timelineDuration);
-          final from = point['volume']!.clamp(0.0, 4.0);
-          final to = next['volume']!.clamp(0.0, 4.0);
+          final from = point['volume']!.clamp(0.0, 1.0);
+          final to = next['volume']!.clamp(0.0, 1.0);
           final ramp = end > start ? '$from+($to-$from)*(t-$start)/(${end-start})' : to.toStringAsFixed(3);
           expression = 'if(lt(t,$end),$ramp,$expression)';
         }
