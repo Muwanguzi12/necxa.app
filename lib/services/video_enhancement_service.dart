@@ -747,7 +747,7 @@ class VideoEnhancementService {
           alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
         } else if (overlay.animationOut == 'zoom') {
           fontSize = "'if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.55+0.45*max(0,($endTime-t)/$animationSeconds)),$baseFontSize)'";
-          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-0.08),max(0,($endTime-t)/0.08),1)";
+          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
         } else if (overlay.animationOut == 'bounce') {
           yExpr = "'$baseY+18*sin(PI*max(0,min(1,($endTime-t)/$animationSeconds)))*(1-max(0,min(1,($endTime-t)/$animationSeconds)))'";
         }
