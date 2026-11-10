@@ -155,12 +155,30 @@ class RenderAudioTrack {
 }
 
 class VideoEnhancementService {
+  /// Media is processed by FFmpeg from file paths, never loaded wholesale into
+  /// Dart memory. Keep a hard per-source limit so unsupported imports fail
+  /// early instead of exhausting device storage or memory.
+  static const int maxMediaFileBytes = 1024 * 1024 * 1024;
+
+  bool _isSupportedMediaFile(File file) {
+    try {
+      return file.existsSync() &&
+          file.lengthSync() > 0 &&
+          file.lengthSync() <= maxMediaFileBytes;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Complete video enhancement pipeline
   Future<File> enhanceVideo({
     required File inputVideo,
     VideoEnhancementOptions options = const VideoEnhancementOptions(),
     void Function(double progress)? onProgress,
   }) async {
+    if (!_isSupportedMediaFile(inputVideo)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
     if (!options.applyBeautyFilter &&
         !(options.faceParameters?.isEnabled ?? false) &&
         !options.autoBalance &&
@@ -253,6 +271,26 @@ class VideoEnhancementService {
     double voiceOverVolume = 1.0,
   }) async {
     if (clips.isEmpty) return null;
+    // FFmpeg consumes file paths incrementally; do not read media bytes into
+    // memory. Validate each source, including audio-only timeline inputs.
+    for (final clip in clips) {
+      if (!_isSupportedMediaFile(File(clip.path))) {
+        throw ArgumentError('A timeline media file is missing or exceeds 1 GB.');
+      }
+    }
+    for (final track in audioTracks) {
+      if (!_isSupportedMediaFile(File(track.path))) {
+        throw ArgumentError('An audio track is missing or exceeds 1 GB.');
+      }
+    }
+    if (backgroundMusicPath != null &&
+        !_isSupportedMediaFile(File(backgroundMusicPath))) {
+      throw ArgumentError('Background music is missing or exceeds 1 GB.');
+    }
+    if (voiceOverPath != null &&
+        !_isSupportedMediaFile(File(voiceOverPath))) {
+      throw ArgumentError('Voice-over audio is missing or exceeds 1 GB.');
+    }
     final outputPath = await _getOutputPath();
 
     // Order of inputs: [0..N-1] clips, then overlay images, BGM (optional), voice (optional), then silent source.
@@ -750,7 +788,9 @@ class VideoEnhancementService {
   /// Extracts a small mono audio file for the Text Studio transcription flow.
   /// The original video is never modified or uploaded.
   Future<File?> extractAudioForTranscription(File inputMedia) async {
-    if (!inputMedia.existsSync() || inputMedia.lengthSync() == 0) return null;
+    if (!_isSupportedMediaFile(inputMedia)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
     final tempDir = await getTemporaryDirectory();
     final outputPath =
         '${tempDir.path}/necxa_transcribe_${DateTime.now().millisecondsSinceEpoch}.m4a';
@@ -780,7 +820,9 @@ class VideoEnhancementService {
     required File inputVideo,
     required bool hasAudio,
   }) async {
-    if (!inputVideo.existsSync() || inputVideo.lengthSync() == 0) return null;
+    if (!_isSupportedMediaFile(inputVideo)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
     final outputPath = await _getOutputPath();
     final audioArgs = hasAudio
         ? '-af areverse -c:a aac -b:a 96k'
@@ -805,6 +847,9 @@ class VideoEnhancementService {
   }
 
   Future<File> generateProxy(File inputVideo) async {
+    if (!_isSupportedMediaFile(inputVideo)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
     final tempDir = await getTemporaryDirectory();
     final outputPath =
         '${tempDir.path}/proxy_${DateTime.now().millisecondsSinceEpoch}.mp4';
