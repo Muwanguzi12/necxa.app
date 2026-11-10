@@ -1132,22 +1132,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             ),
             SizedBox(height: 24),
             _exportOption(
-              'FAST SYNC ⚡',
-              'Instant posting. Music is synced on-the-fly.',
-              Icons.bolt,
-              () {
-                Navigator.pop(context);
-                _finish(false);
-              },
-            ),
-            SizedBox(height: 12),
-            _exportOption(
-              'HIGH-QUALITY FLATTEN ??',
-              'Permanent video file. Best for sharing elsewhere.',
+              'FINAL MP4 MASTER',
+              'One validated video with original sound, music and voiceover embedded for Feed and Shop.',
               Icons.video_library,
               () {
                 Navigator.pop(context);
-                _finish(true);
+                _finish();
               },
             ),
             SizedBox(height: 20),
@@ -1157,12 +1147,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
-  void _finish(bool flatten) async {
+  void _finish() async {
     if (_sequence.isEmpty) return;
 
     File? combinedFile;
     var audioExpected = false;
-    if (flatten) {
+    {
       setState(() => _isProcessing = true);
       try {
         _feedback("Rendering final video and audio...");
@@ -1205,7 +1195,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     Navigator.pop(context, {
       'sequence': _sequence,
       'track': _selectedTrack,
-      'flatten': flatten,
+      'flatten': true,
       'combined_file': combinedFile,
       'audio_expected': audioExpected,
       'music_vol': _bgmVolume,
