@@ -128,6 +128,18 @@ class RenderTransition {
   });
 }
 
+class AudioDuckingInterval {
+  final double start;
+  final double end;
+  final double factor;
+
+  const AudioDuckingInterval({
+    required this.start,
+    required this.end,
+    this.factor = 0.3,
+  });
+}
+
 class RenderAudioTrack {
   final String path;
   final double sourceStart;
@@ -139,6 +151,7 @@ class RenderAudioTrack {
   final double timelineDuration;
   final double fadeIn;
   final double fadeOut;
+  final List<AudioDuckingInterval> duckingIntervals;
 
   const RenderAudioTrack({
     required this.path,
@@ -151,6 +164,7 @@ class RenderAudioTrack {
     this.timelineDuration = 0,
     this.fadeIn = 0,
     this.fadeOut = 0,
+    this.duckingIntervals = const [],
   });
 }
 
@@ -757,8 +771,19 @@ class VideoEnhancementService {
       final fadeOutFilter = fadeOut > 0
           ? ',afade=t=out:st=$fadeOutStart:d=$fadeOut'
           : '';
+      final duckingConditions = track.duckingIntervals
+          .where((interval) => interval.end > interval.start)
+          .map(
+            (interval) =>
+                'between(t+${track.timelineStart.toStringAsFixed(3)}\\,${interval.start.toStringAsFixed(3)}\\,${interval.end.toStringAsFixed(3)})',
+          )
+          .join('+');
+      final baseVolume = track.volume.clamp(0.0, 4.0).toStringAsFixed(3);
+      final volumeFilter = duckingConditions.isEmpty
+          ? 'volume=$baseVolume'
+          : "volume='${baseVolume}*if(gt($duckingConditions\\,0)\\,0.3\\,1)'";
       filterComplex +=
-          "[$index:a]atrim=start=${track.sourceStart}$trimEnd$trimDuration,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,volume=${track.volume.clamp(0.0, 4.0)},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
+          "[$index:a]atrim=start=${track.sourceStart}$trimEnd$trimDuration,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,$volumeFilter,aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
       audioSources += '[$label]';
       inputsCount++;
     }
