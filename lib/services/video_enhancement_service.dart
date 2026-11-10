@@ -707,7 +707,7 @@ class VideoEnhancementService {
             },
         };
         final fontPath = overlay.fontFilePath;
-        final fontOption = fontPath != null && fontPath.isNotEmpty
+        final fontOption = fontPath != null && fontPath.isNotEmpty && File(fontPath).existsSync()
             ? "fontfile='$fontPath'"
             : "font='$font'";
         final normalizedX = overlay.x.clamp(0.0, 1.0);
