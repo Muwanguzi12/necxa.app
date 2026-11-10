@@ -319,6 +319,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   double get _audioEnd => _musicOperation?.endOffset ?? 30.0;
   double get _audioOffset => (_musicClip?.start.inMilliseconds ?? 0) / 1000.0;
 
+  void _setOriginalVolume(double value) {
+    _project.transact((tracks) {
+      for (final track in tracks.where(
+        (item) => item.type == TrackType.video,
+      )) {
+        for (var index = 0; index < track.clips.length; index++) {
+          track.clips[index] = track.clips[index].copyWith(volume: value);
+        }
+      }
+    });
+    _originalVolume = value;
+    _videoController?.setVolume(value);
+  }
+
   void _setMusicVolume(double value) {
     final clip = _musicClip;
     final operation = _musicOperation;
@@ -1422,8 +1436,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               SizedBox(height: 32),
               _volSlider('Original Video', _originalVolume, (v) {
                 setModalState(() => _originalVolume = v);
-                setState(() => _originalVolume = v);
-                _videoController?.setVolume(v);
+                setState(() => _setOriginalVolume(v));
               }),
               SizedBox(height: 16),
               _volSlider('Background Music', _bgmVolume, (v) {
