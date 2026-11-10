@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_session.dart';
+import 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
 import 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -234,14 +235,36 @@ class AudioEnhancementService {
     _validateDuration(fadeInDuration, 'fadeInDuration');
     _validateDuration(fadeOutDuration, 'fadeOutDuration');
 
-    final musicFilters = <String>['volume=${_number(volume)}'];
-    if (fadeInDuration > 0) {
-      musicFilters.add('afade=t=in:st=0:d=${_number(fadeInDuration)}');
+    // Probe the master duration so short background tracks can loop cleanly
+    // and the fade-out lands at the end of the actual output, not the source
+    // music file's end.
+    final sourceInfo = await FFprobeKit.getMediaInformation(inputAudio.path);
+    final sourceDuration = double.tryParse(
+      sourceInfo.getMediaInformation()?.getDuration() ?? '',
+    );
+    if (sourceDuration == null ||
+        !sourceDuration.isFinite ||
+        sourceDuration <= 0) {
+      throw const AudioProcessingException(
+        'Unable to determine the original audio duration for mixing.',
+      );
     }
-    if (fadeOutDuration > 0) {
-      // Reverse/fade/reverse fades the tail without requiring a duration probe.
+
+    final musicFilters = <String>[
+      'atrim=duration=${_number(sourceDuration)}',
+      'asetpts=PTS-STARTPTS',
+      'volume=${_number(volume)}',
+    ];
+    if (fadeInDuration > 0) {
       musicFilters.add(
-        'areverse,afade=t=in:st=0:d=${_number(fadeOutDuration)},areverse',
+        'afade=t=in:st=0:d=${_number(fadeInDuration.clamp(0.0, sourceDuration))}',
+      );
+    }
+    final effectiveFadeOut = fadeOutDuration.clamp(0.0, sourceDuration);
+    if (effectiveFadeOut > 0) {
+      final fadeOutStart = sourceDuration - effectiveFadeOut;
+      musicFilters.add(
+        'afade=t=out:st=${_number(fadeOutStart)}:d=${_number(effectiveFadeOut)}',
       );
     }
 
@@ -251,6 +274,7 @@ class AudioEnhancementService {
       '-hide_banner',
       '-y',
       '-i', inputAudio.path,
+      '-stream_loop', '-1',
       '-i', backgroundMusic.path,
       '-filter_complex',
       '[1:a]${musicFilters.join(',')}[music];'
@@ -259,6 +283,7 @@ class AudioEnhancementService {
           'dropout_transition=2:normalize=0[mix]',
       '-map', '[mix]',
       '-vn',
+      '-t', _number(sourceDuration),
       '-c:a', 'aac',
       '-b:a', '192k',
       '-movflags', '+faststart',
