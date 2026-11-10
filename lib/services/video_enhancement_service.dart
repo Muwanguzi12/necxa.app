@@ -66,6 +66,7 @@ class RenderOverlay {
   final String fontFamily;
   final bool stroke;
   final String depthLayer;
+  final String themeId;
 
   RenderOverlay({
     required this.type,
@@ -89,6 +90,7 @@ class RenderOverlay {
     this.fontFamily = 'Syne',
     this.stroke = false,
     this.depthLayer = 'foreground',
+    this.themeId = 'cinematic',
   });
 }
 
@@ -666,10 +668,22 @@ class VideoEnhancementService {
           overlay.background,
           overlay.backgroundOpacity,
         );
-        final shadow = overlay.shadow
-            ? ":shadowcolor=black@0.65:shadowx=2:shadowy=2"
+        final themeShadow = switch (overlay.themeId) {
+          'minimal' => false,
+          'neon' || 'karaoke' || 'cinematic' || 'afro' => true,
+          _ => overlay.shadow,
+        };
+        final themeStroke = overlay.stroke || overlay.themeId == 'bold';
+        final shadowColor = switch (overlay.themeId) {
+          'neon' => '0.0,0.95,1.0',
+          'karaoke' => '1.0,0.78,0.25',
+          'afro' => '1.0,0.55,0.18',
+          _ => '0.0,0.0,0.0',
+        };
+        final shadow = themeShadow
+            ? ":shadowcolor=$shadowColor@0.75:shadowx=2:shadowy=2"
             : "";
-        final border = overlay.stroke
+        final border = themeStroke
             ? ":borderw=2:bordercolor=black@0.9"
             : "";
         // FFmpeg's fontconfig lookup may not contain app-bundled fonts on every
@@ -677,12 +691,16 @@ class VideoEnhancementService {
         // Roboto is available to Flutter and Android's FFmpeg fontconfig.
         // Legacy Syne layers use the same Roboto fallback in preview and export
         // until a shared, bundled Syne font asset is added.
-        final font = switch (overlay.fontFamily.toLowerCase()) {
-          'serif' => 'Serif',
-          'monospace' => 'Monospace',
-          'cursive' => 'Cursive',
-          'roboto' || 'syne' => 'Roboto',
-          _ => 'Roboto',
+        final font = switch (overlay.themeId) {
+          'bold' => 'Roboto',
+          'afro' => 'Serif',
+          _ => switch (overlay.fontFamily.toLowerCase()) {
+              'serif' => 'Serif',
+              'monospace' => 'Monospace',
+              'cursive' => 'Cursive',
+              'roboto' || 'syne' => 'Roboto',
+              _ => 'Roboto',
+            },
         };
         final normalizedX = overlay.x.clamp(0.0, 1.0);
         final baseX = overlay.align == 'left'
