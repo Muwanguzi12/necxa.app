@@ -580,6 +580,10 @@ class _UploadScreenState extends State<UploadScreen>
         await _pickUnifiedMedia();
       } else if (result is CameraStudioResult) {
         setState(() {
+          _audioBakedIntoVisual = false;
+          _expectedEmbeddedAudio = false;
+          _visualAlreadyCompressed = false;
+          _preparedVisualFiles = null;
           _multiFiles = [..._multiFiles, ...result.clips];
           _visualFile = _multiFiles.isNotEmpty ? _multiFiles.first : null;
           _isVideo = true;
@@ -593,6 +597,10 @@ class _UploadScreenState extends State<UploadScreen>
         await _processResult(XFile(result.path), true);
       } else if (result is List<File>) {
         setState(() {
+          _audioBakedIntoVisual = false;
+          _expectedEmbeddedAudio = false;
+          _visualAlreadyCompressed = false;
+          _preparedVisualFiles = null;
           _multiFiles = [..._multiFiles, ...result];
           _visualFile = _multiFiles.first;
           _isVideo = true;
