@@ -626,6 +626,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       <String, AudioPlayer>{};
   final Map<String, double> _timelineAudioVolumes = <String, double>{};
   final Map<String, double> _timelineAudioRates = <String, double>{};
+  final Map<String, String> _timelineAudioSources = <String, String>{};
+  final Map<String, File> _reversedTimelineAudioCache = <String, File>{};
+  final Set<String> _failedReverseAudioPreviews = <String>{};
   String? _activeVisualClipId;
   TimelineClip? _compositionVisualClip;
   bool _isSynchronizingComposition = false;
@@ -974,6 +977,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     for (final player in _timelineAudioPlayers.values) {
       player.dispose();
     }
+    _timelineAudioSources.clear();
+    _reversedTimelineAudioCache.clear();
+    _failedReverseAudioPreviews.clear();
     _videoController?.dispose();
     _bottomNavController.dispose();
     _musicService.dispose();
@@ -6655,9 +6661,58 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         DateTime.now().difference(_lastAudioSyncAt) >
             const Duration(milliseconds: 750);
     for (final clip in audioClips) {
-      final source = _audioSourceFor(clip);
-      if (source == null || source.startsWith('builtin://')) continue;
+      final originalSource = _audioSourceFor(clip);
+      if (originalSource == null || originalSource.startsWith('builtin://')) {
+        final existing = _timelineAudioPlayers[clip.id];
+        if (existing?.state == PlayerState.playing) await existing!.pause();
+        continue;
+      }
+
       final player = await _timelinePlayerFor(clip.id);
+      final operation = clip.operation;
+      final speed = clip.speed == 1.0 && operation is AudioClipOperation
+          ? operation.speed
+          : clip.speed;
+      var source = originalSource;
+      var local = _localSourceTime(clip, state.currentTime);
+      final reverseAudio = clip.isReversed ||
+          (operation is AudioClipOperation && operation.reverse);
+      if (reverseAudio && operation is AudioClipOperation) {
+        final sourceStart = operation.startOffset ??
+            clip.sourceStart.inMilliseconds / 1000.0;
+        final sourceEnd = operation.endOffset ??
+            (clip.sourceEnd?.inMilliseconds ?? 0) / 1000.0;
+        final resolvedEnd = sourceEnd > sourceStart
+            ? sourceEnd
+            : sourceStart +
+                (clip.duration.inMilliseconds / 1000.0) * speed;
+        final cacheKey = '$originalSource|$sourceStart|$resolvedEnd';
+        if (_failedReverseAudioPreviews.contains(cacheKey)) {
+          if (player.state == PlayerState.playing) await player.pause();
+          continue;
+        }
+        var reversedFile = _reversedTimelineAudioCache[cacheKey];
+        if (reversedFile == null || !await reversedFile.exists()) {
+          reversedFile = await _videoEnhancementService.createReversedAudioPreview(
+            source: originalSource,
+            sourceStart: sourceStart,
+            sourceEnd: resolvedEnd,
+          );
+          if (reversedFile == null) {
+            _failedReverseAudioPreviews.add(cacheKey);
+            if (player.state == PlayerState.playing) await player.pause();
+            debugPrint('Could not prepare reversed audio preview for ${clip.id}.');
+            continue;
+          }
+          _reversedTimelineAudioCache[cacheKey] = reversedFile;
+        }
+        source = reversedFile.path;
+        final elapsed = state.currentTime - clip.start;
+        local = Duration(
+          milliseconds: (elapsed.inMilliseconds * speed).round(),
+        );
+      }
+
       final effectiveVolume = _effectiveClipVolume(clip, state.currentTime);
       final previousVolume = _timelineAudioVolumes[clip.id];
       if (previousVolume == null ||
@@ -6665,41 +6720,50 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         await player.setVolume(effectiveVolume);
         _timelineAudioVolumes[clip.id] = effectiveVolume;
       }
-      if (_timelineAudioRates[clip.id] != clip.speed) {
-        await player.setPlaybackRate(clip.speed);
-        _timelineAudioRates[clip.id] = clip.speed;
+      if (_timelineAudioRates[clip.id] != speed) {
+        await player.setPlaybackRate(speed.clamp(0.5, 2.0).toDouble());
+        _timelineAudioRates[clip.id] = speed;
       }
-      final local = _localSourceTime(clip, state.currentTime);
-      final wasActive =
-          player.state == PlayerState.playing ||
-          player.state == PlayerState.paused;
-      if (!wasActive) {
-        final mediaSource = source.startsWith('http')
-            ? UrlSource(source)
-            : DeviceFileSource(source);
-        final shouldPlay =
-            commandGeneration == _playbackCommandGeneration &&
-            _playback.state.isPlaying;
+
+      final mediaSource = source.startsWith('http')
+          ? UrlSource(source)
+          : DeviceFileSource(source);
+      final sourceChanged = _timelineAudioSources[clip.id] != source;
+      final shouldPlay =
+          commandGeneration == _playbackCommandGeneration &&
+          _playback.state.isPlaying;
+      if (sourceChanged) {
+        await player.stop();
         if (shouldPlay) {
           await player.play(mediaSource, position: local);
         } else {
           await player.setSource(mediaSource);
           await player.seek(local);
         }
-      } else if (shouldCorrectDrift) {
-        final position = await player.getCurrentPosition();
-        if (position == null ||
-            (position - local).abs() > const Duration(milliseconds: 300)) {
-          await player.seek(local);
+        _timelineAudioSources[clip.id] = source;
+      } else {
+        final wasActive =
+            player.state == PlayerState.playing ||
+            player.state == PlayerState.paused;
+        if (!wasActive) {
+          if (shouldPlay) {
+            await player.play(mediaSource, position: local);
+          } else {
+            await player.setSource(mediaSource);
+            await player.seek(local);
+          }
+        } else if (shouldCorrectDrift) {
+          final position = await player.getCurrentPosition();
+          if (position == null ||
+              (position - local).abs() > const Duration(milliseconds: 300)) {
+            await player.seek(local);
+          }
         }
-      }
-      final shouldPlay =
-          commandGeneration == _playbackCommandGeneration &&
-          _playback.state.isPlaying;
-      if (shouldPlay && player.state != PlayerState.playing) {
-        await player.resume();
-      } else if (!shouldPlay && player.state == PlayerState.playing) {
-        await player.pause();
+        if (shouldPlay && player.state != PlayerState.playing) {
+          await player.resume();
+        } else if (!shouldPlay && player.state == PlayerState.playing) {
+          await player.pause();
+        }
       }
     }
     if (shouldCorrectDrift) _lastAudioSyncAt = DateTime.now();
@@ -6708,7 +6772,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   String? _audioSourceFor(TimelineClip clip) {
     if (clip.operation is AudioClipOperation) {
-      return (clip.operation as AudioClipOperation).sourceUrl;
+      final operation = clip.operation as AudioClipOperation;
+      return clip.file?.path ?? operation.sourceUrl;
     }
     return clip.file?.path;
   }
@@ -6733,20 +6798,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         );
       }
 
-      // Smart Auto-Ducking: Automatically ducks background music when voiceover is active
-      if (operation.sourceType == 'music') {
-        final isVoiceOverActive = _tracks.any((track) =>
-            track.type == TrackType.voiceOver &&
-            track.clips.any((c) =>
-                !c.isHidden &&
-                c.start <= timelineTime &&
-                c.start + c.duration >= timelineTime));
-        if (isVoiceOverActive) {
-          envelope *= 0.30; // -10.5 dB automatic music ducking
-        }
-      }
     }
-    return (clip.volume * envelope).clamp(0.0, 1.0);
+    final operation = clip.operation;
+    final baseVolume = operation is AudioClipOperation && clip.volume == 1.0
+        ? operation.volume
+        : clip.volume;
+    return (baseVolume * envelope).clamp(0.0, 1.0).toDouble();
   }
 
   Future<AudioPlayer> _timelinePlayerFor(String clipId) async {
@@ -6765,14 +6822,26 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Duration _localSourceTime(TimelineClip clip, Duration timelineTime) {
     final elapsed = timelineTime - clip.start;
+    final operation = clip.operation;
+    final speed = clip.speed == 1.0 && operation is AudioClipOperation
+        ? operation.speed
+        : clip.speed;
+    final sourceStart = operation is AudioClipOperation &&
+            operation.startOffset != null
+        ? Duration(milliseconds: (operation.startOffset! * 1000).round())
+        : clip.sourceStart;
+    final sourceEnd = operation is AudioClipOperation &&
+            operation.endOffset != null
+        ? Duration(milliseconds: (operation.endOffset! * 1000).round())
+        : (clip.sourceEnd ?? (sourceStart + clip.sourceDuration));
     final scaled = Duration(
-      milliseconds: (elapsed.inMilliseconds * clip.speed).round(),
+      milliseconds: (elapsed.inMilliseconds * speed).round(),
     );
-    final forward = clip.sourceStart + scaled;
-    final sourceEnd =
-        clip.sourceEnd ?? (clip.sourceStart + clip.sourceDuration);
-    final resolved = clip.isReversed ? sourceEnd - scaled : forward;
-    if (resolved < clip.sourceStart) return clip.sourceStart;
+    final forward = sourceStart + scaled;
+    final reversed = clip.isReversed ||
+        (operation is AudioClipOperation && operation.reverse);
+    final resolved = reversed ? sourceEnd - scaled : forward;
+    if (resolved < sourceStart) return sourceStart;
     if (resolved > sourceEnd) return sourceEnd;
     return resolved;
   }
