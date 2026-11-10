@@ -183,6 +183,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   double _timelineDragThresholdX = 0;
   double _timelineOriginalStart = 0;
   double _timelineOriginalEnd = 0;
+  int? _timelineOverlaySelected;
+  int? _timelineOverlayDragIndex;
+  double _timelineOverlayDragOriginX = 0;
+  double _timelineOverlayDragStart = 0;
+  double _timelineOverlayDragEnd = 0;
 
   // Professional Metadata
   final Map<int, TransitionOperation> _transitions = {};
@@ -1622,127 +1627,205 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   Widget _buildSequenceTimeline() {
-    if (_sequence.isEmpty) {
-      return Container(height: 76, alignment: Alignment.center,
-        decoration: BoxDecoration(color: C.text.withOpacity(0.035), borderRadius: BorderRadius.circular(8)),
-        child: Text('Add media to start your timeline', style: dm(sz: 10, c: C.dim)));
-    }
-    const pixelsPerSecond = 42.0;
-    return SizedBox(height: 82, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3), child: Row(children: [
-        Text('TIMELINE', style: syne(sz: 9, w: FontWeight.w900, c: C.dim, ls: 1)), const Spacer(),
-        Text('Drag edges to trim · Drag body to shift', style: dm(sz: 8, c: C.dim)),
-      ])),
-      Expanded(child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: List.generate(_sequence.length, (index) {
-        final clip = _sequence[index];
-        final seconds = (clip.end - clip.start) / clip.speed;
-        final width = (seconds * pixelsPerSecond).clamp(72.0, 190.0).toDouble();
-        final selected = index == _activeClipIndex;
-        final dragging = _timelineDragIndex == index;
-        return Transform.translate(
-          offset: Offset(dragging ? _timelineDragDeltaX : 0, 0),
-          child: GestureDetector(
-            key: ValueKey(identityHashCode(clip)),
-            onTap: () {
-              final currentIndex = _sequence.indexOf(clip);
-              if (currentIndex < 0) return;
-              setState(() => _activeClipIndex = currentIndex);
-              _loadClip(currentIndex);
-            },
-            onPanStart: (details) {
-              if (_videoTrackLocked) return;
-              final mode = details.localPosition.dx <= 14
-                  ? 'trim-start'
-                  : (details.localPosition.dx >= width - 14 ? 'trim-end' : 'move');
-              if (mode != 'move' && clip.duration <= 0) {
-                _feedback('Media duration is still loading');
-                return;
-              }
-              _saveHistory();
-              setState(() {
-                _timelineDragIndex = _sequence.indexOf(clip);
-                _timelineDragOriginX = details.globalPosition.dx;
-                _timelineDragDeltaX = 0;
-                _timelineDragAppliedX = 0;
-                _timelineDragThresholdX = 0;
-                _timelineOriginalStart = clip.start;
-                _timelineOriginalEnd = clip.end;
-                _activeClipIndex = _sequence.indexOf(clip);
-                _timelineDragMode = mode;
-              });
-            },
-            onPanUpdate: (details) {
-              final currentIndex = _sequence.indexOf(clip);
-              if (_timelineDragIndex != currentIndex || _timelineDragMode == null) return;
-              final dx = details.globalPosition.dx - _timelineDragOriginX;
-              setState(() {
-                if (_timelineDragMode == 'move') {
-                  var remaining = dx - _timelineDragThresholdX;
-                  // Magnetic slot changes happen as the dragged clip crosses
-                  // each neighbour's midpoint, supporting multi-clip moves.
-                  while (remaining > 0 && _timelineDragIndex! < _sequence.length - 1) {
-                    final next = _sequence[_timelineDragIndex! + 1];
-                    final nextWidth = (((next.end - next.start) / next.speed) * pixelsPerSecond)
-                        .clamp(72.0, 190.0).toDouble() + 4;
-                    final threshold = nextWidth / 2;
-                    if (remaining < threshold) break;
-                    final from = _timelineDragIndex!;
-                    final moved = _sequence.removeAt(from);
-                    _sequence.insert(from + 1, moved);
-                    _timelineDragIndex = from + 1;
-                    _timelineDragThresholdX += threshold;
-                    _timelineDragAppliedX += nextWidth;
-                    remaining = dx - _timelineDragThresholdX;
-                    HapticFeedback.selectionClick();
-                  }
-                  while (remaining < 0 && _timelineDragIndex! > 0) {
-                    final previous = _sequence[_timelineDragIndex! - 1];
-                    final previousWidth = (((previous.end - previous.start) / previous.speed) * pixelsPerSecond)
-                        .clamp(72.0, 190.0).toDouble() + 4;
-                    final threshold = previousWidth / 2;
-                    if (remaining > -threshold) break;
-                    final from = _timelineDragIndex!;
-                    final moved = _sequence.removeAt(from);
-                    _sequence.insert(from - 1, moved);
-                    _timelineDragIndex = from - 1;
-                    _timelineDragThresholdX -= threshold;
-                    _timelineDragAppliedX -= previousWidth;
-                    remaining = dx - _timelineDragThresholdX;
-                    HapticFeedback.selectionClick();
-                  }
-                  _activeClipIndex = _timelineDragIndex!;
-                  _timelineDragDeltaX = dx - _timelineDragAppliedX;
-                } else if (_timelineDragMode == 'trim-start') {
-                  final delta = dx / pixelsPerSecond * clip.speed;
-                  final maxStart = math.max(0.0, _timelineOriginalEnd - 0.1);
-                  clip.start = (_timelineOriginalStart + delta).clamp(0.0, maxStart).toDouble();
-                } else if (_timelineDragMode == 'trim-end') {
-                  final delta = dx / pixelsPerSecond * clip.speed;
-                  final maxEnd = clip.duration > 0 ? clip.duration : _timelineOriginalEnd;
-                  final minEnd = math.min(maxEnd, clip.start + 0.1);
-                  clip.end = (_timelineOriginalEnd + delta).clamp(minEnd, maxEnd).toDouble();
+    const pixelsPerSecond = 48.0;
+    final duration = _totalDuration > 0 ? _totalDuration : 1.0;
+    final totalWidth = math.max(320.0, duration * pixelsPerSecond);
+    final viewportWidth = MediaQuery.of(context).size.width - 32;
+    final playheadSeconds =
+        _project.playback.state.currentTime.inMilliseconds / 1000.0;
+    final playheadX = (playheadSeconds * pixelsPerSecond)
+        .clamp(0.0, totalWidth).toDouble();
+
+    Widget trackLabel(IconData icon, String label) => SizedBox(
+      width: 68,
+      child: Row(children: [
+        Icon(icon, size: 12, color: C.sub),
+        const SizedBox(width: 5),
+        Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
+      ]),
+    );
+
+    Widget timeRuler() => SizedBox(
+      height: 22,
+      child: Stack(children: [
+        Positioned.fill(child: CustomPaint(
+          painter: _EditorTimelineRulerPainter(
+            pixelsPerSecond: pixelsPerSecond, duration: duration,
+            color: C.text.withOpacity(0.22),
+          ),
+        )),
+        Positioned(left: playheadX - 1, top: 0, bottom: 0,
+          child: Container(width: 2, color: C.brand)),
+      ]),
+    );
+
+    Widget videoLane() => SizedBox(
+      height: 48,
+      child: Row(children: [
+        trackLabel(Icons.movie_outlined, 'VIDEO'),
+        Expanded(child: SizedBox(
+          height: 42,
+          child: Stack(children: [
+            for (var index = 0; index < _sequence.length; index++)
+              Builder(builder: (context) {
+                final clip = _sequence[index];
+                final seconds = ((clip.end - clip.start) / clip.speed)
+                    .clamp(0.05, double.infinity).toDouble();
+                var offset = 0.0;
+                for (var i = 0; i < index; i++) {
+                  final prior = _sequence[i];
+                  offset += (prior.end - prior.start) / prior.speed;
                 }
-              });
-            },
-            onPanEnd: (_) => _finishTimelineDrag(clip),
-            onPanCancel: () => _finishTimelineDrag(clip),
-            child: Container(width: width, margin: const EdgeInsets.only(right: 4, top: 3, bottom: 3),
-            decoration: BoxDecoration(color: selected ? C.brand.withOpacity(0.24) : const Color(0xFF243247),
-              borderRadius: BorderRadius.circular(6), border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12), width: selected ? 1.5 : 1)),
+                final selected = index == _activeClipIndex;
+                return Positioned(
+                  left: offset * pixelsPerSecond,
+                  width: math.max(4.0, seconds * pixelsPerSecond - 2),
+                  top: 2, bottom: 2,
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() => _activeClipIndex = index);
+                      _loadClip(index);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: selected ? C.brand.withOpacity(0.38) : const Color(0xFF26364C),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12)),
+                      ),
+                      child: Row(children: [
+                        Icon(clip.isVideo ? Icons.movie_outlined : Icons.image_outlined,
+                          size: 11, color: C.text),
+                        const SizedBox(width: 3),
+                        Expanded(child: Text('Clip ${index + 1}',
+                          maxLines: 1, overflow: TextOverflow.clip,
+                          style: dm(sz: 8, c: C.text))),
+                      ]),
+                    ),
+                  ),
+                );
+              }),
+            Positioned(left: playheadX - 1, top: 0, bottom: 0,
+              child: Container(width: 2, color: C.brand)),
+          ]),
+        )),
+      ]),
+    );
+
+    Widget textLane() {
+      final overlays = _overlays.asMap().entries.toList();
+      return SizedBox(
+        height: math.max(54.0, overlays.length * 34.0),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          trackLabel(Icons.text_fields, 'TEXT'),
+          Expanded(child: SizedBox(
+            height: math.max(50.0, overlays.length * 34.0),
             child: Stack(children: [
-              Positioned.fill(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Icon(clip.isVideo ? Icons.movie_outlined : Icons.image_outlined, size: 13, color: C.text), const Spacer(),
-                Text('Clip ${index + 1}', maxLines: 1, overflow: TextOverflow.ellipsis, style: syne(sz: 9, w: FontWeight.w800, c: C.text)),
-                Text('${seconds.toStringAsFixed(1)}s', style: dm(sz: 8, c: C.sub)),
-              ]))),
-              Positioned(left: 0, top: 0, bottom: 0, width: 12, child: Container(decoration: BoxDecoration(color: C.brand.withOpacity(0.55), borderRadius: const BorderRadius.horizontal(left: Radius.circular(5))), child: const Icon(Icons.drag_indicator, size: 10, color: Colors.white))),
-              Positioned(right: 0, top: 0, bottom: 0, width: 12, child: Container(decoration: BoxDecoration(color: C.brand.withOpacity(0.55), borderRadius: const BorderRadius.horizontal(right: Radius.circular(5))), child: const Icon(Icons.drag_indicator, size: 10, color: Colors.white))),
+              for (var index = 0; index < overlays.length; index++)
+                Builder(builder: (context) {
+                  final entry = overlays[index];
+                  final overlay = entry.value;
+                  final startSeconds = overlay.start.clamp(0.0, 1.0) * duration;
+                  final endSeconds = overlay.end.clamp(0.0, 1.0) * duration;
+                  final left = startSeconds * pixelsPerSecond;
+                  final width = math.max(18.0,
+                    (endSeconds - startSeconds) * pixelsPerSecond);
+                  final top = index * 34.0 + 2;
+                  final selected = _timelineOverlaySelected == index;
+                  return Positioned(
+                    left: left, top: top, width: width, height: 28,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() => _timelineOverlaySelected = index);
+                        _showEditTextLayerSheet(index);
+                      },
+                      onPanStart: (details) {
+                        _timelineOverlayDragIndex = index;
+                        _timelineOverlayDragOriginX = details.globalPosition.dx;
+                        _timelineOverlayDragStart = overlay.start;
+                        _timelineOverlayDragEnd = overlay.end;
+                      },
+                      onPanUpdate: (details) {
+                        if (_timelineOverlayDragIndex != index) return;
+                        final delta = (details.globalPosition.dx -
+                          _timelineOverlayDragOriginX) /
+                          (pixelsPerSecond * duration);
+                        final span = _timelineOverlayDragEnd -
+                          _timelineOverlayDragStart;
+                        final nextStart = (_timelineOverlayDragStart + delta)
+                          .clamp(0.0, math.max(0.0, 1.0 - span)).toDouble();
+                        setState(() {
+                          overlay.start = nextStart;
+                          overlay.end = (nextStart + span).clamp(
+                            nextStart + 0.001, 1.0).toDouble();
+                        });
+                      },
+                      onPanEnd: (_) {
+                        _timelineOverlayDragIndex = null;
+                        _saveHistory();
+                        _syncSharedProjectFromSequence();
+                      },
+                      onPanCancel: () => _timelineOverlayDragIndex = null,
+                      child: Container(
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: 5),
+                        decoration: BoxDecoration(
+                          color: selected ? C.brand.withOpacity(0.48) :
+                            const Color(0xFF6A4B86),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: selected ? C.brand :
+                            Colors.white.withOpacity(0.16)),
+                        ),
+                        child: Text(overlay.text,
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: dm(sz: 8, c: Colors.white, w: FontWeight.w700)),
+                      ),
+                    ),
+                  );
+                }),
+              Positioned(left: playheadX - 1, top: 0, bottom: 0,
+                child: Container(width: 2, color: C.brand)),
+            ]),
+          )),
+        ]),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 5, 8, 7),
+      decoration: BoxDecoration(
+        color: C.text.withOpacity(0.025),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: C.text.withOpacity(0.07)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text('TIMELINE', style: syne(sz: 9, w: FontWeight.w900, c: C.dim, ls: 1)),
+          const Spacer(),
+          Text('${duration.toStringAsFixed(1)}s · Drag text blocks to retime',
+            style: dm(sz: 8, c: C.dim)),
+        ]),
+        const SizedBox(height: 4),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: math.max(viewportWidth, totalWidth + 68),
+            child: Column(children: [
+              Row(children: [
+                const SizedBox(width: 68),
+                SizedBox(width: totalWidth, child: timeRuler()),
+              ]),
+              videoLane(),
+              const SizedBox(height: 3),
+              textLane(),
             ]),
           ),
-        ));
-      })))),
-    ]));
+        ),
+      ]),
+    );
   }
+
   Widget _buildEditorDock() {
     final dockHeight = (MediaQuery.of(context).size.height * 0.38)
         .clamp(318.0, 382.0)
