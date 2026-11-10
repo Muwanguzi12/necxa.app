@@ -4050,7 +4050,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                       ),
                     ),
-                    if (contentMode == 'captions') ...[
+                    if (contentMode == 'captions' || contentMode == 'lyrics') ...[
                       const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
@@ -4160,11 +4160,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
                               aiCaptionSegments = timed;
                               textController.text = timed.map((segment) => segment['text']).join('\n');
-                              refresh(() {
-                                contentMode = 'captions';
-                                isTranscribing = false;
-                              });
-                              _feedback(result['persisted'] == true ? 'AI transcript ready and saved to Supabase 2. Review it, then add the captions.' : 'AI transcript ready. Review it, then add the captions.');
+                              refresh(() => isTranscribing = false);
+                              final readyLabel = contentMode == 'lyrics' ? 'timed lyrics' : 'captions';
+                              _feedback(result['persisted'] == true
+                                  ? 'AI transcript ready and saved to Supabase 2. Review it, then add the $readyLabel.'
+                                  : 'AI transcript ready. Review it, then add the $readyLabel.');
                             } catch (error) {
                               _feedback('Caption generation failed. Please try again.');
                               debugPrint('Text Studio caption generation error: $error');
@@ -4178,7 +4178,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           icon: isTranscribing
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.auto_awesome),
-                          label: Text(isTranscribing ? 'TRANSCRIBING AUDIO…' : 'GENERATE CAPTIONS WITH AI'),
+                          label: Text(isTranscribing
+                              ? 'TRANSCRIBING AUDIO…'
+                              : contentMode == 'lyrics'
+                                  ? 'SYNC LYRICS WITH AI'
+                                  : 'GENERATE CAPTIONS WITH AI'),
                         ),
                       ),
                       Text('Uses the selected clip audio. It is sent securely through Supabase 2 to Necxa AI Engine for transcription.', style: dm(sz: 10, c: C.dim)),
@@ -4331,7 +4335,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           }
                           setState(() {
                             for (var index = 0; index < lines.length; index++) {
-                              final hasAiTiming = contentMode == 'captions' &&
+                              final hasAiTiming = (contentMode == 'captions' || contentMode == 'lyrics') &&
                                   aiCaptionSegments != null &&
                                   aiCaptionSegments!.length == lines.length &&
                                   clipDuration > 0;
