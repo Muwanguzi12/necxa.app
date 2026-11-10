@@ -1009,7 +1009,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         combinedFile = project == null
             ? null
             : await EditorExportService.renderTimeline(
-                tracks: project.tracks,
+                // Freeze one consistent edit state before asynchronous rendering.
+                tracks: project.createSnapshot(),
                 aspectRatio: _selectedAspectRatio,
               );
 
@@ -1071,50 +1072,56 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   void _syncDesktopAudioToProject() {
     final project = _project;
-    if (project == null) return;
-    for (final track in project.tracks) {
-      track.clips.removeWhere((clip) => clip.id.startsWith('desktop-audio-'));
-    }
-    final duration = Duration(milliseconds: (_totalDuration * 1000).round());
-    if (_selectedTrack != null) {
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-audio-music',
-          start: Duration(milliseconds: (_audioOffset * 1000).round()),
-          duration: duration,
-          volume: _bgmVolume,
-          operation: AudioClipOperation(
-            sourceType: 'music',
-            sourceUrl: _selectedTrack!.audioUrl,
-            label: _selectedTrack!.title,
+    project.transact((tracks) {
+      for (final track in tracks) {
+        track.clips.removeWhere(
+          (clip) => clip.id.startsWith('desktop-audio-'),
+        );
+      }
+      tracks.removeWhere((track) => track.clips.isEmpty);
+
+      final duration = Duration(
+        milliseconds: (_totalDuration * 1000).round(),
+      );
+      if (_selectedTrack != null) {
+        TimelineModelUtils.insertClip(
+          tracks,
+          TimelineClip(
+            id: 'desktop-audio-music',
+            start: Duration(milliseconds: (_audioOffset * 1000).round()),
+            duration: duration,
             volume: _bgmVolume,
-            startOffset: _audioStart,
-            endOffset: _audioEnd,
+            operation: AudioClipOperation(
+              sourceType: 'music',
+              sourceUrl: _selectedTrack!.audioUrl,
+              label: _selectedTrack!.title,
+              volume: _bgmVolume,
+              startOffset: _audioStart,
+              endOffset: _audioEnd,
+            ),
           ),
-        ),
-        TrackType.music,
-      );
-    }
-    if (_voiceOverFile != null) {
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-audio-voice',
-          start: Duration.zero,
-          duration: duration,
-          file: _voiceOverFile,
-          volume: _voiceVolume,
-          operation: AudioClipOperation(
-            sourceType: 'voiceOver',
-            label: 'Voiceover',
+          TrackType.music,
+        );
+      }
+      if (_voiceOverFile != null) {
+        TimelineModelUtils.insertClip(
+          tracks,
+          TimelineClip(
+            id: 'desktop-audio-voice',
+            start: Duration.zero,
+            duration: duration,
+            file: _voiceOverFile,
             volume: _voiceVolume,
+            operation: AudioClipOperation(
+              sourceType: 'voiceOver',
+              label: 'Voiceover',
+              volume: _voiceVolume,
+            ),
           ),
-        ),
-        TrackType.voiceOver,
-      );
-    }
-    project.playback.updateProject(project.tracks);
+          TrackType.voiceOver,
+        );
+      }
+    }, recordHistory: false);
   }
 
   void _togglePlayback() {
