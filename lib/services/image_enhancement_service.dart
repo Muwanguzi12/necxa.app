@@ -258,8 +258,8 @@ class ImageEnhancementService {
         : 1.0;
     return img.copyResize(
       image,
-      width: (image.width * boundedScale).round().clamp(1, widthLimit),
-      height: (image.height * boundedScale).round().clamp(1, heightLimit),
+      width: (image.width * boundedScale).round().clamp(1, 1 << 30),
+      height: (image.height * boundedScale).round().clamp(1, 1 << 30),
       interpolation: img.Interpolation.linear,
     );
   }
