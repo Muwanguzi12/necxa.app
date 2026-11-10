@@ -1153,6 +1153,9 @@ class _UploadScreenState extends State<UploadScreen>
                 'media_url': media['visualUrl'],
                 'media_type': mediaType,
                 'thumbnail_url': media['thumbUrl'],
+                'audio_url': _audioBakedIntoVisual
+                    ? null
+                    : _bakedTrack?.audioUrl,
                 'is_verified': true,
                 'ai_verification': verification,
                 'photos': productPhotoUrls.isNotEmpty
