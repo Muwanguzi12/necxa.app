@@ -122,6 +122,10 @@ class OverlayOperation extends EditOperation {
   bool shadow;
   bool stroke;
   String align;
+  String fontFamily;
+  String animationIn;
+  String animationOut;
+  String themeId;
 
   OverlayOperation({
     required this.kind,
@@ -140,6 +144,10 @@ class OverlayOperation extends EditOperation {
     this.shadow = true,
     this.stroke = false,
     this.align = 'center',
+    this.fontFamily = 'Syne',
+    this.animationIn = 'fade',
+    this.animationOut = 'fade',
+    this.themeId = 'cinematic',
   }) : super('overlay');
 
   factory OverlayOperation.fromLegacy(Map<String, dynamic> values) {
@@ -163,6 +171,10 @@ class OverlayOperation extends EditOperation {
       shadow: values['shadow'] as bool? ?? true,
       stroke: values['stroke'] as bool? ?? false,
       align: values['align'] as String? ?? 'center',
+      fontFamily: values['fontFamily'] as String? ?? 'Syne',
+      animationIn: values['animationIn'] as String? ?? 'fade',
+      animationOut: values['animationOut'] as String? ?? 'fade',
+      themeId: values['themeId'] as String? ?? 'cinematic',
     );
   }
 
@@ -183,6 +195,10 @@ class OverlayOperation extends EditOperation {
     shadow: shadow,
     stroke: stroke,
     align: align,
+    fontFamily: fontFamily,
+    animationIn: animationIn,
+    animationOut: animationOut,
+    themeId: themeId,
   );
 
   @override
@@ -205,6 +221,10 @@ class OverlayOperation extends EditOperation {
     'shadow': shadow,
     'stroke': stroke,
     'align': align,
+    'fontFamily': fontFamily,
+    'animationIn': animationIn,
+    'animationOut': animationOut,
+    'themeId': themeId,
   };
 }
 
