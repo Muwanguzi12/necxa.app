@@ -170,6 +170,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   MusicTrack? _selectedTrack;
   final AudioPlayer _musicPlayer = AudioPlayer();
   final AudioPlayer _voicePlayer = AudioPlayer();
+  final Map<String, AudioPlayer> _timelineAudioPlayers = <String, AudioPlayer>{};
+  final Map<String, String> _timelineAudioSources = <String, String>{};
+  bool _syncingTimelineAudio = false;
+  Duration _lastTimelineAudioSync = Duration.zero;
   final MusicLibraryService _musicService = MusicLibraryService();
 
   // Shader State
@@ -654,6 +658,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _videoController?.dispose();
     _musicPlayer.dispose();
     _voicePlayer.dispose();
+    for (final player in _timelineAudioPlayers.values) {
+      player.dispose();
+    }
+    _timelineAudioPlayers.clear();
+    _timelineAudioSources.clear();
     _voiceoverService.dispose();
     _enhancementService.dispose();
     if (_ownsProjectController) _project.dispose();
@@ -699,6 +708,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           await controller.pause();
         }
       }
+      await _syncTimelineAudio(state.currentTime, playing: state.isPlaying);
       final timelineSecond = state.currentTime.inMilliseconds / 1000.0;
       if (mounted &&
           ((_isPlaying != state.isPlaying) ||
@@ -1235,48 +1245,112 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _syncPlay() async {
-    if (_videoController == null) return;
-
-    // 1. Calculate global time
-    final globalTime = _getGlobalTime(
-      _activeClipIndex,
-      (_videoController!.value.position.inMilliseconds) / 1000.0,
-    );
-
-    // 2. Start Video
-    _videoController!.play();
-
-    // 3. Start Music
-    final musicClip = _musicClip;
-    final music = _musicOperation;
-    if (musicClip != null && music?.sourceUrl != null) {
-      final musicEnd = _audioOffset + (_audioEnd - _audioStart);
-      if (globalTime >= _audioOffset && globalTime < musicEnd) {
-        await _musicPlayer.setSource(UrlSource(music!.sourceUrl!));
-        await _musicPlayer.setVolume(_bgmVolume);
-        final musicPos = (globalTime - _audioOffset + _audioStart)
-            .clamp(_audioStart, _audioEnd);
-        await _musicPlayer.seek(Duration(milliseconds: (musicPos * 1000).round()));
-        await _musicPlayer.resume();
-      } else {
-        await _musicPlayer.pause();
-      }
-    } else {
-      await _musicPlayer.pause();
+    final controller = _videoController;
+    if (controller != null && controller.value.isInitialized) {
+      await controller.play();
     }
+    await _syncTimelineAudio(
+      _project.playback.state.currentTime,
+      playing: true,
+      force: true,
+    );
+  }
 
-    // Voiceover source, timing and gain are read from its project clip.
-    final voiceClip = _voiceClip;
-    if (voiceClip?.file != null &&
-        globalTime >= voiceClip!.start.inMilliseconds / 1000.0 &&
-        globalTime < (voiceClip.start + voiceClip.duration).inMilliseconds / 1000.0) {
-      await _voicePlayer.setSource(DeviceFileSource(voiceClip.file!.path));
-      await _voicePlayer.setVolume(_voiceVolume);
-      final voicePosition = globalTime - voiceClip.start.inMilliseconds / 1000.0;
-      await _voicePlayer.seek(Duration(milliseconds: (voicePosition * 1000).round()));
-      await _voicePlayer.resume();
-    } else {
-      await _voicePlayer.pause();
+  Future<void> _syncTimelineAudio(
+    Duration playhead, {
+    required bool playing,
+    bool force = false,
+  }) async {
+    if (_syncingTimelineAudio) return;
+    if (!force &&
+        (playhead - _lastTimelineAudioSync).abs() <
+            const Duration(milliseconds: 100)) {
+      return;
+    }
+    _syncingTimelineAudio = true;
+    _lastTimelineAudioSync = playhead;
+    try {
+      final activeIds = <String>{};
+      for (final track in _project.tracks.where((item) => item.isVisible)) {
+        for (final clip in track.clips.where((item) => !item.isHidden)) {
+          final operation = clip.operation;
+          if (operation is! AudioClipOperation) continue;
+          final clipEnd = clip.start + clip.duration;
+          if (playhead < clip.start || playhead >= clipEnd) continue;
+          final source = clip.file?.path ?? operation.sourceUrl;
+          if (source == null || source.isEmpty) continue;
+          // Reverse is rendered in the master export. Do not play the source
+          // forwards in preview and falsely present it as a synchronized reverse.
+          if (clip.isReversed || operation.reverse) continue;
+
+          activeIds.add(clip.id);
+          final player = _timelineAudioPlayers.putIfAbsent(
+            clip.id,
+            AudioPlayer.new,
+          );
+          final sourceChanged = _timelineAudioSources[clip.id] != source;
+          if (sourceChanged) {
+            await player.stop();
+            await player.setReleaseMode(ReleaseMode.stop);
+            await player.setSource(
+              source.startsWith('http')
+                  ? UrlSource(source)
+                  : DeviceFileSource(source),
+            );
+            _timelineAudioSources[clip.id] = source;
+          }
+
+          final elapsed =
+              (playhead - clip.start).inMicroseconds / Duration.microsecondsPerSecond;
+          final speed = clip.speed == 1.0 ? operation.speed : clip.speed;
+          final sourceStart =
+              operation.startOffset ?? clip.sourceStart.inMilliseconds / 1000.0;
+          final targetSeconds = sourceStart + elapsed * speed;
+          final currentPosition = await player.getCurrentPosition();
+          if (sourceChanged ||
+              currentPosition == null ||
+              (currentPosition.inMilliseconds / 1000.0 - targetSeconds).abs() >
+                  0.22) {
+            await player.seek(
+              Duration(milliseconds: (targetSeconds * 1000).round()),
+            );
+          }
+
+          final durationSeconds = clip.duration.inMilliseconds / 1000.0;
+          final fadeIn = operation.fadeIn;
+          final fadeOut = operation.fadeOut;
+          var fade = 1.0;
+          if (fadeIn > 0 && elapsed < fadeIn) {
+            fade = (elapsed / fadeIn).clamp(0.0, 1.0);
+          }
+          final remaining = durationSeconds - elapsed;
+          if (fadeOut > 0 && remaining < fadeOut) {
+            fade = math.min(fade, (remaining / fadeOut).clamp(0.0, 1.0));
+          }
+          final baseVolume = clip.volume == 1.0
+              ? operation.volume
+              : clip.volume;
+          await player.setVolume((baseVolume * fade).clamp(0.0, 1.0));
+          try {
+            await player.setPlaybackRate(speed.clamp(0.5, 2.0));
+          } catch (_) {}
+          if (playing) {
+            await player.resume();
+          } else {
+            await player.pause();
+          }
+        }
+      }
+
+      for (final entry in _timelineAudioPlayers.entries) {
+        if (!activeIds.contains(entry.key)) {
+          await entry.value.pause();
+        }
+      }
+    } catch (error) {
+      debugPrint('Timeline audio preview sync failed: $error');
+    } finally {
+      _syncingTimelineAudio = false;
     }
   }
 
@@ -1284,6 +1358,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _videoController?.pause();
     _musicPlayer.pause();
     _voicePlayer.pause();
+    for (final player in _timelineAudioPlayers.values) {
+      player.pause();
+    }
   }
 
   Widget _exportOption(
