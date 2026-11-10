@@ -3876,6 +3876,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             case 'slide_left':
               animationOffset += Offset(-48 * (1 - exitProgress), 0);
               break;
+            case 'pop':
+              animationScale *= 0.82 + (0.18 * exitProgress);
+              animationOpacity *= exitProgress;
+              break;
           }
           return Positioned.fill(
             child: LayoutBuilder(
@@ -3912,7 +3916,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     textAlign: o.align == 'left' ? TextAlign.left : (o.align == 'right' ? TextAlign.right : TextAlign.center),
                     style: TextStyle(
                       fontSize: o.fontSize,
-                      fontFamily: o.fontFamily,
+                      fontFamily: o.fontFamily.toLowerCase() == 'syne' ? 'Roboto' : o.fontFamily,
                       color: o.color.withOpacity(o.opacity),
                       fontWeight: FontWeight.bold,
                       shadows: o.shadow
@@ -3964,7 +3968,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var animationIn = 'fade';
     var animationOut = 'fade';
     var selectedColor = const Color(0xFFF7F4ED);
-    var fontFamily = 'Syne';
+    var fontFamily = 'Roboto';
     var align = 'center';
     var isTranscribing = false;
     List<Map<String, dynamic>>? aiCaptionSegments;
@@ -3978,7 +3982,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       'afro': {'label': 'Afro glow', 'color': const Color(0xFFFFB45C), 'size': 32.0, 'shadow': true},
     };
     const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop'];
-    const fontFamilies = ['Syne', 'Roboto', 'serif', 'monospace', 'cursive'];
+    const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
 
     showModalBottomSheet<void>(
       context: context,
@@ -4104,9 +4108,16 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                               for (final item in rawSegments) {
                                 if (item is! Map) continue;
                                 final word = (item['text'] ?? item['word'] ?? '').toString().trim();
-                                final wordStart = (item['start'] as num?)?.toDouble();
-                                final wordEnd = (item['end'] as num?)?.toDouble();
-                                if (word.isEmpty || wordStart == null || wordEnd == null || wordEnd <= wordStart) continue;
+                                final sourceStart = (item['start'] as num?)?.toDouble();
+                                final sourceEnd = (item['end'] as num?)?.toDouble();
+                                if (word.isEmpty || sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
+                                // ASR timestamps refer to the complete source file. Convert
+                                // them into the selected trim's local playback clock.
+                                final wordStart = ((sourceStart - clip.start) / clip.speed)
+                                    .clamp(0.0, clipDuration).toDouble();
+                                final wordEnd = ((sourceEnd - clip.start) / clip.speed)
+                                    .clamp(0.0, clipDuration).toDouble();
+                                if (wordEnd <= wordStart) continue;
                                 if (lineText.isNotEmpty &&
                                     (lineText.length + word.length + 1 > 42 ||
                                      wordStart - lineStart > 4.2)) {
@@ -4215,7 +4226,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           style: dm(sz: 12, c: C.text),
                           decoration: const InputDecoration(labelText: 'Font', isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
                           items: fontFamilies.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
-                          onChanged: (value) => refresh(() => fontFamily = value ?? 'Syne'),
+                          onChanged: (value) => refresh(() => fontFamily = value ?? 'Roboto'),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -4375,7 +4386,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var animationIn = overlay.animationIn;
     var animationOut = overlay.animationOut;
     var depthLayer = overlay.depthLayer;
-    const fontFamilies = ['Syne', 'Roboto', 'serif', 'monospace', 'cursive'];
+    const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
     const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop'];
     final duration = _totalDuration > 0 ? _totalDuration : 30.0;
 
@@ -4418,7 +4429,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     style: dm(sz: 12, c: C.text),
                     decoration: const InputDecoration(labelText: 'Font', isDense: true),
                     items: fontFamilies.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
-                    onChanged: (value) => refresh(() => fontFamily = value ?? 'Syne'),
+                    onChanged: (value) => refresh(() => fontFamily = value ?? 'Roboto'),
                   ),
                   const SizedBox(height: 8),
                   Wrap(spacing: 10, children: [
