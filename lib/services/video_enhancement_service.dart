@@ -157,6 +157,10 @@ class RenderAudioTrack {
   final double timelineDuration;
   final double fadeIn;
   final double fadeOut;
+  final double pan;
+  final bool muted;
+  final bool solo;
+  final List<Map<String, double>> volumeAutomation;
   final List<AudioDuckingInterval> duckingIntervals;
 
   const RenderAudioTrack({
@@ -170,6 +174,10 @@ class RenderAudioTrack {
     this.timelineDuration = 0,
     this.fadeIn = 0,
     this.fadeOut = 0,
+    this.pan = 0,
+    this.muted = false,
+    this.solo = false,
+    this.volumeAutomation = const [],
     this.duckingIntervals = const [],
   });
 }
@@ -451,6 +459,10 @@ class VideoEnhancementService {
         timelineDuration: track.timelineDuration,
         fadeIn: track.fadeIn,
         fadeOut: track.fadeOut,
+        pan: track.pan,
+        muted: track.muted,
+        solo: track.solo,
+        volumeAutomation: track.volumeAutomation,
         duckingIntervals: track.duckingIntervals,
       ));
     }
@@ -801,8 +813,10 @@ class VideoEnhancementService {
       if (overlay.wordTimings.isEmpty) currentVideo = nextLabel;
     }
 
-    // 3. MIXING ALL AUDIO SOURCES
-    String audioSources = "[outa_orig]";
+    // 3. MIXING ALL AUDIO SOURCES. A soloed timeline track owns the bus.
+    final hasSoloTrack = resolvedAudioTracks.any((track) => track.solo && !track.muted);
+    if (hasSoloTrack) filterComplex += "[outa_orig]volume=0[outa_silent_orig];";
+    String audioSources = hasSoloTrack ? "[outa_silent_orig]" : "[outa_orig]";
     int inputsCount = 1;
 
     if (bgmIndex != null) {
@@ -822,6 +836,7 @@ class VideoEnhancementService {
 
     for (int i = 0; i < resolvedAudioTracks.length; i++) {
       final track = resolvedAudioTracks[i];
+      if (track.muted || (hasSoloTrack && !track.solo)) continue;
       final index = audioTrackIndexes[i]!;
       final label = 'timeline_audio_$i';
       final sourceDuration = track.timelineDuration > 0
@@ -861,15 +876,34 @@ class VideoEnhancementService {
       final volumeFilter = duckingConditions.isEmpty
           ? 'volume=$baseVolume'
           : "volume='${baseVolume}*if(gt($duckingConditions\\,0)\\,${duckingFactor.toStringAsFixed(3)}\\,1)'";
+      final automation = List<Map<String, double>>.from(track.volumeAutomation)
+        ..removeWhere((point) => !point['time']!.isFinite || !point['volume']!.isFinite)
+        ..sort((a, b) => a['time']!.compareTo(b['time']!));
+      var automationFilter = '';
+      if (automation.isNotEmpty) {
+        var expression = automation.last['volume']!.clamp(0.0, 4.0).toStringAsFixed(3);
+        for (var pointIndex = automation.length - 2; pointIndex >= 0; pointIndex--) {
+          final point = automation[pointIndex];
+          final next = automation[pointIndex + 1];
+          final start = point['time']!.clamp(0.0, track.timelineDuration);
+          final end = next['time']!.clamp(start + 0.001, track.timelineDuration);
+          final from = point['volume']!.clamp(0.0, 4.0);
+          final to = next['volume']!.clamp(0.0, 4.0);
+          final ramp = end > start ? '$from+($to-$from)*(t-$start)/(${end-start})' : to.toStringAsFixed(3);
+          expression = 'if(lt(t,$end),$ramp,$expression)';
+        }
+        automationFilter = ",volume='$expression'";
+      }
+      final pan = track.pan.clamp(-1.0, 1.0).toStringAsFixed(3);
       filterComplex +=
-          "[$index:a]atrim=start=${track.sourceStart}$trimEnd$trimDuration,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,$volumeFilter,aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
+          "[$index:a]atrim=start=${track.sourceStart}$trimEnd$trimDuration,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,$volumeFilter$automationFilter,aresample=44100,aformat=channel_layouts=stereo,pan=stereo|c0=(1-$pan)*c0|c1=(1+$pan)*c1,adelay=$delay|$delay[$label];";
       audioSources += '[$label]';
       inputsCount++;
     }
 
     if (inputsCount > 1) {
       filterComplex +=
-          "${audioSources}amix=inputs=$inputsCount:duration=first:dropout_transition=2:normalize=0,alimiter=limit=0.95[outa]";
+          "${audioSources}amix=inputs=$inputsCount:duration=longest:dropout_transition=2:normalize=0,alimiter=limit=0.95[outa]";
     } else {
       filterComplex += "[outa_orig]anull[outa]";
     }
