@@ -633,7 +633,7 @@ class VideoEnhancementService {
     // libx264 -crf 26: The "Economical" compression sweet spot
     // -maxrate 2.5M: Prevents bitrate spikes on mobile data
     String command =
-        "$inputs $silentInput -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
+        "$inputs $silentInput -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
 
     debugPrint('Executing smarter FFmpeg command: $command');
     final session = await FFmpegKit.execute(command);
