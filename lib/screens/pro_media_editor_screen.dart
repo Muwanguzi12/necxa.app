@@ -5348,7 +5348,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           style: dm(sz: 12, c: C.text),
                           decoration: const InputDecoration(labelText: 'Font', isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
                           items: <String>{...fontFamilies, if (fontFilePath != null) fontFamily}.map((value) => DropdownMenuItem(value: value, child: Text(value.startsWith('NecxaFont_') ? 'Imported font' : value))).toList(),
-                          onChanged: (value) => refresh(() { fontFamily = value ?? 'Roboto'; fontFilePath = null; }),
+                          onChanged: (value) => refresh(() { if (value != fontFamily) fontFilePath = null; fontFamily = value ?? 'Roboto'; }),
                         ),
                       ),
                       TextButton.icon(
