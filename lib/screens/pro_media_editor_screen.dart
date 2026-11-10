@@ -1680,7 +1680,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 final selected = index == _activeClipIndex;
                 return Positioned(
                   left: offset * pixelsPerSecond,
-                  width: math.max(4.0, seconds * pixelsPerSecond - 2),
+                  width: math.max(4.0, seconds * pixelsPerSecond - 2).toDouble(),
                   top: 2, bottom: 2,
                   child: GestureDetector(
                     onTap: () {
@@ -1716,11 +1716,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     Widget textLane() {
       final overlays = _overlays.asMap().entries.toList();
       return SizedBox(
-        height: math.max(54.0, overlays.length * 34.0),
+        height: math.max(54.0, overlays.length * 34.0).toDouble(),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           trackLabel(Icons.text_fields, 'TEXT'),
           Expanded(child: SizedBox(
-            height: math.max(50.0, overlays.length * 34.0),
+            height: math.max(50.0, overlays.length * 34.0).toDouble(),
             child: Stack(children: [
               for (var index = 0; index < overlays.length; index++)
                 Builder(builder: (context) {
@@ -4985,4 +4985,48 @@ class GrainPainter extends CustomPainter {
 
 
 
+
+
+class _EditorTimelineRulerPainter extends CustomPainter {
+  final double pixelsPerSecond;
+  final double duration;
+  final Color color;
+
+  const _EditorTimelineRulerPainter({
+    required this.pixelsPerSecond,
+    required this.duration,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    final labelStyle = TextStyle(
+      color: color.withOpacity(0.9),
+      fontSize: 8,
+      fontWeight: FontWeight.w600,
+    );
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.left,
+    );
+    final step = duration > 90 ? 10 : duration > 35 ? 5 : 1;
+    for (var second = 0; second <= duration.ceil(); second += step) {
+      final x = second * pixelsPerSecond;
+      if (x > size.width) break;
+      canvas.drawLine(Offset(x, 11), Offset(x, size.height), line);
+      textPainter.text = TextSpan(text: '${second}s', style: labelStyle);
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(x + 3, 0));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _EditorTimelineRulerPainter oldDelegate) =>
+      oldDelegate.pixelsPerSecond != pixelsPerSecond ||
+      oldDelegate.duration != duration ||
+      oldDelegate.color != color;
+}
 
