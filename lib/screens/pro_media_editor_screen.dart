@@ -347,6 +347,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   void _restoreAudioSelectionFromProject() {
     final music = _musicOperation;
+    _selectedTrack = null;
     if (music != null && music.sourceUrl != null) {
       _selectedTrack = MusicTrack(id: 'project-' + music.sourceUrl.hashCode.toString(),
         title: music.label ?? 'Project music', artistName: 'Project audio',
@@ -738,6 +739,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _restoreDesktopViewFromProject() {
+    _restoreAudioSelectionFromProject();
     final project = _project;
     if (project == null) return;
     final visual =
@@ -5352,9 +5354,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       // Stop recording
       final recording = await _voiceoverService.stop();
       if (recording != null) {
-        final duration = _project.playback.state.duration > Duration.zero
-            ? _project.playback.state.duration
-            : const Duration(seconds: 30);
+        final duration = recording.duration > Duration.zero
+            ? recording.duration
+            : const Duration(milliseconds: 100);
         _project.upsertClip(TrackType.voiceOver, TimelineClip(
           id: 'desktop-audio-voice',
           start: Duration.zero,
