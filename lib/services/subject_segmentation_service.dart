@@ -161,6 +161,13 @@ class SubjectSegmentationService {
       }
 
       if (_cancelled || frameCount == 0) return null;
+      if (frameCount >= _maxFrames) {
+        throw StateError(
+          'Subject masking is limited to 120 seconds per clip. '
+          'The source file is supported, but its full-length subject matte '
+          'cannot be generated within the current on-device processing budget.',
+        );
+      }
 
       final maskPattern = p.join(maskDir.path, 'mask_%06d.png');
       final encode = await FFmpegKit.execute(
