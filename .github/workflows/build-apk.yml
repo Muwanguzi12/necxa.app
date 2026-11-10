@@ -110,9 +110,11 @@ jobs:
 
       - name: Write build provenance
         run: |
-          printf "commit=%s\\nbranch=%s\\nrun=%s\\n" \\
-            "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_NUMBER" \\
-            > build/app/outputs/flutter-apk/BUILD_INFO.txt
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "branch=$GITHUB_REF_NAME"
+            echo "run=$GITHUB_RUN_NUMBER"
+          } > build/app/outputs/flutter-apk/BUILD_INFO.txt
 
       - name: Upload release APKs
         uses: actions/upload-artifact@v4
