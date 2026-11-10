@@ -201,6 +201,8 @@ class EditorExportService {
             background: operation.background,
             backgroundOpacity: operation.backgroundOpacity,
             shadow: operation.shadow,
+            animationIn: operation.animationIn,
+            animationOut: operation.animationOut,
           ),
         );
       } else if (operation is TextOverlay) {
