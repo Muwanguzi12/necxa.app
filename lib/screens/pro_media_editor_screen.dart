@@ -420,9 +420,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         setState(() {});
       }).catchError((Object error, StackTrace stack) {
         debugPrint('MediaEditor: clip initialization failed: $error');
-        if (mounted && identical(_videoController, controller)) {
-          setState(() => _videoController = null);
-          _feedback('Unable to load this clip');
+        if (identical(_videoController, controller)) {
+          if (mounted) {
+            setState(() => _videoController = null);
+            _feedback('Unable to load this clip');
+          } else {
+            _videoController = null;
+          }
+          unawaited(controller.dispose());
         }
       });
 
