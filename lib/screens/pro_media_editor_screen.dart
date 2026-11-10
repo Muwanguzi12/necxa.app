@@ -709,94 +709,126 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     });
   }
 
+  /// Reconciles the legacy preview adapters with the shared project without
+  /// destroying and recreating every visual track. Existing TimelineClip
+  /// identities and track metadata are retained; only changed visual clips and
+  /// desktop transition records are replaced inside one project transaction.
+  ///
+  /// This is a compatibility bridge while the remaining editor commands are
+  /// being moved to direct TimelineClip mutations. Do not add new editing
+  /// commands that mutate _sequence.
   void _syncSharedProjectFromSequence() {
     final project = _project;
     if (project == null) return;
-    project.tracks.removeWhere(
-      (track) =>
-          track.type == TrackType.video || track.type == TrackType.images,
-    );
-    for (final track in project.tracks) {
-      track.clips.removeWhere(
-        (clip) =>
-            clip.id.startsWith('desktop-overlay-') ||
-            clip.id.startsWith('desktop-transition-'),
-      );
-    }
-    var timelineStart = Duration.zero;
-    for (var index = 0; index < _sequence.length; index++) {
-      final clip = _sequence[index];
-      final sourceStart = Duration(milliseconds: (clip.start * 1000).round());
-      final sourceEnd = Duration(milliseconds: (clip.end * 1000).round());
-      final timelineDuration = Duration(
-        milliseconds: (((clip.end - clip.start) / clip.speed) * 1000).round(),
-      );
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: clip.id,
+
+    project.transact((tracks) {
+      final visualTypes = <TrackType>{TrackType.video, TrackType.images};
+      final existingById = <String, TimelineClip>{
+        for (final track in tracks.where((item) => visualTypes.contains(item.type)))
+          for (final clip in track.clips) clip.id: clip,
+      };
+      final retainedIds = <String>{};
+      var timelineStart = Duration.zero;
+
+      for (final previewClip in _sequence) {
+        final sourceStart = Duration(
+          milliseconds: (previewClip.start * 1000).round(),
+        );
+        final sourceEnd = Duration(
+          milliseconds: (previewClip.end * 1000).round(),
+        );
+        final timelineDuration = Duration(
+          milliseconds: (((previewClip.end - previewClip.start) /
+                    previewClip.speed) *
+                1000)
+              .round(),
+        );
+        final type = previewClip.isVideo ? TrackType.video : TrackType.images;
+        final existing = existingById[previewClip.id];
+        final transform = existing?.transform ?? TransformOperation();
+        transform
+          ..scale = previewClip.scale
+          ..rotation = previewClip.rotation
+          ..position = Offset(previewClip.offsetX, previewClip.offsetY)
+          ..opacity = previewClip.opacity;
+
+        final nextClip = TimelineClip(
+          id: previewClip.id,
           start: timelineStart,
           duration: timelineDuration,
-          file: clip.file,
+          file: previewClip.file,
+          proxyFile: previewClip.proxyFile,
+          isProxyReady: previewClip.isProxyReady,
           sourceStart: sourceStart,
           sourceEnd: sourceEnd,
-          speed: clip.speed,
-          volume: clip.volume,
-          isReversed: clip.isReversed,
+          speed: previewClip.speed,
+          volume: previewClip.volume,
+          isReversed: previewClip.isReversed,
           operation: TrimOperation(
             start: sourceStart,
             end: sourceEnd,
-            maxDuration: Duration(milliseconds: (clip.duration * 1000).round()),
+            maxDuration: Duration(
+              milliseconds: (previewClip.duration * 1000).round(),
+            ),
           ),
-          transform: TransformOperation(
-            scale: clip.scale,
-            rotation: clip.rotation,
-            position: Offset(clip.offsetX, clip.offsetY),
-            opacity: clip.opacity,
-          ),
-          brightness: clip.brightness,
-          contrast: clip.contrast,
-          saturation: clip.saturation,
-          hue: clip.hue,
-          vignette: clip.vignette,
-          grain: clip.grain,
-          blur: clip.blur,
-          filter: clip.filter == null
+          transform: transform,
+          brightness: previewClip.brightness,
+          contrast: previewClip.contrast,
+          saturation: previewClip.saturation,
+          hue: previewClip.hue,
+          vignette: previewClip.vignette,
+          grain: previewClip.grain,
+          blur: previewClip.blur,
+          filter: previewClip.filter == null
               ? null
-              : FilterOperation(filterName: clip.filter!.name),
-        ),
-        clip.isVideo ? TrackType.video : TrackType.images,
+              : FilterOperation(filterName: previewClip.filter!.name),
+        );
+        TimelineModelUtils.insertClip(tracks, nextClip, type);
+        retainedIds.add(previewClip.id);
+        timelineStart += timelineDuration;
+      }
+
+      for (final track in tracks.where((item) => visualTypes.contains(item.type))) {
+        track.clips.removeWhere((clip) => !retainedIds.contains(clip.id));
+      }
+      tracks.removeWhere(
+        (track) => visualTypes.contains(track.type) && track.clips.isEmpty,
       );
-      timelineStart += timelineDuration;
-    }
-    _transitions.forEach((clipIndex, transition) {
-      var start = Duration.zero;
-      for (
-        var index = 0;
-        index <= clipIndex && index < _sequence.length;
-        index++
-      ) {
-        final clip = _sequence[index];
-        start += Duration(
-          milliseconds: (((clip.end - clip.start) / clip.speed) * 1000).round(),
+
+      for (final track in tracks) {
+        track.clips.removeWhere(
+          (clip) => clip.id.startsWith('desktop-transition-'),
         );
       }
-      final transitionStart =
-          start - Duration(milliseconds: (transition.duration * 500).round());
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-transition-$clipIndex',
-          start: transitionStart.isNegative ? Duration.zero : transitionStart,
-          duration: Duration(
-            milliseconds: (transition.duration * 1000).round(),
+      tracks.removeWhere((track) => track.clips.isEmpty);
+
+      _transitions.forEach((clipIndex, transition) {
+        var start = Duration.zero;
+        for (var index = 0;
+            index <= clipIndex && index < _sequence.length;
+            index++) {
+          final clip = _sequence[index];
+          start += Duration(
+            milliseconds: (((clip.end - clip.start) / clip.speed) * 1000)
+                .round(),
+          );
+        }
+        final transitionStart = start -
+            Duration(milliseconds: (transition.duration * 500).round());
+        TimelineModelUtils.insertClip(
+          tracks,
+          TimelineClip(
+            id: 'desktop-transition-$clipIndex',
+            start: transitionStart.isNegative ? Duration.zero : transitionStart,
+            duration: Duration(
+              milliseconds: (transition.duration * 1000).round(),
+            ),
+            operation: transition,
           ),
-          operation: transition,
-        ),
-        TrackType.effects,
-      );
-    });
-    project.playback.updateProject(project.tracks);
+          TrackType.effects,
+        );
+      });
+    }, recordHistory: false);
   }
 
   Future<void> _addClip() async {
