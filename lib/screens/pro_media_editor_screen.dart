@@ -1991,9 +1991,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             onPressed: () => setState(() {
               if (_multiSelectMode) {
                 _multiSelectMode = false;
-                _selectedClips
-                  ..clear()
-                  ..add(_sequence[_activeClipIndex.clamp(0, _sequence.length - 1)]);
+                _selectedClips.clear();
+                if (_sequence.isNotEmpty) {
+                  _selectedClips.add(
+                    _sequence[_activeClipIndex.clamp(0, _sequence.length - 1)],
+                  );
+                }
               } else {
                 _multiSelectMode = true;
                 if (_sequence.isNotEmpty) {
