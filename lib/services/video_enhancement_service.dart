@@ -771,19 +771,19 @@ class VideoEnhancementService {
           final approximateGlyphWidth = overlay.fontSize * overlay.scale * 0.52;
           final phraseWidth = (overlay.text ?? '').length * approximateGlyphWidth;
           final wordOffset = prefixLength * approximateGlyphWidth;
-          final wordOutputLabel = 'karaoke_${imageOverlayIndexes.length}_${wordIndex}_${overlay.start.toStringAsFixed(3).replaceAll('.', '_')}';
+          final wordOutputLabel = 'karaoke_${i}_${wordIndex}';
           final highlightColor = overlay.themeId == 'neon'
               ? '#7DF9FF'
               : overlay.themeId == 'afro'
                   ? '#FFB45C'
                   : '#FFD166';
+          final wordStartTime = double.parse(startTime) + wordStartOffset;
+          final wordEndTime = double.parse(startTime) + wordEndOffset;
           filterComplex +=
-              "[$wordInputLabel]drawtext=text='$safeWord':font='$font':x='(w-$phraseWidth)/2+$wordOffset':y='$baseY':fontsize=$baseFontSize:fontcolor=$highlightColor:enable='between(t,${startTime + wordStartOffset},${startTime + wordEndOffset})'[$wordOutputLabel];";
+              "[$wordInputLabel]drawtext=text='$safeWord':font='$font':x='(w-$phraseWidth)/2+$wordOffset':y='$baseY':fontsize=$baseFontSize:fontcolor=$highlightColor:enable='between(t,$wordStartTime,$wordEndTime)'[$wordOutputLabel];";
           wordInputLabel = wordOutputLabel;
         }
-        if (wordInputLabel != nextLabel) {
-          currentVideo = wordInputLabel;
-        }
+        currentVideo = wordInputLabel;
       } else {
         continue;
       }
