@@ -1375,13 +1375,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               (track) =>
                   track.type == TrackType.voiceOver &&
                   track.isVisible &&
-                  track.clips.any(
-                    (voiceClip) =>
-                        !voiceClip.isHidden &&
-                        voiceClip.volume > 0 &&
+                  track.clips.any((voiceClip) {
+                    final voiceOperation = voiceClip.operation;
+                    final voiceVolume =
+                        voiceOperation is AudioClipOperation &&
+                            voiceClip.volume == 1.0
+                        ? voiceOperation.volume
+                        : voiceClip.volume;
+                    return !voiceClip.isHidden &&
+                        voiceVolume > 0 &&
                         voiceClip.start <= playhead &&
-                        voiceClip.start + voiceClip.duration > playhead,
-                  ),
+                        voiceClip.start + voiceClip.duration > playhead;
+                  }),
             );
             if (voiceoverActive) duckingFactor = 0.30;
           }
