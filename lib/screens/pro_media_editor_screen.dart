@@ -61,6 +61,7 @@ class VideoClip {
   VideoClip({
     required this.file,
     this.proxyFile,
+    this.reversePreviewFile,
     this.isProxyReady = false,
     this.start = 0,
     this.end = 0.1,
