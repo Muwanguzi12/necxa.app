@@ -3907,7 +3907,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 } else {
                   child = Text(
                     o.text,
-                    textAlign: TextAlign.center,
+                    textAlign: o.align == 'left' ? TextAlign.left : (o.align == 'right' ? TextAlign.right : TextAlign.center),
                     style: TextStyle(
                       fontSize: o.fontSize,
                       fontFamily: o.fontFamily,
