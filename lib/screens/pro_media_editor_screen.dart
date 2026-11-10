@@ -4857,13 +4857,32 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   final fontFamily = o.fontFamily.toLowerCase() == 'syne'
                       ? 'Roboto'
                       : o.fontFamily;
+                  final themeShadowColor = switch (o.themeId) {
+                    'neon' => const Color(0xFF16E8F2),
+                    'karaoke' => const Color(0xFFFFD166),
+                    'afro' => const Color(0xFFFF8A3D),
+                    _ => Colors.black54,
+                  };
+                  final themeShadow = o.themeId != 'minimal' &&
+                      (o.shadow || const {'cinematic', 'neon', 'karaoke', 'afro'}.contains(o.themeId));
+                  final themeStroke = o.stroke || o.themeId == 'bold';
+                  final themeFontWeight = o.themeId == 'bold' || o.themeId == 'afro'
+                      ? FontWeight.w900
+                      : FontWeight.bold;
                   final fillStyle = TextStyle(
                     fontSize: o.fontSize,
-                    fontFamily: fontFamily,
+                    fontFamily: o.themeId == 'afro' ? 'serif' : fontFamily,
                     color: o.color.withOpacity(o.opacity),
-                    fontWeight: FontWeight.bold,
-                    shadows: o.shadow
-                        ? [Shadow(blurRadius: 8, color: Colors.black54)]
+                    fontWeight: themeFontWeight,
+                    letterSpacing: o.themeId == 'cinematic' ? 1.1 : 0,
+                    shadows: themeShadow
+                        ? [
+                            Shadow(
+                              blurRadius: o.themeId == 'neon' ? 18 : 8,
+                              color: themeShadowColor,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
                         : null,
                   );
                   child = Container(
@@ -4875,7 +4894,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        if (o.stroke)
+                        if (themeStroke)
                           Text(
                             o.text,
                             textAlign: textAlign,
