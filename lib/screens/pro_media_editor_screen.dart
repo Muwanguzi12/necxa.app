@@ -4069,7 +4069,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                             File? extractedAudio;
                             try {
                               extractedAudio = await VideoEnhancementService()
-                                  .extractAudioForTranscription(clip.file, start: clip.start, end: clip.end);
+                                  .extractAudioForTranscription(
+                                    clip.file,
+                                    start: clip.start,
+                                    end: clip.end,
+                                    reverse: clip.isReversed,
+                                  );
                               if (extractedAudio == null) {
                                 _feedback('Could not extract audio from this clip.');
                                 return;
@@ -4321,7 +4326,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           final interval = (end - start) / lines.length;
                           double clipOffset = 0;
                           double clipDuration = 0;
-                          if (contentMode == 'captions' &&
+                          if ((contentMode == 'captions' || contentMode == 'lyrics') &&
                               aiCaptionSegments != null &&
                               aiCaptionSegments!.length == lines.length &&
                               _activeClipIndex < _sequence.length) {
