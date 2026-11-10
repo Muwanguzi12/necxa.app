@@ -54,7 +54,12 @@ class SubjectSegmentationService {
       p.join(support.path, 'necxa_subject_${DateTime.now().microsecondsSinceEpoch}'),
     ).create(recursive: true);
     final maskDir = await Directory(p.join(jobDir.path, 'masks')).create();
-    final maskVideo = File(p.join(jobDir.path, 'subject_mask.mkv'));
+    // Keep the returned matte outside the scratch directory: scratch frames and
+    // PNG masks are deleted in finally, while the caller owns this output file.
+    final maskVideo = File(p.join(
+      support.path,
+      'necxa_subject_mask_${DateTime.now().microsecondsSinceEpoch}.mkv',
+    ));
     SelfieSegmenter? segmenter;
     var frameCount = 0;
     var outputWidth = 0;
