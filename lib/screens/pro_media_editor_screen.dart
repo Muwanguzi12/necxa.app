@@ -2791,7 +2791,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       _feedback("Select a video clip before splitting");
       return;
     }
-    _saveHistory();
     final currentPos = _videoController!.value.position.inMilliseconds / 1000.0;
     final activeClip = _sequence[_activeClipIndex];
 
@@ -2802,6 +2801,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       return;
     }
 
+    _saveHistory();
     setState(() {
       // 1. Create a copy of the current clip
       final newClip = activeClip.copy();
