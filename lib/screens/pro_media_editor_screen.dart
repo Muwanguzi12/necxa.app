@@ -231,8 +231,41 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   final double _frameRate = 30.0;
   final int _bitrateKbps = 8000; // assumed default bitrate for size estimate
 
-  // Overlay & Metadata State
-  final List<OverlayOperation> _overlays = [];
+  // Live project-backed view: overlays are never stored in a second list.
+  List<OverlayOperation> get _overlays => _project.tracks
+      .where((track) => track.type == TrackType.overlay)
+      .expand((track) => track.clips)
+      .map((clip) => clip.operation)
+      .whereType<OverlayOperation>()
+      .toList();
+
+  void _addProjectOverlay(OverlayOperation overlay) {
+    final start = Duration(milliseconds: (overlay.start * _totalDuration * 1000).round());
+    final end = Duration(milliseconds: (overlay.end * _totalDuration * 1000).round());
+    _project.upsertClip(
+      TrackType.overlay,
+      TimelineClip(
+        id: 'overlay-${DateTime.now().microsecondsSinceEpoch}',
+        start: start,
+        duration: end > start ? end - start : const Duration(seconds: 1),
+        operation: overlay,
+      ),
+    );
+  }
+
+  void _removeProjectOverlayAt(int index) {
+    final overlays = _overlays;
+    if (index < 0 || index >= overlays.length) return;
+    final target = overlays[index];
+    for (final track in _project.tracks.where((item) => item.type == TrackType.overlay)) {
+      for (final clip in track.clips) {
+        if (identical(clip.operation, target)) {
+          _project.removeClip(clip.id);
+          return;
+        }
+      }
+    }
+  }
 
   // Track selection for focused editing
   int _activeNavIndex =
@@ -330,9 +363,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       (track) => track.clips,
     )) {
       final operation = timelineClip.operation;
-      if (operation is OverlayOperation) {
-        _overlays.add(operation.copy());
-      } else if (operation is TransitionOperation &&
+      if (operation is TransitionOperation &&
           timelineClip.id.startsWith('desktop-transition-')) {
         final index = int.tryParse(
           timelineClip.id.substring('desktop-transition-'.length),
@@ -737,25 +768,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         clip.isVideo ? TrackType.video : TrackType.images,
       );
       timelineStart += timelineDuration;
-    }
-    for (var index = 0; index < _overlays.length; index++) {
-      final overlay = _overlays[index];
-      final start = Duration(
-        milliseconds: (overlay.start * _totalDuration * 1000).round(),
-      );
-      final end = Duration(
-        milliseconds: (overlay.end * _totalDuration * 1000).round(),
-      );
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-overlay-$index',
-          start: start,
-          duration: end > start ? end - start : Duration(seconds: 1),
-          operation: overlay,
-        ),
-        TrackType.overlay,
-      );
     }
     _transitions.forEach((clipIndex, transition) {
       var start = Duration.zero;
@@ -3716,7 +3728,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     (sticker) => GestureDetector(
                       onTap: () {
                         setState(
-                          () => _overlays.add(
+                          () => _addProjectOverlay(
                             OverlayOperation.fromLegacy({
                               'type': 'sticker',
                               'text': sticker,
@@ -5071,7 +5083,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                               final layerEnd = hasAiTiming
                                   ? ((clipOffset + (segment!['end'] as num).toDouble()) / duration).clamp(layerStart + 0.001, 1.0).toDouble()
                                   : (index == lines.length - 1 ? end : start + interval * (index + 1));
-                              _overlays.add(OverlayOperation(
+                              _addProjectOverlay(OverlayOperation(
                                 kind: 'text',
                                 text: lines[index],
                                 start: layerStart,
@@ -5209,8 +5221,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           final shift = (overlay.end - overlay.start).clamp(0.01, 1.0).toDouble() * 0.1;
                           duplicate.start = (overlay.start + shift).clamp(0.0, 0.99).toDouble();
                           duplicate.end = (overlay.end + shift).clamp(duplicate.start + 0.01, 1.0).toDouble();
-                          _overlays.add(duplicate);
-                          _syncSharedProjectFromSequence();
+                          _addProjectOverlay(duplicate);
                         });
                         Navigator.pop(sheetContext);
                         _feedback('Text layer duplicated');
@@ -5223,8 +5234,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       onPressed: () {
                         _saveHistory();
                         setState(() {
-                          _overlays.removeAt(index);
-                          _syncSharedProjectFromSequence();
+                          _removeProjectOverlayAt(index);
                         });
                         Navigator.pop(sheetContext);
                         _feedback('Text layer deleted');
