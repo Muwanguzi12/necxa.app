@@ -1153,8 +1153,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
     File? combinedFile;
     var audioExpected = false;
-    {
-      setState(() => _isProcessing = true);
+    setState(() => _isProcessing = true);
       try {
         _feedback("Rendering final video and audio...");
         final snapshot = _project.createSnapshot();
@@ -1190,8 +1189,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
       // Never fall back to publishing the first source clip when flattening
       // fails; that would silently discard timeline edits and audio.
-      if (combinedFile == null) return;
-    }
+    if (combinedFile == null) return;
 
     Navigator.pop(context, {
       'sequence': _sequence,
