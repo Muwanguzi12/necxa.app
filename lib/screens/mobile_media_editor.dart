@@ -6800,6 +6800,23 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           (remaining / fadeOut).clamp(0.0, 1.0),
         );
       }
+      if (operation.sourceType == 'music') {
+        final voiceoverActive = _tracks.any((track) =>
+            track.type == TrackType.voiceOver &&
+            track.isVisible &&
+            track.clips.any((voiceClip) {
+              final voiceOperation = voiceClip.operation;
+              final voiceVolume =
+                  voiceOperation is AudioClipOperation && voiceClip.volume == 1.0
+                      ? voiceOperation.volume
+                      : voiceClip.volume;
+              return !voiceClip.isHidden &&
+                  voiceVolume > 0 &&
+                  voiceClip.start <= timelineTime &&
+                  voiceClip.start + voiceClip.duration > timelineTime;
+            }));
+        if (voiceoverActive) envelope *= 0.30;
+      }
     }
     final baseVolume = operation is AudioClipOperation && clip.volume == 1.0
         ? operation.volume
