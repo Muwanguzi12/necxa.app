@@ -2,7 +2,7 @@ name: Flutter CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, feature/unified-realtime-effects-engine ]
   pull_request:
     branches: [ main, develop ]
 
