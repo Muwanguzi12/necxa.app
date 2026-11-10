@@ -2880,6 +2880,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
     });
     controllerToDispose?.dispose();
+    if (_sequence.isEmpty) {
+      _project.playback.pause();
+      unawaited(_musicPlayer.pause());
+      unawaited(_voicePlayer.pause());
+    }
     _syncSharedProjectFromSequence();
   }
 
