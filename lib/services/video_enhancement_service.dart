@@ -791,7 +791,7 @@ class VideoEnhancementService {
                   ? "w*${normalizedX}-$phraseWidth+$wordOffset"
                   : "(w-$phraseWidth)*${normalizedX}+$wordOffset";
           filterComplex +=
-              "[$wordInputLabel]drawtext=text='$safeWord':$fontOption:x='$wordX':y='$baseY':fontsize=$fontSize:fontcolor=$highlightColor:enable='between(t,$wordStartTime,$wordEndTime)'[$wordOutputLabel];";
+              "[$wordInputLabel]drawtext=text='$safeWord':$fontOption:x='$wordX':y='$baseY':fontsize=$fontSize:fontcolor=$highlightColor@${overlay.opacity.clamp(0.0, 1.0)}:enable='between(t,$wordStartTime,$wordEndTime)'[$wordOutputLabel];";
           wordInputLabel = wordOutputLabel;
         }
         currentVideo = wordInputLabel;
