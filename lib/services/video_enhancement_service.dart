@@ -216,25 +216,27 @@ class VideoEnhancementService {
       }
 
       final tempDir = await getTemporaryDirectory();
-      output = File(
+      final downloadedFile = File(
         '${tempDir.path}/necxa_audio_source_${DateTime.now().microsecondsSinceEpoch}.media',
       );
-      sink = output.openWrite();
+      output = downloadedFile;
+      final outputSink = downloadedFile.openWrite();
+      sink = outputSink;
       var receivedBytes = 0;
       await for (final chunk in response) {
         receivedBytes += chunk.length;
         if (receivedBytes > maxMediaFileBytes) {
           throw ArgumentError('An audio track exceeds the 1 GB limit.');
         }
-        sink.add(chunk);
+        outputSink.add(chunk);
       }
-      await sink.flush();
-      await sink.close();
+      await outputSink.flush();
+      await outputSink.close();
       sink = null;
-      if (receivedBytes == 0 || !output.existsSync()) {
-        throw const FileSystemException('Downloaded audio source is empty.');
+      if (receivedBytes == 0 || !downloadedFile.existsSync()) {
+        throw FileSystemException('Downloaded audio source is empty.');
       }
-      return output;
+      return downloadedFile;
     } catch (_) {
       if (output != null && output.existsSync()) {
         try {
