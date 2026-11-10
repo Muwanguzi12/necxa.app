@@ -126,6 +126,7 @@ class OverlayOperation extends EditOperation {
   String animationIn;
   String animationOut;
   String themeId;
+  String depthLayer;
 
   OverlayOperation({
     required this.kind,
@@ -148,6 +149,7 @@ class OverlayOperation extends EditOperation {
     this.animationIn = 'none',
     this.animationOut = 'none',
     this.themeId = 'cinematic',
+    this.depthLayer = 'foreground',
   }) : super('overlay');
 
   factory OverlayOperation.fromLegacy(Map<String, dynamic> values) {
@@ -175,6 +177,7 @@ class OverlayOperation extends EditOperation {
       animationIn: values['animationIn'] as String? ?? 'none',
       animationOut: values['animationOut'] as String? ?? 'none',
       themeId: values['themeId'] as String? ?? 'cinematic',
+      depthLayer: values['depthLayer'] as String? ?? 'foreground',
     );
   }
 
@@ -199,6 +202,7 @@ class OverlayOperation extends EditOperation {
     animationIn: animationIn,
     animationOut: animationOut,
     themeId: themeId,
+    depthLayer: depthLayer,
   );
 
   @override
@@ -225,6 +229,7 @@ class OverlayOperation extends EditOperation {
     'animationIn': animationIn,
     'animationOut': animationOut,
     'themeId': themeId,
+    'depthLayer': depthLayer,
   };
 }
 
