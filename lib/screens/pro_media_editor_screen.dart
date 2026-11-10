@@ -3197,22 +3197,24 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
     setState(() {
       _sequence = reordered;
-      _activeClipIndex = _sequence.indexOf(anchor).clamp(0, _sequence.length - 1);
+      _activeClipIndex = _sequence.indexOf(anchor).clamp(0, _sequence.length - 1).toInt();
     });
   }
 
   void _finishSelectedGroupDrag() {
     final original = _groupDragOriginalSequence;
     if (original == null) return;
-    final changed = _sequence.length == original.length &&
-        !List.generate(_sequence.length, (i) => identical(_sequence[i], original[i]))
-            .every((same) => same);
+    final changed = _sequence.length != original.length ||
+        List.generate(
+          _sequence.length,
+          (i) => !identical(_sequence[i], original[i]),
+        ).any((different) => different);
     setState(() {
       _groupDragOriginalSequence = null;
       _groupDragAnchorClip = null;
       _groupMoveMode = false;
       if (_sequence.isNotEmpty) {
-        _activeClipIndex = _activeClipIndex.clamp(0, _sequence.length - 1);
+        _activeClipIndex = _activeClipIndex.clamp(0, _sequence.length - 1).toInt();
       }
     });
     if (changed) {
