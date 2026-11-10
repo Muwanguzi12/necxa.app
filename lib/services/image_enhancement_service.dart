@@ -64,6 +64,7 @@ class ImageEnhancementService {
       maxWidth: targetWidth?.round(),
       maxHeight: targetHeight?.round(),
       maintainAspectRatio: true,
+      allowUpscale: options.upscale,
     );
     
     // Save to file
@@ -223,6 +224,7 @@ class ImageEnhancementService {
     int? maxWidth,
     int? maxHeight,
     bool maintainAspectRatio = true,
+    bool allowUpscale = false,
   }) {
     if (maxWidth == null && maxHeight == null) return image;
     if (maxWidth != null && maxWidth <= 0 ||
@@ -251,7 +253,9 @@ class ImageEnhancementService {
 
     // A maximum bound must not enlarge the image unless the caller explicitly
     // enables upscaling through EnhancementOptions.
-    final boundedScale = scaleFactor > 1 ? 1.0 : scaleFactor;
+    final boundedScale = allowUpscale || scaleFactor <= 1
+        ? scaleFactor
+        : 1.0;
     return img.copyResize(
       image,
       width: (image.width * boundedScale).round().clamp(1, widthLimit),
