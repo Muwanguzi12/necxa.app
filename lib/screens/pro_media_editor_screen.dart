@@ -1769,7 +1769,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         setState(() {
                           if (!_selectedClips.add(clip)) _selectedClips.remove(clip);
                           _activeClipIndex = index;
-                          if (_selectedClips.isEmpty) _multiSelectMode = false;
                         });
                         _loadClip(index);
                       } else {
@@ -1780,17 +1779,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         _loadClip(index);
                       }
                     },
-                    onLongPress: () {
-                      setState(() {
-                        _multiSelectMode = true;
-                        if (!_selectedClips.add(clip)) _selectedClips.remove(clip);
-                        _activeClipIndex = index;
-                      });
-                      _loadClip(index);
-                      HapticFeedback.selectionClick();
-                    },
                     onPanStart: (details) {
-                      if (_videoTrackLocked) return;
+                      // Selection and movement are separate modes. In Select
+                      // mode, taps change selection; they never start a drag.
+                      if (_videoTrackLocked || _multiSelectMode) return;
                       final clipWidth = math.max(4.0,
                         seconds * pixelsPerSecond - 2).toDouble();
                       final mode = details.localPosition.dx <= 9
@@ -1989,15 +1981,38 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         Row(children: [
           Text('TIMELINE', style: syne(sz: 9, w: FontWeight.w900, c: C.dim, ls: 1)),
           const Spacer(),
-          Text('${duration.toStringAsFixed(1)}s · Long-press clips to multi-select',
-            style: dm(sz: 8, c: C.dim)),
+          if (_multiSelectMode)
+            Text('Tap clips to add or remove', style: dm(sz: 8, c: C.dim))
+          else
+            Text('${duration.toStringAsFixed(1)}s · Drag clips to reorder',
+              style: dm(sz: 8, c: C.dim)),
+          const SizedBox(width: 6),
+          TextButton(
+            onPressed: () => setState(() {
+              if (_multiSelectMode) {
+                _multiSelectMode = false;
+                _selectedClips
+                  ..clear()
+                  ..add(_sequence[_activeClipIndex.clamp(0, _sequence.length - 1)]);
+              } else {
+                _multiSelectMode = true;
+                if (_sequence.isNotEmpty) {
+                  _selectedClips
+                    ..clear()
+                    ..add(_sequence[_activeClipIndex.clamp(0, _sequence.length - 1)]);
+                }
+              }
+            }),
+            child: Text(_multiSelectMode ? 'DONE' : 'SELECT',
+              style: syne(sz: 8, w: FontWeight.w900, c: C.brand)),
+          ),
         ]),
         if (_multiSelectMode)
           Row(children: [
             Text('${_selectedClips.length} SELECTED', style: syne(sz: 8, w: FontWeight.w800, c: C.brand)),
             const Spacer(),
             TextButton(onPressed: () => setState(() { _selectedClips..clear()..addAll(_sequence); }), child: Text('ALL', style: syne(sz: 8, w: FontWeight.w800, c: C.text))),
-            TextButton(onPressed: () => setState(() { _selectedClips.clear(); _multiSelectMode = false; }), child: Text('CLEAR', style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
+            TextButton(onPressed: () => setState(() { _selectedClips.clear(); }), child: Text('CLEAR', style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
           ]),
         const SizedBox(height: 4),
         SingleChildScrollView(
