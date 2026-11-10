@@ -721,6 +721,32 @@ class VideoEnhancementService {
 
   /// PROXY ENGINE: Generate a lightweight 540p proxy for smooth editing
 
+  /// Extracts a small mono audio file for the Text Studio transcription flow.
+  /// The original video is never modified or uploaded.
+  Future<File?> extractAudioForTranscription(File inputMedia) async {
+    if (!inputMedia.existsSync() || inputMedia.lengthSync() == 0) return null;
+    final tempDir = await getTemporaryDirectory();
+    final outputPath =
+        '${tempDir.path}/necxa_transcribe_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    final command =
+        "-i '${_escapePath(inputMedia.path)}' -vn -ac 1 -ar 16000 "
+        "-c:a aac -b:a 48k -y '${_escapePath(outputPath)}'";
+    try {
+      final session = await FFmpegKit.execute(command);
+      final code = await session.getReturnCode();
+      final output = File(outputPath);
+      if (ReturnCode.isSuccess(code) &&
+          output.existsSync() &&
+          output.lengthSync() > 0) {
+        return output;
+      }
+      debugPrint('Text Studio audio extraction failed: ${await session.getAllLogsAsString()}');
+    } catch (error, stack) {
+      debugPrint('Text Studio audio extraction exception: $error\n$stack');
+    }
+    return null;
+  }
+
   /// Creates a cached, full-resolution reverse proxy for responsive editor preview.
   /// The original source remains untouched; export independently applies reverse
   /// from the non-destructive timeline flag.
