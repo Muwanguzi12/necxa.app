@@ -28,28 +28,6 @@ class NativeEffectParameters {
 }
 
 class NecxaEffectsEngine {
-  // Named matrix presets (4x5 row-major, Flutter ColorFilter.matrix format).
-  static const Map<String, List<double>> _namedMatrices = {
-    'cinema': [
-      1.15,  0.0,   0.0,   0.0,  12.0,
-      0.0,   1.02,  0.0,   0.0,  -4.0,
-      0.0,   0.0,   0.88,  0.0, -12.0,
-      0.0,   0.0,   0.0,   1.0,   0.0,
-    ],
-    'neon': [
-      0.95, 0.08, 0.22, 0.0,   4.0,
-      0.08, 0.85, 0.12, 0.0,   0.0,
-      0.20, 0.18, 1.25, 0.0,  10.0,
-      0.0,  0.0,  0.0,  1.0,   0.0,
-    ],
-    'grayscale': [
-      0.2126, 0.7152, 0.0722, 0.0, 0.0,
-      0.2126, 0.7152, 0.0722, 0.0, 0.0,
-      0.2126, 0.7152, 0.0722, 0.0, 0.0,
-      0.0,    0.0,    0.0,    1.0, 0.0,
-    ],
-  };
-
   /// Builds a 4x5 ColorFilter matrix from individual parameters.
   /// Brightness: -1.0 to 1.0 (0 is neutral)
   /// Contrast: 0.0 to 2.0 (1.0 is neutral)
@@ -90,18 +68,15 @@ class NecxaEffectsEngine {
     final t = intensity.clamp(0.0, 1.0);
     if (t <= 0.001) return _identity();
 
-    if (meta.colorMatrixPreset != null &&
-        _namedMatrices.containsKey(meta.colorMatrixPreset)) {
-      final preset = _namedMatrices[meta.colorMatrixPreset!]!;
-      final id = _identity();
-      return List<double>.generate(20, (i) => _lerp(id[i], preset[i], t));
-    }
-
+    // Use the same normalized controls as native preview and FFmpeg export.
+    // Legacy hand-authored RGB matrices made Cinema/Neon look different in
+    // the camera preview than they did in live video and rendered exports.
+    final parameters = nativeParametersForMeta(meta, intensity: t);
     return buildMatrix(
-      brightness: meta.brightness * t,
-      contrast: 1.0 + (meta.contrast - 1.0) * t,
-      saturation: 1.0 + (meta.saturation - 1.0) * t,
-      hue: meta.hue * t,
+      brightness: parameters.brightness,
+      contrast: parameters.contrast,
+      saturation: parameters.saturation,
+      hue: parameters.hue,
     );
   }
 
@@ -250,5 +225,4 @@ class NecxaEffectsEngine {
     return r;
   }
 
-  static double _lerp(double a, double b, double t) => a + (b - a) * t;
 }
