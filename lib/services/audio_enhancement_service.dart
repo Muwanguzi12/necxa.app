@@ -114,19 +114,23 @@ class AudioEnhancementService {
     switch (type) {
       case VoiceEnhancementType.natural:
         filters.add('equalizer=f=3000:width_type=o:width=1:g=2');
+        break;
       case VoiceEnhancementType.bright:
         filters
           ..add('equalizer=f=3500:width_type=o:width=1:g=3')
           ..add('equalizer=f=8000:width_type=o:width=1:g=1.5');
+        break;
       case VoiceEnhancementType.warm:
         filters
           ..add('equalizer=f=180:width_type=o:width=1:g=1.5')
           ..add('equalizer=f=3000:width_type=o:width=1:g=-1');
+        break;
       case VoiceEnhancementType.radio:
         filters
           ..add('highpass=f=180')
           ..add('lowpass=f=6500')
           ..add('acompressor=threshold=-22dB:ratio=3:attack=15:release=180');
+        break;
     }
 
     filters.add('loudnorm=I=-16:TP=-1.5:LRA=11');
