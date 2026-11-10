@@ -4151,7 +4151,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                 contentMode = 'captions';
                                 isTranscribing = false;
                               });
-                              _feedback('AI transcript ready. Review the captions, then add them to the timeline.');
+                              _feedback(result['persisted'] == true ? 'AI transcript ready and saved to Supabase 2. Review it, then add the captions.' : 'AI transcript ready. Review it, then add the captions.');
                             } catch (error) {
                               _feedback('Caption generation failed. Please try again.');
                               debugPrint('Text Studio caption generation error: $error');
