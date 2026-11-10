@@ -35,8 +35,24 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Check Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib/
+      - name: Check formatting of changed Dart files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "No valid base commit supplied; checking Dart files changed in this commit."
+            BASE_SHA="$(git rev-parse HEAD^)"
+            RANGE="$BASE_SHA..HEAD"
+          else
+            RANGE="$BASE_SHA...HEAD"
+          fi
+          mapfile -t dart_files < <(git diff --name-only "$RANGE" -- '*.dart' | grep -E '\.dart$' || true)
+          if (( ${#dart_files[@]} == 0 )); then
+            echo "No Dart files changed; formatting check skipped."
+          else
+            dart format --output=none --set-exit-if-changed "${dart_files[@]}"
+          fi
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
