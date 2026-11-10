@@ -1369,8 +1369,26 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           final baseVolume = clip.volume == 1.0
               ? operation.volume
               : clip.volume;
+          var duckingFactor = 1.0;
+          if (operation.sourceType == 'music') {
+            final voiceoverActive = _project.tracks.any(
+              (track) =>
+                  track.type == TrackType.voiceOver &&
+                  track.isVisible &&
+                  track.clips.any(
+                    (voiceClip) =>
+                        !voiceClip.isHidden &&
+                        voiceClip.volume > 0 &&
+                        voiceClip.start <= playhead &&
+                        voiceClip.start + voiceClip.duration > playhead,
+                  ),
+            );
+            if (voiceoverActive) duckingFactor = 0.30;
+          }
           await player.setVolume(
-            (baseVolume * fade).clamp(0.0, 1.0).toDouble(),
+            (baseVolume * fade * duckingFactor)
+                .clamp(0.0, 1.0)
+                .toDouble(),
           );
           if (sourceChanged || _timelineAudioSpeeds[clip.id] != speed) {
             try {
