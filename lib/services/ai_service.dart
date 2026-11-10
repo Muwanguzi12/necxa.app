@@ -364,6 +364,49 @@ class NecxaAI {
       response['result'] is Map &&
       (response['result'] as Map)['verified'] == true;
 
+  // ── TEXT STUDIO: AUDIO TRANSCRIPTION VIA SUPABASE 2 ───────────────────────
+  /// Uses the AI/Finance Supabase project as the authenticated gateway. The
+  /// gateway forwards the audio to Necxa AI Engine's Whisper-only route.
+  static Future<Map<String, dynamic>> transcribeMedia(File audioFile) async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      return {'success': false, 'error': 'Sign in before generating captions.'};
+    }
+    if (!audioFile.existsSync() || audioFile.lengthSync() == 0) {
+      return {'success': false, 'error': 'The audio file is empty or unavailable.'};
+    }
+
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse(
+          'https://ayvescksetiuekoyfqar.supabase.co/functions/v1/media-transcribe',
+        ),
+      )
+        ..headers.addAll({
+          'apikey': _identityVerificationPublishableKey,
+          'x-primary-jwt': session.accessToken,
+        })
+        ..files.add(
+          await http.MultipartFile.fromPath('audio', audioFile.path),
+        );
+
+      final streamed = await request.send().timeout(_audioVerificationTimeout);
+      final body = await streamed.stream.bytesToString();
+      return _decodeWorkerResponse(
+        body: body,
+        statusCode: streamed.statusCode,
+        operation: 'Caption transcription',
+      );
+    } catch (error) {
+      debugPrint('Necxa Text Studio transcription failed: $error');
+      return {
+        'success': false,
+        'error': _verificationRequestError(error, 'Caption transcription'),
+      };
+    }
+  }
+
   // ── WORKER: AUDIO MODERATION (Whisper + Llama) ────────────────────────────
   /// Transcribes audio via Whisper then moderates the transcript.
   /// Endpoint: `/api/verify/audio`.

@@ -122,6 +122,13 @@ class OverlayOperation extends EditOperation {
   bool shadow;
   bool stroke;
   String align;
+  String fontFamily;
+  String animationIn;
+  String animationOut;
+  String themeId;
+  String depthLayer;
+  List<Map<String, dynamic>> wordTimings;
+  String? fontFilePath;
 
   OverlayOperation({
     required this.kind,
@@ -140,6 +147,13 @@ class OverlayOperation extends EditOperation {
     this.shadow = true,
     this.stroke = false,
     this.align = 'center',
+    this.fontFamily = 'Syne',
+    this.animationIn = 'none',
+    this.animationOut = 'none',
+    this.themeId = 'cinematic',
+    this.depthLayer = 'foreground',
+    this.wordTimings = const <Map<String, dynamic>>[],
+    this.fontFilePath,
   }) : super('overlay');
 
   factory OverlayOperation.fromLegacy(Map<String, dynamic> values) {
@@ -163,6 +177,16 @@ class OverlayOperation extends EditOperation {
       shadow: values['shadow'] as bool? ?? true,
       stroke: values['stroke'] as bool? ?? false,
       align: values['align'] as String? ?? 'center',
+      fontFamily: values['fontFamily'] as String? ?? 'Syne',
+      animationIn: values['animationIn'] as String? ?? 'none',
+      animationOut: values['animationOut'] as String? ?? 'none',
+      themeId: values['themeId'] as String? ?? 'cinematic',
+      depthLayer: values['depthLayer'] as String? ?? 'foreground',
+      wordTimings: (values['wordTimings'] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<Map>()
+          .map((word) => Map<String, dynamic>.from(word))
+          .toList(),
+      fontFilePath: values['fontFilePath'] as String?,
     );
   }
 
@@ -183,6 +207,13 @@ class OverlayOperation extends EditOperation {
     shadow: shadow,
     stroke: stroke,
     align: align,
+    fontFamily: fontFamily,
+    animationIn: animationIn,
+    animationOut: animationOut,
+    themeId: themeId,
+    depthLayer: depthLayer,
+    wordTimings: wordTimings.map((word) => Map<String, dynamic>.from(word)).toList(),
+    fontFilePath: fontFilePath,
   );
 
   @override
@@ -205,6 +236,13 @@ class OverlayOperation extends EditOperation {
     'shadow': shadow,
     'stroke': stroke,
     'align': align,
+    'fontFamily': fontFamily,
+    'animationIn': animationIn,
+    'animationOut': animationOut,
+    'themeId': themeId,
+    'depthLayer': depthLayer,
+    'wordTimings': wordTimings,
+    'fontFilePath': fontFilePath,
   };
 }
 

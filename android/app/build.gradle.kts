@@ -71,6 +71,7 @@ repositories {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.multidex:multidex:2.0.1")
     implementation("com.google.android.gms:play-services-mlkit-face-detection:17.1.0")
     // FlutterWebRTC declares this as implementation, so app-side frame processors

@@ -3,29 +3,31 @@ import 'package:flutter/widgets.dart';
 import '../services/filter_catalogue_service.dart';
 
 /// Builds mathematically precise ColorFilter matrices and FFmpeg eq filter strings for NECXA effects.
-class NecxaEffectsEngine {
-  // Named matrix presets (4x5 row-major, Flutter ColorFilter.matrix format).
-  static const Map<String, List<double>> _namedMatrices = {
-    'cinema': [
-      1.15,  0.0,   0.0,   0.0,  12.0,
-      0.0,   1.02,  0.0,   0.0,  -4.0,
-      0.0,   0.0,   0.88,  0.0, -12.0,
-      0.0,   0.0,   0.0,   1.0,   0.0,
-    ],
-    'neon': [
-      0.95, 0.08, 0.22, 0.0,   4.0,
-      0.08, 0.85, 0.12, 0.0,   0.0,
-      0.20, 0.18, 1.25, 0.0,  10.0,
-      0.0,  0.0,  0.0,  1.0,   0.0,
-    ],
-    'grayscale': [
-      0.2126, 0.7152, 0.0722, 0.0, 0.0,
-      0.2126, 0.7152, 0.0722, 0.0, 0.0,
-      0.2126, 0.7152, 0.0722, 0.0, 0.0,
-      0.0,    0.0,    0.0,    1.0, 0.0,
-    ],
-  };
+class NativeEffectParameters {
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double hue;
+  final double warmth;
 
+  const NativeEffectParameters({
+    required this.brightness,
+    required this.contrast,
+    required this.saturation,
+    required this.hue,
+    required this.warmth,
+  });
+
+  Map<String, double> toMap() => {
+    'brightness': brightness,
+    'contrast': contrast,
+    'saturation': saturation,
+    'hue': hue,
+    'warmth': warmth,
+  };
+}
+
+class NecxaEffectsEngine {
   /// Builds a 4x5 ColorFilter matrix from individual parameters.
   /// Brightness: -1.0 to 1.0 (0 is neutral)
   /// Contrast: 0.0 to 2.0 (1.0 is neutral)
@@ -66,18 +68,56 @@ class NecxaEffectsEngine {
     final t = intensity.clamp(0.0, 1.0);
     if (t <= 0.001) return _identity();
 
-    if (meta.colorMatrixPreset != null &&
-        _namedMatrices.containsKey(meta.colorMatrixPreset)) {
-      final preset = _namedMatrices[meta.colorMatrixPreset!]!;
-      final id = _identity();
-      return List<double>.generate(20, (i) => _lerp(id[i], preset[i], t));
-    }
-
+    // Use the same normalized controls as native preview and FFmpeg export.
+    // Legacy hand-authored RGB matrices made Cinema/Neon look different in
+    // the camera preview than they did in live video and rendered exports.
+    final parameters = nativeParametersForMeta(meta, intensity: t);
     return buildMatrix(
-      brightness: meta.brightness * t,
-      contrast: 1.0 + (meta.contrast - 1.0) * t,
-      saturation: 1.0 + (meta.saturation - 1.0) * t,
-      hue: meta.hue * t,
+      brightness: parameters.brightness,
+      contrast: parameters.contrast,
+      saturation: parameters.saturation,
+      hue: parameters.hue,
+    );
+  }
+
+  /// Maps a catalogue preset to the native I420 processor's controls.
+  /// The same catalogue values feed Flutter preview and FFmpeg export.
+  static NativeEffectParameters nativeParametersForMeta(
+    NecxaFilterMeta? meta, {
+    double intensity = 1.0,
+    double skinBrightening = 0.0,
+    int skinTone = 0,
+  }) {
+    final strength = meta == null || meta.isNone
+        ? 0.0
+        : intensity.clamp(0.0, 1.0);
+    final brightness = (((meta?.brightness ?? 0.0) * strength) +
+            (skinBrightening.clamp(0.0, 1.0) * 0.08))
+        .clamp(-0.25, 0.25)
+        .toDouble();
+    final contrast = (1.0 +
+            ((meta?.contrast ?? 1.0) - 1.0) * strength)
+        .clamp(0.5, 1.8)
+        .toDouble();
+    final isMonochrome = meta?.colorMatrixPreset == 'grayscale' ||
+        meta?.displayName.toLowerCase() == 'noir';
+    final saturation = isMonochrome
+        ? 0.0
+        : (1.0 + ((meta?.saturation ?? 1.0) - 1.0) * strength)
+            .clamp(0.0, 2.0)
+            .toDouble();
+    final hue = ((meta?.hue ?? 0.0) * strength).clamp(-math.pi, math.pi).toDouble();
+    final toneWarmth = skinBrightening <= 0
+        ? 0.0
+        : (skinTone == 0 ? 0.12 : (skinTone == 1 ? -0.08 : 0.0));
+    final warmth = toneWarmth.clamp(-0.5, 0.5)
+        .toDouble();
+    return NativeEffectParameters(
+      brightness: brightness,
+      contrast: contrast,
+      saturation: saturation,
+      hue: hue,
+      warmth: warmth,
     );
   }
 
@@ -96,23 +136,22 @@ class NecxaEffectsEngine {
     if (meta.isNone || intensity <= 0.001) return '';
     final t = intensity.clamp(0.0, 1.0);
 
-    if (meta.colorMatrixPreset == 'grayscale') {
-      final c = 1.0 + (meta.contrast - 1.0) * t;
-      return 'hue=s=0,eq=contrast=${c.toStringAsFixed(3)}';
+    if (meta.colorMatrixPreset == 'grayscale' || meta.displayName.toLowerCase() == 'noir') {
+      final native = nativeParametersForMeta(meta, intensity: t);
+      return 'eq=brightness=${native.brightness.toStringAsFixed(4)}:'
+          'contrast=${native.contrast.toStringAsFixed(4)}:saturation=0';
     }
 
+    final native = nativeParametersForMeta(meta, intensity: t);
     final parts = <String>[];
-    final br = (meta.brightness * t).clamp(-1.0, 1.0);
-    final co = (1.0 + (meta.contrast - 1.0) * t).clamp(0.0, 2.0);
-    final sa = (1.0 + (meta.saturation - 1.0) * t).clamp(0.0, 3.0);
-
     parts.add(
-      'eq=brightness=${br.toStringAsFixed(4)}:contrast=${co.toStringAsFixed(4)}:saturation=${sa.toStringAsFixed(4)}',
+      'eq=brightness=${native.brightness.toStringAsFixed(4)}:'
+      'contrast=${native.contrast.toStringAsFixed(4)}:'
+      'saturation=${native.saturation.toStringAsFixed(4)}',
     );
 
-    final hueAngle = meta.hue * t;
-    if (hueAngle.abs() > 0.001) {
-      final hueDeg = (hueAngle * 180.0 / math.pi).toStringAsFixed(2);
+    if (native.hue.abs() > 0.001) {
+      final hueDeg = (native.hue * 180.0 / math.pi).toStringAsFixed(2);
       parts.add('hue=h=$hueDeg');
     }
 
@@ -186,5 +225,4 @@ class NecxaEffectsEngine {
     return r;
   }
 
-  static double _lerp(double a, double b, double t) => a + (b - a) * t;
 }

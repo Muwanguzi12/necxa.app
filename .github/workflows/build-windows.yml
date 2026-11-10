@@ -1,9 +1,8 @@
 name: Build Windows
 
 on:
+  # Windows packages are built from main or on explicit manual request.
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -30,7 +29,7 @@ jobs:
       uses: subosito/flutter-action@v2
       with:
         flutter-version: '3.38.6'
-        channel: 'stable'
+        channel: stable
         cache: true
 
     - name: Setup CMake

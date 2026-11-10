@@ -9,6 +9,9 @@ import 'media_compression_service.dart';
 import '../models/edit_models.dart';
 import 'video_enhancement_service.dart';
 import 'filter_catalogue_service.dart';
+import 'ffmpeg_stub.dart'
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart'
+    show FFprobeKit;
 
 class EditorExportResult {
   final bool success;
@@ -17,6 +20,7 @@ class EditorExportResult {
   final String? verificationSummary;
   final List<String> issues;
   final Map<String, dynamic> verificationPayload;
+  final bool audioExpected;
 
   const EditorExportResult({
     required this.success,
@@ -25,6 +29,7 @@ class EditorExportResult {
     this.verificationSummary,
     this.issues = const [],
     this.verificationPayload = const {},
+    this.audioExpected = false,
   });
 }
 
@@ -54,18 +59,47 @@ class EditorExportService {
       }
       final tempDir = await getTemporaryDirectory();
       onStage?.call('Saving project');
-      final outputFile = File(
-        '${tempDir.path}/$projectName-${DateTime.now().millisecondsSinceEpoch}.mp4',
-      );
       final rendered = tracks == null
           ? null
           : await renderTimeline(tracks: tracks, aspectRatio: aspectRatio);
-      await (rendered ?? sourceVideo).copy(outputFile.path);
+      if (tracks != null && rendered == null) {
+        return const EditorExportResult(
+          success: false,
+          issues: ['The timeline did not produce a final video.'],
+        );
+      }
+      final renderSource = rendered ?? sourceVideo;
+      if (!await renderSource.exists() || await renderSource.length() == 0) {
+        return const EditorExportResult(
+          success: false,
+          issues: ['The final video file is missing or empty.'],
+        );
+      }
 
       onStage?.call('Compressing video');
-      final compressedFile = await MediaCompressionService.compressVideo(
-        outputFile,
+      // Timeline renders are already encoded as the final MP4 master. Do not
+      // run a second lossy compression pass over the completed audio mix.
+      final compressedFile = tracks != null
+          ? renderSource
+          : await MediaCompressionService.compressVideo(renderSource);
+      final audioExpected = tracks == null
+          ? await _fileHasAudioStream(sourceVideo)
+          : await projectHasAudio(tracks);
+      final streamCheck = await inspectFinalMp4(
+        compressedFile,
+        requireAudio: audioExpected,
       );
+      if (streamCheck['video'] != true || streamCheck['valid'] != true) {
+        return EditorExportResult(
+          success: false,
+          issues: [
+            audioExpected
+                ? 'The exported MP4 is missing its expected video or audio stream.'
+                : 'The exported MP4 is missing its video stream.',
+          ],
+          audioExpected: audioExpected,
+        );
+      }
 
       onStage?.call('Preparing publishing package');
       final frameDirectory = await Directory.systemTemp.createTemp(
@@ -126,6 +160,7 @@ class EditorExportService {
         verificationSummary: issues.isEmpty ? 'Verified for publishing' : null,
         issues: issues,
         verificationPayload: verification,
+        audioExpected: audioExpected,
       );
     } catch (e) {
       debugPrint('Editor export failed: $e');
@@ -150,15 +185,25 @@ class EditorExportService {
                       track.type == TrackType.images),
             )
             .expand((track) => track.clips)
-            .where((clip) => clip.file != null && clip.file!.existsSync())
+            .where(
+              (clip) =>
+                  !clip.isHidden &&
+                  clip.file != null &&
+                  clip.file!.existsSync(),
+            )
             .toList()
           ..sort((a, b) => a.start.compareTo(b.start));
     if (visualClips.isEmpty) return null;
 
-    final clips = visualClips.map((clip) {
+    final clips = <ClipData>[];
+    for (final clip in visualClips) {
       final path = clip.file!.path.toLowerCase();
-      final isVideo = path.endsWith('.mp4') || path.endsWith('.mov');
-      return ClipData(
+      final isVideo = path.endsWith('.mp4') ||
+          path.endsWith('.mov') ||
+          path.endsWith('.m4v') ||
+          path.endsWith('.mkv') ||
+          path.endsWith('.webm');
+      clips.add(ClipData(
         path: clip.file!.path,
         start: clip.sourceStart.inMilliseconds / 1000,
         end:
@@ -168,94 +213,135 @@ class EditorExportService {
         speed: clip.speed,
         volume: clip.volume,
         isVideo: isVideo,
-        hasAudio: isVideo,
+        hasAudio: isVideo && await _fileHasAudioStream(clip.file!),
+        reverse: clip.isReversed,
         scale: clip.transform.scale,
         rotation: clip.transform.rotation,
         offsetX: clip.transform.position.dx,
         offsetY: clip.transform.position.dy,
         opacity: clip.transform.opacity,
-      );
-    }).toList();
+      ));
+    }
 
     final overlays = <RenderOverlay>[];
     final transitions = <RenderTransition>[];
     final audioTracks = <RenderAudioTrack>[];
+    final voiceoverIntervals = <AudioDuckingInterval>[];
+    for (final voiceTrack in tracks.where(
+      (item) => item.isVisible && item.type == TrackType.voiceOver,
+    )) {
+      for (final voiceClip in voiceTrack.clips.where((item) => !item.isHidden)) {
+        final operation = voiceClip.operation;
+        if (operation is! AudioClipOperation) continue;
+        final volume = voiceClip.volume == 1.0
+            ? operation.volume
+            : voiceClip.volume;
+        final source = voiceClip.file?.path ?? operation.sourceUrl;
+        if (source == null || source.isEmpty || volume <= 0) continue;
+        voiceoverIntervals.add(
+          AudioDuckingInterval(
+            start: voiceClip.start.inMilliseconds / 1000,
+            end: (voiceClip.start + voiceClip.duration).inMilliseconds / 1000,
+          ),
+        );
+      }
+    }
     var effects = const RenderEffects();
-    for (final clip in tracks.expand((track) => track.clips)) {
-      final operation = clip.operation;
-      if (operation is OverlayOperation) {
-        overlays.add(
-          RenderOverlay(
-            type: operation.kind,
-            text: operation.text,
-            start: clip.start.inMilliseconds / 1000,
-            end: (clip.start + clip.duration).inMilliseconds / 1000,
-            x: operation.position.dx,
-            y: operation.position.dy,
-            scale: operation.scale,
-            rotation: operation.rotation,
-            opacity: operation.opacity,
-            fontSize: operation.fontSize,
-            color: operation.color,
-            background: operation.background,
-            backgroundOpacity: operation.backgroundOpacity,
-            shadow: operation.shadow,
-          ),
-        );
-      } else if (operation is TextOverlay) {
-        overlays.add(
-          RenderOverlay(
-            type: 'text',
-            text: operation.text,
-            start: clip.start.inMilliseconds / 1000,
-            end: (clip.start + clip.duration).inMilliseconds / 1000,
-            x: operation.position.dx,
-            y: operation.position.dy,
-            scale: operation.scale,
-            rotation: operation.rotation,
-            fontSize: operation.style.fontSize ?? 28,
-            color: operation.style.color ?? C.text,
-          ),
-        );
-      } else if (operation is TransitionOperation) {
-        if (visualClips.length < 2) continue;
-        var afterIndex = 0;
-        for (var index = 0; index < visualClips.length - 1; index++) {
-          if (clip.start >= visualClips[index].start) afterIndex = index;
-        }
-        transitions.add(
-          RenderTransition(
-            afterClipIndex: afterIndex.clamp(0, visualClips.length - 2),
-            presetId: operation.presetId,
-            duration: operation.duration,
-          ),
-        );
-      } else if (operation is AudioClipOperation) {
-        final path = clip.file?.path ?? operation.sourceUrl;
-        if (path != null && path.isNotEmpty) {
-          audioTracks.add(
-            RenderAudioTrack(
-              path: path,
-              sourceStart:
-                  operation.startOffset ??
-                  clip.sourceStart.inMilliseconds / 1000,
-              sourceEnd:
-                  operation.endOffset ??
-                  (clip.sourceEnd == null
-                      ? null
-                      : clip.sourceEnd!.inMilliseconds / 1000),
-              timelineStart: clip.start.inMilliseconds / 1000,
-              volume: clip.volume,
-              speed: clip.speed,
-              reverse: clip.isReversed || operation.reverse,
-              timelineDuration: clip.duration.inMilliseconds / 1000,
-              fadeIn: operation.fadeIn,
-              fadeOut: operation.fadeOut,
+    for (final track in tracks.where((item) => item.isVisible)) {
+      for (final clip in track.clips.where((item) => !item.isHidden)) {
+        final operation = clip.operation;
+        if (operation is OverlayOperation) {
+          overlays.add(
+            RenderOverlay(
+              type: operation.kind,
+              text: operation.text,
+              start: clip.start.inMilliseconds / 1000,
+              end: (clip.start + clip.duration).inMilliseconds / 1000,
+              x: operation.position.dx,
+              y: operation.position.dy,
+              scale: operation.scale,
+              rotation: operation.rotation,
+              opacity: operation.opacity,
+              fontSize: operation.fontSize,
+              color: operation.color,
+              background: operation.background,
+              backgroundOpacity: operation.backgroundOpacity,
+              shadow: operation.shadow,
+              align: operation.align,
+              fontFamily: operation.fontFamily,
+              stroke: operation.stroke,
+              animationIn: operation.animationIn,
+              animationOut: operation.animationOut,
+              depthLayer: operation.depthLayer,
+              themeId: operation.themeId,
+              wordTimings: operation.wordTimings,
+              fontFilePath: operation.fontFilePath,
             ),
           );
+        } else if (operation is TextOverlay) {
+          overlays.add(
+            RenderOverlay(
+              type: 'text',
+              text: operation.text,
+              start: clip.start.inMilliseconds / 1000,
+              end: (clip.start + clip.duration).inMilliseconds / 1000,
+              x: operation.position.dx,
+              y: operation.position.dy,
+              scale: operation.scale,
+              rotation: operation.rotation,
+              fontSize: operation.style.fontSize ?? 28,
+              color: operation.style.color ?? C.text,
+            ),
+          );
+        } else if (operation is TransitionOperation) {
+          if (visualClips.length < 2) continue;
+          var afterIndex = 0;
+          for (var index = 0; index < visualClips.length - 1; index++) {
+            if (clip.start >= visualClips[index].start) afterIndex = index;
+          }
+          transitions.add(
+            RenderTransition(
+              afterClipIndex: afterIndex.clamp(0, visualClips.length - 2),
+              presetId: operation.presetId,
+              duration: operation.duration,
+            ),
+          );
+        } else if (operation is AudioClipOperation) {
+          final path = clip.file?.path ?? operation.sourceUrl;
+          final effectiveVolume = clip.volume == 1.0
+              ? operation.volume
+              : clip.volume;
+          final effectiveSpeed = clip.speed == 1.0
+              ? operation.speed
+              : clip.speed;
+          if (path != null && path.isNotEmpty && effectiveVolume > 0) {
+            audioTracks.add(
+              RenderAudioTrack(
+                path: path,
+                sourceStart:
+                    operation.startOffset ??
+                    clip.sourceStart.inMilliseconds / 1000,
+                sourceEnd:
+                    operation.endOffset ??
+                    (clip.sourceEnd == null
+                        ? null
+                        : clip.sourceEnd!.inMilliseconds / 1000),
+                timelineStart: clip.start.inMilliseconds / 1000,
+                volume: effectiveVolume,
+                speed: effectiveSpeed,
+                reverse: clip.isReversed || operation.reverse,
+                timelineDuration: clip.duration.inMilliseconds / 1000,
+                fadeIn: operation.fadeIn,
+                fadeOut: operation.fadeOut,
+                duckingIntervals: track.type == TrackType.music
+                    ? voiceoverIntervals
+                    : const [],
+              ),
+            );
+          }
+        } else if (operation is EffectOperation) {
+          effects = operation.renderEffects();
         }
-      } else if (operation is EffectOperation) {
-        effects = operation.renderEffects();
       }
     }
     FilterOperation? filter;
@@ -282,6 +368,65 @@ class EditorExportService {
     );
   }
 
+  static Future<bool> projectHasAudio(List<TimelineTrack> tracks) async {
+    for (final track in tracks.where((item) => item.isVisible)) {
+      for (final clip in track.clips.where((item) => !item.isHidden)) {
+        final operation = clip.operation;
+        if (operation is AudioClipOperation) {
+          final volume = clip.volume == 1.0 ? operation.volume : clip.volume;
+          final source = clip.file?.path ?? operation.sourceUrl;
+          if (source != null && source.isNotEmpty && volume > 0) return true;
+        }
+        final visualPath = clip.file?.path.toLowerCase() ?? '';
+        final isVideo = visualPath.endsWith('.mp4') ||
+            visualPath.endsWith('.mov') ||
+            visualPath.endsWith('.m4v') ||
+            visualPath.endsWith('.mkv') ||
+            visualPath.endsWith('.webm');
+        if ((track.type == TrackType.video || track.type == TrackType.images) &&
+            isVideo &&
+            clip.file != null &&
+            await _fileHasAudioStream(clip.file!)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static Future<bool> _fileHasAudioStream(File file) async {
+    final session = await FFprobeKit.getMediaInformation(file.path);
+    final info = session.getMediaInformation();
+    if (info == null) {
+      throw StateError('Unable to inspect media streams for ${file.path}.');
+    }
+    return info.getStreams().any((stream) => stream.getType() == 'audio');
+  }
+
+  /// Validates the actual MP4 written to disk, not the FFmpeg return code alone.
+  static Future<Map<String, bool>> inspectFinalMp4(
+    File file, {
+    bool requireAudio = false,
+  }) async {
+    if (!await file.exists() || await file.length() == 0) {
+      return const {'valid': false, 'video': false, 'audio': false};
+    }
+    try {
+      final session = await FFprobeKit.getMediaInformation(file.path);
+      final info = session.getMediaInformation();
+      final streams = info?.getStreams() ?? const [];
+      final hasVideo = streams.any((stream) => stream.getType() == 'video');
+      final hasAudio = streams.any((stream) => stream.getType() == 'audio');
+      return {
+        'valid': hasVideo && (!requireAudio || hasAudio),
+        'video': hasVideo,
+        'audio': hasAudio,
+      };
+    } catch (_) {
+      return const {'valid': false, 'video': false, 'audio': false};
+    }
+  }
+
   static RenderEffects _effectsForFilter(
     String name,
     RenderEffects base, {
@@ -290,22 +435,22 @@ class EditorExportService {
     final t = intensity.clamp(0.0, 1.0);
     final meta = FilterCatalogueService.findByName(name);
     if (meta != null && !meta.isNone) {
-      final hueDeg = meta.hue * 180.0 / 3.141592653589793;
       final isNoirOrGrayscale = meta.colorMatrixPreset == 'grayscale' ||
           meta.displayName.toLowerCase() == 'noir';
       return RenderEffects(
-        brightness: base.brightness + (meta.brightness * t),
-        contrast: base.contrast * (1.0 + (meta.contrast - 1.0) * t),
-        saturation: isNoirOrGrayscale
-            ? 0
-            : (base.saturation * (1.0 + (meta.saturation - 1.0) * t)),
-        hue: base.hue + (hueDeg * t),
+        brightness: base.brightness,
+        contrast: base.contrast,
+        saturation: base.saturation,
+        hue: base.hue,
         vignette: (meta.displayName.toLowerCase() == 'cinema' || isNoirOrGrayscale)
             ? (0.25 * t)
             : base.vignette,
         blur: base.blur,
         grain: base.grain,
+        necxaFilter: meta,
+        necxaFilterIntensity: t,
       );
+
     }
 
     switch (name.toLowerCase()) {

@@ -20,6 +20,7 @@ class ClipData {
   final double volume;
   final bool isVideo;
   final bool hasAudio;
+  final bool reverse;
   final double scale;
   final double rotation;
   final double offsetX;
@@ -34,6 +35,7 @@ class ClipData {
     this.volume = 1.0,
     this.isVideo = true,
     this.hasAudio = true,
+    this.reverse = false,
     this.scale = 1.0,
     this.rotation = 0.0,
     this.offsetX = 0.0,
@@ -58,6 +60,15 @@ class RenderOverlay {
   final Color background;
   final double backgroundOpacity;
   final bool shadow;
+  final String animationIn;
+  final String animationOut;
+  final String align;
+  final String fontFamily;
+  final bool stroke;
+  final String depthLayer;
+  final String themeId;
+  final List<Map<String, dynamic>> wordTimings;
+  final String? fontFilePath;
 
   RenderOverlay({
     required this.type,
@@ -75,6 +86,15 @@ class RenderOverlay {
     this.background = Colors.black,
     this.backgroundOpacity = 0.0,
     this.shadow = true,
+    this.animationIn = 'none',
+    this.animationOut = 'none',
+    this.align = 'center',
+    this.fontFamily = 'Syne',
+    this.stroke = false,
+    this.depthLayer = 'foreground',
+    this.themeId = 'cinematic',
+    this.wordTimings = const <Map<String, dynamic>>[],
+    this.fontFilePath,
   });
 }
 
@@ -87,6 +107,7 @@ class RenderEffects {
   final double blur;
   final double grain;
   final NecxaFilterMeta? necxaFilter;
+  final double necxaFilterIntensity;
 
   const RenderEffects({
     this.brightness = 0.0,
@@ -97,6 +118,7 @@ class RenderEffects {
     this.blur = 0.0,
     this.grain = 0.0,
     this.necxaFilter,
+    this.necxaFilterIntensity = 1.0,
   });
 }
 
@@ -112,6 +134,18 @@ class RenderTransition {
   });
 }
 
+class AudioDuckingInterval {
+  final double start;
+  final double end;
+  final double factor;
+
+  const AudioDuckingInterval({
+    required this.start,
+    required this.end,
+    this.factor = 0.3,
+  });
+}
+
 class RenderAudioTrack {
   final String path;
   final double sourceStart;
@@ -123,6 +157,7 @@ class RenderAudioTrack {
   final double timelineDuration;
   final double fadeIn;
   final double fadeOut;
+  final List<AudioDuckingInterval> duckingIntervals;
 
   const RenderAudioTrack({
     required this.path,
@@ -135,16 +170,115 @@ class RenderAudioTrack {
     this.timelineDuration = 0,
     this.fadeIn = 0,
     this.fadeOut = 0,
+    this.duckingIntervals = const [],
   });
 }
 
 class VideoEnhancementService {
+  /// Media is processed by FFmpeg from file paths, never loaded wholesale into
+  /// Dart memory. Keep a hard per-source limit so unsupported imports fail
+  /// early instead of exhausting device storage or memory.
+  static const int maxMediaFileBytes = 1024 * 1024 * 1024;
+
+  bool _isSupportedMediaFile(File file) {
+    try {
+      return file.existsSync() &&
+          file.lengthSync() > 0 &&
+          file.lengthSync() <= maxMediaFileBytes;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isSupportedAudioSource(String source) {
+    final uri = Uri.tryParse(source);
+    if (uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host.isNotEmpty) {
+      return true;
+    }
+    return _isSupportedMediaFile(File(source));
+  }
+
+  Future<File> _downloadAudioSource(String source) async {
+    final uri = Uri.tryParse(source);
+    if (uri == null ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
+        uri.host.isEmpty) {
+      final local = File(source);
+      if (!_isSupportedMediaFile(local)) {
+        throw ArgumentError('An audio track is missing or exceeds 1 GB.');
+      }
+      return local;
+    }
+
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20);
+    File? output;
+    IOSink? sink;
+    try {
+      final request = await client.getUrl(uri).timeout(
+        const Duration(seconds: 30),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 60),
+      );
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        throw HttpException(
+          'Audio source download failed with HTTP ${response.statusCode}.',
+          uri: uri,
+        );
+      }
+      if (response.contentLength > maxMediaFileBytes) {
+        await response.drain<void>();
+        throw ArgumentError('An audio track exceeds the 1 GB limit.');
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final downloadedFile = File(
+        '${tempDir.path}/necxa_audio_source_${DateTime.now().microsecondsSinceEpoch}.media',
+      );
+      output = downloadedFile;
+      final outputSink = downloadedFile.openWrite();
+      sink = outputSink;
+      var receivedBytes = 0;
+      await for (final chunk in response) {
+        receivedBytes += chunk.length;
+        if (receivedBytes > maxMediaFileBytes) {
+          throw ArgumentError('An audio track exceeds the 1 GB limit.');
+        }
+        outputSink.add(chunk);
+      }
+      await outputSink.flush();
+      await outputSink.close();
+      sink = null;
+      if (receivedBytes == 0 || !downloadedFile.existsSync()) {
+        throw FileSystemException('Downloaded audio source is empty.');
+      }
+      return downloadedFile;
+    } catch (_) {
+      if (output != null && output.existsSync()) {
+        try {
+          await output.delete();
+        } catch (_) {}
+      }
+      rethrow;
+    } finally {
+      if (sink != null) await sink.close();
+      client.close(force: true);
+    }
+  }
+
   /// Complete video enhancement pipeline
   Future<File> enhanceVideo({
     required File inputVideo,
     VideoEnhancementOptions options = const VideoEnhancementOptions(),
     void Function(double progress)? onProgress,
   }) async {
+    if (!_isSupportedMediaFile(inputVideo)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
     if (!options.applyBeautyFilter &&
         !(options.faceParameters?.isEnabled ?? false) &&
         !options.autoBalance &&
@@ -220,6 +354,56 @@ class VideoEnhancementService {
     return '${tempDir.path}/vibe_${DateTime.now().millisecondsSinceEpoch}.mp4';
   }
 
+  /// Builds a temporary reverse-playback source for an audio timeline clip.
+  /// The original source remains untouched; final export reverses from the
+  /// authoritative TimelineClip operation independently.
+  Future<File?> createReversedAudioPreview({
+    required String source,
+    required double sourceStart,
+    required double sourceEnd,
+  }) async {
+    if (!_isSupportedAudioSource(source) ||
+        sourceEnd <= sourceStart ||
+        !sourceStart.isFinite ||
+        !sourceEnd.isFinite) {
+      return null;
+    }
+    File? resolvedSource;
+    var downloadedSource = false;
+    try {
+      resolvedSource = await _downloadAudioSource(source);
+      downloadedSource = resolvedSource.path != source;
+      final tempDir = await getTemporaryDirectory();
+      final outputPath =
+          '${tempDir.path}/necxa_reverse_audio_${DateTime.now().microsecondsSinceEpoch}.m4a';
+      final duration = sourceEnd - sourceStart;
+      final command =
+          "-i '${_escapePath(resolvedSource.path)}' -ss $sourceStart -t $duration "
+          "-vn -af areverse -c:a aac -b:a 192k -y '${_escapePath(outputPath)}'";
+      final session = await FFmpegKit.execute(command);
+      final code = await session.getReturnCode();
+      final output = File(outputPath);
+      if (ReturnCode.isSuccess(code) &&
+          output.existsSync() &&
+          output.lengthSync() > 0) {
+        return output;
+      }
+      debugPrint(
+        'Reverse audio preview failed: ${await session.getAllLogsAsString()}',
+      );
+    } catch (error) {
+      debugPrint('Reverse audio preview error: $error');
+    } finally {
+      if (downloadedSource &&
+          resolvedSource != null &&
+          resolvedSource.existsSync()) {
+        try {
+          await resolvedSource.delete();
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
   /// Combine multiple clips into a single video file
   Future<File?> combineSequence({
     required List<ClipData> clips,
@@ -237,6 +421,47 @@ class VideoEnhancementService {
     double voiceOverVolume = 1.0,
   }) async {
     if (clips.isEmpty) return null;
+    // FFmpeg consumes file paths incrementally; do not read media bytes into
+    // memory. Validate each source, including audio-only timeline inputs.
+    for (final clip in clips) {
+      if (!_isSupportedMediaFile(File(clip.path))) {
+        throw ArgumentError('A timeline media file is missing or exceeds 1 GB.');
+      }
+    }
+    for (final track in audioTracks) {
+      if (!_isSupportedAudioSource(track.path)) {
+        throw ArgumentError('An audio track is missing or exceeds 1 GB.');
+      }
+    }
+    // Resolve signed storage URLs to bounded local files before FFmpeg runs.
+    // This avoids relying on FFmpeg's optional network protocol support.
+    final resolvedAudioTracks = <RenderAudioTrack>[];
+    final downloadedAudioFiles = <File>[];
+    for (final track in audioTracks) {
+      final sourceFile = await _downloadAudioSource(track.path);
+      if (sourceFile.path != track.path) downloadedAudioFiles.add(sourceFile);
+      resolvedAudioTracks.add(RenderAudioTrack(
+        path: sourceFile.path,
+        sourceStart: track.sourceStart,
+        sourceEnd: track.sourceEnd,
+        timelineStart: track.timelineStart,
+        volume: track.volume,
+        speed: track.speed,
+        reverse: track.reverse,
+        timelineDuration: track.timelineDuration,
+        fadeIn: track.fadeIn,
+        fadeOut: track.fadeOut,
+        duckingIntervals: track.duckingIntervals,
+      ));
+    }
+    if (backgroundMusicPath != null &&
+        !_isSupportedMediaFile(File(backgroundMusicPath))) {
+      throw ArgumentError('Background music is missing or exceeds 1 GB.');
+    }
+    if (voiceOverPath != null &&
+        !_isSupportedMediaFile(File(voiceOverPath))) {
+      throw ArgumentError('Voice-over audio is missing or exceeds 1 GB.');
+    }
     final outputPath = await _getOutputPath();
 
     // Order of inputs: [0..N-1] clips, then overlay images, BGM (optional), voice (optional), then silent source.
@@ -271,8 +496,8 @@ class VideoEnhancementService {
     }
 
     final audioTrackIndexes = <int, int>{};
-    for (int i = 0; i < audioTracks.length; i++) {
-      inputs += "-i '${_escapePath(audioTracks[i].path)}' ";
+    for (int i = 0; i < resolvedAudioTracks.length; i++) {
+      inputs += "-i '${_escapePath(resolvedAudioTracks[i].path)}' ";
       audioTrackIndexes[i] = nextIndex++;
     }
 
@@ -313,7 +538,7 @@ class VideoEnhancementService {
 
       if (clip.isVideo) {
         filterComplex +=
-            "[$i:v]trim=start=${clip.start}:end=${clip.end},setpts=${1.0 / clip.speed}*(PTS-STARTPTS),fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
+            "[$i:v]trim=start=${clip.start}:end=${clip.end},setpts=PTS-STARTPTS${clip.reverse ? ',reverse,setpts=PTS-STARTPTS' : ''},setpts=${1.0 / clip.speed}*PTS,fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
         filterComplex += _clipTransformFilter(clip, targetWidth, targetHeight);
         if (safeFade > 0.05) {
           filterComplex +=
@@ -322,7 +547,7 @@ class VideoEnhancementService {
         filterComplex += "[v$i];";
       } else {
         filterComplex +=
-            "[$i:v]loop=loop=-1:size=1:start=0,trim=duration=$duration,setpts=PTS-STARTPTS,fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
+            "[$i:v]loop=loop=-1:size=1:start=0,trim=duration=$duration,setpts=PTS-STARTPTS${clip.reverse ? ',hflip' : ''},fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
         filterComplex += _clipTransformFilter(clip, targetWidth, targetHeight);
         if (safeFade > 0.05) {
           filterComplex +=
@@ -353,7 +578,7 @@ class VideoEnhancementService {
         // Use [i:a] if available, otherwise use silence
         // We use amix with silence to ensure an audio stream exists even if input has none
         filterComplex +=
-            "[$i:a]atrim=start=${clip.start}:end=${clip.end},asetpts=PTS-STARTPTS,$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a_orig_$i];";
+            "[$i:a]atrim=start=${clip.start}:end=${clip.end},asetpts=PTS-STARTPTS${clip.reverse ? ',areverse' : ''},$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a_orig_$i];";
         // Mix with a slice of silence for extreme robustness
         filterComplex +=
             "[$silentIndex:a]atrim=duration=${duration / clip.speed},asetpts=PTS-STARTPTS[silence$i];";
@@ -400,7 +625,7 @@ class VideoEnhancementService {
       filterComplex +=
           "${concatParts}concat=n=${clips.length}:v=1:a=1[outv][outa_orig];";
     } else {
-      filterComplex += "[v0]copy[outv];[a0]acopy[outa_orig];";
+      filterComplex += "[v0]null[outv];[a0]anull[outa_orig];";
     }
 
     String currentVideo = "outv";
@@ -438,25 +663,142 @@ class VideoEnhancementService {
             "[$currentVideo][$imageLabel]overlay=x='(W-w)*${overlay.x.clamp(0.0, 1.0)}':y='(H-h)*${overlay.y.clamp(0.0, 1.0)}':enable='between(t,$startTime,$endTime)'[$nextLabel];";
       } else if ((overlay.text ?? '').trim().isNotEmpty) {
         final text = _escapeDrawText(overlay.text!.trim());
-        final fontSize = (overlay.fontSize * overlay.scale)
+        final baseFontSize = (overlay.fontSize * overlay.scale)
             .clamp(10.0, 96.0)
             .toStringAsFixed(0);
+        var fontSize = baseFontSize;
         final fontColor = _ffmpegColor(overlay.color, overlay.opacity);
         final boxColor = _ffmpegColor(
           overlay.background,
           overlay.backgroundOpacity,
         );
-        final shadow = overlay.shadow
-            ? ":shadowcolor=black@0.65:shadowx=2:shadowy=2"
+        final themeShadow = switch (overlay.themeId) {
+          'minimal' => false,
+          'neon' || 'karaoke' || 'cinematic' || 'afro' => true,
+          _ => overlay.shadow,
+        };
+        final themeStroke = overlay.stroke || overlay.themeId == 'bold';
+        final shadowColor = switch (overlay.themeId) {
+          'neon' => '#00F2FF',
+          'karaoke' => '#FFD166',
+          'afro' => '#FF8A3D',
+          _ => '#000000',
+        };
+        final shadow = themeShadow
+            ? ":shadowcolor=$shadowColor@0.75:shadowx=2:shadowy=2"
             : "";
-        final xExpr = "(w-text_w)*${overlay.x.clamp(0.0, 1.0)}";
-        final yExpr = "(h-text_h)*${overlay.y.clamp(0.0, 1.0)}";
+        final border = themeStroke
+            ? ":borderw=2:bordercolor=black@0.9"
+            : "";
+        // FFmpeg's fontconfig lookup may not contain app-bundled fonts on every
+        // device, so use portable family aliases for predictable export.
+        // Roboto is available to Flutter and Android's FFmpeg fontconfig.
+        // Legacy Syne layers use the same Roboto fallback in preview and export
+        // until a shared, bundled Syne font asset is added.
+        final font = switch (overlay.themeId) {
+          'bold' => 'Roboto',
+          'afro' => 'Serif',
+          _ => switch (overlay.fontFamily.toLowerCase()) {
+              'serif' => 'Serif',
+              'monospace' => 'Monospace',
+              'cursive' => 'Cursive',
+              'roboto' || 'syne' => 'Roboto',
+              _ => 'Roboto',
+            },
+        };
+        final fontPath = overlay.fontFilePath;
+        final fontOption = fontPath != null && fontPath.isNotEmpty && File(fontPath).existsSync()
+            ? "fontfile='$fontPath'"
+            : "font='$font'";
+        final normalizedX = overlay.x.clamp(0.0, 1.0);
+        final baseX = overlay.align == 'left'
+            ? "w*${normalizedX}"
+            : overlay.align == 'right'
+                ? "w*${normalizedX}-text_w"
+                : "(w-text_w)*${normalizedX}";
+        final baseY = "(h-text_h)*${overlay.y.clamp(0.0, 1.0)}";
+        const animationSeconds = 0.35;
+        var alphaExpr = "1";
+        var xExpr = baseX;
+        var yExpr = baseY;
+        if (overlay.animationIn == 'fade') {
+          alphaExpr = "if(lt(t,$startTime+$animationSeconds),max(0,(t-$startTime)/$animationSeconds),1)";
+        } else if (overlay.animationIn == 'slide_up') {
+          yExpr = "if(lt(t,$startTime+$animationSeconds),$baseY+(1-(t-$startTime)/$animationSeconds)*36,$baseY)";
+        } else if (overlay.animationIn == 'slide_left') {
+          xExpr = "if(lt(t,$startTime+$animationSeconds),$baseX+(1-(t-$startTime)/$animationSeconds)*48,$baseX)";
+        } else if (overlay.animationIn == 'pop') {
+          fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.82+0.18*max(0,(t-$startTime)/0.35)),$baseFontSize)'";
+          alphaExpr = "if(lt(t,$startTime+0.08),max(0,(t-$startTime)/0.08),1)";
+        } else if (overlay.animationIn == 'zoom') {
+          fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.55+0.45*max(0,(t-$startTime)/0.35)),$baseFontSize)'";
+          alphaExpr = "if(lt(t,$startTime+0.08),max(0,(t-$startTime)/0.08),1)";
+        } else if (overlay.animationIn == 'bounce') {
+          yExpr = "'$baseY-18*sin(PI*max(0,min(1,(t-$startTime)/0.35)))*(1-max(0,min(1,(t-$startTime)/0.35)))'";
+        }
+        if (overlay.animationOut == 'fade') {
+          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
+        } else if (overlay.animationOut == 'slide_up') {
+          yExpr = "if(gt(t,$endTime-$animationSeconds),$baseY-(1-($endTime-t)/$animationSeconds)*36,$yExpr)";
+        } else if (overlay.animationOut == 'slide_left') {
+          xExpr = "if(gt(t,$endTime-$animationSeconds),$baseX-(1-($endTime-t)/$animationSeconds)*48,$xExpr)";
+        } else if (overlay.animationOut == 'pop') {
+          fontSize = "'if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.82+0.18*max(0,($endTime-t)/$animationSeconds)),$baseFontSize)'";
+          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
+        } else if (overlay.animationOut == 'zoom') {
+          fontSize = "'if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.55+0.45*max(0,($endTime-t)/$animationSeconds)),$baseFontSize)'";
+          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
+        } else if (overlay.animationOut == 'bounce') {
+          yExpr = "'$baseY+18*sin(PI*max(0,min(1,($endTime-t)/$animationSeconds)))*(1-max(0,min(1,($endTime-t)/$animationSeconds)))'";
+        }
+        if (overlay.animationIn == 'pop' && overlay.animationOut == 'pop') {
+          fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.82+0.18*max(0,(t-$startTime)/0.35)),if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.82+0.18*max(0,($endTime-t)/$animationSeconds)),$baseFontSize))'";
+        }
         filterComplex +=
-            "[$currentVideo]drawtext=text='$text':x='$xExpr':y='$yExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow:enable='between(t,$startTime,$endTime)'[$nextLabel];";
+            "[$currentVideo]drawtext=text='$text':$fontOption:x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow$border:enable='between(t,$startTime,$endTime)'[$nextLabel];";
+        // Karaoke words are layered over the base lyric line. Their timestamps
+        // are relative to the overlay start and are preserved from ASR.
+        var wordInputLabel = nextLabel;
+        final wordList = overlay.wordTimings;
+        for (var wordIndex = 0; wordIndex < wordList.length; wordIndex++) {
+          final wordTiming = wordList[wordIndex];
+          final wordValue = (wordTiming['text'] ?? '').toString().trim();
+          final wordStartOffset = (wordTiming['start'] as num?)?.toDouble();
+          final wordEndOffset = (wordTiming['end'] as num?)?.toDouble();
+          if (wordValue.isEmpty || wordStartOffset == null ||
+              wordEndOffset == null || wordEndOffset <= wordStartOffset) {
+            continue;
+          }
+          final safeWord = _escapeDrawText(wordValue);
+          final prefixLength = wordList
+              .take(wordIndex)
+              .fold<int>(0, (sum, item) =>
+                  sum + (item['text']?.toString().length ?? 0) + 1);
+          final approximateGlyphWidth = overlay.fontSize * overlay.scale * 0.52;
+          final phraseWidth = (overlay.text ?? '').length * approximateGlyphWidth;
+          final wordOffset = prefixLength * approximateGlyphWidth;
+          final wordOutputLabel = 'karaoke_${i}_${wordIndex}';
+          final highlightColor = overlay.themeId == 'neon'
+              ? '#7DF9FF'
+              : overlay.themeId == 'afro'
+                  ? '#FFB45C'
+                  : '#FFD166';
+          final wordStartTime = double.parse(startTime) + wordStartOffset;
+          final wordEndTime = double.parse(startTime) + wordEndOffset;
+          final wordX = overlay.align == 'left'
+              ? "w*${normalizedX}+$wordOffset"
+              : overlay.align == 'right'
+                  ? "w*${normalizedX}-$phraseWidth+$wordOffset"
+                  : "(w-$phraseWidth)*${normalizedX}+$wordOffset";
+          filterComplex +=
+              "[$wordInputLabel]drawtext=text='$safeWord':$fontOption:x='$wordX':y='$baseY':fontsize=$fontSize:fontcolor=$highlightColor@${overlay.opacity.clamp(0.0, 1.0)}:enable='between(t,$wordStartTime,$wordEndTime)'[$wordOutputLabel];";
+          wordInputLabel = wordOutputLabel;
+        }
+        currentVideo = wordInputLabel;
       } else {
         continue;
       }
-      currentVideo = nextLabel;
+      if (overlay.wordTimings.isEmpty) currentVideo = nextLabel;
     }
 
     // 3. MIXING ALL AUDIO SOURCES
@@ -478,16 +820,25 @@ class VideoEnhancementService {
       inputsCount++;
     }
 
-    for (int i = 0; i < audioTracks.length; i++) {
-      final track = audioTracks[i];
+    for (int i = 0; i < resolvedAudioTracks.length; i++) {
+      final track = resolvedAudioTracks[i];
       final index = audioTrackIndexes[i]!;
       final label = 'timeline_audio_$i';
+      final sourceDuration = track.timelineDuration > 0
+          ? track.timelineDuration * track.speed
+          : null;
       final trimEnd = track.sourceEnd == null ? '' : ':end=${track.sourceEnd}';
+      final trimDuration = sourceDuration == null
+          ? ''
+          : ',atrim=duration=${sourceDuration.toStringAsFixed(3)}';
       final reverse = track.reverse ? ',areverse' : '';
       final tempo = _atempoFilter(track.speed);
       final delay = (track.timelineStart * 1000).round().clamp(0, 1 << 31);
-      final fadeIn = track.fadeIn.clamp(0.0, track.timelineDuration / 2);
-      final fadeOut = track.fadeOut.clamp(0.0, track.timelineDuration / 2);
+      final fadeWindow = track.timelineDuration > 0
+          ? track.timelineDuration / 2
+          : 0.0;
+      final fadeIn = track.fadeIn.clamp(0.0, fadeWindow);
+      final fadeOut = track.fadeOut.clamp(0.0, fadeWindow);
       final fadeInFilter = fadeIn > 0 ? ',afade=t=in:st=0:d=$fadeIn' : '';
       final fadeOutStart = (track.timelineDuration - fadeOut).clamp(
         0.0,
@@ -496,15 +847,29 @@ class VideoEnhancementService {
       final fadeOutFilter = fadeOut > 0
           ? ',afade=t=out:st=$fadeOutStart:d=$fadeOut'
           : '';
+      final duckingConditions = track.duckingIntervals
+          .where((interval) => interval.end > interval.start)
+          .map(
+            (interval) =>
+                'between(t+${track.timelineStart.toStringAsFixed(3)}\\,${interval.start.toStringAsFixed(3)}\\,${interval.end.toStringAsFixed(3)})',
+          )
+          .join('+');
+      final baseVolume = track.volume.clamp(0.0, 4.0).toStringAsFixed(3);
+      final duckingFactor = track.duckingIntervals.isEmpty
+          ? 0.3
+          : track.duckingIntervals.first.factor.clamp(0.0, 1.0);
+      final volumeFilter = duckingConditions.isEmpty
+          ? 'volume=$baseVolume'
+          : "volume='${baseVolume}*if(gt($duckingConditions\\,0)\\,${duckingFactor.toStringAsFixed(3)}\\,1)'";
       filterComplex +=
-          "[$index:a]atrim=start=${track.sourceStart}$trimEnd,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,volume=${track.volume},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
+          "[$index:a]atrim=start=${track.sourceStart}$trimEnd$trimDuration,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,$volumeFilter,aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
       audioSources += '[$label]';
       inputsCount++;
     }
 
     if (inputsCount > 1) {
       filterComplex +=
-          "${audioSources}amix=inputs=$inputsCount:duration=first:dropout_transition=2[outa]";
+          "${audioSources}amix=inputs=$inputsCount:duration=first:dropout_transition=2:normalize=0,alimiter=limit=0.95[outa]";
     } else {
       filterComplex += "[outa_orig]anull[outa]";
     }
@@ -512,11 +877,16 @@ class VideoEnhancementService {
     // libx264 -crf 26: The "Economical" compression sweet spot
     // -maxrate 2.5M: Prevents bitrate spikes on mobile data
     String command =
-        "$inputs $silentInput -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
+        "$inputs $silentInput -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
 
     debugPrint('Executing smarter FFmpeg command: $command');
     final session = await FFmpegKit.execute(command);
     final returnCode = await session.getReturnCode();
+    for (final temporaryFile in downloadedAudioFiles) {
+      try {
+        if (temporaryFile.existsSync()) await temporaryFile.delete();
+      } catch (_) {}
+    }
 
     if (ReturnCode.isSuccess(returnCode)) {
       debugPrint('FFmpeg SUCCESS: Master file generated at $outputPath');
@@ -636,7 +1006,10 @@ class VideoEnhancementService {
   String _globalVisualFilters(RenderEffects effects, int width, int height) {
     final filters = <String>[];
     if (effects.necxaFilter != null && !effects.necxaFilter!.isNone) {
-      final f = NecxaEffectsEngine.buildFfmpegEqFilter(effects.necxaFilter!);
+      final f = NecxaEffectsEngine.buildFfmpegEqFilter(
+        effects.necxaFilter!,
+        intensity: effects.necxaFilterIntensity,
+      );
       if (f.isNotEmpty) {
         filters.add(f);
       }
@@ -682,7 +1055,88 @@ class VideoEnhancementService {
   }
 
   /// PROXY ENGINE: Generate a lightweight 540p proxy for smooth editing
+
+  /// Extracts a small mono audio file for the Text Studio transcription flow.
+  /// The original video is never modified or uploaded.
+  Future<File?> extractAudioForTranscription(
+    File inputMedia, {
+    double start = 0,
+    double? end,
+    bool reverse = false,
+  }) async {
+    if (!_isSupportedMediaFile(inputMedia)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
+    final trimStart = start.clamp(0.0, double.infinity).toDouble();
+    final trimDuration = end == null ? null : (end - trimStart);
+    if (trimDuration != null && trimDuration <= 0) {
+      throw ArgumentError('The selected clip trim range is invalid.');
+    }
+    final tempDir = await getTemporaryDirectory();
+    final outputPath =
+        '${tempDir.path}/necxa_transcribe_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    // Seek and extract only the selected clip range. This avoids creating a
+    // full-length audio copy when the source video approaches 1 GB.
+    final trimArgs = trimDuration == null
+        ? ''
+        : "-ss $trimStart -t $trimDuration ";
+    final audioFilters = reverse ? '-af areverse ' : '';
+    final command =
+        "-i '${_escapePath(inputMedia.path)}' $trimArgs-vn $audioFilters-ac 1 -ar 16000 "
+        "-c:a aac -b:a 48k -y '${_escapePath(outputPath)}'";
+    try {
+      final session = await FFmpegKit.execute(command);
+      final code = await session.getReturnCode();
+      final output = File(outputPath);
+      if (ReturnCode.isSuccess(code) &&
+          output.existsSync() &&
+          output.lengthSync() > 0) {
+        return output;
+      }
+      debugPrint('Text Studio audio extraction failed: ${await session.getAllLogsAsString()}');
+    } catch (error, stack) {
+      debugPrint('Text Studio audio extraction exception: $error\n$stack');
+    }
+    return null;
+  }
+
+  /// Creates a cached, full-resolution reverse proxy for responsive editor preview.
+  /// The original source remains untouched; export independently applies reverse
+  /// from the non-destructive timeline flag.
+  Future<File?> createReversedPreview({
+    required File inputVideo,
+    required bool hasAudio,
+  }) async {
+    if (!_isSupportedMediaFile(inputVideo)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
+    final outputPath = await _getOutputPath();
+    final audioArgs = hasAudio
+        ? '-af areverse -c:a aac -b:a 96k'
+        : '-an';
+    final command =
+        "-i '${_escapePath(inputVideo.path)}' -vf \"scale=-2:720,reverse\" $audioArgs "
+        "-c:v libx264 -preset ultrafast -crf 28 -movflags +faststart "
+        "-y '${_escapePath(outputPath)}'";
+    try {
+      final session = await FFmpegKit.execute(command);
+      final code = await session.getReturnCode();
+      final output = File(outputPath);
+      if (ReturnCode.isSuccess(code) && output.existsSync() &&
+          output.lengthSync() > 0) {
+        return output;
+      }
+      debugPrint('Reverse preview failed: ${await session.getAllLogsAsString()}');
+    } catch (error, stack) {
+      debugPrint('Reverse preview exception: $error\n$stack');
+    }
+    return null;
+  }
+
   Future<File> generateProxy(File inputVideo) async {
+    if (!_isSupportedMediaFile(inputVideo)) {
+      throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
     final tempDir = await getTemporaryDirectory();
     final outputPath =
         '${tempDir.path}/proxy_${DateTime.now().millisecondsSinceEpoch}.mp4';

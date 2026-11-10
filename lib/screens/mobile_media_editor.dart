@@ -626,6 +626,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       <String, AudioPlayer>{};
   final Map<String, double> _timelineAudioVolumes = <String, double>{};
   final Map<String, double> _timelineAudioRates = <String, double>{};
+  final Map<String, String> _timelineAudioSources = <String, String>{};
+  final Map<String, File> _reversedTimelineAudioCache = <String, File>{};
+  final Set<String> _failedReverseAudioPreviews = <String>{};
   String? _activeVisualClipId;
   TimelineClip? _compositionVisualClip;
   bool _isSynchronizingComposition = false;
@@ -974,6 +977,9 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     for (final player in _timelineAudioPlayers.values) {
       player.dispose();
     }
+    _timelineAudioSources.clear();
+    _reversedTimelineAudioCache.clear();
+    _failedReverseAudioPreviews.clear();
     _videoController?.dispose();
     _bottomNavController.dispose();
     _musicService.dispose();
@@ -6655,9 +6661,58 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         DateTime.now().difference(_lastAudioSyncAt) >
             const Duration(milliseconds: 750);
     for (final clip in audioClips) {
-      final source = _audioSourceFor(clip);
-      if (source == null || source.startsWith('builtin://')) continue;
+      final originalSource = _audioSourceFor(clip);
+      if (originalSource == null || originalSource.startsWith('builtin://')) {
+        final existing = _timelineAudioPlayers[clip.id];
+        if (existing?.state == PlayerState.playing) await existing!.pause();
+        continue;
+      }
+
       final player = await _timelinePlayerFor(clip.id);
+      final operation = clip.operation;
+      final speed = clip.speed == 1.0 && operation is AudioClipOperation
+          ? operation.speed
+          : clip.speed;
+      var source = originalSource;
+      var local = _localSourceTime(clip, state.currentTime);
+      final reverseAudio = clip.isReversed ||
+          (operation is AudioClipOperation && operation.reverse);
+      if (reverseAudio && operation is AudioClipOperation) {
+        final sourceStart = operation.startOffset ??
+            clip.sourceStart.inMilliseconds / 1000.0;
+        final sourceEnd = operation.endOffset ??
+            (clip.sourceEnd?.inMilliseconds ?? 0) / 1000.0;
+        final resolvedEnd = sourceEnd > sourceStart
+            ? sourceEnd
+            : sourceStart +
+                (clip.duration.inMilliseconds / 1000.0) * speed;
+        final cacheKey = '$originalSource|$sourceStart|$resolvedEnd';
+        if (_failedReverseAudioPreviews.contains(cacheKey)) {
+          if (player.state == PlayerState.playing) await player.pause();
+          continue;
+        }
+        var reversedFile = _reversedTimelineAudioCache[cacheKey];
+        if (reversedFile == null || !await reversedFile.exists()) {
+          reversedFile = await _videoEnhancementService.createReversedAudioPreview(
+            source: originalSource,
+            sourceStart: sourceStart,
+            sourceEnd: resolvedEnd,
+          );
+          if (reversedFile == null) {
+            _failedReverseAudioPreviews.add(cacheKey);
+            if (player.state == PlayerState.playing) await player.pause();
+            debugPrint('Could not prepare reversed audio preview for ${clip.id}.');
+            continue;
+          }
+          _reversedTimelineAudioCache[cacheKey] = reversedFile;
+        }
+        source = reversedFile.path;
+        final elapsed = state.currentTime - clip.start;
+        local = Duration(
+          milliseconds: (elapsed.inMilliseconds * speed).round(),
+        );
+      }
+
       final effectiveVolume = _effectiveClipVolume(clip, state.currentTime);
       final previousVolume = _timelineAudioVolumes[clip.id];
       if (previousVolume == null ||
@@ -6665,41 +6720,50 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         await player.setVolume(effectiveVolume);
         _timelineAudioVolumes[clip.id] = effectiveVolume;
       }
-      if (_timelineAudioRates[clip.id] != clip.speed) {
-        await player.setPlaybackRate(clip.speed);
-        _timelineAudioRates[clip.id] = clip.speed;
+      if (_timelineAudioRates[clip.id] != speed) {
+        await player.setPlaybackRate(speed.clamp(0.5, 2.0).toDouble());
+        _timelineAudioRates[clip.id] = speed;
       }
-      final local = _localSourceTime(clip, state.currentTime);
-      final wasActive =
-          player.state == PlayerState.playing ||
-          player.state == PlayerState.paused;
-      if (!wasActive) {
-        final mediaSource = source.startsWith('http')
-            ? UrlSource(source)
-            : DeviceFileSource(source);
-        final shouldPlay =
-            commandGeneration == _playbackCommandGeneration &&
-            _playback.state.isPlaying;
+
+      final mediaSource = source.startsWith('http')
+          ? UrlSource(source)
+          : DeviceFileSource(source);
+      final sourceChanged = _timelineAudioSources[clip.id] != source;
+      final shouldPlay =
+          commandGeneration == _playbackCommandGeneration &&
+          _playback.state.isPlaying;
+      if (sourceChanged) {
+        await player.stop();
         if (shouldPlay) {
           await player.play(mediaSource, position: local);
         } else {
           await player.setSource(mediaSource);
           await player.seek(local);
         }
-      } else if (shouldCorrectDrift) {
-        final position = await player.getCurrentPosition();
-        if (position == null ||
-            (position - local).abs() > const Duration(milliseconds: 300)) {
-          await player.seek(local);
+        _timelineAudioSources[clip.id] = source;
+      } else {
+        final wasActive =
+            player.state == PlayerState.playing ||
+            player.state == PlayerState.paused;
+        if (!wasActive) {
+          if (shouldPlay) {
+            await player.play(mediaSource, position: local);
+          } else {
+            await player.setSource(mediaSource);
+            await player.seek(local);
+          }
+        } else if (shouldCorrectDrift) {
+          final position = await player.getCurrentPosition();
+          if (position == null ||
+              (position - local).abs() > const Duration(milliseconds: 300)) {
+            await player.seek(local);
+          }
         }
-      }
-      final shouldPlay =
-          commandGeneration == _playbackCommandGeneration &&
-          _playback.state.isPlaying;
-      if (shouldPlay && player.state != PlayerState.playing) {
-        await player.resume();
-      } else if (!shouldPlay && player.state == PlayerState.playing) {
-        await player.pause();
+        if (shouldPlay && player.state != PlayerState.playing) {
+          await player.resume();
+        } else if (!shouldPlay && player.state == PlayerState.playing) {
+          await player.pause();
+        }
       }
     }
     if (shouldCorrectDrift) _lastAudioSyncAt = DateTime.now();
@@ -6708,7 +6772,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   String? _audioSourceFor(TimelineClip clip) {
     if (clip.operation is AudioClipOperation) {
-      return (clip.operation as AudioClipOperation).sourceUrl;
+      final operation = clip.operation as AudioClipOperation;
+      return clip.file?.path ?? operation.sourceUrl;
     }
     return clip.file?.path;
   }
@@ -6720,33 +6785,43 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       final elapsed = (timelineTime - clip.start).inMilliseconds / 1000;
       final remaining =
           (clip.start + clip.duration - timelineTime).inMilliseconds / 1000;
-      if (operation.fadeIn > 0) {
+      final fadeWindow = clip.duration.inMilliseconds / 2000.0;
+      final fadeIn = operation.fadeIn.clamp(0.0, fadeWindow).toDouble();
+      final fadeOut = operation.fadeOut.clamp(0.0, fadeWindow).toDouble();
+      if (fadeIn > 0) {
         envelope = math.min(
           envelope,
-          (elapsed / operation.fadeIn).clamp(0.0, 1.0),
+          (elapsed / fadeIn).clamp(0.0, 1.0),
         );
       }
-      if (operation.fadeOut > 0) {
+      if (fadeOut > 0) {
         envelope = math.min(
           envelope,
-          (remaining / operation.fadeOut).clamp(0.0, 1.0),
+          (remaining / fadeOut).clamp(0.0, 1.0),
         );
       }
-
-      // Smart Auto-Ducking: Automatically ducks background music when voiceover is active
       if (operation.sourceType == 'music') {
-        final isVoiceOverActive = _tracks.any((track) =>
+        final voiceoverActive = _tracks.any((track) =>
             track.type == TrackType.voiceOver &&
-            track.clips.any((c) =>
-                !c.isHidden &&
-                c.start <= timelineTime &&
-                c.start + c.duration >= timelineTime));
-        if (isVoiceOverActive) {
-          envelope *= 0.30; // -10.5 dB automatic music ducking
-        }
+            track.isVisible &&
+            track.clips.any((voiceClip) {
+              final voiceOperation = voiceClip.operation;
+              final voiceVolume =
+                  voiceOperation is AudioClipOperation && voiceClip.volume == 1.0
+                      ? voiceOperation.volume
+                      : voiceClip.volume;
+              return !voiceClip.isHidden &&
+                  voiceVolume > 0 &&
+                  voiceClip.start <= timelineTime &&
+                  voiceClip.start + voiceClip.duration > timelineTime;
+            }));
+        if (voiceoverActive) envelope *= 0.30;
       }
     }
-    return (clip.volume * envelope).clamp(0.0, 1.0);
+    final baseVolume = operation is AudioClipOperation && clip.volume == 1.0
+        ? operation.volume
+        : clip.volume;
+    return (baseVolume * envelope).clamp(0.0, 1.0).toDouble();
   }
 
   Future<AudioPlayer> _timelinePlayerFor(String clipId) async {
@@ -6765,14 +6840,26 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
   Duration _localSourceTime(TimelineClip clip, Duration timelineTime) {
     final elapsed = timelineTime - clip.start;
+    final operation = clip.operation;
+    final speed = clip.speed == 1.0 && operation is AudioClipOperation
+        ? operation.speed
+        : clip.speed;
+    final sourceStart = operation is AudioClipOperation &&
+            operation.startOffset != null
+        ? Duration(milliseconds: (operation.startOffset! * 1000).round())
+        : clip.sourceStart;
+    final sourceEnd = operation is AudioClipOperation &&
+            operation.endOffset != null
+        ? Duration(milliseconds: (operation.endOffset! * 1000).round())
+        : (clip.sourceEnd ?? (sourceStart + clip.sourceDuration));
     final scaled = Duration(
-      milliseconds: (elapsed.inMilliseconds * clip.speed).round(),
+      milliseconds: (elapsed.inMilliseconds * speed).round(),
     );
-    final forward = clip.sourceStart + scaled;
-    final sourceEnd =
-        clip.sourceEnd ?? (clip.sourceStart + clip.sourceDuration);
-    final resolved = clip.isReversed ? sourceEnd - scaled : forward;
-    if (resolved < clip.sourceStart) return clip.sourceStart;
+    final forward = sourceStart + scaled;
+    final reversed = clip.isReversed ||
+        (operation is AudioClipOperation && operation.reverse);
+    final resolved = reversed ? sourceEnd - scaled : forward;
+    if (resolved < sourceStart) return sourceStart;
     if (resolved > sourceEnd) return sourceEnd;
     return resolved;
   }
@@ -8434,14 +8521,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   Future<void> _addSoundEffect() async {
+    final assets = await _editorAudioService.importDeviceAudio();
+    if (assets.isEmpty || !mounted) return;
+    final asset = assets.first;
+    final duration = asset.duration > Duration.zero
+        ? asset.duration
+        : const Duration(seconds: 3);
     final clip = TimelineClip(
       id: 'sfx-${DateTime.now().millisecondsSinceEpoch}',
       start: _currentTime,
-      duration: const Duration(seconds: 3),
+      duration: duration,
+      file: File(asset.source),
       operation: AudioClipOperation(
         sourceType: 'sfx',
-        sourceUrl: 'builtin://sfx',
-        label: 'Sound effect',
+        sourceUrl: asset.source,
+        label: asset.name,
         volume: _audioVolume,
       ),
     );
@@ -8458,493 +8552,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         (candidate) => candidate.id == _selectedTrackId,
       );
     });
-    _showSnack('Sound effect added to timeline');
-  }
-
-  void _toggleEffectLibrary() {
-    setState(() => _showEffectLibrary = !_showEffectLibrary);
-    if (_showEffectLibrary) {
-      _showEffectLibrarySheet();
-    }
-  }
-
-  void _applySelectedEffect() {
-    if (_selectedEffectId == null && _previewEffect == null) {
-      _showSnack('Select an effect first');
-      return;
-    }
-
-    final effectId = _selectedEffectId ?? _previewEffect?.id;
-    final preset = _effectPresets.firstWhere(
-      (candidate) => candidate.id == effectId,
-      orElse: () => _effectPresets.first,
-    );
-    final intensity = _previewEffectIntensity;
-
-    _captureTimeline();
-
-    // If an effect clip is already selected on the timeline, update it in-place!
-    if (_selectedClip != null && _selectedClip!.operation is EffectOperation) {
-      final op = _selectedClip!.operation as EffectOperation;
-      op.presetId = preset.id;
-      op.presetName = preset.name;
-      op.category = preset.category;
-      op.icon = preset.icon;
-      op.intensity = intensity;
-      op.opacity = preset.defaultOpacity;
-      _playback.updateProject(_tracks);
-      setState(() {
-        _previewEffect = null;
-      });
-      _showSnack('Updated effect to ${preset.name}');
-      return;
-    }
-
-    // Otherwise insert new effect clip aligned to selected clip or current time
-    final targetStart = _selectedClip != null
-        ? _selectedClip!.start
-        : _currentTime;
-    final targetDuration = _selectedClip != null
-        ? _selectedClip!.duration
-        : const Duration(seconds: 4);
-
-    final clip = TimelineClip(
-      id: 'effect-${DateTime.now().millisecondsSinceEpoch}',
-      start: targetStart,
-      duration: targetDuration,
-      operation: EffectOperation(
-        presetId: preset.id,
-        presetName: preset.name,
-        category: preset.category,
-        icon: preset.icon,
-        intensity: intensity,
-        opacity: preset.defaultOpacity,
-        blendMode: preset.defaultBlendMode,
-      ),
-    );
-
-    TimelineModelUtils.insertClip(_tracks, clip, TrackType.effects);
-    _playback.updateProject(_tracks);
-    _recentEffectIds.remove(preset.id);
-    _recentEffectIds.insert(0, preset.id);
-    setState(() {
-      _selectedClip = clip;
-      _selectedTrackId = _tracks
-          .firstWhere((track) => track.clips.contains(clip))
-          .id;
-      _selectedTrackIndex = _tracks.indexWhere(
-        (candidate) => candidate.id == _selectedTrackId,
-      );
-      _previewEffect = null;
-    });
-    _showSnack('${preset.name} applied to timeline');
-  }
-
-  void _showEffectLibrarySheet() {
-    // If an effect clip is currently selected, pre-select its preset
-    if (_selectedClip != null && _selectedClip!.operation is EffectOperation) {
-      final op = _selectedClip!.operation as EffectOperation;
-      _selectedEffectId = op.presetId;
-      _previewEffect = op.preset;
-      _previewEffectIntensity = op.intensity;
-    }
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setModalState) {
-          final categories = const <String>[
-            'All',
-            'Cinematic',
-            'Retro',
-            'Glitch',
-            'Neon',
-            'Duotone',
-            'Film',
-            'Blur',
-            'Colour',
-          ];
-
-          final visiblePresets = _effectPresets.where((preset) {
-            return _effectsFilter == 'All' || preset.category == _effectsFilter;
-          }).toList();
-
-          final activePreset = _previewEffect ??
-              (_selectedEffectId != null
-                  ? EffectPreset.byId(_selectedEffectId)
-                  : null);
-
-          return Container(
-            height: 310,
-            decoration: BoxDecoration(
-              color: const Color(0xFF12151D).withValues(alpha: 0.98),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08),
-                width: 1,
-              ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black87,
-                  blurRadius: 24,
-                  offset: Offset(0, -6),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── Top Drag Handle ─────────────────────────
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 8, bottom: 6),
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-
-                // ── Header Bar ──────────────────────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      // Title & Icon
-                      Container(
-                        padding: const EdgeInsets.all(5),
-                        decoration: BoxDecoration(
-                          color: C.brand.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(Icons.auto_awesome, size: 15, color: C.brand),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Effects',
-                        style: syne(sz: 14, w: FontWeight.w700, c: C.text),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${visiblePresets.length}',
-                          style: dm(sz: 10, w: FontWeight.w600, c: C.dim),
-                        ),
-                      ),
-
-                      // Center Intensity Slider (active when an effect is selected)
-                      if (activePreset != null) ...[
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Row(
-                            children: [
-                              Icon(Icons.tune_rounded, size: 13, color: C.dim),
-                              Expanded(
-                                child: SliderTheme(
-                                  data: SliderTheme.of(context).copyWith(
-                                    trackHeight: 2.5,
-                                    thumbShape: const RoundSliderThumbShape(
-                                      enabledThumbRadius: 6,
-                                    ),
-                                    overlayShape: const RoundSliderOverlayShape(
-                                      overlayRadius: 12,
-                                    ),
-                                    activeTrackColor: C.brand,
-                                    inactiveTrackColor: Colors.white12,
-                                    thumbColor: Colors.white,
-                                  ),
-                                  child: Slider(
-                                    value: _previewEffectIntensity.clamp(0.0, 1.0),
-                                    min: 0.0,
-                                    max: 1.0,
-                                    onChanged: (val) {
-                                      setModalState(() => _previewEffectIntensity = val);
-                                      setState(() {});
-                                    },
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                '${(_previewEffectIntensity * 100).round()}%',
-                                style: dm(sz: 10.5, w: FontWeight.w700, c: C.brand),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ] else ...[
-                        const Spacer(),
-                      ],
-
-                      // Actions: Reset & Done
-                      if (activePreset != null)
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: Icon(Icons.refresh_rounded, size: 18, color: C.dim),
-                          tooltip: 'Reset',
-                          onPressed: () {
-                            setModalState(() {
-                              _previewEffect = null;
-                              _selectedEffectId = null;
-                            });
-                            setState(() {});
-                            HapticFeedback.selectionClick();
-                          },
-                        ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.check_circle_rounded, size: 22, color: Color(0xFF10B981)),
-                        tooltip: 'Apply effect',
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _applySelectedEffect();
-                        },
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(Icons.close_rounded, size: 18, color: C.dim),
-                        onPressed: () {
-                          setState(() => _previewEffect = null);
-                          Navigator.pop(context);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 6),
-
-                // ── Category Pills Row ──────────────────────
-                SizedBox(
-                  height: 32,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: categories.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 6),
-                    itemBuilder: (context, idx) {
-                      final cat = categories[idx];
-                      final isSelected = _effectsFilter == cat;
-                      return GestureDetector(
-                        onTap: () {
-                          setModalState(() => _effectsFilter = cat);
-                          HapticFeedback.selectionClick();
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? C.brand
-                                : Colors.white.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isSelected
-                                  ? C.brand
-                                  : Colors.white.withValues(alpha: 0.08),
-                            ),
-                          ),
-                          child: Text(
-                            cat,
-                            style: dm(
-                              sz: 11,
-                              w: isSelected ? FontWeight.w700 : FontWeight.w500,
-                              c: isSelected ? Colors.white : C.dim,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                // ── Minimal Effect Cards Strip ──────────────
-                Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: visiblePresets.length + 1,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      // Slot 0: "None" / Clean button
-                      if (index == 0) {
-                        final isNoneActive = activePreset == null;
-                        return GestureDetector(
-                          onTap: () {
-                            setModalState(() {
-                              _previewEffect = null;
-                              _selectedEffectId = null;
-                            });
-                            setState(() {});
-                            HapticFeedback.selectionClick();
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 160),
-                            width: 74,
-                            decoration: BoxDecoration(
-                              color: isNoneActive
-                                  ? C.brand.withValues(alpha: 0.16)
-                                  : C.surface.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: isNoneActive ? C.brand : C.border,
-                                width: isNoneActive ? 1.8 : 1,
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.block_rounded,
-                                  size: 26,
-                                  color: isNoneActive ? C.brand : C.dim,
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'None',
-                                  style: dm(
-                                    sz: 10.5,
-                                    w: isNoneActive ? FontWeight.w700 : FontWeight.w500,
-                                    c: isNoneActive ? C.brand : C.dim,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-
-                      final preset = visiblePresets[index - 1];
-                      final isSelected = activePreset?.id == preset.id;
-
-                      return GestureDetector(
-                        onTap: () {
-                          setModalState(() {
-                            _selectedEffectId = preset.id;
-                            _previewEffect = preset;
-                            _previewEffectIntensity = preset.defaultIntensity;
-                          });
-                          setState(() {});
-                          HapticFeedback.selectionClick();
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 160),
-                          width: 76,
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? C.brand.withValues(alpha: 0.18)
-                                : C.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isSelected ? C.brand : C.border,
-                              width: isSelected ? 1.8 : 1,
-                            ),
-                            boxShadow: isSelected
-                                ? [
-                                    BoxShadow(
-                                      color: C.brand.withValues(alpha: 0.3),
-                                      blurRadius: 8,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Stack(
-                            children: [
-                              Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      preset.icon,
-                                      style: const TextStyle(fontSize: 26),
-                                    ),
-                                    const SizedBox(height: 5),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                                      child: Text(
-                                        preset.name,
-                                        textAlign: TextAlign.center,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: dm(
-                                          sz: 10.5,
-                                          w: isSelected ? FontWeight.w700 : FontWeight.w600,
-                                          c: isSelected ? Colors.white : C.text,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      preset.category,
-                                      style: dm(sz: 8.5, c: C.dim),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (isSelected)
-                                Positioned(
-                                  top: 5,
-                                  right: 5,
-                                  child: Container(
-                                    width: 14,
-                                    height: 14,
-                                    decoration: BoxDecoration(
-                                      color: C.brand,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.check,
-                                      size: 10,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              if (preset.isNew && !isSelected)
-                                Positioned(
-                                  top: 5,
-                                  right: 5,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEC4899),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: const Text(
-                                      'NEW',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 7,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-              ],
-            ),
-          );
-        },
-      ),
-    );
+    _showSnack('${asset.name} added to the sound-effects timeline');
   }
 
   Future<void> _showEffectEditorSheet() async {

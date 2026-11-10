@@ -118,6 +118,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _hostInGreenRoom = false;
   bool _startingBroadcast = false;
   bool _faceSymmetryProcessorAttached = false;
+  String? _attachedEffectsTrackId;
+  Future<void> _effectsOperation = Future<void>.value();
   Timer? _faceSymmetryUpdateTimer;
   static const MethodChannel _faceSymmetryChannel =
       MethodChannel('com.necxa/live_beauty');
@@ -1282,15 +1284,25 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   @override
   void dispose() {
     _faceSymmetryUpdateTimer?.cancel();
-    final symmetryTrack = widget.state.live.room?.localParticipant
-        ?.videoTrackPublications.firstOrNull?.track;
-    if (_faceSymmetryProcessorAttached && symmetryTrack != null) {
-      unawaited(_faceSymmetryChannel.invokeMethod<void>('detach', {
-        'trackId': symmetryTrack.mediaStreamTrack.id,
-      }).catchError((Object error) {
-        debugPrint('Necxa Live: Face processor cleanup failed: $error');
-      }));
-    }
+    _faceSymmetryProcessorAttached = false;
+    // Resolve the attached ID only after any in-flight attach/update finishes.
+    // This closes the race where dispose runs while attach is awaiting native.
+    _effectsOperation = _effectsOperation
+        .catchError((Object error) {
+          debugPrint('Necxa Live: Pending effects operation failed: $error');
+        })
+        .then((_) async {
+          final attachedTrackId = _attachedEffectsTrackId;
+          _attachedEffectsTrackId = null;
+          if (attachedTrackId == null) return;
+          await _faceSymmetryChannel.invokeMethod<void>('detach', {
+            'trackId': attachedTrackId,
+          });
+        })
+        .catchError((Object error) {
+          debugPrint('Necxa Live: Face processor cleanup failed: $error');
+        });
+    unawaited(_effectsOperation);
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
     _giftStatsTimer?.cancel();
@@ -1730,49 +1742,117 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
   }
 
-  void _scheduleFaceSymmetryProcessing(double intensity) {
+  void _scheduleLiveEffectsProcessing() {
     _faceSymmetryUpdateTimer?.cancel();
-    _faceSymmetryUpdateTimer = Timer(const Duration(milliseconds: 80), () async {
-      final track = widget.state.live.room?.localParticipant
-          ?.videoTrackPublications.firstOrNull?.track;
-      if (track == null) return;
-      final trackId = track.mediaStreamTrack.id;
-      // Guard: trackId must be non-null and non-empty, otherwise the native plugin won't find the track
-      if (trackId == null || trackId.isEmpty) return;
-      try {
-        if (intensity <= 0.01) {
-          if (!_faceSymmetryProcessorAttached) return;
-          await _faceSymmetryChannel.invokeMethod<void>('detach', {
-            'trackId': trackId,
-          });
-          if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-        } else if (_faceSymmetryProcessorAttached) {
-          await _faceSymmetryChannel.invokeMethod<void>('setIntensity', {
-            'trackId': trackId,
-            'intensity': intensity,
-            'mirrorLeft': _symmetryMirrorLeft,
-          });
-        } else {
-          await _faceSymmetryChannel.invokeMethod<void>('attach', {
-            'trackId': trackId,
-            'intensity': intensity,
-            'mirrorLeft': _symmetryMirrorLeft,
-          });
-          // Only mark attached AFTER the native call confirms success (no exception)
-          if (mounted) setState(() => _faceSymmetryProcessorAttached = true);
-        }
-      } on PlatformException catch (error) {
-        debugPrint('Necxa Live: Face symmetry processor error: ${error.message}');
-        // If attach/setIntensity fails, reset state so next call retries attach cleanly
-        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-      } on MissingPluginException {
-        debugPrint('Necxa Live: Face symmetry processor is not available on this platform.');
-        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-      } catch (error) {
-        debugPrint('Necxa Live: Could not update face symmetry: $error');
-        if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
-      }
+    _faceSymmetryUpdateTimer = Timer(const Duration(milliseconds: 80), () {
+      // Serialize native channel operations. Rapid slider changes and camera
+      // switches must never race attach, update, and detach calls.
+      _effectsOperation = _effectsOperation
+          .catchError((Object error) {
+            debugPrint('Necxa Live: Previous effects operation failed: $error');
+          })
+          .then((_) => _applyLiveEffectsProcessing());
     });
+  }
+
+  Future<void> _applyLiveEffectsProcessing() async {
+    if (!mounted) return;
+    final track = widget.state.live.room?.localParticipant
+        ?.videoTrackPublications.firstOrNull?.track;
+    final trackId = track?.mediaStreamTrack.id;
+    final filter = _activeCatalogueFilter;
+    final filterStrength = _previewOriginal || filter == null || filter.isNone
+        ? 0.0
+        : _catalogueFilterIntensity.clamp(0.0, 1.0);
+    final smoothing = _previewOriginal ? 0.0 : _beautySmoothing.clamp(0.0, 1.0);
+    final nativeParameters = NecxaEffectsEngine.nativeParametersForMeta(
+      filter,
+      intensity: filterStrength,
+      skinBrightening: _previewOriginal ? 0.0 : _beautyWhitening,
+      skinTone: _skinBrighteningTone,
+    );
+    final brightness = nativeParameters.brightness;
+    final contrast = nativeParameters.contrast;
+    final saturation = nativeParameters.saturation;
+    final hue = nativeParameters.hue;
+    final warmth = nativeParameters.warmth;
+    final makeupGender = _previewOriginal ? 0 : _makeupGender;
+    final makeupIntensity = _previewOriginal ? 0.0 : _makeupIntensity.clamp(0.0, 1.0);
+    final symmetry = _previewOriginal ? 0.0 : _faceSymmetry.clamp(0.0, 1.0);
+    final needsProcessor = makeupGender > 0 && makeupIntensity > 0.01 ||
+        symmetry > 0.01 ||
+        smoothing > 0.01 ||
+        brightness.abs() > 0.001 ||
+        (contrast - 1.0).abs() > 0.001 ||
+        (saturation - 1.0).abs() > 0.001 ||
+        hue.abs() > 0.001 ||
+        warmth.abs() > 0.001;
+
+    try {
+      // A camera flip or track replacement invalidates the previous attachment.
+      final previousTrackId = _attachedEffectsTrackId;
+      if (previousTrackId != null && previousTrackId != trackId) {
+        await _faceSymmetryChannel.invokeMethod<void>('detach', {
+          'trackId': previousTrackId,
+        });
+        _attachedEffectsTrackId = null;
+        _faceSymmetryProcessorAttached = false;
+      }
+
+      if (trackId == null || trackId.isEmpty || !needsProcessor) {
+        final attachedId = _attachedEffectsTrackId;
+        if (attachedId != null) {
+          await _faceSymmetryChannel.invokeMethod<void>('detach', {
+            'trackId': attachedId,
+          });
+          _attachedEffectsTrackId = null;
+        }
+        if (mounted) {
+          setState(() => _faceSymmetryProcessorAttached = false);
+        }
+        return;
+      }
+
+      final config = <String, Object>{
+        'trackId': trackId,
+        'symmetry': symmetry,
+        'mirrorLeft': _symmetryMirrorLeft,
+        'smoothing': smoothing,
+        'brightness': brightness,
+        'contrast': contrast,
+        'saturation': saturation,
+        'hue': hue,
+        'warmth': warmth,
+        'makeupGender': makeupGender,
+        'makeupStyle': _makeupStyle,
+        'makeupIntensity': makeupIntensity,
+      };
+
+      if (_attachedEffectsTrackId == trackId) {
+        await _faceSymmetryChannel.invokeMethod<void>('setEffects', config);
+      } else {
+        await _faceSymmetryChannel.invokeMethod<void>('attach', {
+          ...config,
+          'intensity': symmetry,
+        });
+        _attachedEffectsTrackId = trackId;
+      }
+      if (mounted) {
+        setState(() => _faceSymmetryProcessorAttached = true);
+      }
+    } on PlatformException catch (error) {
+      debugPrint('Necxa Live: Native effects processor error: ${error.message}');
+      _attachedEffectsTrackId = null;
+      if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
+    } on MissingPluginException {
+      debugPrint('Necxa Live: Native effects are unavailable on this platform.');
+      _attachedEffectsTrackId = null;
+      if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
+    } catch (error) {
+      debugPrint('Necxa Live: Could not update live effects: $error');
+      _attachedEffectsTrackId = null;
+      if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
+    }
   }
 
   Widget _buildHostGreenRoom() {
@@ -2950,7 +3030,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       _makeupStyle = 0;
                       _makeupIntensity = 0.6;
                     });
-                    _scheduleFaceSymmetryProcessing(0);
+                    _scheduleLiveEffectsProcessing();
                   },
                   child: Text('Reset', style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600)),
                 ),
@@ -3018,6 +3098,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               _activeCatalogueFilter = null;
                               _activeFilterIndex = 0;
                             });
+                            _scheduleLiveEffectsProcessing();
                           },
                         ),
                         // Dynamic Catalogue Filter Cards
@@ -3033,6 +3114,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               update(() {
                                 _activeCatalogueFilter = filter;
                               });
+                              _scheduleLiveEffectsProcessing();
                             },
                           );
                         }),
@@ -3059,7 +3141,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         value: _catalogueFilterIntensity,
                         min: 0,
                         max: 1,
-                        onChanged: (v) => update(() => _catalogueFilterIntensity = v),
+                        onChanged: (v) {
+                          update(() => _catalogueFilterIntensity = v);
+                          _scheduleLiveEffectsProcessing();
+                        },
                       ),
                     ),
                   ),
@@ -3076,7 +3161,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               icon: Icons.face_retouching_natural,
               label: 'Skin Smoothing',
               value: _beautySmoothing,
-              onChanged: (v) => update(() => _beautySmoothing = v),
+              onChanged: (v) {
+                update(() => _beautySmoothing = v);
+                _scheduleLiveEffectsProcessing();
+              },
             ),
             if (_beautySmoothing > 0) ...[
               const SizedBox(height: 6),
@@ -3090,6 +3178,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         onTap: () {
                           HapticFeedback.selectionClick();
                           update(() => _skinSmoothingMode = item.$1);
+                          _scheduleLiveEffectsProcessing();
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3118,7 +3207,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               icon: Icons.wb_sunny_outlined,
               label: 'Skin Brightening',
               value: _beautyWhitening,
-              onChanged: (v) => update(() => _beautyWhitening = v),
+              onChanged: (v) {
+                update(() => _beautyWhitening = v);
+                _scheduleLiveEffectsProcessing();
+              },
             ),
             if (_beautyWhitening > 0) ...[
               const SizedBox(height: 6),
@@ -3132,6 +3224,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         onTap: () {
                           HapticFeedback.selectionClick();
                           update(() => _skinBrighteningTone = item.$1);
+                          _scheduleLiveEffectsProcessing();
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3162,7 +3255,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               value: _faceSymmetry,
               onChanged: (v) {
                 update(() => _faceSymmetry = v);
-                _scheduleFaceSymmetryProcessing(v);
+                _scheduleLiveEffectsProcessing();
               },
             ),
             if (_faceSymmetry > 0) ...[
@@ -3177,7 +3270,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = true);
                         if (_faceSymmetry > 0.01) {
-                          _scheduleFaceSymmetryProcessing(_faceSymmetry);
+                          _scheduleLiveEffectsProcessing();
                         }
                       },
                       child: Container(
@@ -3202,7 +3295,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         HapticFeedback.selectionClick();
                         update(() => _symmetryMirrorLeft = false);
                         if (_faceSymmetry > 0.01) {
-                          _scheduleFaceSymmetryProcessing(_faceSymmetry);
+                          _scheduleLiveEffectsProcessing();
                         }
                       },
                       child: Container(
@@ -3271,6 +3364,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           _makeupIntensity = 0.6;
                         }
                       });
+                      _scheduleLiveEffectsProcessing();
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3306,6 +3400,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       onTap: () {
                         HapticFeedback.selectionClick();
                         update(() => _makeupStyle = item.$1);
+                        _scheduleLiveEffectsProcessing();
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -3348,7 +3443,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           value: _makeupIntensity,
                           min: 0,
                           max: 1,
-                          onChanged: (v) => update(() => _makeupIntensity = v),
+                          onChanged: (v) {
+                            update(() => _makeupIntensity = v);
+                            _scheduleLiveEffectsProcessing();
+                          },
                         ),
                       ),
                     ),
@@ -3822,7 +3920,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
 
     // Beauty skin smoothing: multi-pass edge-preserving porcelain diffusion
-    if (!_previewOriginal && _beautySmoothing > 0.01) {
+    if (!_previewOriginal && _beautySmoothing > 0.01 && !_faceSymmetryProcessorAttached) {
       final intensity = _beautySmoothing.clamp(0.0, 1.0);
       final glowColor = _skinSmoothingMode == 1
           ? const Color(0xFFFFF6EB) // Radiant / porcelain glow
@@ -3866,23 +3964,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
     }
 
-    // Studio Makeup (Women & Men): subtle blush, lip tint, contour, and brow definition
-    if (!_previewOriginal && _makeupGender > 0 && _makeupIntensity > 0.05) {
-      video = Stack(
-        fit: StackFit.expand,
-        children: [
-          video,
-          Positioned.fill(
-            child: _StudioMakeupOverlay(
-              gender: _makeupGender,
-              style: _makeupStyle,
-              intensity: _makeupIntensity,
-            ),
-          ),
-        ],
-      );
-    }
-
+    // Makeup is rendered by the face-landmark native processor on the
+    // outgoing camera track. Avoid a screen-centred preview-only overlay.
+    
     // Grid overlay
     if (_showGrid) {
       video = Stack(
@@ -3914,7 +3998,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
 
     // Colour filter (Normal/none = identity so free when inactive)
-    if (!_previewOriginal && hasActiveFilter) {
+    if (!_previewOriginal && hasActiveFilter && !_faceSymmetryProcessorAttached) {
       video = ColorFiltered(
         colorFilter: ColorFilter.matrix(combinedMatrix),
         child: video,
@@ -7263,145 +7347,6 @@ class _FacialSymmetryPainter extends CustomPainter {
   @override
   bool shouldRepaint(_FacialSymmetryPainter old) =>
       old.intensity != intensity || old.mirrorLeft != mirrorLeft;
-}
-
-/// Real-time Studio Makeup overlay for women and men.
-class _StudioMakeupOverlay extends StatelessWidget {
-  final int gender; // 1 = Women, 2 = Men
-  final int style;
-  final double intensity;
-
-  const _StudioMakeupOverlay({
-    required this.gender,
-    required this.style,
-    required this.intensity,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: CustomPaint(
-        painter: _StudioMakeupPainter(
-          gender: gender,
-          style: style,
-          intensity: intensity,
-        ),
-      ),
-    );
-  }
-}
-
-class _StudioMakeupPainter extends CustomPainter {
-  final int gender;
-  final int style;
-  final double intensity;
-
-  _StudioMakeupPainter({
-    required this.gender,
-    required this.style,
-    required this.intensity,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final m = intensity.clamp(0.0, 1.0);
-
-    if (gender == 1) {
-      // ── Women: Soft Cheek Blush & Hydrating Lip Tint ─────────
-      final blushColor = style == 0
-          ? const Color(0xFFFF5277) // Rosy Glow (petal rose)
-          : style == 1
-              ? const Color(0xFFFF8A65) // Natural Nude (soft peach)
-              : const Color(0xFFE91E63); // Sunset Glam (berry blush)
-
-      final blushAlpha = (m * 0.17).clamp(0.0, 0.22);
-      final blushRadius = size.width * 0.22;
-
-      // Left cheek blush
-      final leftCheek = Offset(cx - (size.width * 0.20), size.height * 0.44);
-      final leftBlushPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            blushColor.withValues(alpha: blushAlpha),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: leftCheek, radius: blushRadius));
-      canvas.drawCircle(leftCheek, blushRadius, leftBlushPaint);
-
-      // Right cheek blush
-      final rightCheek = Offset(cx + (size.width * 0.20), size.height * 0.44);
-      final rightBlushPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            blushColor.withValues(alpha: blushAlpha),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: rightCheek, radius: blushRadius));
-      canvas.drawCircle(rightCheek, blushRadius, rightBlushPaint);
-
-      // Lip hydration & tint
-      final lipCenter = Offset(cx, size.height * 0.58);
-      final lipRadius = size.width * 0.11;
-      final lipAlpha = (m * 0.15).clamp(0.0, 0.20);
-      final lipPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            blushColor.withValues(alpha: lipAlpha),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: lipCenter, radius: lipRadius));
-      canvas.drawCircle(lipCenter, lipRadius, lipPaint);
-    } else if (gender == 2) {
-      // ── Men: Groomed Jaw Contour & Brow Framing ───────────────
-      final contourAlpha = (m * 0.14).clamp(0.0, 0.18);
-      final contourColor = style == 2
-          ? const Color(0xFF6D4C41) // Sun-Kissed bronze
-          : const Color(0xFF37474F); // Clean / Sharp sculpted contour
-
-      // Jawline shading: subtle shadow gradient along jaw contour
-      final jawPath = Path()
-        ..moveTo(cx - (size.width * 0.35), size.height * 0.56)
-        ..quadraticBezierTo(
-          cx - (size.width * 0.26), size.height * 0.70,
-          cx, size.height * 0.73,
-        )
-        ..quadraticBezierTo(
-          cx + (size.width * 0.26), size.height * 0.70,
-          cx + (size.width * 0.35), size.height * 0.56,
-        );
-
-      final jawPaint = Paint()
-        ..color = contourColor.withValues(alpha: contourAlpha)
-        ..strokeWidth = size.width * 0.08
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
-
-      canvas.drawPath(jawPath, jawPaint);
-
-      // Brow definition accent: subtle contrast enhancement
-      final browPaint = Paint()
-        ..color = Colors.black.withValues(alpha: contourAlpha * 0.6)
-        ..strokeWidth = size.width * 0.04
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-
-      canvas.drawLine(
-        Offset(cx - (size.width * 0.22), size.height * 0.35),
-        Offset(cx - (size.width * 0.06), size.height * 0.34),
-        browPaint,
-      );
-      canvas.drawLine(
-        Offset(cx + (size.width * 0.06), size.height * 0.34),
-        Offset(cx + (size.width * 0.22), size.height * 0.35),
-        browPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_StudioMakeupPainter old) =>
-      old.gender != gender || old.style != style || old.intensity != intensity;
 }
 
 class _ReticleViewfinder extends StatelessWidget {

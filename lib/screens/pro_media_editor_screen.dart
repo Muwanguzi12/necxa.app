@@ -1,6 +1,9 @@
 import 'package:universal_io/io.dart';
 import 'dart:ui' as ui;
 import 'dart:async';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../services/finance_backend.dart';
@@ -21,6 +24,7 @@ import '../app_state.dart';
 import '../services/editor_voiceover_service.dart';
 import '../services/timeline_playback_controller.dart';
 import '../services/editor_export_service.dart';
+import '../services/ai_service.dart';
 import '../services/editor_subscription_service.dart';
 import '../face_engine/core/face_engine_controller.dart';
 import '../face_engine/widgets/face_preset_sheet.dart';
@@ -39,8 +43,11 @@ enum ImageFilter {
 }
 
 class VideoClip {
+  /// Stable project identity; survives preview adapter recreation and reordering.
+  final String id;
   final File file;
   File? proxyFile; // Lightweight version for editing
+  File? reversePreviewFile;
   bool isProxyReady = false;
 
   double start; // seconds
@@ -49,15 +56,26 @@ class VideoClip {
   double speed;
   double volume;
   bool hasAudio;
+  bool isReversed;
   double scale;
   double rotation;
   double offsetX;
   double offsetY;
   double opacity;
+  ImageFilter? filter;
+  double brightness;
+  double contrast;
+  double saturation;
+  double hue;
+  double vignette;
+  double grain;
+  double blur;
 
   VideoClip({
+    String? id,
     required this.file,
     this.proxyFile,
+    this.reversePreviewFile,
     this.isProxyReady = false,
     this.start = 0,
     this.end = 0.1,
@@ -65,16 +83,27 @@ class VideoClip {
     this.speed = 1.0,
     this.volume = 1.0,
     this.hasAudio = true,
+    this.isReversed = false,
     this.scale = 1.0,
     this.rotation = 0.0,
     this.offsetX = 0.0,
     this.offsetY = 0.0,
     this.opacity = 1.0,
-  });
+    this.filter,
+    this.brightness = 0.0,
+    this.contrast = 1.0,
+    this.saturation = 1.0,
+    this.hue = 0.0,
+    this.vignette = 0.0,
+    this.grain = 0.0,
+    this.blur = 0.0,
+  }) : id = id ?? 'editor-${file.path.hashCode}-${DateTime.now().microsecondsSinceEpoch}';
 
   VideoClip copy() => VideoClip(
+    id: id,
     file: file,
     proxyFile: proxyFile,
+    reversePreviewFile: reversePreviewFile,
     isProxyReady: isProxyReady,
     start: start,
     end: end,
@@ -82,11 +111,20 @@ class VideoClip {
     speed: speed,
     volume: volume,
     hasAudio: hasAudio,
+    isReversed: isReversed,
     scale: scale,
     rotation: rotation,
     offsetX: offsetX,
     offsetY: offsetY,
     opacity: opacity,
+    filter: filter,
+    brightness: brightness,
+    contrast: contrast,
+    saturation: saturation,
+    hue: hue,
+    vignette: vignette,
+    grain: grain,
+    blur: blur,
   );
 
   bool get isVideo =>
@@ -126,6 +164,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   final VideoEnhancementService _videoService = VideoEnhancementService();
   final FaceEngineController _faceEngine = FaceEngineController();
   bool _isProEnabled = false;
+  final Set<String> _loadedTextFontFamilies = <String>{};
 
   VideoPlayerController? _videoController;
 
@@ -135,6 +174,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   MusicTrack? _selectedTrack;
   final AudioPlayer _musicPlayer = AudioPlayer();
   final AudioPlayer _voicePlayer = AudioPlayer();
+  final Map<String, AudioPlayer> _timelineAudioPlayers = <String, AudioPlayer>{};
+  final Map<String, String> _timelineAudioSources = <String, String>{};
+  final Map<String, double> _timelineAudioSpeeds = <String, double>{};
+  final Map<String, File> _timelineReversedAudioCache = <String, File>{};
+  bool _syncingTimelineAudio = false;
+  Duration _lastTimelineAudioSync = Duration.zero;
   final MusicLibraryService _musicService = MusicLibraryService();
 
   // Shader State
@@ -145,9 +190,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   double _hue = 0.0;
 
   // Advanced Tools State
-  // Audio Mixer State
-  double _bgmVolume = 0.5;
-  double _voiceVolume = 0.8;
+  // Audio mixer values are read from the authoritative project clips.
   double _originalVolume = 1.0;
   final bool _isMuted = false;
   bool _isPlaying = false;
@@ -156,7 +199,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   // Voice Over State
   bool _isRecordingVoice = false;
-  File? _voiceOverFile;
   final EditorVoiceoverService _voiceoverService = EditorVoiceoverService();
 
   // Mask Mode
@@ -168,6 +210,27 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   // Multi-track Sequencer State
   late List<VideoClip> _sequence;
   int _activeClipIndex = 0;
+  final Set<VideoClip> _selectedClips = <VideoClip>{};
+  bool _multiSelectMode = false;
+  bool _groupMoveMode = false;
+  List<VideoClip>? _groupDragOriginalSequence;
+  double _groupDragOriginX = 0;
+  double _groupDragPixelsPerSecond = 48;
+  VideoClip? _groupDragAnchorClip;
+  int? _timelineDragIndex;
+  String? _timelineDragMode;
+  double _timelineDragOriginX = 0;
+  double _timelineDragDeltaX = 0;
+  double _timelineDragAppliedX = 0;
+  double _timelineDragThresholdX = 0;
+  double _timelineOriginalStart = 0;
+  double _timelineOriginalEnd = 0;
+  int? _timelineOverlaySelected;
+  int? _timelineOverlayDragIndex;
+  double _timelineOverlayDragOriginX = 0;
+  double _timelineOverlayDragStart = 0;
+  double _timelineOverlayDragEnd = 0;
+  double _timelineLastPaintedSecond = -1;
 
   // Professional Metadata
   final Map<int, TransitionOperation> _transitions = {};
@@ -175,8 +238,41 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   final double _frameRate = 30.0;
   final int _bitrateKbps = 8000; // assumed default bitrate for size estimate
 
-  // Overlay & Metadata State
-  final List<OverlayOperation> _overlays = [];
+  // Live project-backed view: overlays are never stored in a second list.
+  List<OverlayOperation> get _overlays => _project.tracks
+      .where((track) => track.type == TrackType.overlay)
+      .expand((track) => track.clips)
+      .map((clip) => clip.operation)
+      .whereType<OverlayOperation>()
+      .toList();
+
+  void _addProjectOverlay(OverlayOperation overlay) {
+    final start = Duration(milliseconds: (overlay.start * _totalDuration * 1000).round());
+    final end = Duration(milliseconds: (overlay.end * _totalDuration * 1000).round());
+    _project.upsertClip(
+      TrackType.overlay,
+      TimelineClip(
+        id: 'overlay-${DateTime.now().microsecondsSinceEpoch}',
+        start: start,
+        duration: end > start ? end - start : const Duration(seconds: 1),
+        operation: overlay,
+      ),
+    );
+  }
+
+  void _removeProjectOverlayAt(int index) {
+    final overlays = _overlays;
+    if (index < 0 || index >= overlays.length) return;
+    final target = overlays[index];
+    for (final track in _project.tracks.where((item) => item.type == TrackType.overlay)) {
+      for (final clip in track.clips) {
+        if (identical(clip.operation, target)) {
+          _project.removeClip(clip.id);
+          return;
+        }
+      }
+    }
+  }
 
   // Track selection for focused editing
   int _activeNavIndex =
@@ -193,10 +289,113 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   bool _transitionsUnlocked =
       false; // In a real app, fetch this from user state
 
-  // Audio Timeline State
-  double _audioStart = 0;
-  double _audioEnd = 30; // 30s default
-  final double _audioOffset = 0; // Where it starts in the global timeline
+  // Audio timeline values are stored on their TimelineClip/AudioClipOperation.
+  TimelineClip? get _musicClip {
+    for (final track in _project.tracks) {
+      if (track.type != TrackType.music) continue;
+      for (final clip in track.clips) {
+        final operation = clip.operation;
+        if (operation is AudioClipOperation && operation.sourceType == 'music') {
+          return clip;
+        }
+      }
+    }
+    return null;
+  }
+
+  TimelineClip? get _voiceClip {
+    for (final track in _project.tracks) {
+      if (track.type != TrackType.voiceOver) continue;
+      for (final clip in track.clips) {
+        final operation = clip.operation;
+        if (operation is AudioClipOperation && operation.sourceType == 'voiceOver') {
+          return clip;
+        }
+      }
+    }
+    return null;
+  }
+
+  AudioClipOperation? get _musicOperation => _musicClip?.operation as AudioClipOperation?;
+  AudioClipOperation? get _voiceOperation => _voiceClip?.operation as AudioClipOperation?;
+  File? get _voiceOverFile => _voiceClip?.file;
+  double get _bgmVolume => _musicOperation?.volume ?? 0.5;
+  double get _voiceVolume => _voiceOperation?.volume ?? 0.8;
+  double get _audioStart => _musicOperation?.startOffset ?? 0.0;
+  double get _audioEnd => _musicOperation?.endOffset ?? 30.0;
+  double get _audioOffset => (_musicClip?.start.inMilliseconds ?? 0) / 1000.0;
+
+  void _setTrackVisibility(TrackType type, bool visible) {
+    _project.transact((tracks) {
+      for (final track in tracks.where((item) => item.type == type)) {
+        track.isVisible = visible;
+      }
+    });
+    final playback = _project.playback.state;
+    unawaited(
+      _syncTimelineAudio(
+        playback.currentTime,
+        playing: playback.isPlaying,
+        force: true,
+      ),
+    );
+  }
+
+  void _setOriginalVolume(double value) {
+    _project.transact((tracks) {
+      for (final track in tracks.where(
+        (item) => item.type == TrackType.video,
+      )) {
+        for (var index = 0; index < track.clips.length; index++) {
+          track.clips[index] = track.clips[index].copyWith(volume: value);
+        }
+      }
+    });
+    _originalVolume = value;
+    _videoController?.setVolume(value);
+  }
+
+  void _setMusicVolume(double value) {
+    final clip = _musicClip;
+    final operation = _musicOperation;
+    if (clip == null || operation == null) return;
+    _project.upsertClip(TrackType.music, TimelineClip(
+      id: clip.id, start: clip.start, duration: clip.duration, file: clip.file,
+      volume: value,
+      operation: AudioClipOperation(sourceType: operation.sourceType,
+        sourceUrl: operation.sourceUrl, label: operation.label, volume: value,
+        speed: operation.speed, reverse: operation.reverse, fadeIn: operation.fadeIn,
+        fadeOut: operation.fadeOut, startOffset: operation.startOffset,
+        endOffset: operation.endOffset),
+    ), recordHistory: false);
+  }
+
+  void _setVoiceVolume(double value) {
+    final clip = _voiceClip;
+    final operation = _voiceOperation;
+    if (clip == null || operation == null) return;
+    _project.upsertClip(TrackType.voiceOver, TimelineClip(
+      id: clip.id, start: clip.start, duration: clip.duration, file: clip.file,
+      volume: value,
+      operation: AudioClipOperation(sourceType: operation.sourceType,
+        sourceUrl: operation.sourceUrl, label: operation.label, volume: value,
+        speed: operation.speed, reverse: operation.reverse, fadeIn: operation.fadeIn,
+        fadeOut: operation.fadeOut, startOffset: operation.startOffset,
+        endOffset: operation.endOffset),
+    ), recordHistory: false);
+  }
+
+  void _restoreAudioSelectionFromProject() {
+    final music = _musicOperation;
+    _selectedTrack = null;
+    if (music != null && music.sourceUrl != null) {
+      _selectedTrack = MusicTrack(id: 'project-' + music.sourceUrl.hashCode.toString(),
+        title: music.label ?? 'Project music', artistName: 'Project audio',
+        audioUrl: music.sourceUrl!, duration: (_musicClip!.duration.inMilliseconds / 1000).round(),
+        licenseType: 'project');
+      _musicPlayer.setReleaseMode(ReleaseMode.loop);
+    }
+  }
 
   @override
   void initState() {
@@ -204,6 +403,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _project = widget.projectController ?? EditorProjectController();
     _ownsProjectController = widget.projectController == null;
     _loadProState();
+    _restoreAudioSelectionFromProject();
+    unawaited(_loadProjectTextFonts());
     final sharedFiles =
         _project.tracks
             .where(
@@ -225,6 +426,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         ? [widget.initialImage!]
                         : []));
     _sequence = files.map((f) => VideoClip(file: f)).toList();
+    if (_sequence.isNotEmpty) _selectedClips.add(_sequence.first);
     if (sharedFiles.isNotEmpty) {
       final sharedClips = _project.tracks
           .where(
@@ -237,6 +439,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       _sequence = sharedClips
           .map(
             (clip) => VideoClip(
+              id: clip.id,
               file: clip.file!,
               start: clip.sourceStart.inMilliseconds / 1000,
               end:
@@ -251,6 +454,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               offsetX: clip.transform.position.dx,
               offsetY: clip.transform.position.dy,
               opacity: clip.transform.opacity,
+              filter: clip.filter == null ? null : ImageFilter.values.firstWhere(
+                (value) => value.name == clip.filter!.filterName,
+                orElse: () => ImageFilter.normal,
+              ),
+              brightness: clip.brightness,
+              contrast: clip.contrast,
+              saturation: clip.saturation,
+              hue: clip.hue,
+              vignette: clip.vignette,
+              grain: clip.grain,
+              blur: clip.blur,
+              isReversed: clip.isReversed,
             ),
           )
           .toList();
@@ -260,9 +475,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       (track) => track.clips,
     )) {
       final operation = timelineClip.operation;
-      if (operation is OverlayOperation) {
-        _overlays.add(operation.copy());
-      } else if (operation is TransitionOperation &&
+      if (operation is TransitionOperation &&
           timelineClip.id.startsWith('desktop-transition-')) {
         final index = int.tryParse(
           timelineClip.id.substring('desktop-transition-'.length),
@@ -271,10 +484,25 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
     }
 
-    if (widget.initialTrack != null) {
-      _selectedTrack = widget.initialTrack;
+    if (widget.initialTrack != null && _musicClip == null) {
+      final track = widget.initialTrack!;
+      _project.upsertClip(TrackType.music, TimelineClip(
+        id: 'desktop-audio-music',
+        start: Duration.zero,
+        duration: track.timelineDuration,
+        volume: 0.5,
+        operation: AudioClipOperation(
+          sourceType: 'music',
+          sourceUrl: track.audioUrl,
+          label: track.title,
+          volume: 0.5,
+          startOffset: 0,
+          endOffset: track.duration.toDouble(),
+        ),
+      ));
+      _selectedTrack = track;
       _musicPlayer.setReleaseMode(ReleaseMode.loop);
-      _musicPlayer.play(UrlSource(_selectedTrack!.audioUrl));
+      _musicPlayer.play(UrlSource(track.audioUrl));
     }
 
     _loadClip(_activeClipIndex);
@@ -375,7 +603,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     final clip = _sequence[index];
 
     if (clip.isVideo) {
-      final mediaFile = clip.isProxyReady ? clip.proxyFile! : clip.file;
+      final mediaFile = clip.isReversed && clip.reversePreviewFile != null
+          ? clip.reversePreviewFile!
+          : (clip.isProxyReady ? clip.proxyFile! : clip.file);
 
       if (!mediaFile.existsSync() || mediaFile.lengthSync() == 0) {
         debugPrint(
@@ -386,44 +616,72 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
 
       _videoController?.dispose();
-      _videoController = VideoPlayerController.file(mediaFile)
-        ..initialize().then((_) {
-          if (clip.duration <= 0) {
-            clip.duration =
-                _videoController!.value.duration.inMilliseconds / 1000.0;
-            clip.end = clip.duration;
+      final controller = VideoPlayerController.file(mediaFile);
+      _videoController = controller;
+
+      controller.initialize().then((_) async {
+        // A newer clip may have replaced this controller while initialization
+        // was in flight. Never let a stale callback touch the active player.
+        if (!mounted || !identical(_videoController, controller)) return;
+
+        if (clip.duration <= 0) {
+          clip.duration = controller.value.duration.inMilliseconds / 1000.0;
+          clip.end = clip.duration;
+        }
+
+        await controller.setVolume(_isMuted ? 0.0 : _originalVolume);
+        if (!mounted || !identical(_videoController, controller)) return;
+        await controller.setPlaybackSpeed(clip.speed);
+        final sourceTime = seekTo ?? (clip.isReversed ? clip.end : clip.start);
+        final playbackTime = clip.isReversed
+            ? (clip.duration - sourceTime).clamp(0.0, clip.duration)
+            : sourceTime;
+        await controller.seekTo(
+          Duration(milliseconds: (playbackTime * 1000).toInt()),
+        );
+
+        if (!mounted || !identical(_videoController, controller)) return;
+        if (_isPlaying) _syncPlay();
+        setState(() {});
+      }).catchError((Object error, StackTrace stack) {
+        debugPrint('MediaEditor: clip initialization failed: $error');
+        if (identical(_videoController, controller)) {
+          if (mounted) {
+            setState(() => _videoController = null);
+            _feedback('Unable to load this clip');
+          } else {
+            _videoController = null;
           }
+          unawaited(controller.dispose());
+        }
+      });
 
-          _videoController!.setVolume(_isMuted ? 0.0 : _originalVolume);
-          _videoController!.setPlaybackSpeed(clip.speed);
+      controller.addListener(() {
+        if (!mounted ||
+            !identical(_videoController, controller) ||
+            !controller.value.isInitialized) {
+          return;
+        }
+        if (clip.end <= 0.1) return;
 
-          final startTime = seekTo ?? clip.start;
-          _videoController!.seekTo(
-            Duration(milliseconds: (startTime * 1000).toInt()),
-          );
-
-          if (_isPlaying) _syncPlay();
-          if (mounted) setState(() {});
-        })
-        ..addListener(() {
-          if (_videoController == null ||
-              !_videoController!.value.isInitialized)
-            return;
-          if (clip.end <= 0.1) return;
-
-          final pos = _videoController!.value.position.inMilliseconds / 1000.0;
-          if (_ownsProjectController && pos >= clip.end) {
-            if (_activeClipIndex < _sequence.length - 1) {
-              setState(() => _activeClipIndex++);
-              _loadClip(_activeClipIndex);
-            } else {
-              // Loop sequence
-              setState(() => _activeClipIndex = 0);
-              _loadClip(_activeClipIndex);
-            }
+        final pos = controller.value.position.inMilliseconds / 1000.0;
+        final reachedClipEnd = clip.isReversed
+            ? pos >= clip.duration - clip.start
+            : pos >= clip.end;
+        if (_ownsProjectController && reachedClipEnd) {
+          if (_activeClipIndex < _sequence.length - 1) {
+            setState(() => _activeClipIndex++);
+            _loadClip(_activeClipIndex);
+          } else {
+            // Loop sequence
+            setState(() => _activeClipIndex = 0);
+            _loadClip(_activeClipIndex);
           }
-          if (mounted) setState(() {});
-        });
+        }
+        if (mounted && identical(_videoController, controller)) {
+          setState(() {});
+        }
+      });
     } else {
       _videoController?.dispose();
       _videoController = null;
@@ -437,6 +695,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _videoController?.dispose();
     _musicPlayer.dispose();
     _voicePlayer.dispose();
+    for (final player in _timelineAudioPlayers.values) {
+      player.dispose();
+    }
+    _timelineAudioPlayers.clear();
+    _timelineAudioSources.clear();
     _voiceoverService.dispose();
     _enhancementService.dispose();
     if (_ownsProjectController) _project.dispose();
@@ -466,7 +729,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
       final controller = _videoController;
       if (controller != null && controller.value.isInitialized) {
-        final expected = _sequence[index].start + remaining;
+        final sourceExpected = _sequence[index].start + remaining;
+        final expected = _sequence[index].isReversed
+            ? _sequence[index].duration - sourceExpected
+            : sourceExpected;
         final actual = controller.value.position.inMilliseconds / 1000.0;
         if ((actual - expected).abs() > 0.15) {
           await controller.seekTo(
@@ -479,8 +745,15 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           await controller.pause();
         }
       }
-      if (_isPlaying != state.isPlaying && mounted) {
-        setState(() => _isPlaying = state.isPlaying);
+      await _syncTimelineAudio(state.currentTime, playing: state.isPlaying);
+      final timelineSecond = state.currentTime.inMilliseconds / 1000.0;
+      if (mounted &&
+          ((_isPlaying != state.isPlaying) ||
+           (timelineSecond - _timelineLastPaintedSecond).abs() >= 0.1)) {
+        setState(() {
+          _isPlaying = state.isPlaying;
+          _timelineLastPaintedSecond = timelineSecond;
+        });
       }
     } finally {
       _syncingPlayback = false;
@@ -513,6 +786,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _restoreDesktopViewFromProject() {
+    _restoreAudioSelectionFromProject();
     final project = _project;
     if (project == null) return;
     final visual =
@@ -544,115 +818,151 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               offsetX: clip.transform.position.dx,
               offsetY: clip.transform.position.dy,
               opacity: clip.transform.opacity,
+              filter: clip.filter == null ? null : ImageFilter.values.firstWhere(
+                (value) => value.name == clip.filter!.filterName,
+                orElse: () => ImageFilter.normal,
+              ),
+              brightness: clip.brightness,
+              contrast: clip.contrast,
+              saturation: clip.saturation,
+              hue: clip.hue,
+              vignette: clip.vignette,
+              grain: clip.grain,
+              blur: clip.blur,
             ),
           )
           .toList();
       _activeClipIndex = _sequence.isEmpty
           ? 0
           : _activeClipIndex.clamp(0, _sequence.length - 1);
+      _selectedClips
+        ..clear()
+        ..addAll(_sequence.isEmpty ? <VideoClip>[] : <VideoClip>[_sequence[_activeClipIndex]]);
+      _multiSelectMode = false;
       if (_sequence.isNotEmpty) _loadClip(_activeClipIndex);
     });
   }
 
+  /// Reconciles the legacy preview adapters with the shared project without
+  /// destroying and recreating every visual track. Existing TimelineClip
+  /// identities and track metadata are retained; only changed visual clips and
+  /// desktop transition records are replaced inside one project transaction.
+  ///
+  /// This is a compatibility bridge while the remaining editor commands are
+  /// being moved to direct TimelineClip mutations. Do not add new editing
+  /// commands that mutate _sequence.
   void _syncSharedProjectFromSequence() {
     final project = _project;
     if (project == null) return;
-    project.tracks.removeWhere(
-      (track) =>
-          track.type == TrackType.video || track.type == TrackType.images,
-    );
-    for (final track in project.tracks) {
-      track.clips.removeWhere(
-        (clip) =>
-            clip.id.startsWith('desktop-overlay-') ||
-            clip.id.startsWith('desktop-transition-'),
-      );
-    }
-    var timelineStart = Duration.zero;
-    for (var index = 0; index < _sequence.length; index++) {
-      final clip = _sequence[index];
-      final sourceStart = Duration(milliseconds: (clip.start * 1000).round());
-      final sourceEnd = Duration(milliseconds: (clip.end * 1000).round());
-      final timelineDuration = Duration(
-        milliseconds: (((clip.end - clip.start) / clip.speed) * 1000).round(),
-      );
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-${index}-${clip.file.path.hashCode}',
+
+    project.transact((tracks) {
+      final visualTypes = <TrackType>{TrackType.video, TrackType.images};
+      final existingById = <String, TimelineClip>{
+        for (final track in tracks.where((item) => visualTypes.contains(item.type)))
+          for (final clip in track.clips) clip.id: clip,
+      };
+      final retainedIds = <String>{};
+      var timelineStart = Duration.zero;
+
+      for (final previewClip in _sequence) {
+        final sourceStart = Duration(
+          milliseconds: (previewClip.start * 1000).round(),
+        );
+        final sourceEnd = Duration(
+          milliseconds: (previewClip.end * 1000).round(),
+        );
+        final timelineDuration = Duration(
+          milliseconds: (((previewClip.end - previewClip.start) /
+                    previewClip.speed) *
+                1000)
+              .round(),
+        );
+        final type = previewClip.isVideo ? TrackType.video : TrackType.images;
+        final existing = existingById[previewClip.id];
+        final transform = existing?.transform ?? TransformOperation();
+        transform
+          ..scale = previewClip.scale
+          ..rotation = previewClip.rotation
+          ..position = Offset(previewClip.offsetX, previewClip.offsetY)
+          ..opacity = previewClip.opacity;
+
+        final nextClip = TimelineClip(
+          id: previewClip.id,
           start: timelineStart,
           duration: timelineDuration,
-          file: clip.file,
+          file: previewClip.file,
+          proxyFile: previewClip.proxyFile,
+          isProxyReady: previewClip.isProxyReady,
           sourceStart: sourceStart,
           sourceEnd: sourceEnd,
-          speed: clip.speed,
-          volume: clip.volume,
+          speed: previewClip.speed,
+          volume: previewClip.volume,
+          isReversed: previewClip.isReversed,
           operation: TrimOperation(
             start: sourceStart,
             end: sourceEnd,
-            maxDuration: Duration(milliseconds: (clip.duration * 1000).round()),
+            maxDuration: Duration(
+              milliseconds: (previewClip.duration * 1000).round(),
+            ),
           ),
-          transform: TransformOperation(
-            scale: clip.scale,
-            rotation: clip.rotation,
-            position: Offset(clip.offsetX, clip.offsetY),
-            opacity: clip.opacity,
-          ),
-          filter: _selectedFilter == null
+          transform: transform,
+          brightness: previewClip.brightness,
+          contrast: previewClip.contrast,
+          saturation: previewClip.saturation,
+          hue: previewClip.hue,
+          vignette: previewClip.vignette,
+          grain: previewClip.grain,
+          blur: previewClip.blur,
+          filter: previewClip.filter == null
               ? null
-              : FilterOperation(filterName: _selectedFilter!.name),
-        ),
-        clip.isVideo ? TrackType.video : TrackType.images,
+              : FilterOperation(filterName: previewClip.filter!.name),
+        );
+        TimelineModelUtils.insertClip(tracks, nextClip, type);
+        retainedIds.add(previewClip.id);
+        timelineStart += timelineDuration;
+      }
+
+      for (final track in tracks.where((item) => visualTypes.contains(item.type))) {
+        track.clips.removeWhere((clip) => !retainedIds.contains(clip.id));
+      }
+      tracks.removeWhere(
+        (track) => visualTypes.contains(track.type) && track.clips.isEmpty,
       );
-      timelineStart += timelineDuration;
-    }
-    for (var index = 0; index < _overlays.length; index++) {
-      final overlay = _overlays[index];
-      final start = Duration(
-        milliseconds: (overlay.start * _totalDuration * 1000).round(),
-      );
-      final end = Duration(
-        milliseconds: (overlay.end * _totalDuration * 1000).round(),
-      );
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-overlay-$index',
-          start: start,
-          duration: end > start ? end - start : Duration(seconds: 1),
-          operation: overlay,
-        ),
-        TrackType.overlay,
-      );
-    }
-    _transitions.forEach((clipIndex, transition) {
-      var start = Duration.zero;
-      for (
-        var index = 0;
-        index <= clipIndex && index < _sequence.length;
-        index++
-      ) {
-        final clip = _sequence[index];
-        start += Duration(
-          milliseconds: (((clip.end - clip.start) / clip.speed) * 1000).round(),
+
+      for (final track in tracks) {
+        track.clips.removeWhere(
+          (clip) => clip.id.startsWith('desktop-transition-'),
         );
       }
-      final transitionStart =
-          start - Duration(milliseconds: (transition.duration * 500).round());
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-transition-$clipIndex',
-          start: transitionStart.isNegative ? Duration.zero : transitionStart,
-          duration: Duration(
-            milliseconds: (transition.duration * 1000).round(),
+      tracks.removeWhere((track) => track.clips.isEmpty);
+
+      _transitions.forEach((clipIndex, transition) {
+        var start = Duration.zero;
+        for (var index = 0;
+            index <= clipIndex && index < _sequence.length;
+            index++) {
+          final clip = _sequence[index];
+          start += Duration(
+            milliseconds: (((clip.end - clip.start) / clip.speed) * 1000)
+                .round(),
+          );
+        }
+        final transitionStart = start -
+            Duration(milliseconds: (transition.duration * 500).round());
+        TimelineModelUtils.insertClip(
+          tracks,
+          TimelineClip(
+            id: 'desktop-transition-$clipIndex',
+            start: transitionStart.isNegative ? Duration.zero : transitionStart,
+            duration: Duration(
+              milliseconds: (transition.duration * 1000).round(),
+            ),
+            operation: transition,
           ),
-          operation: transition,
-        ),
-        TrackType.effects,
-      );
-    });
-    project.playback.updateProject(project.tracks);
+          TrackType.effects,
+        );
+      });
+    }, recordHistory: false);
   }
 
   Future<void> _addClip() async {
@@ -721,6 +1031,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _showAdjustSheet() {
+    if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    _syncLookControlsFromClip(targets.first);
+    _saveHistory();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -742,19 +1056,23 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               SizedBox(height: 24),
               _adjustSlider('Brightness', _brightness, -0.5, 0.5, (v) {
                 setModalState(() => _brightness = v);
-                setState(() {});
+                for (final target in targets) { target.brightness = v; }
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Contrast', _contrast, 0.5, 1.5, (v) {
                 setModalState(() => _contrast = v);
-                setState(() {});
+                for (final target in targets) { target.contrast = v; }
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Saturation', _saturation, 0.0, 2.0, (v) {
                 setModalState(() => _saturation = v);
-                setState(() {});
+                for (final target in targets) { target.saturation = v; }
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Hue', _hue, -3.14, 3.14, (v) {
                 setModalState(() => _hue = v);
-                setState(() {});
+                for (final target in targets) { target.hue = v; }
+                setState(() => _syncSharedProjectFromSequence());
               }),
               SizedBox(height: 16),
               TextButton(
@@ -764,6 +1082,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     _contrast = 1.0;
                     _saturation = 1.0;
                     _hue = 0.0;
+                    for (final target in targets) {
+                      target.brightness = 0.0;
+                      target.contrast = 1.0;
+                      target.saturation = 1.0;
+                      target.hue = 0.0;
+                    }
                   });
                   setState(() {});
                 },
@@ -830,22 +1154,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             ),
             SizedBox(height: 24),
             _exportOption(
-              'FAST SYNC ⚡',
-              'Instant posting. Music is synced on-the-fly.',
-              Icons.bolt,
-              () {
-                Navigator.pop(context);
-                _finish(false);
-              },
-            ),
-            SizedBox(height: 12),
-            _exportOption(
-              'HIGH-QUALITY FLATTEN ??',
-              'Permanent video file. Best for sharing elsewhere.',
+              'FINAL MP4 MASTER',
+              'One validated video with original sound, music and voiceover embedded for Feed and Shop.',
               Icons.video_library,
               () {
                 Navigator.pop(context);
-                _finish(true);
+                _finish();
               },
             ),
             SizedBox(height: 20),
@@ -855,40 +1169,55 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
-  void _finish(bool flatten) async {
+  void _finish() async {
     if (_sequence.isEmpty) return;
 
     File? combinedFile;
-    if (flatten) {
-      setState(() => _isProcessing = true);
+    var audioExpected = false;
+    setState(() => _isProcessing = true);
       try {
-        _feedback("Synthesizing Mult-Media Studio...");
-        _syncDesktopAudioToProject();
-        final project = _project;
-        combinedFile = project == null
-            ? null
-            : await EditorExportService.renderTimeline(
-                tracks: project.tracks,
-                aspectRatio: _selectedAspectRatio,
-              );
+        _feedback("Rendering final video and audio...");
+        final snapshot = _project.createSnapshot();
+        audioExpected = await EditorExportService.projectHasAudio(snapshot);
+        combinedFile = await EditorExportService.renderTimeline(
+          tracks: snapshot,
+          aspectRatio: _selectedAspectRatio,
+        );
 
         if (combinedFile == null) {
-          _feedback("Failed to generate master file.");
+          _feedback("The final video could not be rendered. Your timeline is unchanged.");
         } else {
-          _feedback("Master File Ready! 🎉");
+          final validation = await EditorExportService.inspectFinalMp4(
+            combinedFile,
+            requireAudio: audioExpected,
+          );
+          if (validation['valid'] != true) {
+            combinedFile = null;
+            _feedback(
+              audioExpected
+                  ? "Export validation failed: the MP4 is missing expected audio or video."
+                  : "Export validation failed: the MP4 is missing its video stream.",
+            );
+          } else {
+            _feedback("Final MP4 validated and ready.");
+          }
         }
       } catch (e) {
-        _feedback("Error combining video: $e");
+        combinedFile = null;
+        _feedback("Error rendering final media: $e");
       } finally {
         if (mounted) setState(() => _isProcessing = false);
       }
-    }
+      // Never fall back to publishing the first source clip when flattening
+      // fails; that would silently discard timeline edits and audio.
+    if (combinedFile == null) return;
 
     Navigator.pop(context, {
       'sequence': _sequence,
       'track': _selectedTrack,
-      'flatten': flatten,
+      'flatten': true,
       'combined_file': combinedFile,
+      'audio_expected': audioExpected,
       'music_vol': _bgmVolume,
       'voice_vol': _voiceVolume,
       'original_vol': _originalVolume,
@@ -928,54 +1257,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     });
   }
 
-  void _syncDesktopAudioToProject() {
-    final project = _project;
-    if (project == null) return;
-    for (final track in project.tracks) {
-      track.clips.removeWhere((clip) => clip.id.startsWith('desktop-audio-'));
-    }
-    final duration = Duration(milliseconds: (_totalDuration * 1000).round());
-    if (_selectedTrack != null) {
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-audio-music',
-          start: Duration(milliseconds: (_audioOffset * 1000).round()),
-          duration: duration,
-          volume: _bgmVolume,
-          operation: AudioClipOperation(
-            sourceType: 'music',
-            sourceUrl: _selectedTrack!.audioUrl,
-            label: _selectedTrack!.title,
-            volume: _bgmVolume,
-            startOffset: _audioStart,
-            endOffset: _audioEnd,
-          ),
-        ),
-        TrackType.music,
-      );
-    }
-    if (_voiceOverFile != null) {
-      TimelineModelUtils.insertClip(
-        project.tracks,
-        TimelineClip(
-          id: 'desktop-audio-voice',
-          start: Duration.zero,
-          duration: duration,
-          file: _voiceOverFile,
-          volume: _voiceVolume,
-          operation: AudioClipOperation(
-            sourceType: 'voiceOver',
-            label: 'Voiceover',
-            volume: _voiceVolume,
-          ),
-        ),
-        TrackType.voiceOver,
-      );
-    }
-    project.playback.updateProject(project.tracks);
-  }
-
   void _togglePlayback() {
     setState(() => _isPlaying = !_isPlaying);
     final project = _project;
@@ -989,40 +1270,159 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _syncPlay() async {
-    if (_videoController == null) return;
-
-    // 1. Calculate global time
-    final globalTime = _getGlobalTime(
-      _activeClipIndex,
-      (_videoController!.value.position.inMilliseconds) / 1000.0,
-    );
-
-    // 2. Start Video
-    _videoController!.play();
-
-    // 3. Start Music
-    if (_selectedTrack != null) {
-      double musicPos = (globalTime - _audioOffset).clamp(
-        0.0,
-        _audioEnd - _audioStart,
-      );
-      if (globalTime >= _audioOffset &&
-          globalTime < (_audioOffset + (_audioEnd - _audioStart))) {
-        await _musicPlayer.seek(
-          Duration(milliseconds: (musicPos * 1000).toInt()),
-        );
-        await _musicPlayer.resume();
-      } else {
-        await _musicPlayer.pause();
-      }
+    await _musicPlayer.stop();
+    await _voicePlayer.stop();
+    final controller = _videoController;
+    if (controller != null && controller.value.isInitialized) {
+      await controller.play();
     }
+    await _syncTimelineAudio(
+      _project.playback.state.currentTime,
+      playing: true,
+      force: true,
+    );
+  }
 
-    // 4. Start Voiceover
-    if (_voiceOverFile != null) {
-      await _voicePlayer.seek(
-        Duration(milliseconds: (globalTime * 1000).toInt()),
-      );
-      await _voicePlayer.resume();
+  Future<void> _syncTimelineAudio(
+    Duration playhead, {
+    required bool playing,
+    bool force = false,
+  }) async {
+    if (_syncingTimelineAudio) return;
+    final syncDelta = playhead >= _lastTimelineAudioSync
+        ? playhead - _lastTimelineAudioSync
+        : _lastTimelineAudioSync - playhead;
+    if (!force && syncDelta < const Duration(milliseconds: 100)) return;
+    _syncingTimelineAudio = true;
+    _lastTimelineAudioSync = playhead;
+    try {
+      final activeIds = <String>{};
+      for (final track in _project.tracks.where((item) => item.isVisible)) {
+        for (final clip in track.clips.where((item) => !item.isHidden)) {
+          final operation = clip.operation;
+          if (operation is! AudioClipOperation) continue;
+          final clipEnd = clip.start + clip.duration;
+          if (playhead < clip.start || playhead >= clipEnd) continue;
+          final source = clip.file?.path ?? operation.sourceUrl;
+          if (source == null || source.isEmpty) continue;
+          final elapsed =
+              (playhead - clip.start).inMicroseconds /
+              Duration.microsecondsPerSecond;
+          final speed = clip.speed == 1.0 ? operation.speed : clip.speed;
+          final sourceStart =
+              operation.startOffset ?? clip.sourceStart.inMilliseconds / 1000.0;
+          final reversed = clip.isReversed || operation.reverse;
+          var previewSource = source;
+          var targetSeconds = sourceStart + elapsed * speed;
+          if (reversed) {
+            final sourceEnd = operation.endOffset ??
+                (clip.sourceEnd?.inMilliseconds ?? 0) / 1000.0;
+            final resolvedEnd = sourceEnd > sourceStart
+                ? sourceEnd
+                : sourceStart +
+                    (clip.duration.inMilliseconds / 1000.0) * speed;
+            final cacheKey = '$source|$sourceStart|$resolvedEnd';
+            var reversedFile = _timelineReversedAudioCache[cacheKey];
+            if (reversedFile == null || !await reversedFile.exists()) {
+              reversedFile = await _videoService.createReversedAudioPreview(
+                source: source,
+                sourceStart: sourceStart,
+                sourceEnd: resolvedEnd,
+              );
+              if (reversedFile == null) continue;
+              _timelineReversedAudioCache[cacheKey] = reversedFile;
+            }
+            previewSource = reversedFile.path;
+            targetSeconds = elapsed * speed;
+          }
+
+          activeIds.add(clip.id);
+          final player = _timelineAudioPlayers.putIfAbsent(
+            clip.id,
+            AudioPlayer.new,
+          );
+          final sourceChanged =
+              _timelineAudioSources[clip.id] != previewSource;
+          if (sourceChanged) {
+            await player.stop();
+            await player.setReleaseMode(ReleaseMode.stop);
+            await player.setSource(DeviceFileSource(previewSource));
+            _timelineAudioSources[clip.id] = previewSource;
+          }
+          final currentPosition = await player.getCurrentPosition();
+          if (sourceChanged ||
+              currentPosition == null ||
+              (currentPosition.inMilliseconds / 1000.0 - targetSeconds).abs() >
+                  0.22) {
+            await player.seek(
+              Duration(milliseconds: (targetSeconds * 1000).round()),
+            );
+          }
+
+          final durationSeconds = clip.duration.inMilliseconds / 1000.0;
+          final fadeWindow = durationSeconds / 2;
+          final fadeIn = operation.fadeIn.clamp(0.0, fadeWindow).toDouble();
+          final fadeOut = operation.fadeOut.clamp(0.0, fadeWindow).toDouble();
+          var fade = 1.0;
+          if (fadeIn > 0 && elapsed < fadeIn) {
+            fade = (elapsed / fadeIn).clamp(0.0, 1.0);
+          }
+          final remaining = durationSeconds - elapsed;
+          if (fadeOut > 0 && remaining < fadeOut) {
+            fade = math.min(fade, (remaining / fadeOut).clamp(0.0, 1.0));
+          }
+          final baseVolume = clip.volume == 1.0
+              ? operation.volume
+              : clip.volume;
+          var duckingFactor = 1.0;
+          if (operation.sourceType == 'music') {
+            final voiceoverActive = _project.tracks.any(
+              (track) =>
+                  track.type == TrackType.voiceOver &&
+                  track.isVisible &&
+                  track.clips.any((voiceClip) {
+                    final voiceOperation = voiceClip.operation;
+                    final voiceVolume =
+                        voiceOperation is AudioClipOperation &&
+                            voiceClip.volume == 1.0
+                        ? voiceOperation.volume
+                        : voiceClip.volume;
+                    return !voiceClip.isHidden &&
+                        voiceVolume > 0 &&
+                        voiceClip.start <= playhead &&
+                        voiceClip.start + voiceClip.duration > playhead;
+                  }),
+            );
+            if (voiceoverActive) duckingFactor = 0.30;
+          }
+          await player.setVolume(
+            (baseVolume * fade * duckingFactor)
+                .clamp(0.0, 1.0)
+                .toDouble(),
+          );
+          if (sourceChanged || _timelineAudioSpeeds[clip.id] != speed) {
+            try {
+              await player.setPlaybackRate(speed.clamp(0.5, 2.0).toDouble());
+              _timelineAudioSpeeds[clip.id] = speed;
+            } catch (_) {}
+          }
+          if (playing) {
+            await player.resume();
+          } else {
+            await player.pause();
+          }
+        }
+      }
+
+      for (final entry in _timelineAudioPlayers.entries) {
+        if (!activeIds.contains(entry.key)) {
+          await entry.value.pause();
+        }
+      }
+    } catch (error) {
+      debugPrint('Timeline audio preview sync failed: $error');
+    } finally {
+      _syncingTimelineAudio = false;
     }
   }
 
@@ -1030,6 +1430,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _videoController?.pause();
     _musicPlayer.pause();
     _voicePlayer.pause();
+    for (final player in _timelineAudioPlayers.values) {
+      player.pause();
+    }
   }
 
   Widget _exportOption(
@@ -1091,19 +1494,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               SizedBox(height: 32),
               _volSlider('Original Video', _originalVolume, (v) {
                 setModalState(() => _originalVolume = v);
-                setState(() => _originalVolume = v);
-                _videoController?.setVolume(v);
+                setState(() => _setOriginalVolume(v));
               }),
               SizedBox(height: 16),
               _volSlider('Background Music', _bgmVolume, (v) {
-                setModalState(() => _bgmVolume = v);
-                setState(() => _bgmVolume = v);
+                setModalState(() {});
+                _setMusicVolume(v);
                 _musicPlayer.setVolume(v);
               }),
               SizedBox(height: 16),
               _volSlider('Voiceover', _voiceVolume, (v) {
-                setModalState(() => _voiceVolume = v);
-                setState(() => _voiceVolume = v);
+                setModalState(() {});
+                _setVoiceVolume(v);
                 _voicePlayer.setVolume(v);
               }),
               SizedBox(height: 20),
@@ -1437,9 +1839,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [title, Spacer(), actions]),
-                SizedBox(height: 10),
-                meta,
+                Row(children: [title, Spacer()]),
+                SizedBox(height: 9),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: actions,
+                ),
+                SizedBox(height: 9),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: meta,
+                ),
               ],
             );
           }
@@ -1462,25 +1872,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 920) {
-          final panelHeight = (constraints.maxHeight * 0.30)
-              .clamp(180.0, 240.0)
-              .toDouble();
           return Column(
             children: [
-              _buildCategoryPanel(horizontal: true),
-              SizedBox(height: 12),
               Expanded(child: _buildPreviewStage()),
-              SizedBox(height: 12),
-              SizedBox(
-                height: panelHeight,
-                child: Row(
-                  children: [
-                    Expanded(child: _buildAssetsPanel()),
-                    SizedBox(width: 12),
-                    Expanded(child: _buildInspectorPanel()),
-                  ],
-                ),
-              ),
+              SizedBox(height: 10),
+              SizedBox(height: 78, child: _buildMobileClipStrip()),
             ],
           );
         }
@@ -1500,6 +1896,121 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildMobileClipStrip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C1018),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: C.text.withOpacity(0.08)),
+      ),
+      child: Row(
+        children: [
+          Tooltip(
+            message: 'Add media',
+            child: IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: _addClip,
+              icon: Icon(Icons.add_circle_outline, color: C.brand, size: 22),
+            ),
+          ),
+          Expanded(
+            child: _sequence.isEmpty
+                ? Center(
+                    child: Text(
+                      'Add a video or photo to begin',
+                      style: dm(sz: 11, c: C.dim),
+                    ),
+                  )
+                : ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _sequence.length,
+                    separatorBuilder: (_, __) => SizedBox(width: 7),
+                    itemBuilder: (context, index) {
+                      final clip = _sequence[index];
+                      final selected = _selectedClips.contains(clip);
+                      final active = index == _activeClipIndex;
+                      final fileName = clip.file.path
+                          .split(RegExp(r'[\\/]+'))
+                          .last;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            if (_multiSelectMode) {
+                              if (!_selectedClips.add(clip)) {
+                                _selectedClips.remove(clip);
+                              }
+                            } else {
+                              _selectedClips
+                                ..clear()
+                                ..add(clip);
+                            }
+                            _activeClipIndex = index;
+                          });
+                          _loadClip(index);
+                        },
+                        child: Container(
+                          constraints: BoxConstraints(maxWidth: 148, minWidth: 104),
+                          padding: EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? C.brand.withOpacity(0.13)
+                                : C.text.withOpacity(0.045),
+                            borderRadius: BorderRadius.circular(7),
+                            border: Border.all(
+                              color: active
+                                  ? C.brand
+                                  : C.text.withOpacity(0.08),
+                              width: active ? 1.4 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                clip.isVideo ? Icons.movie_outlined : Icons.image_outlined,
+                                color: selected ? C.brand : C.sub,
+                                size: 16,
+                              ),
+                              SizedBox(width: 6),
+                              Flexible(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      fileName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: syne(
+                                        sz: 9,
+                                        w: FontWeight.w700,
+                                        c: C.text,
+                                      ),
+                                    ),
+                                    Text(
+                                      '\${((clip.end - clip.start) / clip.speed).toStringAsFixed(1)}s',
+                                      style: dm(sz: 8, c: C.dim),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (_multiSelectMode && selected) ...[
+                                SizedBox(width: 4),
+                                Icon(Icons.check_circle, color: C.brand, size: 13),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1571,6 +2082,484 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
+  Widget _buildSequenceTimeline() {
+    const pixelsPerSecond = 48.0;
+    final duration = _totalDuration > 0 ? _totalDuration : 1.0;
+    final double totalWidth = math.max(320.0, duration * pixelsPerSecond).toDouble();
+    final viewportWidth = MediaQuery.of(context).size.width - 32;
+    final playheadSeconds =
+        _project.playback.state.currentTime.inMilliseconds / 1000.0;
+    final playheadX = (playheadSeconds * pixelsPerSecond)
+        .clamp(0.0, totalWidth).toDouble();
+
+    Widget trackLabel(IconData icon, String label) => SizedBox(
+      width: 68,
+      child: Row(children: [
+        Icon(icon, size: 12, color: C.sub),
+        const SizedBox(width: 5),
+        Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
+      ]),
+    );
+
+    Widget timeRuler() => SizedBox(
+      height: 22,
+      child: Stack(children: [
+        Positioned.fill(child: CustomPaint(
+          painter: _EditorTimelineRulerPainter(
+            pixelsPerSecond: pixelsPerSecond, duration: duration,
+            color: C.text.withOpacity(0.22),
+          ),
+        )),
+        Positioned(left: playheadX - 1, top: 0, bottom: 0,
+          child: Container(width: 2, color: C.brand)),
+      ]),
+    );
+
+    Widget videoLane() => SizedBox(
+      height: 48,
+      child: Row(children: [
+        trackLabel(Icons.movie_outlined, 'VIDEO'),
+        Expanded(child: SizedBox(
+          height: 42,
+          child: Stack(children: [
+            for (var index = 0; index < _sequence.length; index++)
+              Builder(builder: (context) {
+                final clip = _sequence[index];
+                final seconds = ((clip.end - clip.start) / clip.speed)
+                    .clamp(0.05, double.infinity).toDouble();
+                var offset = 0.0;
+                for (var i = 0; i < index; i++) {
+                  final prior = _sequence[i];
+                  offset += (prior.end - prior.start) / prior.speed;
+                }
+                final selected = _selectedClips.contains(clip);
+                return Positioned(
+                  left: offset * pixelsPerSecond,
+                  width: math.max(4.0, seconds * pixelsPerSecond - 2).toDouble(),
+                  top: 2, bottom: 2,
+                  child: GestureDetector(
+                    onTap: () {
+                      if (_multiSelectMode) {
+                        setState(() {
+                          if (!_selectedClips.add(clip)) _selectedClips.remove(clip);
+                          _activeClipIndex = index;
+                        });
+                        _loadClip(index);
+                      } else {
+                        setState(() {
+                          _activeClipIndex = index;
+                          _selectedClips..clear()..add(clip);
+                        });
+                        _loadClip(index);
+                      }
+                    },
+                    onPanStart: (details) {
+                      if (_videoTrackLocked) return;
+                      if (_multiSelectMode) {
+                        if (!_groupMoveMode ||
+                            !_selectedClips.contains(clip) ||
+                            _selectedClips.length < 2) return;
+                        _saveHistory();
+                        setState(() {
+                          _groupDragOriginalSequence = List<VideoClip>.from(_sequence);
+                          _groupDragOriginX = details.globalPosition.dx;
+                          _groupDragPixelsPerSecond = pixelsPerSecond;
+                          _groupDragAnchorClip = clip;
+                        });
+                        HapticFeedback.selectionClick();
+                        return;
+                      }
+                      final clipWidth = math.max(4.0,
+                        seconds * pixelsPerSecond - 2).toDouble();
+                      final mode = details.localPosition.dx <= 9
+                          ? 'trim-start'
+                          : details.localPosition.dx >= clipWidth - 9
+                              ? 'trim-end' : 'move';
+                      if (mode != 'move' && clip.duration <= 0) {
+                        _feedback('Media duration is still loading');
+                        return;
+                      }
+                      _saveHistory();
+                      setState(() {
+                        _timelineDragIndex = index;
+                        _timelineDragMode = mode;
+                        _timelineDragOriginX = details.globalPosition.dx;
+                        _timelineDragThresholdX = 0;
+                        _timelineDragAppliedX = 0;
+                        _timelineDragDeltaX = 0;
+                        _timelineOriginalStart = clip.start;
+                        _timelineOriginalEnd = clip.end;
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      if (_groupDragOriginalSequence != null) {
+                        _updateSelectedGroupDrag(
+                          details.globalPosition.dx - _groupDragOriginX,
+                        );
+                        return;
+                      }
+                      if (_multiSelectMode) return;
+                      if (_timelineDragIndex == null ||
+                          _timelineDragMode == null) return;
+                      final dx = details.globalPosition.dx - _timelineDragOriginX;
+                      if (_timelineDragMode == 'move') {
+                        setState(() {
+                          var remaining = dx - _timelineDragThresholdX;
+                          while (remaining > 0 &&
+                              _timelineDragIndex! < _sequence.length - 1) {
+                            final next = _sequence[_timelineDragIndex! + 1];
+                            final nextWidth = math.max(4.0,
+                              ((next.end - next.start) / next.speed) *
+                                pixelsPerSecond).toDouble();
+                            final threshold = nextWidth / 2;
+                            if (remaining < threshold) break;
+                            final from = _timelineDragIndex!;
+                            final moved = _sequence.removeAt(from);
+                            _sequence.insert(from + 1, moved);
+                            _timelineDragIndex = from + 1;
+                            _timelineDragThresholdX += threshold;
+                            remaining = dx - _timelineDragThresholdX;
+                            HapticFeedback.selectionClick();
+                          }
+                          while (remaining < 0 && _timelineDragIndex! > 0) {
+                            final previous = _sequence[_timelineDragIndex! - 1];
+                            final previousWidth = math.max(4.0,
+                              ((previous.end - previous.start) / previous.speed) *
+                                pixelsPerSecond).toDouble();
+                            final threshold = previousWidth / 2;
+                            if (remaining > -threshold) break;
+                            final from = _timelineDragIndex!;
+                            final moved = _sequence.removeAt(from);
+                            _sequence.insert(from - 1, moved);
+                            _timelineDragIndex = from - 1;
+                            _timelineDragThresholdX -= threshold;
+                            remaining = dx - _timelineDragThresholdX;
+                            HapticFeedback.selectionClick();
+                          }
+                          _activeClipIndex = _timelineDragIndex!;
+                        });
+                        return;
+                      }
+                      if (_timelineDragIndex != index) return;
+                      final delta = dx / pixelsPerSecond * clip.speed;
+                      setState(() {
+                        if (_timelineDragMode == 'trim-start') {
+                          clip.start = (_timelineOriginalStart + delta)
+                            .clamp(0.0, math.max(0.0,
+                              _timelineOriginalEnd - 0.1)).toDouble();
+                        } else {
+                          final maxEnd = clip.duration > 0
+                              ? clip.duration : _timelineOriginalEnd;
+                          clip.end = (_timelineOriginalEnd + delta)
+                            .clamp(math.min(maxEnd, clip.start + 0.1),
+                              maxEnd).toDouble();
+                        }
+                      });
+                    },
+                    onPanEnd: (_) {
+                      if (_groupDragOriginalSequence != null) {
+                        _finishSelectedGroupDrag();
+                      } else {
+                        _finishTimelineDrag(clip);
+                      }
+                    },
+                    onPanCancel: () {
+                      if (_groupDragOriginalSequence != null) {
+                        _finishSelectedGroupDrag();
+                      } else {
+                        _finishTimelineDrag(clip);
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: selected ? C.brand.withOpacity(0.38) : const Color(0xFF26364C),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12), width: selected ? 2 : 1),
+                      ),
+                      child: Row(children: [
+                        Icon(clip.isVideo ? Icons.movie_outlined : Icons.image_outlined,
+                          size: 11, color: C.text),
+                        const SizedBox(width: 3),
+                        Expanded(child: Text('Clip ${index + 1}',
+                          maxLines: 1, overflow: TextOverflow.clip,
+                          style: dm(sz: 8, c: C.text))),
+                      ]),
+                    ),
+                  ),
+                );
+              }),
+            Positioned(left: playheadX - 1, top: 0, bottom: 0,
+              child: Container(width: 2, color: C.brand)),
+          ]),
+        )),
+      ]),
+    );
+
+    Widget overlayLane(
+      String label,
+      IconData icon,
+      bool Function(OverlayOperation) accepts,
+    ) {
+      final overlays = _overlays.asMap().entries
+          .where((entry) => accepts(entry.value))
+          .toList();
+      if (overlays.isEmpty) return const SizedBox.shrink();
+      return SizedBox(
+        height: math.max(42.0, overlays.length * 34.0).toDouble(),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          trackLabel(icon, label),
+          Expanded(child: SizedBox(
+            height: math.max(40.0, overlays.length * 34.0).toDouble(),
+            child: Stack(children: [
+              for (var laneIndex = 0; laneIndex < overlays.length; laneIndex++)
+                Builder(builder: (context) {
+                  final entry = overlays[laneIndex];
+                  final overlayIndex = entry.key;
+                  final overlay = entry.value;
+                  final startSeconds = overlay.start.clamp(0.0, 1.0) * duration;
+                  final endSeconds = overlay.end.clamp(0.0, 1.0) * duration;
+                  final left = startSeconds * pixelsPerSecond;
+                  final width = math.max(18.0,
+                    (endSeconds - startSeconds) * pixelsPerSecond).toDouble();
+                  final top = laneIndex * 34.0 + 2;
+                  final selected = _timelineOverlaySelected == overlayIndex;
+                  return Positioned(
+                    left: left, top: top, width: width, height: 28,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() => _timelineOverlaySelected = overlayIndex);
+                        _showEditTextLayerSheet(overlayIndex);
+                      },
+                      onPanStart: (details) {
+                        _saveHistory();
+                        _timelineOverlayDragIndex = overlayIndex;
+                        _timelineOverlayDragOriginX = details.globalPosition.dx;
+                        _timelineOverlayDragStart = overlay.start;
+                        _timelineOverlayDragEnd = overlay.end;
+                      },
+                      onPanUpdate: (details) {
+                        if (_timelineOverlayDragIndex != overlayIndex) return;
+                        final delta = (details.globalPosition.dx -
+                          _timelineOverlayDragOriginX) /
+                          (pixelsPerSecond * duration);
+                        final span = _timelineOverlayDragEnd -
+                          _timelineOverlayDragStart;
+                        final nextStart = (_timelineOverlayDragStart + delta)
+                          .clamp(0.0, math.max(0.0, 1.0 - span)).toDouble();
+                        setState(() {
+                          overlay.start = nextStart;
+                          overlay.end = (nextStart + span).clamp(
+                            nextStart + 0.001, 1.0).toDouble();
+                        });
+                      },
+                      onPanEnd: (_) {
+                        _timelineOverlayDragIndex = null;
+                        _syncSharedProjectFromSequence();
+                      },
+                      onPanCancel: () {
+                        _timelineOverlayDragIndex = null;
+                      },
+                      child: Container(
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(horizontal: 5),
+                        decoration: BoxDecoration(
+                          color: selected ? C.brand.withOpacity(0.48) :
+                            const Color(0xFF6A4B86),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: selected ? C.brand :
+                            Colors.white.withOpacity(0.16)),
+                        ),
+                        child: Text(overlay.text,
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: dm(sz: 8, c: Colors.white, w: FontWeight.w700)),
+                      ),
+                    ),
+                  );
+                }),
+              Positioned(left: playheadX - 1, top: 0, bottom: 0,
+                child: Container(width: 2, color: C.brand)),
+            ]),
+          )),
+        ]),
+      );
+    }
+
+    Widget audioLane({
+      required String label,
+      required IconData icon,
+      required String? title,
+      required double start,
+      required double end,
+      required Color color,
+      required VoidCallback onTap,
+    }) {
+      if (title == null || title.isEmpty) return const SizedBox.shrink();
+      final laneStart = start.clamp(0.0, duration);
+      final laneEnd = end.clamp(laneStart, duration);
+      final laneWidth = math.max(18.0,
+        (laneEnd - laneStart) * pixelsPerSecond).toDouble();
+      return SizedBox(
+        height: 42,
+        child: Row(children: [
+          trackLabel(icon, label),
+          Expanded(child: SizedBox(
+            height: 36,
+            child: Stack(children: [
+              Positioned(
+                left: laneStart * pixelsPerSecond,
+                width: laneWidth,
+                top: 3,
+                bottom: 3,
+                child: GestureDetector(
+                  onTap: onTap,
+                  child: Container(
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.symmetric(horizontal: 7),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.28),
+                      border: Border.all(color: color.withOpacity(0.8)),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Row(children: [
+                      Icon(icon, size: 11, color: C.text),
+                      const SizedBox(width: 4),
+                      Expanded(child: Text(title,
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: dm(sz: 8, c: C.text, w: FontWeight.w700))),
+                    ]),
+                  ),
+                ),
+              ),
+              Positioned(left: playheadX - 1, top: 0, bottom: 0,
+                child: Container(width: 2, color: C.brand)),
+            ]),
+          )),
+        ]),
+      );
+    }
+
+    final musicTitle = _selectedTrack?.title;
+    final voiceTitle = _voiceOverFile == null
+        ? null
+        : _voiceOverFile!.path.split(Platform.pathSeparator).last;
+    final captionLane = overlayLane(
+      'CAPTIONS',
+      Icons.closed_caption_outlined,
+      (overlay) => overlay.kind.toLowerCase().contains('caption'),
+    );
+    final lyricLane = overlayLane(
+      'LYRICS',
+      Icons.lyrics_outlined,
+      (overlay) => overlay.kind.toLowerCase().contains('lyric'),
+    );
+    final otherTextLane = overlayLane(
+      'TEXT',
+      Icons.text_fields,
+      (overlay) {
+        final kind = overlay.kind.toLowerCase();
+        return !kind.contains('caption') && !kind.contains('lyric');
+      },
+    );
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 5, 8, 7),
+      decoration: BoxDecoration(
+        color: C.text.withOpacity(0.025),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: C.text.withOpacity(0.07)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Text('TIMELINE', style: syne(sz: 9, w: FontWeight.w900, c: C.dim, ls: 1)),
+          const Spacer(),
+          if (_multiSelectMode)
+            Text(_groupMoveMode
+                ? 'Drag any selected clip to move the group'
+                : 'Tap clips to add or remove',
+              style: dm(sz: 8, c: C.dim))
+          else
+            Text('${duration.toStringAsFixed(1)}s · Drag clips to reorder',
+              style: dm(sz: 8, c: C.dim)),
+          const SizedBox(width: 6),
+          TextButton(
+            onPressed: () => setState(() {
+              if (_multiSelectMode) {
+                _multiSelectMode = false;
+                _groupMoveMode = false;
+                _selectedClips.clear();
+                if (_sequence.isNotEmpty) {
+                  _selectedClips.add(
+                    _sequence[_activeClipIndex.clamp(0, _sequence.length - 1)],
+                  );
+                }
+              } else {
+                _multiSelectMode = true;
+                if (_sequence.isNotEmpty) {
+                  _selectedClips
+                    ..clear()
+                    ..add(_sequence[_activeClipIndex.clamp(0, _sequence.length - 1)]);
+                }
+              }
+            }),
+            child: Text(_multiSelectMode ? 'DONE' : 'SELECT',
+              style: syne(sz: 8, w: FontWeight.w900, c: C.brand)),
+          ),
+        ]),
+        if (_multiSelectMode)
+          Row(children: [
+            Text('${_selectedClips.length} SELECTED', style: syne(sz: 8, w: FontWeight.w800, c: C.brand)),
+            const Spacer(),
+            if (_selectedClips.length > 1)
+              TextButton(
+                onPressed: () => setState(() => _groupMoveMode = !_groupMoveMode),
+                child: Text(_groupMoveMode ? 'CANCEL MOVE' : 'MOVE GROUP',
+                  style: syne(sz: 8, w: FontWeight.w900, c: C.brand)),
+              ),
+            TextButton(onPressed: () => setState(() { _selectedClips..clear()..addAll(_sequence); _groupMoveMode = false; }), child: Text('ALL', style: syne(sz: 8, w: FontWeight.w800, c: C.text))),
+            TextButton(onPressed: () => setState(() { _selectedClips.clear(); _groupMoveMode = false; }), child: Text('CLEAR', style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
+          ]),
+        const SizedBox(height: 4),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: math.max(viewportWidth, totalWidth + 68).toDouble(),
+            child: Column(children: [
+              Row(children: [
+                const SizedBox(width: 68),
+                SizedBox(width: totalWidth, child: timeRuler()),
+              ]),
+              videoLane(),
+              const SizedBox(height: 3),
+              audioLane(
+                label: 'MUSIC',
+                icon: Icons.music_note,
+                title: musicTitle,
+                start: _audioOffset,
+                end: _audioOffset + (_audioEnd - _audioStart),
+                color: const Color(0xFFA78BFA),
+                onTap: _showSoundPicker,
+              ),
+              audioLane(
+                label: 'VOICE',
+                icon: Icons.mic,
+                title: voiceTitle,
+                start: 0,
+                end: duration,
+                color: const Color(0xFF34D399),
+                onTap: _showVolumeSheet,
+              ),
+              captionLane,
+              lyricLane,
+              otherTextLane,
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
   Widget _buildEditorDock() {
     final dockHeight = (MediaQuery.of(context).size.height * 0.38)
         .clamp(318.0, 382.0)
@@ -1616,34 +2605,25 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     ],
                   ),
                   Spacer(),
-                  _circleBtn(Icons.save_outlined, _onSaveDraft),
-                  SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: _onNext,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: C.blue,
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: C.blue.withOpacity(0.25),
-                            blurRadius: 18,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        'Export',
-                        style: syne(
-                          sz: 11,
-                          w: FontWeight.w900,
-                          c: C.text,
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: C.text.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: C.text.withOpacity(0.08)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.layers_outlined, size: 13, color: C.brand),
+                        SizedBox(width: 6),
+                        Text(
+                          _multiSelectMode
+                              ? '${_selectedClips.length} selected'
+                              : (_sequence.isEmpty ? 'No media' : 'Editing clip ${_activeClipIndex + 1}'),
+                          style: dm(sz: 10, c: C.text),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ],
@@ -1651,7 +2631,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             ),
             SizedBox(height: 8),
             _buildBottomNav(),
-            SizedBox(height: 10),
+            SizedBox(height: 8),
+            _buildSequenceTimeline(),
+            SizedBox(height: 8),
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
@@ -1919,8 +2901,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFF60A5FA),
               visible: _videoTrackVisible,
               locked: _videoTrackLocked,
-              onVisibility: () =>
-                  setState(() => _videoTrackVisible = !_videoTrackVisible),
+              onVisibility: () {
+                final visible = !_videoTrackVisible;
+                setState(() => _videoTrackVisible = visible);
+                _setTrackVisibility(TrackType.video, visible);
+                _setTrackVisibility(TrackType.images, visible);
+              },
               onLock: () =>
                   setState(() => _videoTrackLocked = !_videoTrackLocked),
             ),
@@ -1931,8 +2917,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFFA78BFA),
               visible: _musicTrackVisible,
               locked: _musicTrackLocked,
-              onVisibility: () =>
-                  setState(() => _musicTrackVisible = !_musicTrackVisible),
+              onVisibility: () {
+                final visible = !_musicTrackVisible;
+                setState(() => _musicTrackVisible = visible);
+                _setTrackVisibility(TrackType.music, visible);
+              },
               onLock: () =>
                   setState(() => _musicTrackLocked = !_musicTrackLocked),
             ),
@@ -1943,8 +2932,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFF34D399),
               visible: _voiceTrackVisible,
               locked: _voiceTrackLocked,
-              onVisibility: () =>
-                  setState(() => _voiceTrackVisible = !_voiceTrackVisible),
+              onVisibility: () {
+                final visible = !_voiceTrackVisible;
+                setState(() => _voiceTrackVisible = visible);
+                _setTrackVisibility(TrackType.voiceOver, visible);
+              },
               onLock: () =>
                   setState(() => _voiceTrackLocked = !_voiceTrackLocked),
             ),
@@ -1956,8 +2948,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFF38BDF8),
               visible: _textTrackVisible,
               locked: _textTrackLocked,
-              onVisibility: () =>
-                  setState(() => _textTrackVisible = !_textTrackVisible),
+              onVisibility: () {
+                final visible = !_textTrackVisible;
+                setState(() => _textTrackVisible = visible);
+                _setTrackVisibility(TrackType.overlay, visible);
+              },
               onLock: () =>
                   setState(() => _textTrackLocked = !_textTrackLocked),
             ),
@@ -2415,6 +3410,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   _showTransformEditor,
                 ),
                 _quickAction(Icons.speed, 'Speed', _showSpeedSheet),
+                _quickAction(Icons.flip, 'Reverse', _toggleReverse),
                 _quickAction(Icons.blur_on, 'Fade', _showFadeSheet),
                 _quickAction(
                   Icons.compare_arrows,
@@ -2634,17 +3630,181 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
-  void _handleSplit() {
-    _saveHistory();
-    final currentPos = _videoController!.value.position.inMilliseconds / 1000.0;
-    final activeClip = _sequence[_activeClipIndex];
+  void _updateSelectedGroupDrag(double deltaX) {
+    final original = _groupDragOriginalSequence;
+    final anchor = _groupDragAnchorClip;
+    if (original == null || anchor == null || _groupDragPixelsPerSecond <= 0) {
+      return;
+    }
 
-    // Safety check: ensure split isn't at the very start or end
-    if (currentPos <= 0.5 || currentPos >= (activeClip.duration - 0.5)) {
+    final selected = original.where(_selectedClips.contains).toList();
+    if (selected.length < 2) return;
+    final firstSelectedIndex = original.indexWhere(_selectedClips.contains);
+    if (firstSelectedIndex < 0) return;
+
+    double originalGroupStart = 0;
+    for (var i = 0; i < firstSelectedIndex; i++) {
+      final item = original[i];
+      originalGroupStart += (item.end - item.start) / item.speed;
+    }
+    final groupDuration = selected.fold<double>(
+      0,
+      (sum, item) => sum + (item.end - item.start) / item.speed,
+    );
+    final targetGroupCenter = originalGroupStart +
+        (deltaX / _groupDragPixelsPerSecond) + groupDuration / 2;
+
+    final remaining = original.where((item) => !_selectedClips.contains(item)).toList();
+    var insertionIndex = 0;
+    var cursor = 0.0;
+    for (final item in remaining) {
+      final itemDuration = (item.end - item.start) / item.speed;
+      final itemCenter = cursor + itemDuration / 2;
+      if (itemCenter < targetGroupCenter) {
+        insertionIndex++;
+      } else {
+        break;
+      }
+      cursor += itemDuration;
+    }
+    insertionIndex = insertionIndex.clamp(0, remaining.length);
+
+    final reordered = <VideoClip>[
+      ...remaining.take(insertionIndex),
+      ...selected,
+      ...remaining.skip(insertionIndex),
+    ];
+    if (reordered.length != _sequence.length) return;
+
+    setState(() {
+      _sequence = reordered;
+      _activeClipIndex = _sequence.indexOf(anchor).clamp(0, _sequence.length - 1).toInt();
+    });
+  }
+
+  void _finishSelectedGroupDrag() {
+    final original = _groupDragOriginalSequence;
+    if (original == null) return;
+    final changed = _sequence.length != original.length ||
+        List.generate(
+          _sequence.length,
+          (i) => !identical(_sequence[i], original[i]),
+        ).any((different) => different);
+    setState(() {
+      _groupDragOriginalSequence = null;
+      _groupDragAnchorClip = null;
+      _groupMoveMode = false;
+      if (_sequence.isNotEmpty) {
+        _activeClipIndex = _activeClipIndex.clamp(0, _sequence.length - 1).toInt();
+      }
+    });
+    if (changed) {
+      _syncSharedProjectFromSequence();
+      HapticFeedback.mediumImpact();
+      _feedback('Selected clips moved together');
+    }
+  }
+
+  void _finishTimelineDrag(VideoClip clip) {
+    final mode = _timelineDragMode;
+    final finalIndex = _sequence.indexOf(clip);
+    if (_timelineDragIndex == null || mode == null) return;
+
+    if (mounted) {
+      setState(() {
+        if (mode == 'move' && finalIndex >= 0) {
+          _activeClipIndex = finalIndex;
+        }
+        _timelineDragIndex = null;
+        _timelineDragMode = null;
+        _timelineDragDeltaX = 0;
+        _timelineDragAppliedX = 0;
+        _timelineDragThresholdX = 0;
+      });
+    }
+    _syncSharedProjectFromSequence();
+    if (_videoController != null && mode != 'move' && finalIndex >= 0) {
+      _videoController!.seekTo(
+        Duration(milliseconds: (clip.start * 1000).round()),
+      );
+    } else if (mode == 'move' && finalIndex >= 0) {
+      _loadClip(finalIndex);
+    }
+  }
+
+  Future<void> _toggleReverse() async {
+    if (_sequence.isEmpty || _activeNavIndex == 1) {
+      TimelineClip? audioClip;
+      for (final track in _project.tracks) {
+        for (final candidate in track.clips) {
+          if (candidate.operation is AudioClipOperation) {
+            audioClip = candidate;
+            break;
+          }
+        }
+        if (audioClip != null) break;
+      }
+      if (audioClip == null) {
+        _feedback('No audio clip is available on the selected track');
+        return;
+      }
+      _saveHistory();
+      final operation = audioClip.operation as AudioClipOperation;
+      setState(() {
+        operation.reverse = !operation.reverse;
+        audioClip!.isReversed = operation.reverse;
+      });
+      _feedback(operation.reverse ? 'Audio reversed for export' : 'Audio reverse removed');
+      return;
+    }
+    if (_activeClipIndex < 0 || _activeClipIndex >= _sequence.length) return;
+    final clip = _sequence[_activeClipIndex];
+    final nextReverse = !clip.isReversed;
+    if (clip.isVideo && nextReverse && clip.reversePreviewFile == null) {
+      setState(() => _isProcessing = true);
+      final reversed = await _videoService.createReversedPreview(
+        inputVideo: clip.file,
+        hasAudio: clip.hasAudio,
+      );
+      if (!mounted) return;
+      setState(() => _isProcessing = false);
+      if (reversed == null || !reversed.existsSync()) {
+        _feedback('Could not prepare reverse preview; original clip is unchanged');
+        return;
+      }
+      clip.reversePreviewFile = reversed;
+    }
+    _saveHistory();
+    setState(() => clip.isReversed = nextReverse);
+    _loadClip(_activeClipIndex);
+    _syncSharedProjectFromSequence();
+    _feedback(clip.isVideo
+        ? (clip.isReversed ? 'Video and original audio reversed' : 'Video reverse removed')
+        : (clip.isReversed ? 'Photo mirrored horizontally' : 'Photo mirror removed'));
+  }
+
+  void _handleSplit() {
+    if (_sequence.isEmpty || _videoController == null ||
+        !_videoController!.value.isInitialized ||
+        _activeClipIndex < 0 || _activeClipIndex >= _sequence.length) {
+      _feedback("Select a video clip before splitting");
+      return;
+    }
+    final activeClip = _sequence[_activeClipIndex];
+    final playbackPos = _videoController!.value.position.inMilliseconds / 1000.0;
+    final currentPos = activeClip.isReversed
+        ? activeClip.duration - playbackPos
+        : playbackPos;
+
+
+    // Player position is source-media time: split within the trimmed range.
+    if (currentPos <= activeClip.start + 0.05 ||
+        currentPos >= activeClip.end - 0.05) {
       _feedback("Too close to edge to split");
       return;
     }
 
+    _saveHistory();
     setState(() {
       // 1. Create a copy of the current clip
       final newClip = activeClip.copy();
@@ -2659,19 +3819,44 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       _sequence.insert(_activeClipIndex + 1, newClip);
 
       HapticFeedback.mediumImpact();
-      _feedback("Clip Split! ??");
+      _feedback("Clip split");
     });
     _syncSharedProjectFromSequence();
   }
 
   void _handleDeleteClip() {
+    if (_sequence.isEmpty ||
+        _activeClipIndex < 0 ||
+        _activeClipIndex >= _sequence.length) {
+      return;
+    }
     _saveHistory();
+    VideoPlayerController? controllerToDispose;
     setState(() {
       _sequence.removeAt(_activeClipIndex);
-      if (_activeClipIndex >= _sequence.length)
-        _activeClipIndex = _sequence.length - 1;
-      if (_sequence.isNotEmpty) _loadClip(_activeClipIndex);
+      if (_sequence.isEmpty) {
+        controllerToDispose = _videoController;
+        _videoController = null;
+        _activeClipIndex = 0;
+        _isPlaying = false;
+        _timelineDragIndex = null;
+        _timelineDragMode = null;
+        _timelineDragDeltaX = 0;
+        _timelineDragAppliedX = 0;
+        _timelineDragThresholdX = 0;
+      } else {
+        if (_activeClipIndex >= _sequence.length) {
+          _activeClipIndex = _sequence.length - 1;
+        }
+        _loadClip(_activeClipIndex);
+      }
     });
+    controllerToDispose?.dispose();
+    if (_sequence.isEmpty) {
+      _project.playback.pause();
+      unawaited(_musicPlayer.pause());
+      unawaited(_voicePlayer.pause());
+    }
     _syncSharedProjectFromSequence();
   }
 
@@ -2793,7 +3978,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     (sticker) => GestureDetector(
                       onTap: () {
                         setState(
-                          () => _overlays.add(
+                          () => _addProjectOverlay(
                             OverlayOperation.fromLegacy({
                               'type': 'sticker',
                               'text': sticker,
@@ -2992,10 +4177,19 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       0.0,
       (sum, clip) => sum + (clip.end - clip.start),
     );
-    setState(() {
-      _audioStart = 0.0;
-      _audioEnd = totalVideoDuration.clamp(1.0, 60.0);
-    });
+    final end = totalVideoDuration.clamp(1.0, 60.0);
+    final current = _musicClip;
+    final operation = _musicOperation;
+    if (current != null && operation != null) {
+      _project.upsertClip(TrackType.music, TimelineClip(
+        id: current.id, start: current.start, duration: Duration(milliseconds: (end * 1000).round()),
+        file: current.file, volume: current.volume,
+        operation: AudioClipOperation(sourceType: operation.sourceType, sourceUrl: operation.sourceUrl,
+          label: operation.label, volume: operation.volume, speed: operation.speed,
+          reverse: operation.reverse, fadeIn: operation.fadeIn, fadeOut: operation.fadeOut,
+          startOffset: 0, endOffset: end),
+      ));
+    }
     _feedback("Audio Synced to ${totalVideoDuration.toStringAsFixed(1)}s");
   }
 
@@ -3011,11 +4205,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
 
     if (result is MusicTrack) {
-      setState(() {
-        _selectedTrack = result;
+      final durationSeconds = _totalDuration.clamp(1.0, 60.0);
+      _project.transact((tracks) {
+        final musicTrack = TimelineModelUtils.ensureTrackForType(tracks, TrackType.music);
+        musicTrack.clips.removeWhere((clip) => clip.operation is AudioClipOperation &&
+            (clip.operation as AudioClipOperation).sourceType == 'music');
+        TimelineModelUtils.insertClip(tracks, TimelineClip(
+          id: 'desktop-audio-music', start: Duration.zero,
+          duration: Duration(milliseconds: (durationSeconds * 1000).round()),
+          volume: 0.5,
+          operation: AudioClipOperation(sourceType: 'music', sourceUrl: result.audioUrl,
+            label: result.title, volume: 0.5, startOffset: 0, endOffset: durationSeconds),
+        ), TrackType.music);
       });
-
-      _syncAudioToVideo();
+      setState(() => _selectedTrack = result);
 
       _musicPlayer.setReleaseMode(ReleaseMode.loop);
       await _musicPlayer.play(UrlSource(result.audioUrl));
@@ -3026,15 +4229,49 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     }
   }
 
+  List<VideoClip> get _effectTargets {
+    if (_selectedClips.isNotEmpty) return _selectedClips.toList();
+    if (_sequence.isEmpty) return <VideoClip>[];
+    return <VideoClip>[_sequence[_activeClipIndex.clamp(0, _sequence.length - 1).toInt()]];
+  }
+
+  void _syncLookControlsFromClip(VideoClip clip) {
+    _selectedFilter = clip.filter;
+    _brightness = clip.brightness;
+    _contrast = clip.contrast;
+    _saturation = clip.saturation;
+    _hue = clip.hue;
+    _effectVignette = clip.vignette;
+    _effectGrain = clip.grain;
+    _effectBlur = clip.blur;
+  }
+
+  void _applyLookControlsToTargets() {
+    for (final clip in _effectTargets) {
+      clip.filter = _selectedFilter;
+      clip.brightness = _brightness;
+      clip.contrast = _contrast;
+      clip.saturation = _saturation;
+      clip.hue = _hue;
+      clip.vignette = _effectVignette;
+      clip.grain = _effectGrain;
+      clip.blur = _effectBlur;
+    }
+    _syncSharedProjectFromSequence();
+  }
+
   void _showTransformEditor() {
     if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    if (targets.isEmpty) return;
+    _saveHistory();
+    final clip = targets.first;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (context, setModalState) {
-          final clip = _sequence[_activeClipIndex];
           return Container(
             padding: EdgeInsets.fromLTRB(24, 20, 24, 28),
             decoration: BoxDecoration(
@@ -3058,33 +4295,35 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 ),
                 SizedBox(height: 18),
                 _adjustSlider('Scale', clip.scale, 0.5, 2.4, (v) {
-                  setModalState(() => clip.scale = v);
-                  setState(() {});
+                  setModalState(() { for (final target in targets) { target.scale = v; } });
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Rotation', clip.rotation, -0.8, 0.8, (v) {
-                  setModalState(() => clip.rotation = v);
-                  setState(() {});
+                  setModalState(() { for (final target in targets) { target.rotation = v; } });
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Position X', clip.offsetX, -160, 160, (v) {
-                  setModalState(() => clip.offsetX = v);
-                  setState(() {});
+                  setModalState(() { for (final target in targets) { target.offsetX = v; } });
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Position Y', clip.offsetY, -220, 220, (v) {
-                  setModalState(() => clip.offsetY = v);
-                  setState(() {});
+                  setModalState(() { for (final target in targets) { target.offsetY = v; } });
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Opacity', clip.opacity, 0.05, 1.0, (v) {
-                  setModalState(() => clip.opacity = v);
-                  setState(() {});
+                  setModalState(() { for (final target in targets) { target.opacity = v; } });
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 SizedBox(height: 10),
                 _actionRow(Icons.restart_alt, 'Reset Transform', () {
                   setModalState(() {
-                    clip.scale = 1.0;
-                    clip.rotation = 0.0;
-                    clip.offsetX = 0.0;
-                    clip.offsetY = 0.0;
-                    clip.opacity = 1.0;
+                    for (final target in targets) {
+                      target.scale = 1.0;
+                      target.rotation = 0.0;
+                      target.offsetX = 0.0;
+                      target.offsetY = 0.0;
+                      target.opacity = 1.0;
+                    }
                   });
                   setState(() {});
                 }, c: C.brand),
@@ -3097,6 +4336,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _showEffectsEditor() {
+    if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    _syncLookControlsFromClip(targets.first);
+    _saveHistory();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3119,15 +4362,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               SizedBox(height: 18),
               _adjustSlider('Vignette', _effectVignette, 0.0, 1.0, (v) {
                 setModalState(() => _effectVignette = v);
-                setState(() {});
+                for (final target in targets) { target.vignette = v; }
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Film grain', _effectGrain, 0.0, 1.0, (v) {
                 setModalState(() => _effectGrain = v);
-                setState(() {});
+                for (final target in targets) { target.grain = v; }
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Soft blur', _effectBlur, 0.0, 8.0, (v) {
                 setModalState(() => _effectBlur = v);
-                setState(() {});
+                for (final target in targets) { target.blur = v; }
+                setState(() => _syncSharedProjectFromSequence());
               }),
               SizedBox(height: 10),
               _actionRow(Icons.restart_alt, 'Reset Effects', () {
@@ -3135,6 +4381,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   _effectVignette = 0.0;
                   _effectGrain = 0.0;
                   _effectBlur = 0.0;
+                  for (final target in targets) {
+                    target.vignette = 0.0;
+                    target.grain = 0.0;
+                    target.blur = 0.0;
+                  }
                 });
                 setState(() {});
               }, c: C.brand),
@@ -3207,9 +4458,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         _effectBlur = 1.2;
         break;
     }
+    _applyLookControlsToTargets();
   }
 
   void _showFilterSheet() {
+    if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    _syncLookControlsFromClip(targets.first);
+    _saveHistory();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3439,20 +4695,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         player = CustomPaint(
           painter: ShaderPainter(
             shader: _shaderProgram!.fragmentShader(),
-            brightness: _brightness,
-            contrast: _contrast,
-            saturation: _saturation,
-            hue: _hue,
+            brightness: clip?.brightness ?? 0.0,
+            contrast: clip?.contrast ?? 1.0,
+            saturation: clip?.saturation ?? 1.0,
+            hue: clip?.hue ?? 0.0,
           ),
           child: player,
         );
       }
 
-      if (_effectBlur > 0) {
+      if ((clip?.blur ?? 0.0) > 0) {
         player = ImageFiltered(
           imageFilter: ui.ImageFilter.blur(
-            sigmaX: _effectBlur,
-            sigmaY: _effectBlur,
+            sigmaX: clip!.blur,
+            sigmaY: clip.blur,
           ),
           child: player,
         );
@@ -3462,27 +4718,48 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         fit: StackFit.expand,
         children: [
           player,
-          if (_effectVignette > 0)
+          if ((clip?.vignette ?? 0.0) > 0)
             IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
                     colors: [
                       Colors.transparent,
-                      Colors.black.withOpacity(0.72 * _effectVignette),
+                      Colors.black.withOpacity(0.72 * clip!.vignette),
                     ],
                     stops: const [0.55, 1.0],
                   ),
                 ),
               ),
             ),
-          if (_effectGrain > 0)
+          if ((clip?.grain ?? 0.0) > 0)
             IgnorePointer(
               child: CustomPaint(
-                painter: GrainPainter(intensity: _effectGrain),
+                painter: GrainPainter(intensity: clip!.grain),
               ),
             ),
         ],
+      );
+    }
+    if (_sequence.isNotEmpty &&
+        _activeClipIndex >= 0 &&
+        _activeClipIndex < _sequence.length &&
+        !_sequence[_activeClipIndex].isVideo) {
+      final clip = _sequence[_activeClipIndex];
+      Widget photo = Image.file(clip.file, fit: BoxFit.contain);
+      photo = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.identity()..scale(clip.isReversed ? -clip.scale : clip.scale, clip.scale),
+        child: Transform.translate(
+          offset: Offset(clip.offsetX, clip.offsetY),
+          child: Transform.rotate(angle: clip.rotation, child: photo),
+        ),
+      );
+      return Center(
+        child: AspectRatio(
+          aspectRatio: ratio,
+          child: ClipRect(child: Opacity(opacity: clip.opacity.clamp(0.05, 1.0), child: photo)),
+        ),
       );
     }
     return Center(child: CircularProgressIndicator(color: C.brand));
@@ -3509,6 +4786,64 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           return globalTime >= start && globalTime <= end;
         })
         .map((o) {
+          final overlayStart = o.start * totalDuration;
+          final overlayEnd = o.end * totalDuration;
+          const animationDuration = 0.35;
+          final enterProgress = ((globalTime - overlayStart) / animationDuration).clamp(0.0, 1.0);
+          final exitProgress = ((overlayEnd - globalTime) / animationDuration).clamp(0.0, 1.0);
+          var animationOpacity = 1.0;
+          var animationOffset = Offset.zero;
+          var animationScale = 1.0;
+          switch (o.animationIn) {
+            case 'fade':
+              animationOpacity *= enterProgress;
+              break;
+            case 'slide_up':
+              animationOffset += Offset(0, 36 * (1 - enterProgress));
+              break;
+            case 'slide_left':
+              animationOffset += Offset(48 * (1 - enterProgress), 0);
+              break;
+            case 'pop':
+              animationScale = 0.82 + (0.18 * enterProgress);
+              animationOpacity *= ((globalTime - overlayStart) / 0.08).clamp(0.0, 1.0);
+              break;
+            case 'zoom':
+              animationScale = 0.55 + (0.45 * enterProgress);
+              animationOpacity *= ((globalTime - overlayStart) / 0.08).clamp(0.0, 1.0);
+              break;
+            case 'bounce':
+              animationOffset += Offset(
+                0,
+                -18 * math.sin(enterProgress * math.pi) * (1 - enterProgress),
+              );
+              break;
+          }
+          switch (o.animationOut) {
+            case 'fade':
+              animationOpacity *= exitProgress;
+              break;
+            case 'slide_up':
+              animationOffset += Offset(0, -36 * (1 - exitProgress));
+              break;
+            case 'slide_left':
+              animationOffset += Offset(-48 * (1 - exitProgress), 0);
+              break;
+            case 'pop':
+              animationScale *= 0.82 + (0.18 * exitProgress);
+              animationOpacity *= exitProgress;
+              break;
+            case 'zoom':
+              animationScale *= 0.55 + (0.45 * exitProgress);
+              animationOpacity *= exitProgress;
+              break;
+            case 'bounce':
+              animationOffset += Offset(
+                0,
+                18 * math.sin(exitProgress * math.pi) * (1 - exitProgress),
+              );
+              break;
+          }
           return Positioned.fill(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -3539,34 +4874,129 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     ),
                   );
                 } else {
-                  child = Text(
-                    o.text,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: o.fontSize,
-                      color: o.color.withOpacity(o.opacity),
-                      fontWeight: FontWeight.bold,
-                      shadows: o.shadow
-                          ? [Shadow(blurRadius: 8, color: Colors.black54)]
-                          : null,
+                  final textAlign = o.align == 'left'
+                      ? TextAlign.left
+                      : o.align == 'right'
+                          ? TextAlign.right
+                          : TextAlign.center;
+                  final customFontAvailable = o.fontFilePath != null &&
+                      o.fontFilePath!.isNotEmpty &&
+                      _loadedTextFontFamilies.contains(o.fontFamily) &&
+                      File(o.fontFilePath!).existsSync();
+                  final fontFamily = customFontAvailable
+                      ? o.fontFamily
+                      : switch (o.themeId) {
+                    'afro' => 'serif',
+                    'bold' => 'Roboto',
+                    _ => switch (o.fontFamily.toLowerCase()) {
+                        'serif' => 'serif',
+                        'monospace' => 'monospace',
+                        'cursive' => 'cursive',
+                        'roboto' || 'syne' => 'Roboto',
+                        _ => 'Roboto',
+                      },
+                  };
+                  final themeShadowColor = switch (o.themeId) {
+                    'neon' => const Color(0xFF16E8F2),
+                    'karaoke' => const Color(0xFFFFD166),
+                    'afro' => const Color(0xFFFF8A3D),
+                    _ => Colors.black54,
+                  };
+                  final themeShadow = o.themeId != 'minimal' &&
+                      (o.shadow || const {'cinematic', 'neon', 'karaoke', 'afro'}.contains(o.themeId));
+                  final themeStroke = o.stroke || o.themeId == 'bold';
+                  final themeFontWeight = o.themeId == 'bold' || o.themeId == 'afro'
+                      ? FontWeight.w900
+                      : FontWeight.bold;
+                  final fillStyle = TextStyle(
+                    fontSize: o.fontSize,
+                    fontFamily: o.themeId == 'afro' ? 'serif' : fontFamily,
+                    color: o.color.withOpacity(o.opacity),
+                    fontWeight: themeFontWeight,
+                    letterSpacing: o.themeId == 'cinematic' ? 1.1 : 0,
+                    shadows: themeShadow
+                        ? [
+                            Shadow(
+                              blurRadius: o.themeId == 'neon' ? 18 : 8,
+                              color: themeShadowColor,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  );
+                  final karaokeColor = o.themeId == 'neon'
+                      ? const Color(0xFF7DF9FF)
+                      : o.themeId == 'afro'
+                          ? const Color(0xFFFFB45C)
+                          : const Color(0xFFFFD166);
+                  final lyricSpans = o.wordTimings.isEmpty
+                      ? <TextSpan>[TextSpan(text: o.text)]
+                      : o.wordTimings.map((word) {
+                          final wordStart = (word['start'] as num?)?.toDouble() ?? 0;
+                          final wordEnd = (word['end'] as num?)?.toDouble() ?? 0;
+                          final wordText = (word['text'] ?? '').toString();
+                          final isActiveWord = globalTime - overlayStart >= wordStart &&
+                              globalTime - overlayStart < wordEnd;
+                          return TextSpan(
+                            text: '$wordText ',
+                            style: isActiveWord ? TextStyle(color: karaokeColor) : null,
+                          );
+                        }).toList();
+                  child = Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: o.background.withOpacity(o.backgroundOpacity),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (themeStroke)
+                          Text(
+                            o.text,
+                            textAlign: textAlign,
+                            style: TextStyle(
+                              fontSize: o.fontSize,
+                              fontFamily: fontFamily,
+                              fontWeight: FontWeight.bold,
+                              foreground: ui.Paint()
+                                ..style = ui.PaintingStyle.stroke
+                                ..strokeWidth = 2
+                                ..color = Colors.black,
+                            ),
+                          ),
+                        Text.rich(
+                          TextSpan(style: fillStyle, children: lyricSpans),
+                          textAlign: textAlign,
+                        ),
+                      ],
                     ),
                   );
                 }
 
-                return Positioned(
-                  left: x,
-                  top: y,
+                child = Opacity(
+                  opacity: animationOpacity.clamp(0.0, 1.0),
                   child: Transform.translate(
-                    offset: Offset(-150, -50), // Center approximation
-                    child: Transform.rotate(
-                      angle: o.rotation,
-                      child: Transform.scale(
-                        scale: o.scale,
-                        child: SizedBox(
-                          width: 300,
-                          height: 100,
-                          child: Center(child: child),
-                        ),
+                    offset: animationOffset,
+                    child: child,
+                  ),
+                );
+                final left = o.align == 'left'
+                    ? x
+                    : o.align == 'right'
+                        ? x - 300
+                        : x - 150;
+                return Positioned(
+                  left: left,
+                  top: y - 50,
+                  child: Transform.rotate(
+                    angle: o.rotation,
+                    child: Transform.scale(
+                      scale: o.scale * animationScale,
+                      child: SizedBox(
+                        width: 300,
+                        height: 100,
+                        child: Center(child: child),
                       ),
                     ),
                   ),
@@ -3578,30 +5008,720 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         .toList();
   }
 
-  void _showTextOverlaySheet() {
-    setState(() {
-      _saveHistory();
-      _overlays.add(
-        OverlayOperation.fromLegacy({
-          'type': 'text',
-          'text': 'Enter Text',
-          'start': 0.0,
-          'end': 1.0,
-          'x': 0.5,
-          'y': 0.5,
-          'scale': 1.0,
-          'rotation': 0.0,
-          'opacity': 1.0,
-          'fontSize': 28.0,
-          'color': C.text,
-          'background': Colors.black,
-          'backgroundOpacity': 0.0,
-          'shadow': true,
-        }),
-      );
-      _syncSharedProjectFromSequence();
-    });
-    _feedback("Text overlay added");
+  Future<void> _registerTextFont(String family, String path) async {
+    if (_loadedTextFontFamilies.contains(family)) return;
+    final fontFile = File(path);
+    if (!await fontFile.exists()) throw StateError('Imported font file is missing.');
+    final bytes = await fontFile.readAsBytes();
+    final loader = FontLoader(family)..addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+    await loader.load();
+    _loadedTextFontFamilies.add(family);
+  }
+
+  Future<void> _loadProjectTextFonts() async {
+    var restoredAny = false;
+    for (final overlay in _overlays) {
+      final path = overlay.fontFilePath;
+      if (path == null || path.isEmpty || !overlay.fontFamily.startsWith('NecxaFont_')) continue;
+      try { await _registerTextFont(overlay.fontFamily, path); restoredAny = true; }
+      catch (error) { debugPrint('Text Studio font restore failed: $error'); }
+    }
+    if (restoredAny && mounted) setState(() {});
+  }
+
+  Future<Map<String, String>?> _pickTextFont() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['ttf', 'otf'], withData: true);
+    if (result == null || result.files.isEmpty) return null;
+    final selected = result.files.single;
+    final bytes = selected.bytes ?? (selected.path == null ? null : await File(selected.path!).readAsBytes());
+    if (bytes == null || bytes.length < 4) throw StateError('Could not read the selected font file.');
+    final isTrueType = bytes[0] == 0 && bytes[1] == 1 && bytes[2] == 0 && bytes[3] == 0;
+    final signature = String.fromCharCodes(bytes.take(4));
+    if (!isTrueType && signature != 'OTTO' && signature != 'ttcf') {
+      throw StateError('The selected file is not a supported TTF or OTF font.');
+    }
+    final support = await getApplicationSupportDirectory();
+    final fontDirectory = Directory('${support.path}/necxa_fonts');
+    await fontDirectory.create(recursive: true);
+    final safeName = selected.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final fontHash = bytes.fold<int>(0, (hash, byte) => ((hash * 31) + byte) & 0x7fffffff);
+    final destination = File('${fontDirectory.path}/${fontHash}_$safeName');
+    await destination.writeAsBytes(bytes, flush: true);
+    final family = 'NecxaFont_$fontHash';
+    await _registerTextFont(family, destination.path);
+    return {'family': family, 'path': destination.path};
+  }
+
+  void _showTextOverlaySheet({String initialMode = 'single'}) {
+    final textController = TextEditingController();
+    var contentMode = initialMode;
+    var start = 0.0;
+    var end = 1.0;
+    var fontSize = initialMode == 'captions' ? 22.0 : 30.0;
+    var selectedTheme = initialMode == 'captions' ? 'minimal' : 'cinematic';
+    var animationIn = 'fade';
+    var animationOut = 'fade';
+    var selectedColor = const Color(0xFFF7F4ED);
+    var fontFamily = 'Roboto';
+    String? fontFilePath;
+    var align = 'center';
+    var isTranscribing = false;
+    List<Map<String, dynamic>>? aiCaptionSegments;
+    final duration = _totalDuration > 0 ? _totalDuration : 30.0;
+    final startSecondsController = TextEditingController(text: '0.0');
+    final endSecondsController = TextEditingController(text: duration.toStringAsFixed(1));
+    final themes = <String, Map<String, dynamic>>{
+      'cinematic': {'label': 'Cinematic', 'color': const Color(0xFFF7F4ED), 'size': 30.0, 'shadow': true},
+      'neon': {'label': 'Neon', 'color': const Color(0xFF7DF9FF), 'size': 34.0, 'shadow': true},
+      'karaoke': {'label': 'Karaoke', 'color': const Color(0xFFFFD166), 'size': 32.0, 'shadow': true},
+      'minimal': {'label': 'Minimal', 'color': const Color(0xFFFFFFFF), 'size': 26.0, 'shadow': false},
+      'bold': {'label': 'Bold', 'color': const Color(0xFFFFFFFF), 'size': 38.0, 'shadow': true},
+      'afro': {'label': 'Afro glow', 'color': const Color(0xFFFFB45C), 'size': 32.0, 'shadow': true},
+    };
+    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop', 'zoom', 'bounce'];
+    const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF111722),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, refresh) {
+          Widget sectionTitle(String label) => Padding(
+            padding: const EdgeInsets.only(top: 16, bottom: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(label.toUpperCase(), style: syne(sz: 10, w: FontWeight.w800, c: C.sub, ls: 1.2)),
+            ),
+          );
+          final isMultiLine = contentMode != 'single';
+          final layers = _overlays.asMap().entries.toList();
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(18, 16, 18, MediaQuery.of(context).viewInsets.bottom + 20),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Expanded(child: Text('TEXT STUDIO', style: syne(sz: 16, w: FontWeight.w900, c: C.text, ls: 1))),
+                      IconButton(onPressed: isTranscribing ? null : () => Navigator.pop(sheetContext), icon: Icon(Icons.close, color: C.sub)),
+                    ]),
+                    Text('Build captions, lyrics videos and animated titles.', style: dm(sz: 11, c: C.sub)),
+                    const SizedBox(height: 14),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'single', label: Text('Title'), icon: Icon(Icons.title)),
+                        ButtonSegment(value: 'captions', label: Text('Captions'), icon: Icon(Icons.closed_caption_outlined)),
+                        ButtonSegment(value: 'lyrics', label: Text('Lyrics'), icon: Icon(Icons.music_note)),
+                      ],
+                      selected: {contentMode},
+                      onSelectionChanged: (value) => refresh(() {
+                        contentMode = value.first;
+                        if (contentMode == 'captions') {
+                          fontSize = 22;
+                          selectedTheme = 'minimal';
+                          selectedColor = const Color(0xFFFFFFFF);
+                        } else if (contentMode == 'lyrics') {
+                          fontSize = 30;
+                        }
+                      }),
+                      showSelectedIcon: false,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: textController,
+                      minLines: isMultiLine ? 4 : 2,
+                      maxLines: 10,
+                      style: dm(sz: 14, c: C.text),
+                      decoration: InputDecoration(
+                        hintText: contentMode == 'lyrics'
+                            ? 'Enter one lyric line per row…'
+                            : contentMode == 'captions'
+                                ? 'Paste or type captions, one caption per row…'
+                                : 'Type your title or caption…',
+                        hintStyle: dm(sz: 12, c: C.dim),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.045),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      ),
+                    ),
+                    if (contentMode == 'captions' || contentMode == 'lyrics') ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: isTranscribing ? null : () async {
+                            if (_sequence.isEmpty || _activeClipIndex >= _sequence.length) {
+                              _feedback('Add and select a video clip first.');
+                              return;
+                            }
+                            final clip = _sequence[_activeClipIndex];
+                            if (!clip.isVideo || !clip.hasAudio) {
+                              _feedback('Select a video clip that contains audio.');
+                              return;
+                            }
+                            refresh(() => isTranscribing = true);
+                            File? extractedAudio;
+                            try {
+                              extractedAudio = await VideoEnhancementService()
+                                  .extractAudioForTranscription(
+                                    clip.file,
+                                    start: clip.start,
+                                    end: clip.end,
+                                    reverse: clip.isReversed,
+                                  );
+                              if (extractedAudio == null) {
+                                _feedback('Could not extract audio from this clip.');
+                                return;
+                              }
+                              final result = await NecxaAI.transcribeMedia(extractedAudio);
+                              if (result['success'] != true) {
+                                _feedback(result['error']?.toString() ?? 'AI transcription failed.');
+                                return;
+                              }
+                              final transcript = (result['transcript'] ?? '').toString().trim();
+                              if (transcript.isEmpty) {
+                                _feedback('No speech was detected in the selected clip.');
+                                return;
+                              }
+
+                              double clipOffset = 0;
+                              for (var i = 0; i < _activeClipIndex; i++) {
+                                final prior = _sequence[i];
+                                clipOffset += (prior.end - prior.start) / prior.speed;
+                              }
+                              final clipDuration = ((clip.end - clip.start) / clip.speed)
+                                  .clamp(0.1, double.infinity).toDouble();
+                              final wordResults = result['words'] is List ? result['words'] as List : <dynamic>[];
+                              final rawSegments = wordResults.isNotEmpty
+                                  ? wordResults
+                                  : (result['segments'] is List ? result['segments'] as List : <dynamic>[]);
+                              final timed = <Map<String, dynamic>>[];
+                              var lineText = '';
+                              var lineStart = 0.0;
+                              var lineEnd = 0.0;
+                              var lineWords = <Map<String, dynamic>>[];
+                              void flushLine() {
+                                if (lineText.trim().isEmpty) return;
+                                timed.add({'text': lineText.trim(), 'start': lineStart, 'end': lineEnd,
+                                  'words': lineWords.map((word) => <String, dynamic>{
+                                    'text': word['text'],
+                                    'start': (word['start'] as double) - lineStart,
+                                    'end': (word['end'] as double) - lineStart,
+                                  }).toList()});
+                                lineText = '';
+                                lineWords = <Map<String, dynamic>>[];
+                              }
+                              for (final item in rawSegments) {
+                                if (item is! Map) continue;
+                                final phrase = (item['text'] ?? item['word'] ?? '').toString().trim();
+                                final sourceStart = (item['start'] as num?)?.toDouble();
+                                final sourceEnd = (item['end'] as num?)?.toDouble();
+                                if (phrase.isEmpty || sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
+                                final segmentStart = (sourceStart / clip.speed).clamp(0.0, clipDuration).toDouble();
+                                final segmentEnd = (sourceEnd / clip.speed).clamp(0.0, clipDuration).toDouble();
+                                if (segmentEnd <= segmentStart) continue;
+                                final pieces = phrase.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+                                final totalChars = pieces.fold<int>(0, (sum, part) => sum + part.length);
+                                var consumedChars = 0;
+                                for (final piece in pieces) {
+                                  final pieceStart = segmentStart + (segmentEnd - segmentStart) * consumedChars / totalChars;
+                                  consumedChars += piece.length;
+                                  final pieceEnd = segmentStart + (segmentEnd - segmentStart) * consumedChars / totalChars;
+                                  if (lineText.isNotEmpty && (lineText.length + piece.length + 1 > 42 || pieceStart - lineStart > 4.2)) flushLine();
+                                  if (lineText.isEmpty) lineStart = pieceStart;
+                                  lineText = lineText.isEmpty ? piece : '$lineText $piece';
+                                  lineEnd = pieceEnd;
+                                  lineWords.add({'text': piece, 'start': pieceStart, 'end': pieceEnd});
+                                }
+                              }
+                              flushLine();
+
+                              if (timed.isEmpty) {
+                                final words = transcript.split(RegExp(r'\s+'));
+                                final lines = <String>[];
+                                var current = '';
+                                for (final word in words) {
+                                  final candidate = current.isEmpty ? word : '$current $word';
+                                  if (candidate.length > 42 && current.isNotEmpty) {
+                                    lines.add(current);
+                                    current = word;
+                                  } else {
+                                    current = candidate;
+                                  }
+                                }
+                                if (current.isNotEmpty) lines.add(current);
+                                final weights = lines.map((line) => line.split(RegExp(r'\s+')).length).toList();
+                                final totalWeight = weights.fold<int>(0, (sum, weight) => sum + weight);
+                                var cursor = 0.0;
+                                for (var i = 0; i < lines.length; i++) {
+                                  final span = totalWeight == 0 ? 0.0 : clipDuration * weights[i] / totalWeight;
+                                  final lineEnd = i == lines.length - 1 ? clipDuration : cursor + span;
+                                  final words = lines[i].split(RegExp(r'\s+')).where((word) => word.isNotEmpty).toList();
+                                  final weight = words.fold<int>(0, (sum, word) => sum + word.length);
+                                  var wordCursor = 0.0;
+                                  final wordTimings = <Map<String, dynamic>>[];
+                                  for (final word in words) {
+                                    final wordSpan = weight == 0 ? 0.0 : span * word.length / weight;
+                                    wordTimings.add({'text': word, 'start': wordCursor, 'end': wordCursor + wordSpan});
+                                    wordCursor += wordSpan;
+                                  }
+                                  timed.add({'text': lines[i], 'start': cursor, 'end': lineEnd, 'words': wordTimings});
+                                  cursor += span;
+                                }
+                              }
+
+                              aiCaptionSegments = timed;
+                              textController.text = timed.map((segment) => segment['text']).join('\n');
+                              refresh(() => isTranscribing = false);
+                              final readyLabel = contentMode == 'lyrics' ? 'timed lyrics' : 'captions';
+                              _feedback(result['persisted'] == true
+                                  ? 'AI transcript ready and saved to Supabase 2. Review it, then add the $readyLabel.'
+                                  : 'AI transcript ready. Review it, then add the $readyLabel.');
+                            } catch (error) {
+                              _feedback('Caption generation failed. Please try again.');
+                              debugPrint('Text Studio caption generation error: $error');
+                            } finally {
+                              if (extractedAudio != null) {
+                                try { await extractedAudio.delete(); } catch (_) {}
+                              }
+                              refresh(() => isTranscribing = false);
+                            }
+                          },
+                          icon: isTranscribing
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.auto_awesome),
+                          label: Text(isTranscribing
+                              ? 'TRANSCRIBING AUDIO…'
+                              : contentMode == 'lyrics'
+                                  ? 'SYNC LYRICS WITH AI'
+                                  : 'GENERATE CAPTIONS WITH AI'),
+                        ),
+                      ),
+                      Text('Uses the selected clip audio. It is sent securely through Supabase 2 to Necxa AI Engine for transcription.', style: dm(sz: 10, c: C.dim)),
+                      Text('Word highlights use exact word timestamps when supplied; segment-only transcripts are split into estimated word timings.', style: dm(sz: 10, c: C.dim)),
+                    ],
+                    sectionTitle('Display timer'),
+                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      Text('Display duration  ${((end - start) * duration).toStringAsFixed(2)}s', style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
+                      Text('Project ${duration.toStringAsFixed(1)}s', style: dm(sz: 10, c: C.dim)),
+                    ]),
+                    Row(children: [
+                      Expanded(child: TextField(controller: startSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'Start (seconds)', isDense: true), onChanged: (value) {
+                        final seconds = double.tryParse(value); if (seconds == null) return;
+                        refresh(() { start = (seconds / duration).clamp(0.0, 0.999).toDouble(); if (start >= end) end = (start + 0.001).clamp(0.0, 1.0).toDouble(); endSecondsController.text = (end * duration).toStringAsFixed(2); });
+                      })),
+                      const SizedBox(width: 10),
+                      Expanded(child: TextField(controller: endSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'End (seconds)', isDense: true), onChanged: (value) {
+                        final seconds = double.tryParse(value); if (seconds == null) return;
+                        refresh(() => end = (seconds / duration).clamp(start + 0.001, 1.0).toDouble());
+                      })),
+                    ]),
+                    RangeSlider(
+                      values: RangeValues(start, end),
+                      min: 0,
+                      max: 1,
+                      divisions: 100,
+                      activeColor: C.brand,
+                      onChanged: (value) => refresh(() { start = value.start; end = value.end; startSecondsController.text = (start * duration).toStringAsFixed(2); endSecondsController.text = (end * duration).toStringAsFixed(2); }),
+                    ),
+                    if (isMultiLine)
+                      Text('Each non-empty row becomes its own editable timeline layer, initially spaced evenly across this range. Adjust individual timings below.', style: dm(sz: 10, c: C.dim)),
+                    sectionTitle('Themes'),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: themes.entries.map((entry) {
+                        final active = selectedTheme == entry.key;
+                        return ChoiceChip(
+                          label: Text(entry.value['label'] as String),
+                          selected: active,
+                          onSelected: (_) => refresh(() {
+                            selectedTheme = entry.key;
+                            selectedColor = entry.value['color'] as Color;
+                            fontSize = entry.value['size'] as double;
+                          }),
+                          labelStyle: dm(sz: 11, c: active ? Colors.black : C.text, w: FontWeight.w700),
+                          selectedColor: entry.value['color'] as Color,
+                          backgroundColor: Colors.white.withOpacity(0.06),
+                        );
+                      }).toList(),
+                    ),
+                    sectionTitle('Typography'),
+                    Row(children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: fontFamily,
+                          dropdownColor: const Color(0xFF202938),
+                          style: dm(sz: 12, c: C.text),
+                          decoration: const InputDecoration(labelText: 'Font', isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
+                          items: <String>{...fontFamilies, if (fontFilePath != null) fontFamily}.map((value) => DropdownMenuItem(value: value, child: Text(value.startsWith('NecxaFont_') ? 'Imported font' : value))).toList(),
+                          onChanged: (value) => refresh(() { if (value != fontFamily) fontFilePath = null; fontFamily = value ?? 'Roboto'; }),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          try {
+                            final picked = await _pickTextFont();
+                            if (picked != null) refresh(() { fontFamily = picked['family']!; fontFilePath = picked['path']; });
+                          } catch (error) {
+                            _feedback('Could not import this font file. Use a valid TTF or OTF font.');
+                            debugPrint('Text Studio font import failed: $error');
+                          }
+                        },
+                        icon: const Icon(Icons.upload_file, size: 17),
+                        label: const Text('Import font'),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: align,
+                          dropdownColor: const Color(0xFF202938),
+                          style: dm(sz: 12, c: C.text),
+                          decoration: const InputDecoration(labelText: 'Alignment', isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
+                          items: const [
+                            DropdownMenuItem(value: 'left', child: Text('Left')),
+                            DropdownMenuItem(value: 'center', child: Text('Center')),
+                            DropdownMenuItem(value: 'right', child: Text('Right')),
+                          ],
+                          onChanged: (value) => refresh(() => align = value ?? 'center'),
+                        ),
+                      ),
+                    ]),
+                    sectionTitle('Text size'),
+                    Slider(
+                      value: fontSize.clamp(16.0, 64.0).toDouble(),
+                      min: 16,
+                      max: 64,
+                      divisions: 24,
+                      activeColor: C.brand,
+                      label: fontSize.round().toString(),
+                      onChanged: (value) => refresh(() => fontSize = value),
+                    ),
+                    sectionTitle('Entrance animation'),
+                    DropdownButtonFormField<String>(
+                      value: animationIn,
+                      dropdownColor: const Color(0xFF202938),
+                      style: dm(sz: 12, c: C.text),
+                      decoration: const InputDecoration(isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
+                      items: animations.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_', ' ').toUpperCase()))).toList(),
+                      onChanged: (value) => refresh(() => animationIn = value ?? 'fade'),
+                    ),
+                    sectionTitle('Exit animation'),
+                    DropdownButtonFormField<String>(
+                      value: animationOut,
+                      dropdownColor: const Color(0xFF202938),
+                      style: dm(sz: 12, c: C.text),
+                      decoration: const InputDecoration(isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
+                      items: animations.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_', ' ').toUpperCase()))).toList(),
+                      onChanged: (value) => refresh(() => animationOut = value ?? 'fade'),
+                    ),
+                    if (layers.isNotEmpty) ...[
+                      sectionTitle('Existing text layers · ${layers.length}'),
+                      ...layers.map((entry) {
+                        final overlay = entry.value;
+                        final from = (overlay.start * duration).toStringAsFixed(1);
+                        final to = (overlay.end * duration).toStringAsFixed(1);
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 7),
+                          decoration: BoxDecoration(color: Colors.white.withOpacity(0.045), borderRadius: BorderRadius.circular(10)),
+                          child: ListTile(
+                            dense: true,
+                            title: Text(overlay.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: dm(sz: 12, c: C.text, w: FontWeight.w700)),
+                            subtitle: Text('${from} s – ${to} s · ${overlay.themeId}', style: dm(sz: 10, c: C.dim)),
+                            trailing: IconButton(
+                              tooltip: 'Edit layer',
+                              icon: Icon(Icons.tune, color: C.brand, size: 18),
+                              onPressed: () {
+                                Navigator.pop(sheetContext);
+                                _showEditTextLayerSheet(entry.key);
+                              },
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: C.brand, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14)),
+                        icon: const Icon(Icons.add),
+                        label: Text(contentMode == 'lyrics' ? 'ADD LYRIC LINES' : contentMode == 'captions' ? 'ADD CAPTION LAYERS' : 'ADD TEXT LAYER', style: syne(sz: 11, w: FontWeight.w900, c: Colors.black)),
+                        onPressed: () {
+                          final value = textController.text.trim();
+                          if (value.isEmpty || end <= start) return;
+                          final lines = isMultiLine
+                              ? value.split(RegExp(r'\r?\n')).map((line) => line.trim()).where((line) => line.isNotEmpty).toList()
+                              : [value];
+                          if (lines.isEmpty) return;
+                          _saveHistory();
+                          final interval = (end - start) / lines.length;
+                          double clipOffset = 0;
+                          double clipDuration = 0;
+                          if ((contentMode == 'captions' || contentMode == 'lyrics') &&
+                              aiCaptionSegments != null &&
+                              aiCaptionSegments!.length == lines.length &&
+                              _activeClipIndex < _sequence.length) {
+                            for (var i = 0; i < _activeClipIndex; i++) {
+                              final prior = _sequence[i];
+                              clipOffset += (prior.end - prior.start) / prior.speed;
+                            }
+                            final clip = _sequence[_activeClipIndex];
+                            clipDuration = ((clip.end - clip.start) / clip.speed)
+                                .clamp(0.1, double.infinity).toDouble();
+                          }
+                          setState(() {
+                            for (var index = 0; index < lines.length; index++) {
+                              final hasAiTiming = (contentMode == 'captions' || contentMode == 'lyrics') &&
+                                  aiCaptionSegments != null &&
+                                  aiCaptionSegments!.length == lines.length &&
+                                  clipDuration > 0;
+                              final segment = hasAiTiming ? aiCaptionSegments![index] : null;
+                              final layerStart = hasAiTiming
+                                  ? ((clipOffset + (segment!['start'] as num).toDouble()) / duration).clamp(0.0, 0.999).toDouble()
+                                  : start + interval * index;
+                              final layerEnd = hasAiTiming
+                                  ? ((clipOffset + (segment!['end'] as num).toDouble()) / duration).clamp(layerStart + 0.001, 1.0).toDouble()
+                                  : (index == lines.length - 1 ? end : start + interval * (index + 1));
+                              _addProjectOverlay(OverlayOperation(
+                                kind: 'text',
+                                text: lines[index],
+                                start: layerStart,
+                                end: layerEnd,
+                                position: Offset(0.5, contentMode == 'captions' ? 0.86 : 0.72),
+                                fontSize: fontSize,
+                                color: selectedColor,
+                                shadow: themes[selectedTheme]!['shadow'] as bool,
+                                align: align,
+                                fontFamily: fontFamily,
+                                animationIn: animationIn,
+                                animationOut: animationOut,
+                                themeId: selectedTheme,
+                                fontFilePath: fontFilePath,
+                                wordTimings: segment != null && segment['words'] is List
+                                    ? (segment['words'] as List).whereType<Map>().map((word) => Map<String, dynamic>.from(word)).toList()
+                                    : _buildEvenWordTimings(lines[index], (layerEnd - layerStart) * duration),
+                              ));
+                            }
+                            _syncSharedProjectFromSequence();
+                          });
+                          Navigator.pop(sheetContext);
+                          _feedback(contentMode == 'lyrics' ? '${lines.length} timed lyric lines added' : contentMode == 'captions' ? '${lines.length} caption layers added' : 'Text layer added');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(() { textController.dispose(); startSecondsController.dispose(); endSecondsController.dispose(); });
+  }
+
+  List<Map<String, dynamic>> _buildEvenWordTimings(String text, double duration) {
+    final words = text.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).toList();
+    final totalWeight = words.fold<int>(0, (sum, word) => sum + word.length);
+    if (words.isEmpty || totalWeight == 0 || duration <= 0) return const [];
+    var cursor = 0.0;
+    return words.map((word) {
+      final span = duration * word.length / totalWeight;
+      final timing = <String, dynamic>{'text': word, 'start': cursor, 'end': cursor + span};
+      cursor += span;
+      return timing;
+    }).toList();
+  }
+
+  void _showEditTextLayerSheet(int index) {
+    if (index < 0 || index >= _overlays.length) return;
+    final overlay = _overlays[index];
+    final controller = TextEditingController(text: overlay.text);
+    var start = overlay.start.clamp(0.0, 1.0).toDouble();
+    var end = overlay.end.clamp(start + 0.001, 1.0).toDouble();
+    var fontSize = overlay.fontSize.clamp(16.0, 64.0).toDouble();
+    var fontFamily = overlay.fontFamily.toLowerCase() == 'syne' ? 'Roboto' : overlay.fontFamily;
+    var selectedColor = overlay.color;
+    var animationIn = overlay.animationIn;
+    var animationOut = overlay.animationOut;
+    var depthLayer = overlay.depthLayer;
+    var fontFilePath = overlay.fontFilePath;
+    final startSecondsController = TextEditingController(text: (start * (_totalDuration > 0 ? _totalDuration : 30.0)).toStringAsFixed(2));
+    final endSecondsController = TextEditingController(text: (end * (_totalDuration > 0 ? _totalDuration : 30.0)).toStringAsFixed(2));
+    const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
+    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop', 'zoom', 'bounce'];
+    final duration = _totalDuration > 0 ? _totalDuration : 30.0;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF111722),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, refresh) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(18, 18, 18, MediaQuery.of(context).viewInsets.bottom + 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Expanded(child: Text('EDIT TEXT LAYER', style: syne(sz: 15, w: FontWeight.w900, c: C.text))),
+                    IconButton(onPressed: () => Navigator.pop(sheetContext), icon: Icon(Icons.close, color: C.sub)),
+                  ]),
+                  TextField(controller: controller, maxLines: 4, style: dm(sz: 14, c: C.text), decoration: const InputDecoration(labelText: 'Text')),
+                  const SizedBox(height: 14),
+                  Text('Visible duration  ${((end - start) * duration).toStringAsFixed(2)}s', style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
+                  Row(children: [
+                    Expanded(child: TextField(controller: startSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'Start (seconds)', isDense: true), onChanged: (value) {
+                      final seconds = double.tryParse(value); if (seconds == null) return;
+                      refresh(() { start = (seconds / duration).clamp(0.0, 0.999).toDouble(); if (start >= end) end = (start + 0.001).clamp(0.0, 1.0).toDouble(); endSecondsController.text = (end * duration).toStringAsFixed(2); });
+                    })),
+                    const SizedBox(width: 10),
+                    Expanded(child: TextField(controller: endSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'End (seconds)', isDense: true), onChanged: (value) {
+                      final seconds = double.tryParse(value); if (seconds == null) return;
+                      refresh(() => end = (seconds / duration).clamp(start + 0.001, 1.0).toDouble());
+                    })),
+                  ]),
+                  RangeSlider(
+                    values: RangeValues(start, end),
+                    min: 0,
+                    max: 1,
+                    divisions: 100,
+                    activeColor: C.brand,
+                    onChanged: (value) => refresh(() { start = value.start; end = value.end; startSecondsController.text = (start * duration).toStringAsFixed(2); endSecondsController.text = (end * duration).toStringAsFixed(2); }),
+                  ),
+                  Text('Font size', style: dm(sz: 11, c: C.sub)),
+                  Slider(value: fontSize, min: 16, max: 64, divisions: 24, activeColor: C.brand, onChanged: (value) => refresh(() => fontSize = value)),
+                  DropdownButtonFormField<String>(
+                    value: fontFamily,
+                    dropdownColor: const Color(0xFF202938),
+                    style: dm(sz: 12, c: C.text),
+                    decoration: const InputDecoration(labelText: 'Font', isDense: true),
+                    items: <String>{...fontFamilies, if (fontFilePath != null) fontFamily}.map((value) => DropdownMenuItem(value: value, child: Text(value.startsWith('NecxaFont_') ? 'Imported font' : value))).toList(),
+                    onChanged: (value) => refresh(() { fontFamily = value ?? 'Roboto'; fontFilePath = null; }),
+                  ),
+                  Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+                    onPressed: () async {
+                      try {
+                        final picked = await _pickTextFont();
+                        if (picked != null) refresh(() { fontFamily = picked['family']!; fontFilePath = picked['path']; });
+                      } catch (error) {
+                        _feedback('Could not import this font file. Use a valid TTF or OTF font.');
+                        debugPrint('Text Studio font import failed: $error');
+                      }
+                    },
+                    icon: const Icon(Icons.upload_file, size: 17),
+                    label: const Text('Import TTF / OTF font'),
+                  )),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 10, children: [
+                    for (final color in const [Color(0xFFFFFFFF), Color(0xFFFFD166), Color(0xFF7DF9FF), Color(0xFFFFB45C), Color(0xFFFF6B8A)])
+                      GestureDetector(
+                        onTap: () => refresh(() => selectedColor = color),
+                        child: CircleAvatar(radius: 14, backgroundColor: color, child: selectedColor == color ? const Icon(Icons.check, size: 14, color: Colors.black) : null),
+                      ),
+                  ]),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: animationIn,
+                    dropdownColor: const Color(0xFF202938),
+                    style: dm(sz: 12, c: C.text),
+                    decoration: const InputDecoration(labelText: 'Entrance', isDense: true),
+                    items: animations.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_', ' ')))).toList(),
+                    onChanged: (value) => refresh(() => animationIn = value ?? 'none'),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: animationOut,
+                    dropdownColor: const Color(0xFF202938),
+                    style: dm(sz: 12, c: C.text),
+                    decoration: const InputDecoration(labelText: 'Exit', isDense: true),
+                    items: animations.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_', ' ')))).toList(),
+                    onChanged: (value) => refresh(() => animationOut = value ?? 'none'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: depthLayer,
+                    dropdownColor: const Color(0xFF202938),
+                    style: dm(sz: 12, c: C.text),
+                    decoration: const InputDecoration(labelText: 'Performer depth', isDense: true),
+                    items: const [
+                      DropdownMenuItem(value: 'background', child: Text('Behind performer')),
+                      DropdownMenuItem(value: 'foreground', child: Text('In front of performer')),
+                    ],
+                    onChanged: (value) => refresh(() => depthLayer = value ?? 'foreground'),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(children: [
+                    Expanded(child: OutlinedButton.icon(
+                      onPressed: () {
+                        _saveHistory();
+                        setState(() {
+                          final duplicate = overlay.copy();
+                          final shift = (overlay.end - overlay.start).clamp(0.01, 1.0).toDouble() * 0.1;
+                          duplicate.start = (overlay.start + shift).clamp(0.0, 0.99).toDouble();
+                          duplicate.end = (overlay.end + shift).clamp(duplicate.start + 0.01, 1.0).toDouble();
+                          _addProjectOverlay(duplicate);
+                        });
+                        Navigator.pop(sheetContext);
+                        _feedback('Text layer duplicated');
+                      },
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Duplicate'),
+                    )),
+                    const SizedBox(width: 8),
+                    Expanded(child: OutlinedButton.icon(
+                      onPressed: () {
+                        _saveHistory();
+                        setState(() {
+                          _removeProjectOverlayAt(index);
+                        });
+                        Navigator.pop(sheetContext);
+                        _feedback('Text layer deleted');
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Delete'),
+                    )),
+                  ]),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: C.brand, foregroundColor: Colors.black),
+                      onPressed: () {
+                        if (controller.text.trim().isEmpty || end <= start) return;
+                        _saveHistory();
+                        setState(() {
+                          if (overlay.text != controller.text.trim()) overlay.wordTimings = const [];
+                          overlay.text = controller.text.trim();
+                          overlay.start = start;
+                          overlay.end = end;
+                          overlay.fontSize = fontSize;
+                          overlay.fontFamily = fontFamily;
+                          overlay.fontFilePath = fontFilePath;
+                          overlay.color = selectedColor;
+                          overlay.animationIn = animationIn;
+                          overlay.animationOut = animationOut;
+                          overlay.depthLayer = depthLayer;
+                          _syncSharedProjectFromSequence();
+                        });
+                        Navigator.pop(sheetContext);
+                        _feedback('Text layer updated');
+                      },
+                      child: Text('SAVE CHANGES', style: syne(sz: 11, w: FontWeight.w900, c: Colors.black)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ).whenComplete(() { controller.dispose(); startSecondsController.dispose(); endSecondsController.dispose(); });
   }
 
   void _showFrameOverlayPicker() {
@@ -3613,10 +5733,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       // Stop recording
       final recording = await _voiceoverService.stop();
       if (recording != null) {
-        setState(() {
-          _voiceOverFile = recording.file;
-          _isRecordingVoice = false;
-        });
+        final duration = recording.duration > Duration.zero
+            ? recording.duration
+            : const Duration(milliseconds: 100);
+        _project.upsertClip(TrackType.voiceOver, TimelineClip(
+          id: 'desktop-audio-voice',
+          start: Duration.zero,
+          duration: duration,
+          file: recording.file,
+          volume: 0.8,
+          operation: AudioClipOperation(
+            sourceType: 'voiceOver',
+            label: 'Voiceover',
+            volume: 0.8,
+          ),
+        ));
+        setState(() => _isRecordingVoice = false);
         _feedback("Voiceover recorded!");
       }
     } else {
@@ -3631,7 +5763,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _showCaptionSheet() {
-    _feedback("Auto-captioning not implemented yet.");
+    _showTextOverlaySheet(initialMode: 'captions');
   }
 
   void _showTransitionSheet() {
@@ -3925,4 +6057,48 @@ class GrainPainter extends CustomPainter {
 
 
 
+
+
+class _EditorTimelineRulerPainter extends CustomPainter {
+  final double pixelsPerSecond;
+  final double duration;
+  final Color color;
+
+  const _EditorTimelineRulerPainter({
+    required this.pixelsPerSecond,
+    required this.duration,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    final labelStyle = TextStyle(
+      color: color.withOpacity(0.9),
+      fontSize: 8,
+      fontWeight: FontWeight.w600,
+    );
+    final textPainter = TextPainter(
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.left,
+    );
+    final step = duration > 90 ? 10 : duration > 35 ? 5 : 1;
+    for (var second = 0; second <= duration.ceil(); second += step) {
+      final x = second * pixelsPerSecond;
+      if (x > size.width) break;
+      canvas.drawLine(Offset(x, 11), Offset(x, size.height), line);
+      textPainter.text = TextSpan(text: '${second}s', style: labelStyle);
+      textPainter.layout();
+      textPainter.paint(canvas, Offset(x + 3, 0));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _EditorTimelineRulerPainter oldDelegate) =>
+      oldDelegate.pixelsPerSecond != pixelsPerSecond ||
+      oldDelegate.duration != duration ||
+      oldDelegate.color != color;
+}
 
