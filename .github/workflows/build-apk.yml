@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, fix/listing-wizard-liveness ]
+    branches: [ main, fix/listing-wizard-liveness, feature/unified-realtime-effects-engine ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
