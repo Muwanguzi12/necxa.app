@@ -1503,6 +1503,140 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
+  void _updateAudioMixer(
+    TrackType type, {
+    double? pan,
+    bool? muted,
+    bool? solo,
+    double? automationVolume,
+  }) {
+    for (final track in _project.tracks.where((item) => item.type == type)) {
+      for (final clip in track.clips) {
+        final operation = clip.operation;
+        if (operation is! AudioClipOperation) continue;
+        final automation = List<AudioVolumePoint>.from(operation.volumeAutomation);
+        if (automationVolume != null) {
+          final elapsed = ((_project.playback.state.currentTime - clip.start)
+                      .inMilliseconds /
+                  1000.0)
+              .clamp(0.0, clip.duration.inMilliseconds / 1000.0)
+              .toDouble();
+          final point = AudioVolumePoint(
+            time: elapsed,
+            volume: automationVolume.clamp(0.0, 4.0).toDouble(),
+          );
+          final existing = automation.indexWhere(
+            (item) => (item.time - elapsed).abs() < 0.05,
+          );
+          if (existing >= 0) {
+            automation[existing] = point;
+          } else {
+            automation.add(point);
+          }
+          automation.sort((a, b) => a.time.compareTo(b.time));
+        }
+        final updated = AudioClipOperation(
+          sourceType: operation.sourceType,
+          sourceUrl: operation.sourceUrl,
+          label: operation.label,
+          volume: operation.volume,
+          speed: operation.speed,
+          reverse: operation.reverse,
+          fadeIn: operation.fadeIn,
+          fadeOut: operation.fadeOut,
+          pan: pan ?? operation.pan,
+          muted: muted ?? operation.muted,
+          solo: solo ?? operation.solo,
+          volumeAutomation: automation,
+          startOffset: operation.startOffset,
+          endOffset: operation.endOffset,
+        );
+        _project.upsertClip(
+          type,
+          TimelineClip(
+            id: clip.id,
+            start: clip.start,
+            duration: clip.duration,
+            file: clip.file,
+            volume: clip.volume,
+            operation: updated,
+          ),
+          recordHistory: false,
+        );
+        unawaited(_syncTimelineAudio(
+          _project.playback.state.currentTime,
+          playing: _project.playback.state.isPlaying,
+          force: true,
+        ));
+        return;
+      }
+    }
+  }
+
+  Widget _audioTrackMixerControls({
+    required String title,
+    required AudioClipOperation operation,
+    required TrackType type,
+    required double automationVolume,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(title, style: syne(sz: 11, w: FontWeight.w800, c: C.text)),
+        ),
+        Row(
+          children: [
+            Text('L', style: dm(sz: 10, c: C.sub)),
+            Expanded(
+              child: Slider(
+                value: operation.pan.clamp(-1.0, 1.0).toDouble(),
+                min: -1,
+                max: 1,
+                onChanged: (value) => _updateAudioMixer(type, pan: value),
+                activeColor: C.brand,
+              ),
+            ),
+            Text('R', style: dm(sz: 10, c: C.sub)),
+          ],
+        ),
+        SwitchListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text('Mute', style: dm(sz: 11, c: C.sub)),
+          value: operation.muted,
+          onChanged: (value) {
+            _updateAudioMixer(type, muted: value);
+            setState(() {});
+          },
+        ),
+        SwitchListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text('Solo', style: dm(sz: 11, c: C.sub)),
+          value: operation.solo,
+          onChanged: (value) {
+            _updateAudioMixer(type, solo: value);
+            setState(() {});
+          },
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () {
+              _updateAudioMixer(type, automationVolume: automationVolume);
+              setState(() {});
+              _feedback('Volume keyframe added at the playhead');
+            },
+            icon: Icon(Icons.add, size: 15),
+            label: Text('KEYFRAME AT PLAYHEAD', style: syne(sz: 9, c: C.brand)),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showVolumeSheet() {
     showModalBottomSheet(
       context: context,
@@ -1539,6 +1673,24 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 _setVoiceVolume(v);
                 _voicePlayer.setVolume(v);
               }),
+              if (_musicOperation != null) ...[
+                Divider(color: C.dim),
+                _audioTrackMixerControls(
+                  title: 'BACKGROUND MUSIC',
+                  operation: _musicOperation!,
+                  type: TrackType.music,
+                  automationVolume: _bgmVolume,
+                ),
+              ],
+              if (_voiceOperation != null) ...[
+                Divider(color: C.dim),
+                _audioTrackMixerControls(
+                  title: 'VOICEOVER',
+                  operation: _voiceOperation!,
+                  type: TrackType.voiceOver,
+                  automationVolume: _voiceVolume,
+                ),
+              ],
               SizedBox(height: 20),
             ],
           ),
