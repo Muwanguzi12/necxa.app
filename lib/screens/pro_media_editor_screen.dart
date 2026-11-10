@@ -394,44 +394,61 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
 
       _videoController?.dispose();
-      _videoController = VideoPlayerController.file(mediaFile)
-        ..initialize().then((_) {
-          if (clip.duration <= 0) {
-            clip.duration =
-                _videoController!.value.duration.inMilliseconds / 1000.0;
-            clip.end = clip.duration;
+      final controller = VideoPlayerController.file(mediaFile);
+      _videoController = controller;
+
+      controller.initialize().then((_) async {
+        // A newer clip may have replaced this controller while initialization
+        // was in flight. Never let a stale callback touch the active player.
+        if (!mounted || !identical(_videoController, controller)) return;
+
+        if (clip.duration <= 0) {
+          clip.duration = controller.value.duration.inMilliseconds / 1000.0;
+          clip.end = clip.duration;
+        }
+
+        await controller.setVolume(_isMuted ? 0.0 : _originalVolume);
+        if (!mounted || !identical(_videoController, controller)) return;
+        await controller.setPlaybackSpeed(clip.speed);
+        final startTime = seekTo ?? clip.start;
+        await controller.seekTo(
+          Duration(milliseconds: (startTime * 1000).toInt()),
+        );
+
+        if (!mounted || !identical(_videoController, controller)) return;
+        if (_isPlaying) _syncPlay();
+        setState(() {});
+      }).catchError((Object error, StackTrace stack) {
+        debugPrint('MediaEditor: clip initialization failed: $error');
+        if (mounted && identical(_videoController, controller)) {
+          setState(() => _videoController = null);
+          _feedback('Unable to load this clip');
+        }
+      });
+
+      controller.addListener(() {
+        if (!mounted ||
+            !identical(_videoController, controller) ||
+            !controller.value.isInitialized) {
+          return;
+        }
+        if (clip.end <= 0.1) return;
+
+        final pos = controller.value.position.inMilliseconds / 1000.0;
+        if (_ownsProjectController && pos >= clip.end) {
+          if (_activeClipIndex < _sequence.length - 1) {
+            setState(() => _activeClipIndex++);
+            _loadClip(_activeClipIndex);
+          } else {
+            // Loop sequence
+            setState(() => _activeClipIndex = 0);
+            _loadClip(_activeClipIndex);
           }
-
-          _videoController!.setVolume(_isMuted ? 0.0 : _originalVolume);
-          _videoController!.setPlaybackSpeed(clip.speed);
-
-          final startTime = seekTo ?? clip.start;
-          _videoController!.seekTo(
-            Duration(milliseconds: (startTime * 1000).toInt()),
-          );
-
-          if (_isPlaying) _syncPlay();
-          if (mounted) setState(() {});
-        })
-        ..addListener(() {
-          if (_videoController == null ||
-              !_videoController!.value.isInitialized)
-            return;
-          if (clip.end <= 0.1) return;
-
-          final pos = _videoController!.value.position.inMilliseconds / 1000.0;
-          if (_ownsProjectController && pos >= clip.end) {
-            if (_activeClipIndex < _sequence.length - 1) {
-              setState(() => _activeClipIndex++);
-              _loadClip(_activeClipIndex);
-            } else {
-              // Loop sequence
-              setState(() => _activeClipIndex = 0);
-              _loadClip(_activeClipIndex);
-            }
-          }
-          if (mounted) setState(() {});
-        });
+        }
+        if (mounted && identical(_videoController, controller)) {
+          setState(() {});
+        }
+      });
     } else {
       _videoController?.dispose();
       _videoController = null;
@@ -1682,26 +1699,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 }
               });
             },
-            onPanEnd: (_) {
-              final mode = _timelineDragMode;
-              final finalIndex = _sequence.indexOf(clip);
-              setState(() {
-                if (mode == 'move' && finalIndex >= 0) {
-                  _activeClipIndex = finalIndex;
-                }
-                _timelineDragIndex = null;
-                _timelineDragMode = null;
-                _timelineDragDeltaX = 0;
-                _timelineDragAppliedX = 0;
-                _timelineDragThresholdX = 0;
-              });
-              _syncSharedProjectFromSequence();
-              if (_videoController != null && mode != 'move' && finalIndex >= 0) {
-                _videoController!.seekTo(Duration(milliseconds: (clip.start * 1000).round()));
-              } else if (mode == 'move' && finalIndex >= 0) {
-                _loadClip(finalIndex);
-              }
-            },
+            onPanEnd: (_) => _finishTimelineDrag(clip),
+            onPanCancel: () => _finishTimelineDrag(clip),
             child: Container(width: width, margin: const EdgeInsets.only(right: 4, top: 3, bottom: 3),
             decoration: BoxDecoration(color: selected ? C.brand.withOpacity(0.24) : const Color(0xFF243247),
               borderRadius: BorderRadius.circular(6), border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12), width: selected ? 1.5 : 1)),
@@ -2784,6 +2783,33 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
+  void _finishTimelineDrag(VideoClip clip) {
+    final mode = _timelineDragMode;
+    final finalIndex = _sequence.indexOf(clip);
+    if (_timelineDragIndex == null || mode == null) return;
+
+    if (mounted) {
+      setState(() {
+        if (mode == 'move' && finalIndex >= 0) {
+          _activeClipIndex = finalIndex;
+        }
+        _timelineDragIndex = null;
+        _timelineDragMode = null;
+        _timelineDragDeltaX = 0;
+        _timelineDragAppliedX = 0;
+        _timelineDragThresholdX = 0;
+      });
+    }
+    _syncSharedProjectFromSequence();
+    if (_videoController != null && mode != 'move' && finalIndex >= 0) {
+      _videoController!.seekTo(
+        Duration(milliseconds: (clip.start * 1000).round()),
+      );
+    } else if (mode == 'move' && finalIndex >= 0) {
+      _loadClip(finalIndex);
+    }
+  }
+
   void _handleSplit() {
     if (_sequence.isEmpty || _videoController == null ||
         !_videoController!.value.isInitialized ||
@@ -2822,15 +2848,33 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _handleDeleteClip() {
-    if (_sequence.isEmpty || _activeClipIndex < 0 ||
-        _activeClipIndex >= _sequence.length) return;
+    if (_sequence.isEmpty ||
+        _activeClipIndex < 0 ||
+        _activeClipIndex >= _sequence.length) {
+      return;
+    }
     _saveHistory();
+    VideoPlayerController? controllerToDispose;
     setState(() {
       _sequence.removeAt(_activeClipIndex);
-      if (_activeClipIndex >= _sequence.length)
-        _activeClipIndex = _sequence.length - 1;
-      if (_sequence.isNotEmpty) _loadClip(_activeClipIndex);
+      if (_sequence.isEmpty) {
+        controllerToDispose = _videoController;
+        _videoController = null;
+        _activeClipIndex = 0;
+        _isPlaying = false;
+        _timelineDragIndex = null;
+        _timelineDragMode = null;
+        _timelineDragDeltaX = 0;
+        _timelineDragAppliedX = 0;
+        _timelineDragThresholdX = 0;
+      } else {
+        if (_activeClipIndex >= _sequence.length) {
+          _activeClipIndex = _sequence.length - 1;
+        }
+        _loadClip(_activeClipIndex);
+      }
     });
+    controllerToDispose?.dispose();
     _syncSharedProjectFromSequence();
   }
 
