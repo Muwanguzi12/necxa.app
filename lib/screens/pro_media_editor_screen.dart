@@ -2822,7 +2822,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _toggleReverse() {
-    if (_sequence.isEmpty) {
+    if (_sequence.isEmpty || _activeNavIndex == 1) {
       TimelineClip? audioClip;
       for (final track in _project.tracks) {
         for (final candidate in track.clips) {
@@ -2834,7 +2834,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         if (audioClip != null) break;
       }
       if (audioClip == null) {
-        _feedback('Select a video, photo, or audio clip first');
+        _feedback('No audio clip is available on the selected track');
         return;
       }
       _saveHistory();
