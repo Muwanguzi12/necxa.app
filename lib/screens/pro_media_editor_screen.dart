@@ -173,6 +173,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   double _timelineDragOriginX = 0;
   double _timelineDragDeltaX = 0;
   double _timelineDragAppliedX = 0;
+  double _timelineDragThresholdX = 0;
   double _timelineOriginalStart = 0;
   double _timelineOriginalEnd = 0;
 
@@ -1599,7 +1600,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         return Transform.translate(
           offset: Offset(dragging ? _timelineDragDeltaX : 0, 0),
           child: GestureDetector(
-            key: ValueKey('sequence-clip-${clip.file.path}'),
+            key: ValueKey(identityHashCode(clip)),
             onTap: () {
               final currentIndex = _sequence.indexOf(clip);
               if (currentIndex < 0) return;
@@ -1621,6 +1622,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 _timelineDragOriginX = details.globalPosition.dx;
                 _timelineDragDeltaX = 0;
                 _timelineDragAppliedX = 0;
+                _timelineDragThresholdX = 0;
                 _timelineOriginalStart = clip.start;
                 _timelineOriginalEnd = clip.end;
                 _activeClipIndex = _sequence.indexOf(clip);
@@ -1633,7 +1635,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               final dx = details.globalPosition.dx - _timelineDragOriginX;
               setState(() {
                 if (_timelineDragMode == 'move') {
-                  var remaining = dx - _timelineDragAppliedX;
+                  var remaining = dx - _timelineDragThresholdX;
                   // Magnetic slot changes happen as the dragged clip crosses
                   // each neighbour's midpoint, supporting multi-clip moves.
                   while (remaining > 0 && _timelineDragIndex! < _sequence.length - 1) {
@@ -1646,8 +1648,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     final moved = _sequence.removeAt(from);
                     _sequence.insert(from + 1, moved);
                     _timelineDragIndex = from + 1;
-                    _timelineDragAppliedX += threshold;
-                    remaining = dx - _timelineDragAppliedX;
+                    _timelineDragThresholdX += threshold;
+                    _timelineDragAppliedX += nextWidth;
+                    remaining = dx - _timelineDragThresholdX;
                     HapticFeedback.selectionClick();
                   }
                   while (remaining < 0 && _timelineDragIndex! > 0) {
@@ -1660,8 +1663,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     final moved = _sequence.removeAt(from);
                     _sequence.insert(from - 1, moved);
                     _timelineDragIndex = from - 1;
-                    _timelineDragAppliedX -= threshold;
-                    remaining = dx - _timelineDragAppliedX;
+                    _timelineDragThresholdX -= threshold;
+                    _timelineDragAppliedX -= previousWidth;
+                    remaining = dx - _timelineDragThresholdX;
                     HapticFeedback.selectionClick();
                   }
                   _activeClipIndex = _timelineDragIndex!;
@@ -1689,6 +1693,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 _timelineDragMode = null;
                 _timelineDragDeltaX = 0;
                 _timelineDragAppliedX = 0;
+                _timelineDragThresholdX = 0;
               });
               _syncSharedProjectFromSequence();
               if (_videoController != null && mode != 'move' && finalIndex >= 0) {
