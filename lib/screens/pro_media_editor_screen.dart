@@ -41,6 +41,7 @@ enum ImageFilter {
 class VideoClip {
   final File file;
   File? proxyFile; // Lightweight version for editing
+  File? reversePreviewFile;
   bool isProxyReady = false;
 
   double start; // seconds
@@ -77,6 +78,7 @@ class VideoClip {
   VideoClip copy() => VideoClip(
     file: file,
     proxyFile: proxyFile,
+    reversePreviewFile: reversePreviewFile,
     isProxyReady: isProxyReady,
     start: start,
     end: end,
@@ -387,7 +389,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     final clip = _sequence[index];
 
     if (clip.isVideo) {
-      final mediaFile = clip.isProxyReady ? clip.proxyFile! : clip.file;
+      final mediaFile = clip.isReversed && clip.reversePreviewFile != null
+          ? clip.reversePreviewFile!
+          : (clip.isProxyReady ? clip.proxyFile! : clip.file);
 
       if (!mediaFile.existsSync() || mediaFile.lengthSync() == 0) {
         debugPrint(
@@ -414,9 +418,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         await controller.setVolume(_isMuted ? 0.0 : _originalVolume);
         if (!mounted || !identical(_videoController, controller)) return;
         await controller.setPlaybackSpeed(clip.speed);
-        final startTime = seekTo ?? clip.start;
+        final sourceTime = seekTo ?? (clip.isReversed ? clip.end : clip.start);
+        final playbackTime = clip.isReversed
+            ? (clip.duration - sourceTime).clamp(0.0, clip.duration)
+            : sourceTime;
         await controller.seekTo(
-          Duration(milliseconds: (startTime * 1000).toInt()),
+          Duration(milliseconds: (playbackTime * 1000).toInt()),
         );
 
         if (!mounted || !identical(_videoController, controller)) return;
@@ -444,7 +451,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         if (clip.end <= 0.1) return;
 
         final pos = controller.value.position.inMilliseconds / 1000.0;
-        if (_ownsProjectController && pos >= clip.end) {
+        final reachedClipEnd = clip.isReversed
+            ? pos >= clip.duration - clip.start
+            : pos >= clip.end;
+        if (_ownsProjectController && reachedClipEnd) {
           if (_activeClipIndex < _sequence.length - 1) {
             setState(() => _activeClipIndex++);
             _loadClip(_activeClipIndex);
@@ -500,7 +510,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
       final controller = _videoController;
       if (controller != null && controller.value.isInitialized) {
-        final expected = _sequence[index].start + remaining;
+        final sourceExpected = _sequence[index].start + remaining;
+        final expected = _sequence[index].isReversed
+            ? _sequence[index].duration - sourceExpected
+            : sourceExpected;
         final actual = controller.value.position.inMilliseconds / 1000.0;
         if ((actual - expected).abs() > 0.15) {
           await controller.seekTo(
@@ -2821,7 +2834,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     }
   }
 
-  void _toggleReverse() {
+  Future<void> _toggleReverse() async {
     if (_sequence.isEmpty || _activeNavIndex == 1) {
       TimelineClip? audioClip;
       for (final track in _project.tracks) {
@@ -2847,12 +2860,28 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       return;
     }
     if (_activeClipIndex < 0 || _activeClipIndex >= _sequence.length) return;
-    _saveHistory();
     final clip = _sequence[_activeClipIndex];
-    setState(() => clip.isReversed = !clip.isReversed);
+    final nextReverse = !clip.isReversed;
+    if (clip.isVideo && nextReverse && clip.reversePreviewFile == null) {
+      setState(() => _isProcessing = true);
+      final reversed = await _videoService.createReversedPreview(
+        inputVideo: clip.file,
+        hasAudio: clip.hasAudio,
+      );
+      if (!mounted) return;
+      setState(() => _isProcessing = false);
+      if (reversed == null || !reversed.existsSync()) {
+        _feedback('Could not prepare reverse preview; original clip is unchanged');
+        return;
+      }
+      clip.reversePreviewFile = reversed;
+    }
+    _saveHistory();
+    setState(() => clip.isReversed = nextReverse);
+    _loadClip(_activeClipIndex);
     _syncSharedProjectFromSequence();
     _feedback(clip.isVideo
-        ? (clip.isReversed ? 'Reverse video and original audio on export' : 'Video reverse removed')
+        ? (clip.isReversed ? 'Video and original audio reversed' : 'Video reverse removed')
         : (clip.isReversed ? 'Photo mirrored horizontally' : 'Photo mirror removed'));
   }
 
@@ -2863,8 +2892,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       _feedback("Select a video clip before splitting");
       return;
     }
-    final currentPos = _videoController!.value.position.inMilliseconds / 1000.0;
     final activeClip = _sequence[_activeClipIndex];
+    final playbackPos = _videoController!.value.position.inMilliseconds / 1000.0;
+    final currentPos = activeClip.isReversed
+        ? activeClip.duration - playbackPos
+        : playbackPos;
+
 
     // Player position is source-media time: split within the trimmed range.
     if (currentPos <= activeClip.start + 0.05 ||
@@ -3737,6 +3770,27 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               ),
             ),
         ],
+      );
+    }
+    if (_sequence.isNotEmpty &&
+        _activeClipIndex >= 0 &&
+        _activeClipIndex < _sequence.length &&
+        !_sequence[_activeClipIndex].isVideo) {
+      final clip = _sequence[_activeClipIndex];
+      Widget photo = Image.file(clip.file, fit: BoxFit.contain);
+      photo = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.identity()..scale(clip.isReversed ? -clip.scale : clip.scale, clip.scale),
+        child: Transform.translate(
+          offset: Offset(clip.offsetX, clip.offsetY),
+          child: Transform.rotate(angle: clip.rotation, child: photo),
+        ),
+      );
+      return Center(
+        child: AspectRatio(
+          aspectRatio: ratio,
+          child: ClipRect(child: Opacity(opacity: clip.opacity.clamp(0.05, 1.0), child: photo)),
+        ),
       );
     }
     return Center(child: CircularProgressIndicator(color: C.brand));
