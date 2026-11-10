@@ -2,9 +2,9 @@ name: Necxa Android CI & Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/integrate-necxa-studio-ffmpeg ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, feature/unified-realtime-effects-engine ]
   workflow_dispatch:
 
 concurrency:
