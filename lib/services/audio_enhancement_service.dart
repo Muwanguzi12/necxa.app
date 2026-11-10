@@ -10,7 +10,7 @@ import 'package:uuid/uuid.dart';
 ///
 /// Every operation writes a new file. The input is never overwritten.
 class AudioEnhancementService {
-  static const Uuid _uuid = Uuid();
+  static final Uuid _uuid = Uuid();
 
   Future<File> enhanceAudio({
     required File inputAudio,
@@ -275,6 +275,7 @@ class AudioEnhancementService {
   String _number(num value) => value.toStringAsFixed(3);
 
   /// Retained for compatibility with any existing internal callers.
+  // ignore: unused_element
   Future<String> _getOutputPath() async =>
       (await _newOutputPath('enhanced')).path;
 
