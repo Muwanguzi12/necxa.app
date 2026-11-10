@@ -5138,8 +5138,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                               }
                               final clipDuration = ((clip.end - clip.start) / clip.speed)
                                   .clamp(0.1, double.infinity).toDouble();
-                              final rawSegments = result['words'] is List
-                                  ? result['words'] as List
+                              final wordResults = result['words'] is List ? result['words'] as List : <dynamic>[];
+                              final rawSegments = wordResults.isNotEmpty
+                                  ? wordResults
                                   : (result['segments'] is List ? result['segments'] as List : <dynamic>[]);
                               final timed = <Map<String, dynamic>>[];
                               var lineText = '';
