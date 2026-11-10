@@ -14,8 +14,8 @@ const json = (data: unknown, status = 200) =>
 
 const err = (msg: string, status = 400) => json({ success: false, status: "FAILED", error: msg }, status)
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")
-const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+const supabaseUrl = Deno.env.get("GOOBOX_SUPABASE_URL") || Deno.env.get("SUPABASE_URL")
+const serviceRoleKey = Deno.env.get("GOOBOX_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("Missing Supabase Edge Function environment configuration")
 }
@@ -23,15 +23,6 @@ if (!supabaseUrl || !serviceRoleKey) {
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
-
-// Optional secondary Goobox connection. Never embed a service-role key in source.
-const gooboxUrl = Deno.env.get("GOOBOX_SUPABASE_URL")
-const gooboxKey = Deno.env.get("GOOBOX_SERVICE_ROLE_KEY")
-const goobox = gooboxUrl && gooboxKey
-  ? createClient(gooboxUrl, gooboxKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-  : null
 
 const YOUCAM_API_KEY = Deno.env.get("YOUCAM_API_KEY") || ""
 const YOUCAM_BASE_URL = "https://yce-api-01.makeupar.com/s2s/v2.0"
