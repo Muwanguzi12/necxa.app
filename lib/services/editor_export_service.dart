@@ -185,7 +185,12 @@ class EditorExportService {
                       track.type == TrackType.images),
             )
             .expand((track) => track.clips)
-            .where((clip) => clip.file != null && clip.file!.existsSync())
+            .where(
+              (clip) =>
+                  !clip.isHidden &&
+                  clip.file != null &&
+                  clip.file!.existsSync(),
+            )
             .toList()
           ..sort((a, b) => a.start.compareTo(b.start));
     if (visualClips.isEmpty) return null;
