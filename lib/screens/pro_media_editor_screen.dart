@@ -1,6 +1,9 @@
 import 'package:universal_io/io.dart';
 import 'dart:ui' as ui;
 import 'dart:async';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../services/finance_backend.dart';
@@ -161,6 +164,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   final VideoEnhancementService _videoService = VideoEnhancementService();
   final FaceEngineController _faceEngine = FaceEngineController();
   bool _isProEnabled = false;
+  final Set<String> _loadedTextFontFamilies = <String>{};
 
   VideoPlayerController? _videoController;
 
@@ -400,6 +404,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _ownsProjectController = widget.projectController == null;
     _loadProState();
     _restoreAudioSelectionFromProject();
+    unawaited(_loadProjectTextFonts());
     final sharedFiles =
         _project.tracks
             .where(
@@ -4874,7 +4879,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       : o.align == 'right'
                           ? TextAlign.right
                           : TextAlign.center;
-                  final fontFamily = switch (o.themeId) {
+                  final fontFamily = o.fontFilePath != null && o.fontFilePath!.isNotEmpty
+                      ? o.fontFamily
+                      : switch (o.themeId) {
                     'afro' => 'serif',
                     'bold' => 'Roboto',
                     _ => switch (o.fontFamily.toLowerCase()) {
@@ -4997,6 +5004,42 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         .toList();
   }
 
+  Future<void> _registerTextFont(String family, String path) async {
+    if (_loadedTextFontFamilies.contains(family)) return;
+    final fontFile = File(path);
+    if (!await fontFile.exists()) throw StateError('Imported font file is missing.');
+    final bytes = await fontFile.readAsBytes();
+    final loader = FontLoader(family)..addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+    await loader.load();
+    _loadedTextFontFamilies.add(family);
+  }
+
+  Future<void> _loadProjectTextFonts() async {
+    for (final overlay in _overlays) {
+      final path = overlay.fontFilePath;
+      if (path == null || path.isEmpty || !overlay.fontFamily.startsWith('NecxaFont_')) continue;
+      try { await _registerTextFont(overlay.fontFamily, path); }
+      catch (error) { debugPrint('Text Studio font restore failed: $error'); }
+    }
+  }
+
+  Future<Map<String, String>?> _pickTextFont() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['ttf', 'otf'], withData: true);
+    if (result == null || result.files.isEmpty) return null;
+    final selected = result.files.single;
+    final bytes = selected.bytes ?? (selected.path == null ? null : await File(selected.path!).readAsBytes());
+    if (bytes == null || bytes.isEmpty) throw StateError('Could not read the selected font file.');
+    final support = await getApplicationSupportDirectory();
+    final fontDirectory = Directory('${support.path}/necxa_fonts');
+    await fontDirectory.create(recursive: true);
+    final safeName = selected.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final destination = File('${fontDirectory.path}/$safeName');
+    await destination.writeAsBytes(bytes, flush: true);
+    final family = 'NecxaFont_${safeName.hashCode.abs()}';
+    await _registerTextFont(family, destination.path);
+    return {'family': family, 'path': destination.path};
+  }
+
   void _showTextOverlaySheet({String initialMode = 'single'}) {
     final textController = TextEditingController();
     var contentMode = initialMode;
@@ -5008,6 +5051,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var animationOut = 'fade';
     var selectedColor = const Color(0xFFF7F4ED);
     var fontFamily = 'Roboto';
+    String? fontFilePath;
     var align = 'center';
     var isTranscribing = false;
     List<Map<String, dynamic>>? aiCaptionSegments;
@@ -5300,9 +5344,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           dropdownColor: const Color(0xFF202938),
                           style: dm(sz: 12, c: C.text),
                           decoration: const InputDecoration(labelText: 'Font', isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
-                          items: fontFamilies.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
-                          onChanged: (value) => refresh(() => fontFamily = value ?? 'Roboto'),
+                          items: <String>{...fontFamilies, if (fontFilePath != null) fontFamily}.map((value) => DropdownMenuItem(value: value, child: Text(value.startsWith('NecxaFont_') ? 'Imported font' : value))).toList(),
+                          onChanged: (value) => refresh(() { fontFamily = value ?? 'Roboto'; fontFilePath = null; }),
                         ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          try {
+                            final picked = await _pickTextFont();
+                            if (picked != null) refresh(() { fontFamily = picked['family']!; fontFilePath = picked['path']; });
+                          } catch (error) {
+                            _feedback('Could not import this font file. Use a valid TTF or OTF font.');
+                            debugPrint('Text Studio font import failed: $error');
+                          }
+                        },
+                        icon: const Icon(Icons.upload_file, size: 17),
+                        label: const Text('Import font'),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -5430,6 +5487,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                 animationIn: animationIn,
                                 animationOut: animationOut,
                                 themeId: selectedTheme,
+                                fontFilePath: fontFilePath,
                                 wordTimings: segment != null && segment['words'] is List
                                     ? (segment['words'] as List).whereType<Map>().map((word) => Map<String, dynamic>.from(word)).toList()
                                     : _buildEvenWordTimings(lines[index], (layerEnd - layerStart) * duration),
@@ -5477,6 +5535,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var animationIn = overlay.animationIn;
     var animationOut = overlay.animationOut;
     var depthLayer = overlay.depthLayer;
+    var fontFilePath = overlay.fontFilePath;
     final startSecondsController = TextEditingController(text: (start * (_totalDuration > 0 ? _totalDuration : 30.0)).toStringAsFixed(2));
     final endSecondsController = TextEditingController(text: (end * (_totalDuration > 0 ? _totalDuration : 30.0)).toStringAsFixed(2));
     const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
@@ -5529,9 +5588,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     dropdownColor: const Color(0xFF202938),
                     style: dm(sz: 12, c: C.text),
                     decoration: const InputDecoration(labelText: 'Font', isDense: true),
-                    items: fontFamilies.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
-                    onChanged: (value) => refresh(() => fontFamily = value ?? 'Roboto'),
+                    items: <String>{...fontFamilies, if (fontFilePath != null) fontFamily}.map((value) => DropdownMenuItem(value: value, child: Text(value.startsWith('NecxaFont_') ? 'Imported font' : value))).toList(),
+                    onChanged: (value) => refresh(() { fontFamily = value ?? 'Roboto'; fontFilePath = null; }),
                   ),
+                  Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+                    onPressed: () async {
+                      try {
+                        final picked = await _pickTextFont();
+                        if (picked != null) refresh(() { fontFamily = picked['family']!; fontFilePath = picked['path']; });
+                      } catch (error) {
+                        _feedback('Could not import this font file. Use a valid TTF or OTF font.');
+                        debugPrint('Text Studio font import failed: $error');
+                      }
+                    },
+                    icon: const Icon(Icons.upload_file, size: 17),
+                    label: const Text('Import TTF / OTF font'),
+                  )),
                   const SizedBox(height: 8),
                   Wrap(spacing: 10, children: [
                     for (final color in const [Color(0xFFFFFFFF), Color(0xFFFFD166), Color(0xFF7DF9FF), Color(0xFFFFB45C), Color(0xFFFF6B8A)])
@@ -5617,6 +5689,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           overlay.end = end;
                           overlay.fontSize = fontSize;
                           overlay.fontFamily = fontFamily;
+                          overlay.fontFilePath = fontFilePath;
                           overlay.color = selectedColor;
                           overlay.animationIn = animationIn;
                           overlay.animationOut = animationOut;
