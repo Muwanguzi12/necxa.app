@@ -577,112 +577,162 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
     return (0.12 + (s / 18.0) * 0.83).clamp(0.12, 0.95);
   }
 
-  /// Reusable try-on submission and polling engine
+  /// Submits a real YouCam task, or enters the clearly-labelled manual placement mode.
   Future<void> _runTryOn({required String garmentUrl, required String userPhotoUrl}) async {
+    if (!mounted) return;
     setState(() {
       _isProcessing = true;
       _activeStep = 2;
       _showOriginalPhoto = false;
+      _aiResultImages = [];
     });
     _startProcessingTimer();
 
-    List<String> aiResults = [];
     final safeGarmentUrl = toAbsoluteMediaUrl(garmentUrl);
+    var manualPlacement = false;
+    String? failureMessage;
+    final endpoint = Uri.parse(
+      'https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on',
+    );
+    final headers = {
+      'Content-Type': 'application/json',
+      'apikey': 'sb_publishable_KzEAI6a7Xvw-JzBqPQRRA_mn4iKnou',
+      'Authorization': 'Bearer sb_publishable_KzEAI6a7Xvw-JzBqPQRRA_mn4iKnou',
+    };
+
+    Map<String, dynamic> decodeResponse(http.Response response) {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) {
+        throw const FormatException('The Experience service returned an invalid response.');
+      }
+      final data = Map<String, dynamic>.from(decoded);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final message = data['error']?.toString() ??
+            'Experience request failed (${response.statusCode}).';
+        throw Exception(message);
+      }
+      return data;
+    }
 
     try {
-      final res = await http.post(
-        Uri.parse('https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on'),
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': 'sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
-          'Authorization': 'Bearer sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
-        },
-        body: jsonEncode({
-          'action': 'try-on',
-          'src_image_url': userPhotoUrl,
-          'garment_image_url': safeGarmentUrl,
-          'listing_id': widget.listing['id'],
-          'garment_category':
-              _category == ExperienceCategory.fashion ? null : 'spatial_placement',
-        }),
-      );
+      final submit = await http
+          .post(
+            endpoint,
+            headers: headers,
+            body: jsonEncode({
+              'action': 'try-on',
+              'src_image_url': userPhotoUrl,
+              'garment_image_url': safeGarmentUrl,
+              'listing_id': widget.listing['id'],
+              'garment_category': (_category == ExperienceCategory.homeLiving ||
+                      _category == ExperienceCategory.electronics ||
+                      _category == ExperienceCategory.general)
+                  ? 'spatial_placement'
+                  : (_category == ExperienceCategory.beautyJewelry ? 'auto' : null),
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
 
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        if (data is Map && data['result_url'] != null) {
-          final resUrl = toAbsoluteMediaUrl(data['result_url'].toString());
-          if (resUrl.isNotEmpty && !aiResults.contains(resUrl)) {
-            aiResults.add(resUrl);
-          }
+      final data = decodeResponse(submit);
+      if (data['mode'] == 'manual_placement' ||
+          data['status'] == 'MANUAL_PLACEMENT') {
+        manualPlacement = true;
+      } else {
+        final immediateUrl = data['result_url']?.toString();
+        if (immediateUrl != null && immediateUrl.isNotEmpty) {
+          final resultUrl = toAbsoluteMediaUrl(immediateUrl);
+          if (resultUrl.isNotEmpty) _aiResultImages.add(resultUrl);
         }
-        if (data is Map && data['variations'] is List) {
-          for (final v in data['variations']) {
-            if (v is String && v.isNotEmpty) {
-              final varUrl = toAbsoluteMediaUrl(v);
-              if (varUrl.isNotEmpty && !aiResults.contains(varUrl)) {
-                aiResults.add(varUrl);
+
+        final taskId = data['task_id']?.toString();
+        if (taskId != null && taskId.isNotEmpty && _aiResultImages.isEmpty) {
+          var completed = false;
+          for (int poll = 0; poll < 30; poll++) {
+            await Future.delayed(const Duration(seconds: 2));
+            if (!mounted) return;
+
+            final pollResponse = await http
+                .post(
+                  endpoint,
+                  headers: headers,
+                  body: jsonEncode({
+                    'action': 'check-status',
+                    'task_id': taskId,
+                  }),
+                )
+                .timeout(const Duration(seconds: 20));
+
+            final pollData = decodeResponse(pollResponse);
+            final status = pollData['status']?.toString().toUpperCase();
+            if (status == 'SUCCESS') {
+              final resultUrl = pollData['result_url']?.toString();
+              if (resultUrl == null || resultUrl.isEmpty) {
+                throw Exception('YouCam completed without returning an image.');
               }
+              final normalizedUrl = toAbsoluteMediaUrl(resultUrl);
+              if (normalizedUrl.isEmpty) {
+                throw Exception('YouCam returned an invalid result image URL.');
+              }
+              _aiResultImages.add(normalizedUrl);
+              completed = true;
+              break;
+            }
+            if (status == 'FAILED') {
+              throw Exception(
+                pollData['error']?.toString() ?? 'YouCam could not generate this preview.',
+              );
             }
           }
-        }
-
-        // If asynchronous task_id provided, poll for status up to 25 times (50 seconds)
-        final taskId = data is Map ? data['task_id'] : null;
-        if (taskId != null && aiResults.isEmpty) {
-          for (int poll = 0; poll < 25; poll++) {
-            await Future.delayed(const Duration(milliseconds: 2000));
-            if (!mounted) break;
-            try {
-              final pollRes = await http.post(
-                Uri.parse('https://anregykcgolpgxecfxej.supabase.co/functions/v1/youcam-try-on'),
-                headers: {
-                  'Content-Type': 'application/json',
-                  'apikey': 'sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
-                  'Authorization': 'Bearer sb_publishable_KzEAI6a7Xvw-Jz-BqPQRRA_mn4iKnou',
-                },
-                body: jsonEncode({
-                  'action': 'check-status',
-                  'task_id': taskId,
-                  'garment_image_url': safeGarmentUrl,
-                }),
-              );
-              if (pollRes.statusCode == 200) {
-                final pollData = jsonDecode(pollRes.body);
-                final status = pollData['status'];
-                final resultUrl = pollData['result_url'];
-                if (status == 'SUCCESS' && resultUrl != null && resultUrl.toString().isNotEmpty) {
-                  final finalUrl = toAbsoluteMediaUrl(resultUrl.toString());
-                  aiResults.insert(0, finalUrl);
-                  break;
-                } else if (status == 'FAILED') {
-                  break;
-                }
-              }
-            } catch (_) {}
+          if (!completed && _aiResultImages.isEmpty) {
+            throw TimeoutException('The AI preview is taking longer than expected. Please try again.');
           }
         }
+
+        if (_aiResultImages.isEmpty) {
+          throw Exception(
+            data['error']?.toString() ??
+                'YouCam did not return an AI preview. Please try again.',
+          );
+        }
       }
-    } catch (e) {
-      debugPrint('[ExperienceSheet] Goobox notice: $e');
+    } catch (error) {
+      failureMessage = error is TimeoutException
+          ? error.message ?? 'The request timed out. Please try again.'
+          : error.toString().replaceFirst('Exception: ', '');
+      debugPrint('[ExperienceSheet] YouCam request failed: $failureMessage');
     } finally {
       _stopProcessingTimer();
     }
 
-    // If no AI result returned, fallback to product variations
-    if (aiResults.isEmpty) {
-      final images = _extractImages();
-      aiResults.addAll(images);
-    }
-
-    if (mounted) {
-      setState(() {
-        if (aiResults.isNotEmpty) {
-          _aiResultImages = aiResults;
-          _selectedResultIndex = 0;
-        }
-        _isProcessing = false;
+    if (!mounted) return;
+    setState(() {
+      _isProcessing = false;
+      if (manualPlacement) {
+        _aiResultImages = [];
         _activeStep = 3;
-      });
+      } else if (failureMessage == null && _aiResultImages.isNotEmpty) {
+        _selectedResultIndex = 0;
+        _activeStep = 3;
+      } else {
+        _aiResultImages = [];
+        _activeStep = 1;
+      }
+    });
+
+    if (manualPlacement) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Manual placement preview: AI generation is not available for this product type yet.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } else if (failureMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(failureMessage),
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
 
@@ -709,7 +759,7 @@ class _NecxaExperienceSheetState extends State<NecxaExperienceSheet> {
       final uploadedStorageUrl = await _uploadUserPhoto(file);
       _uploadedStorageUrl = uploadedStorageUrl;
 
-      if (_category != ExperienceCategory.fashion) {
+      if (_category == ExperienceCategory.homeLiving ||\n          _category == ExperienceCategory.electronics ||\n          _category == ExperienceCategory.general) {
         // Spatial placement for room, desk, electronics, furniture:
         // Transition immediately to interactive placement mode so user can drag & scale product in real-time
         if (garmentUrl.isNotEmpty && uploadedStorageUrl != null) {
