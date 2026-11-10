@@ -722,6 +722,11 @@ class VideoEnhancementService {
         } else if (overlay.animationIn == 'pop') {
           fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.82+0.18*max(0,(t-$startTime)/0.35)),$baseFontSize)'";
           alphaExpr = "if(lt(t,$startTime+0.08),max(0,(t-$startTime)/0.08),1)";
+        } else if (overlay.animationIn == 'zoom') {
+          fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.55+0.45*max(0,(t-$startTime)/0.35)),$baseFontSize)'";
+          alphaExpr = "if(lt(t,$startTime+0.08),max(0,(t-$startTime)/0.08),1)";
+        } else if (overlay.animationIn == 'bounce') {
+          yExpr = "'$baseY-18*sin(PI*max(0,min(1,(t-$startTime)/0.35)))*(1-max(0,min(1,(t-$startTime)/0.35)))'";
         }
         if (overlay.animationOut == 'fade') {
           alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
@@ -732,6 +737,11 @@ class VideoEnhancementService {
         } else if (overlay.animationOut == 'pop') {
           fontSize = "'if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.82+0.18*max(0,($endTime-t)/$animationSeconds)),$baseFontSize)'";
           alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
+        } else if (overlay.animationOut == 'zoom') {
+          fontSize = "'if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.55+0.45*max(0,($endTime-t)/$animationSeconds)),$baseFontSize)'";
+          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-0.08),max(0,($endTime-t)/0.08),1)";
+        } else if (overlay.animationOut == 'bounce') {
+          yExpr = "'$baseY+18*sin(PI*max(0,min(1,($endTime-t)/$animationSeconds)))*(1-max(0,min(1,($endTime-t)/$animationSeconds)))'";
         }
         if (overlay.animationIn == 'pop' && overlay.animationOut == 'pop') {
           fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.82+0.18*max(0,(t-$startTime)/0.35)),if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.82+0.18*max(0,($endTime-t)/$animationSeconds)),$baseFontSize))'";
