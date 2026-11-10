@@ -6785,19 +6785,21 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       final elapsed = (timelineTime - clip.start).inMilliseconds / 1000;
       final remaining =
           (clip.start + clip.duration - timelineTime).inMilliseconds / 1000;
-      if (operation.fadeIn > 0) {
+      final fadeWindow = clip.duration.inMilliseconds / 2000.0;
+      final fadeIn = operation.fadeIn.clamp(0.0, fadeWindow).toDouble();
+      final fadeOut = operation.fadeOut.clamp(0.0, fadeWindow).toDouble();
+      if (fadeIn > 0) {
         envelope = math.min(
           envelope,
-          (elapsed / operation.fadeIn).clamp(0.0, 1.0),
+          (elapsed / fadeIn).clamp(0.0, 1.0),
         );
       }
-      if (operation.fadeOut > 0) {
+      if (fadeOut > 0) {
         envelope = math.min(
           envelope,
-          (remaining / operation.fadeOut).clamp(0.0, 1.0),
+          (remaining / fadeOut).clamp(0.0, 1.0),
         );
       }
-
     }
     final baseVolume = operation is AudioClipOperation && clip.volume == 1.0
         ? operation.volume
