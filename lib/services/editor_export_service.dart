@@ -226,6 +226,26 @@ class EditorExportService {
     final overlays = <RenderOverlay>[];
     final transitions = <RenderTransition>[];
     final audioTracks = <RenderAudioTrack>[];
+    final voiceoverIntervals = <AudioDuckingInterval>[];
+    for (final voiceTrack in tracks.where(
+      (item) => item.isVisible && item.type == TrackType.voiceOver,
+    )) {
+      for (final voiceClip in voiceTrack.clips.where((item) => !item.isHidden)) {
+        final operation = voiceClip.operation;
+        if (operation is! AudioClipOperation) continue;
+        final volume = voiceClip.volume == 1.0
+            ? operation.volume
+            : voiceClip.volume;
+        final source = voiceClip.file?.path ?? operation.sourceUrl;
+        if (source == null || source.isEmpty || volume <= 0) continue;
+        voiceoverIntervals.add(
+          AudioDuckingInterval(
+            start: voiceClip.start.inMilliseconds / 1000,
+            end: (voiceClip.start + voiceClip.duration).inMilliseconds / 1000,
+          ),
+        );
+      }
+    }
     var effects = const RenderEffects();
     for (final track in tracks.where((item) => item.isVisible)) {
       for (final clip in track.clips.where((item) => !item.isHidden)) {
@@ -310,6 +330,9 @@ class EditorExportService {
                 timelineDuration: clip.duration.inMilliseconds / 1000,
                 fadeIn: operation.fadeIn,
                 fadeOut: operation.fadeOut,
+                duckingIntervals: track.type == TrackType.music
+                    ? voiceoverIntervals
+                    : const [],
               ),
             );
           }
