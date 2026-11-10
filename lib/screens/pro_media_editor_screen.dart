@@ -321,6 +321,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   double get _audioEnd => _musicOperation?.endOffset ?? 30.0;
   double get _audioOffset => (_musicClip?.start.inMilliseconds ?? 0) / 1000.0;
 
+  void _setTrackVisibility(TrackType type, bool visible) {
+    _project.transact((tracks) {
+      for (final track in tracks.where((item) => item.type == type)) {
+        track.isVisible = visible;
+      }
+    });
+  }
+
   void _setOriginalVolume(double value) {
     _project.transact((tracks) {
       for (final track in tracks.where(
@@ -2856,8 +2864,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFF60A5FA),
               visible: _videoTrackVisible,
               locked: _videoTrackLocked,
-              onVisibility: () =>
-                  setState(() => _videoTrackVisible = !_videoTrackVisible),
+              onVisibility: () {
+                final visible = !_videoTrackVisible;
+                setState(() => _videoTrackVisible = visible);
+                _setTrackVisibility(TrackType.video, visible);
+                _setTrackVisibility(TrackType.images, visible);
+              },
               onLock: () =>
                   setState(() => _videoTrackLocked = !_videoTrackLocked),
             ),
@@ -2868,8 +2880,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFFA78BFA),
               visible: _musicTrackVisible,
               locked: _musicTrackLocked,
-              onVisibility: () =>
-                  setState(() => _musicTrackVisible = !_musicTrackVisible),
+              onVisibility: () {
+                final visible = !_musicTrackVisible;
+                setState(() => _musicTrackVisible = visible);
+                _setTrackVisibility(TrackType.music, visible);
+              },
               onLock: () =>
                   setState(() => _musicTrackLocked = !_musicTrackLocked),
             ),
@@ -2880,8 +2895,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFF34D399),
               visible: _voiceTrackVisible,
               locked: _voiceTrackLocked,
-              onVisibility: () =>
-                  setState(() => _voiceTrackVisible = !_voiceTrackVisible),
+              onVisibility: () {
+                final visible = !_voiceTrackVisible;
+                setState(() => _voiceTrackVisible = visible);
+                _setTrackVisibility(TrackType.voiceOver, visible);
+              },
               onLock: () =>
                   setState(() => _voiceTrackLocked = !_voiceTrackLocked),
             ),
@@ -2893,8 +2911,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               color: Color(0xFF38BDF8),
               visible: _textTrackVisible,
               locked: _textTrackLocked,
-              onVisibility: () =>
-                  setState(() => _textTrackVisible = !_textTrackVisible),
+              onVisibility: () {
+                final visible = !_textTrackVisible;
+                setState(() => _textTrackVisible = visible);
+                _setTrackVisibility(TrackType.overlay, visible);
+              },
               onLock: () =>
                   setState(() => _textTrackLocked = !_textTrackLocked),
             ),
