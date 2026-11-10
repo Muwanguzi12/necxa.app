@@ -21,6 +21,7 @@ import '../app_state.dart';
 import '../services/editor_voiceover_service.dart';
 import '../services/timeline_playback_controller.dart';
 import '../services/editor_export_service.dart';
+import '../services/ai_service.dart';
 import '../services/editor_subscription_service.dart';
 import '../face_engine/core/face_engine_controller.dart';
 import '../face_engine/widgets/face_preset_sheet.dart';
@@ -3964,6 +3965,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var selectedColor = const Color(0xFFF7F4ED);
     var fontFamily = 'Syne';
     var align = 'center';
+    var isTranscribing = false;
+    List<Map<String, dynamic>>? aiCaptionSegments;
     final duration = _totalDuration > 0 ? _totalDuration : 30.0;
     final themes = <String, Map<String, dynamic>>{
       'cinematic': {'label': 'Cinematic', 'color': const Color(0xFFF7F4ED), 'size': 30.0, 'shadow': true},
@@ -4042,6 +4045,131 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                       ),
                     ),
+                    if (contentMode == 'captions') ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: isTranscribing ? null : () async {
+                            if (_sequence.isEmpty || _activeClipIndex >= _sequence.length) {
+                              _feedback('Add and select a video clip first.');
+                              return;
+                            }
+                            final clip = _sequence[_activeClipIndex];
+                            if (!clip.isVideo || !clip.hasAudio) {
+                              _feedback('Select a video clip that contains audio.');
+                              return;
+                            }
+                            refresh(() => isTranscribing = true);
+                            File? extractedAudio;
+                            try {
+                              extractedAudio = await VideoEnhancementService()
+                                  .extractAudioForTranscription(clip.file);
+                              if (extractedAudio == null) {
+                                _feedback('Could not extract audio from this clip.');
+                                return;
+                              }
+                              final result = await NecxaAI.transcribeMedia(extractedAudio);
+                              if (result['success'] != true) {
+                                _feedback(result['error']?.toString() ?? 'AI transcription failed.');
+                                return;
+                              }
+                              final transcript = (result['transcript'] ?? '').toString().trim();
+                              if (transcript.isEmpty) {
+                                _feedback('No speech was detected in the selected clip.');
+                                return;
+                              }
+
+                              double clipOffset = 0;
+                              for (var i = 0; i < _activeClipIndex; i++) {
+                                final prior = _sequence[i];
+                                clipOffset += (prior.end - prior.start) / prior.speed;
+                              }
+                              final clipDuration = ((clip.end - clip.start) / clip.speed)
+                                  .clamp(0.1, double.infinity).toDouble();
+                              final rawSegments = result['segments'] is List
+                                  ? result['segments'] as List
+                                  : (result['words'] is List ? result['words'] as List : <dynamic>[]);
+                              final timed = <Map<String, dynamic>>[];
+                              var lineText = '';
+                              var lineStart = 0.0;
+                              var lineEnd = 0.0;
+                              void flushLine() {
+                                if (lineText.trim().isEmpty) return;
+                                timed.add({'text': lineText.trim(), 'start': lineStart, 'end': lineEnd});
+                                lineText = '';
+                              }
+
+                              for (final item in rawSegments) {
+                                if (item is! Map) continue;
+                                final word = (item['text'] ?? item['word'] ?? '').toString().trim();
+                                final wordStart = (item['start'] as num?)?.toDouble();
+                                final wordEnd = (item['end'] as num?)?.toDouble();
+                                if (word.isEmpty || wordStart == null || wordEnd == null || wordEnd <= wordStart) continue;
+                                if (lineText.isNotEmpty &&
+                                    (lineText.length + word.length + 1 > 42 ||
+                                     wordStart - lineStart > 4.2)) {
+                                  flushLine();
+                                }
+                                if (lineText.isEmpty) lineStart = wordStart;
+                                lineText = lineText.isEmpty ? word : '$lineText $word';
+                                lineEnd = wordEnd;
+                              }
+                              flushLine();
+
+                              if (timed.isEmpty) {
+                                final words = transcript.split(RegExp(r'\s+'));
+                                final lines = <String>[];
+                                var current = '';
+                                for (final word in words) {
+                                  final candidate = current.isEmpty ? word : '$current $word';
+                                  if (candidate.length > 42 && current.isNotEmpty) {
+                                    lines.add(current);
+                                    current = word;
+                                  } else {
+                                    current = candidate;
+                                  }
+                                }
+                                if (current.isNotEmpty) lines.add(current);
+                                final weights = lines.map((line) => line.split(RegExp(r'\s+')).length).toList();
+                                final totalWeight = weights.fold<int>(0, (sum, weight) => sum + weight);
+                                var cursor = 0.0;
+                                for (var i = 0; i < lines.length; i++) {
+                                  final span = totalWeight == 0 ? 0.0 : clipDuration * weights[i] / totalWeight;
+                                  timed.add({
+                                    'text': lines[i],
+                                    'start': cursor,
+                                    'end': i == lines.length - 1 ? clipDuration : cursor + span,
+                                  });
+                                  cursor += span;
+                                }
+                              }
+
+                              aiCaptionSegments = timed;
+                              textController.text = timed.map((segment) => segment['text']).join('\n');
+                              refresh(() {
+                                contentMode = 'captions';
+                                isTranscribing = false;
+                              });
+                              _feedback('AI transcript ready. Review the captions, then add them to the timeline.');
+                            } catch (error) {
+                              _feedback('Caption generation failed. Please try again.');
+                              debugPrint('Text Studio caption generation error: $error');
+                            } finally {
+                              if (extractedAudio != null) {
+                                try { await extractedAudio.delete(); } catch (_) {}
+                              }
+                              refresh(() => isTranscribing = false);
+                            }
+                          },
+                          icon: isTranscribing
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.auto_awesome),
+                          label: Text(isTranscribing ? 'TRANSCRIBING AUDIO…' : 'GENERATE CAPTIONS WITH AI'),
+                        ),
+                      ),
+                      Text('Uses the selected clip audio. It is sent securely through Supabase 2 to Necxa AI Engine for transcription.', style: dm(sz: 10, c: C.dim)),
+                    ],
                     sectionTitle('Display timer'),
                     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                       Text('Start  ${(start * duration).toStringAsFixed(1)}s', style: dm(sz: 11, c: C.text)),
@@ -4174,13 +4302,38 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           if (lines.isEmpty) return;
                           _saveHistory();
                           final interval = (end - start) / lines.length;
+                          double clipOffset = 0;
+                          double clipDuration = 0;
+                          if (contentMode == 'captions' &&
+                              aiCaptionSegments != null &&
+                              aiCaptionSegments!.length == lines.length &&
+                              _activeClipIndex < _sequence.length) {
+                            for (var i = 0; i < _activeClipIndex; i++) {
+                              final prior = _sequence[i];
+                              clipOffset += (prior.end - prior.start) / prior.speed;
+                            }
+                            final clip = _sequence[_activeClipIndex];
+                            clipDuration = ((clip.end - clip.start) / clip.speed)
+                                .clamp(0.1, double.infinity).toDouble();
+                          }
                           setState(() {
                             for (var index = 0; index < lines.length; index++) {
+                              final hasAiTiming = contentMode == 'captions' &&
+                                  aiCaptionSegments != null &&
+                                  aiCaptionSegments!.length == lines.length &&
+                                  clipDuration > 0;
+                              final segment = hasAiTiming ? aiCaptionSegments![index] : null;
+                              final layerStart = hasAiTiming
+                                  ? ((clipOffset + (segment!['start'] as num).toDouble()) / duration).clamp(0.0, 1.0).toDouble()
+                                  : start + interval * index;
+                              final layerEnd = hasAiTiming
+                                  ? ((clipOffset + (segment!['end'] as num).toDouble()) / duration).clamp(layerStart + 0.001, 1.0).toDouble()
+                                  : (index == lines.length - 1 ? end : start + interval * (index + 1));
                               _overlays.add(OverlayOperation(
                                 kind: 'text',
                                 text: lines[index],
-                                start: start + interval * index,
-                                end: index == lines.length - 1 ? end : start + interval * (index + 1),
+                                start: layerStart,
+                                end: layerEnd,
                                 position: Offset(0.5, contentMode == 'captions' ? 0.86 : 0.72),
                                 fontSize: fontSize,
                                 color: selectedColor,
