@@ -632,12 +632,27 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               offsetX: clip.transform.position.dx,
               offsetY: clip.transform.position.dy,
               opacity: clip.transform.opacity,
+              filter: clip.filter == null ? null : ImageFilter.values.firstWhere(
+                (value) => value.name == clip.filter!.filterName,
+                orElse: () => ImageFilter.normal,
+              ),
+              brightness: clip.brightness,
+              contrast: clip.contrast,
+              saturation: clip.saturation,
+              hue: clip.hue,
+              vignette: clip.vignette,
+              grain: clip.grain,
+              blur: clip.blur,
             ),
           )
           .toList();
       _activeClipIndex = _sequence.isEmpty
           ? 0
           : _activeClipIndex.clamp(0, _sequence.length - 1);
+      _selectedClips
+        ..clear()
+        ..addAll(_sequence.isEmpty ? <VideoClip>[] : <VideoClip>[_sequence[_activeClipIndex]]);
+      _multiSelectMode = false;
       if (_sequence.isNotEmpty) _loadClip(_activeClipIndex);
     });
   }
@@ -687,6 +702,13 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             position: Offset(clip.offsetX, clip.offsetY),
             opacity: clip.opacity,
           ),
+          brightness: clip.brightness,
+          contrast: clip.contrast,
+          saturation: clip.saturation,
+          hue: clip.hue,
+          vignette: clip.vignette,
+          grain: clip.grain,
+          blur: clip.blur,
           filter: clip.filter == null
               ? null
               : FilterOperation(filterName: clip.filter!.name),
@@ -836,22 +858,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               _adjustSlider('Brightness', _brightness, -0.5, 0.5, (v) {
                 setModalState(() => _brightness = v);
                 for (final target in targets) { target.brightness = v; }
-                setState(() {});
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Contrast', _contrast, 0.5, 1.5, (v) {
                 setModalState(() => _contrast = v);
                 for (final target in targets) { target.contrast = v; }
-                setState(() {});
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Saturation', _saturation, 0.0, 2.0, (v) {
                 setModalState(() => _saturation = v);
                 for (final target in targets) { target.saturation = v; }
-                setState(() {});
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Hue', _hue, -3.14, 3.14, (v) {
                 setModalState(() => _hue = v);
                 for (final target in targets) { target.hue = v; }
-                setState(() {});
+                setState(() => _syncSharedProjectFromSequence());
               }),
               SizedBox(height: 16),
               TextButton(
@@ -3647,23 +3669,23 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 SizedBox(height: 18),
                 _adjustSlider('Scale', clip.scale, 0.5, 2.4, (v) {
                   setModalState(() { for (final target in targets) { target.scale = v; } });
-                  setState(() {});
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Rotation', clip.rotation, -0.8, 0.8, (v) {
                   setModalState(() { for (final target in targets) { target.rotation = v; } });
-                  setState(() {});
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Position X', clip.offsetX, -160, 160, (v) {
                   setModalState(() { for (final target in targets) { target.offsetX = v; } });
-                  setState(() {});
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Position Y', clip.offsetY, -220, 220, (v) {
                   setModalState(() { for (final target in targets) { target.offsetY = v; } });
-                  setState(() {});
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 _adjustSlider('Opacity', clip.opacity, 0.05, 1.0, (v) {
                   setModalState(() { for (final target in targets) { target.opacity = v; } });
-                  setState(() {});
+                  setState(() => _syncSharedProjectFromSequence());
                 }),
                 SizedBox(height: 10),
                 _actionRow(Icons.restart_alt, 'Reset Transform', () {
@@ -3714,17 +3736,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               _adjustSlider('Vignette', _effectVignette, 0.0, 1.0, (v) {
                 setModalState(() => _effectVignette = v);
                 for (final target in targets) { target.vignette = v; }
-                setState(() {});
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Film grain', _effectGrain, 0.0, 1.0, (v) {
                 setModalState(() => _effectGrain = v);
                 for (final target in targets) { target.grain = v; }
-                setState(() {});
+                setState(() => _syncSharedProjectFromSequence());
               }),
               _adjustSlider('Soft blur', _effectBlur, 0.0, 8.0, (v) {
                 setModalState(() => _effectBlur = v);
                 for (final target in targets) { target.blur = v; }
-                setState(() {});
+                setState(() => _syncSharedProjectFromSequence());
               }),
               SizedBox(height: 10),
               _actionRow(Icons.restart_alt, 'Reset Effects', () {
