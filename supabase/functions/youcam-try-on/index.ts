@@ -12,258 +12,185 @@ const json = (data: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   })
 
-const err = (msg: string, status = 400) => json({ error: msg }, status)
+const err = (msg: string, status = 400) => json({ success: false, status: "FAILED", error: msg }, status)
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-)
+const supabaseUrl = Deno.env.get("SUPABASE_URL")
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+if (!supabaseUrl || !serviceRoleKey) {
+  throw new Error("Missing Supabase Edge Function environment configuration")
+}
 
-// Goobox project connection where YouCam keys can also reside
-const GOOBOX_URL = Deno.env.get("GOOBOX_SUPABASE_URL") || "https://anregykcgolpgxecfxej.supabase.co";
-const GOOBOX_KEY = Deno.env.get("GOOBOX_SERVICE_ROLE_KEY") || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFucmVneWtjZ29scGd4ZWNmeGVqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDQ2MjU1NCwiZXhwIjoyMDk2MDM4NTU0fQ.519sxkeFrEL-zIyP2MM4kbSZ3sHHP7OY-uwXoDV7cnc";
+const supabase = createClient(supabaseUrl, serviceRoleKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+})
 
-const goobox = createClient(
-  GOOBOX_URL,
-  GOOBOX_KEY,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+// Optional secondary Goobox connection. Never embed a service-role key in source.
+const gooboxUrl = Deno.env.get("GOOBOX_SUPABASE_URL")
+const gooboxKey = Deno.env.get("GOOBOX_SERVICE_ROLE_KEY")
+const goobox = gooboxUrl && gooboxKey
+  ? createClient(gooboxUrl, gooboxKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null
 
-const YOUCAM_API_KEY = Deno.env.get("YOUCAM_API_KEY") || "";
-const YOUCAM_API_SECRET = Deno.env.get("YOUCAM_API_SECRET") || "";
+const YOUCAM_API_KEY = Deno.env.get("YOUCAM_API_KEY") || ""
+const YOUCAM_BASE_URL = "https://yce-api-01.makeupar.com/s2s/v2.0"
+
+function apiError(payload: any): string {
+  const value =
+    payload?.data?.error_message ||
+    payload?.data?.error ||
+    payload?.error_message ||
+    payload?.error ||
+    payload?.message
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, 500)
+    : "Perfect Corp could not process this request"
+}
+
+function normalizeCategory(value: string | undefined): string {
+  const category = (value || "").toLowerCase().trim()
+  const allowed = new Set(["full_body", "lower_body", "upper_body", "shoes", "auto", "outer"])
+  if (allowed.has(category)) return category
+  if (["outerwear", "jacket", "coat", "hoodie", "vest"].includes(category)) return "outer"
+  if (["earrings", "jewelry", "hat", "accessory", "accessories"].includes(category)) return "auto"
+  return "upper_body"
+}
+
+async function readListingCategory(listingId?: string): Promise<string | undefined> {
+  if (!listingId) return undefined
+  const { data, error } = await supabase
+    .from("listings")
+    .select("title, category, description")
+    .eq("id", listingId)
+    .maybeSingle()
+  if (error || !data) return undefined
+
+  const value = `${data.category || ""} ${data.title || ""} ${data.description || ""}`.toLowerCase()
+  if (/\b(dress|suit|jumpsuit|overalls)\b/.test(value)) return "full_body"
+  if (/\b(trouser|pants|pant|shorts|short|skirt)\b/.test(value)) return "lower_body"
+  if (/\b(shoe|shoes|sneaker|boot|heel|sandal)\b/.test(value)) return "shoes"
+  if (/\b(jacket|coat|hoodie|vest|outerwear)\b/.test(value)) return "outer"
+  if (/\b(earring|jewelry|jewellery|hat|cap|beanie|accessory)\b/.test(value)) return "auto"
+  return "upper_body"
+}
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
+  if (req.method !== "POST") return err("Method not allowed", 405)
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    const token = authHeader?.replace("Bearer ", "") || "";
-    let userId = "guest_user";
-    
-    // Check if token validates against Necxa primary Supabase or Goobox
-    if (token) {
-      const { data: { user } } = await supabase.auth.getUser(token);
-      if (user?.id) {
-        userId = user.id;
-      } else {
-        const { data: { user: gUser } } = await goobox.auth.getUser(token);
-        if (gUser?.id) userId = gUser.id;
-      }
-    }
-
     const body = await req.json() as {
-      action?: string;
-      src_image_url?: string;
-      garment_image_url?: string;
-      garment_category?: string;
-      task_id?: string;
-      listing_id?: string;
-    };
+      action?: string
+      src_image_url?: string
+      garment_image_url?: string
+      garment_category?: string
+      task_id?: string
+      listing_id?: string
+    }
 
-    const action = body.action || "try-on";
+    const action = body.action || "try-on"
 
-    // 1. Task Status Polling
     if (action === "check-status") {
-      if (!body.task_id) return err("task_id is required");
-      
-      // If we have an active YouCam task, poll Perfect Corp API
-      if (YOUCAM_API_KEY) {
-        try {
-          const resp = await fetch(`https://yce-api-01.makeupar.com/s2s/v2.0/task/cloth/${body.task_id}`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${YOUCAM_API_KEY}`,
-              "x-api-key": YOUCAM_API_KEY,
-            },
-          });
-          const result = await resp.json();
-          console.log("[YouCam Polling Status]:", JSON.stringify(result));
-          
-          const rawStatus = (result?.data?.task_status || result?.task_status || result?.status || "").toString().toLowerCase();
-          const resultUrl = result?.data?.results?.url || 
-            (Array.isArray(result?.data?.results) ? result?.data?.results[0]?.url : null) ||
-            result?.data?.url || 
-            result?.url || 
-            result?.data?.result_url;
-          
-          if (rawStatus === "success" && resultUrl) {
-            return json({
-              status: "SUCCESS",
-              result_url: resultUrl,
-              task_id: body.task_id,
-            });
-          } else if (rawStatus === "error" || rawStatus === "failed") {
-            return json({
-              status: "FAILED",
-              error: result?.data?.error || result?.data?.error_message || result?.message || "YouCam processing failed",
-            });
-          } else {
-            return json({
-              status: "PROCESSING",
-              task_id: body.task_id,
-            });
-          }
-        } catch (pollErr) {
-          console.warn("[YouCam Polling Error]:", pollErr);
-          return json({
-            status: "PROCESSING",
-            task_id: body.task_id,
-          });
-        }
+      if (!body.task_id) return err("task_id is required")
+      if (!YOUCAM_API_KEY) return err("YouCam API key is not configured in Goobox", 503)
+
+      const response = await fetch(
+        `${YOUCAM_BASE_URL}/task/cloth-v4/${encodeURIComponent(body.task_id)}`,
+        { headers: { Authorization: `Bearer ${YOUCAM_API_KEY}` } },
+      )
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        return json({
+          success: false,
+          status: "FAILED",
+          error: apiError(result),
+          provider_status: response.status,
+        }, response.status >= 400 && response.status < 500 ? response.status : 502)
       }
 
-      // If simulated fallback task without YouCam API key
-      return json({
-        status: "SUCCESS",
-        result_url: body.garment_image_url || null,
-      });
+      const rawStatus = String(
+        result?.data?.task_status || result?.data?.status || result?.task_status || result?.status || "",
+      ).toLowerCase()
+      const results = result?.data?.results
+      const resultUrl = results?.url ||
+        (Array.isArray(results) ? results[0]?.url : null) ||
+        result?.data?.result_url ||
+        result?.data?.url
+
+      if (["success", "succeeded", "completed", "complete"].includes(rawStatus)) {
+        if (!resultUrl) return err("YouCam completed but did not return a result image", 502)
+        return json({ success: true, status: "SUCCESS", result_url: resultUrl, task_id: body.task_id })
+      }
+      if (["failed", "error", "failure"].includes(rawStatus)) {
+        return json({ success: false, status: "FAILED", error: apiError(result), task_id: body.task_id }, 502)
+      }
+      return json({ success: true, status: "PROCESSING", task_id: body.task_id })
     }
 
-    // 2. Submit Try-On Task
-    const { src_image_url, garment_image_url, garment_category, listing_id } = body;
+    if (action !== "try-on") return err("Unsupported action")
+    const { src_image_url, garment_image_url } = body
     if (!src_image_url || !garment_image_url) {
-      return err("src_image_url and garment_image_url are required");
+      return err("src_image_url and garment_image_url are required")
     }
 
-    // Smart category resolution based on category name or listing title
-    let resolvedCategory = garment_category || "upper_body";
-    if (!garment_category && body.listing_id) {
-      try {
-        const { data: item } = await supabase
-          .from("listings")
-          .select("title, category, description")
-          .eq("id", listing_id)
-          .maybeSingle();
-        const text = `${item?.category || ""} ${item?.title || ""} ${item?.description || ""}`.toLowerCase();
-        
-        // Detect non-fashion items requiring spatial room/desk placement
-        if (
-          text.includes("sofa") || text.includes("chair") || text.includes("table") ||
-          text.includes("bed") || text.includes("furniture") || text.includes("lamp") ||
-          text.includes("rug") || text.includes("decor") || text.includes("desk") ||
-          text.includes("laptop") || text.includes("phone") || text.includes("monitor") ||
-          text.includes("electronics") || text.includes("speaker") || text.includes("appliance") ||
-          text.includes("plant") || text.includes("shelf") || text.includes("tv")
-        ) {
-          resolvedCategory = "spatial_placement";
-        } else if (text.includes("trouser") || text.includes("pant") || text.includes("short") || text.includes("skirt")) {
-          resolvedCategory = "lower_body";
-        } else if (text.includes("dress") || text.includes("suit") || text.includes("jumpsuit")) {
-          resolvedCategory = "full_body";
-        } else if (text.includes("jacket") || text.includes("coat") || text.includes("hoodie") || text.includes("vest")) {
-          resolvedCategory = "outerwear";
-        } else if (text.includes("shoe") || text.includes("sneaker") || text.includes("boot") || text.includes("heel")) {
-          resolvedCategory = "shoes";
-        } else if (text.includes("earring") || text.includes("jewelry")) {
-          resolvedCategory = "earrings";
-        } else if (text.includes("hat") || text.includes("cap") || text.includes("beanie")) {
-          resolvedCategory = "hat";
-        } else {
-          resolvedCategory = "upper_body";
-        }
-      } catch (_) {}
-    }
-
-    // Fast-path for non-fashion spatial placement (room, desk, decor, tech)
-    if (resolvedCategory === "spatial_placement") {
-      const taskId = `spatial_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-      let fallbackVariations = [garment_image_url];
-      if (listing_id) {
-        try {
-          const { data: item } = await supabase
-            .from("listings")
-            .select("photos")
-            .eq("id", listing_id)
-            .maybeSingle();
-          if (item?.photos && Array.isArray(item.photos)) {
-            for (const p of item.photos) {
-              if (typeof p === "string" && p && !fallbackVariations.includes(p)) {
-                fallbackVariations.push(p);
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
+    // Room/desk placement is a client-side interactive preview, not a YouCam AI result.
+    if (body.garment_category === "spatial_placement") {
       return json({
         success: true,
-        task_id: taskId,
-        status: "SUCCESS",
-        result_url: garment_image_url,
-        variations: fallbackVariations,
-        mode: "spatial_placement",
-        garment_category: "spatial_placement",
-      });
+        status: "MANUAL_PLACEMENT",
+        mode: "manual_placement",
+        result_url: null,
+        variations: [],
+      })
     }
 
-    // If YouCam API key is present, invoke Perfect Corp v2.0 Clothes API
-    if (YOUCAM_API_KEY) {
-      try {
-        console.log(`[YouCam Try-On Submit] src: ${src_image_url}, ref: ${garment_image_url}, category: ${resolvedCategory}`);
-        const response = await fetch("https://yce-api-01.makeupar.com/s2s/v2.0/task/cloth", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${YOUCAM_API_KEY}`,
-            "x-api-key": YOUCAM_API_KEY,
-          },
-          body: JSON.stringify({
-            src_file_url: src_image_url,
-            ref_file_url: garment_image_url,
-            garment_category: resolvedCategory,
-          }),
-        });
+    if (!YOUCAM_API_KEY) return err("YouCam API key is not configured in Goobox", 503)
 
-        const data = await response.json();
-        console.log("[YouCam Submit Response]:", JSON.stringify(data));
-        
-        if (response.ok && data?.data?.task_id) {
-          return json({
-            success: true,
-            task_id: data.data.task_id,
-            status: data.data.status || data.data.task_status || "PROCESSING",
-            garment_category: resolvedCategory,
-          });
-        } else {
-          console.warn("[YouCam Notice] Credit limit or API failure, falling back to smart experience variations:", data?.error || data?.message);
-        }
-      } catch (youcamErr) {
-        console.warn("[YouCam API Call error, falling back]:", youcamErr);
-      }
+    const inferredCategory = body.garment_category || await readListingCategory(body.listing_id)
+    const garmentCategory = normalizeCategory(inferredCategory)
+
+    const response = await fetch(`${YOUCAM_BASE_URL}/task/cloth-v4`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${YOUCAM_API_KEY}`,
+      },
+      body: JSON.stringify({
+        src_file_url: src_image_url,
+        ref_file_url: garment_image_url,
+        garment_category: garmentCategory,
+      }),
+    })
+
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      return json({
+        success: false,
+        status: "FAILED",
+        error: apiError(result),
+        provider_status: response.status,
+      }, response.status >= 400 && response.status < 500 ? response.status : 502)
     }
 
-    // Graceful fallback with actual garment variations (never the raw user photo)
-    const taskId = `exp_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-    
-    // Fetch additional listing images if available to show real product styling
-    let fallbackVariations = [garment_image_url];
-    if (listing_id) {
-      try {
-        const { data: item } = await supabase
-          .from("listings")
-          .select("photos")
-          .eq("id", listing_id)
-          .maybeSingle();
-        if (item?.photos && Array.isArray(item.photos)) {
-          for (const p of item.photos) {
-            if (typeof p === "string" && p && !fallbackVariations.includes(p)) {
-              fallbackVariations.push(p);
-            }
-          }
-        }
-      } catch (_) {}
+    const taskId = result?.data?.task_id || result?.task_id
+    if (!taskId) {
+      return json({
+        success: false,
+        status: "FAILED",
+        error: apiError(result),
+      }, 502)
     }
 
     return json({
       success: true,
       task_id: taskId,
-      status: "SUCCESS",
-      result_url: garment_image_url,
-      variations: fallbackVariations,
-    });
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return err(`Experience Engine Error: ${msg}`, 500);
+      status: "PROCESSING",
+      garment_category: garmentCategory,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected Experience Engine error"
+    console.error("[YouCam Experience]", message)
+    return err("Experience request failed. Please try again.", 500)
   }
-});
+})
