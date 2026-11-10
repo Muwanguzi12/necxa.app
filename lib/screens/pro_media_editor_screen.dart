@@ -318,6 +318,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   AudioClipOperation? get _musicOperation => _musicClip?.operation as AudioClipOperation?;
   AudioClipOperation? get _voiceOperation => _voiceClip?.operation as AudioClipOperation?;
+  bool get _hasSoloAudioTrack => _project.tracks
+      .where((track) => track.isVisible)
+      .expand((track) => track.clips)
+      .where((clip) => !clip.isHidden && clip.operation is AudioClipOperation)
+      .any((clip) {
+        final operation = clip.operation as AudioClipOperation;
+        return operation.solo && !operation.muted;
+      });
   File? get _voiceOverFile => _voiceClip?.file;
   double get _bgmVolume => _musicOperation?.volume ?? 0.5;
   double get _voiceVolume => _voiceOperation?.volume ?? 0.8;
@@ -631,7 +639,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           clip.end = clip.duration;
         }
 
-        await controller.setVolume(_isMuted ? 0.0 : _originalVolume);
+        await controller.setVolume((_isMuted || _hasSoloAudioTrack) ? 0.0 : _originalVolume);
         if (!mounted || !identical(_videoController, controller)) return;
         await controller.setPlaybackSpeed(clip.speed);
         final sourceTime = seekTo ?? (clip.isReversed ? clip.end : clip.start);
@@ -731,6 +739,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
       final controller = _videoController;
       if (controller != null && controller.value.isInitialized) {
+        final expectedVideoVolume =
+            (_isMuted || _hasSoloAudioTrack) ? 0.0 : _originalVolume;
+        if ((controller.value.volume - expectedVideoVolume).abs() > 0.01) {
+          await controller.setVolume(expectedVideoVolume);
+        }
         final sourceExpected = _sequence[index].start + remaining;
         final expected = _sequence[index].isReversed
             ? _sequence[index].duration - sourceExpected
@@ -1299,14 +1312,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _lastTimelineAudioSync = playhead;
     try {
       final activeIds = <String>{};
-      final visibleAudioClips = _project.tracks.where((item) => item.isVisible)
-          .expand((item) => item.clips)
-          .where((item) => !item.isHidden && item.operation is AudioClipOperation)
-          .toList();
-      final hasSoloAudio = visibleAudioClips.any((clip) {
-        final operation = clip.operation as AudioClipOperation;
-        return operation.solo && !operation.muted;
-      });
+      final hasSoloAudio = _hasSoloAudioTrack;
       for (final track in _project.tracks.where((item) => item.isVisible)) {
         for (final clip in track.clips.where((item) => !item.isHidden)) {
           final operation = clip.operation;
