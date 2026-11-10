@@ -225,6 +225,7 @@ internal class FaceBeautyFrameProcessor : LocalVideoTrack.ExternalVideoFrameProc
                         bright, contrastAmount)
                 }
                 if (kotlin.math.abs(saturationAmount - 1f) >= 0.001f ||
+                    kotlin.math.abs(hueAmount) >= 0.001f ||
                     kotlin.math.abs(warmthAmount) >= 0.001f) {
                     applyChromaGrade(output.dataU, output.strideU, output.dataV, output.strideV,
                         source.width / 2, source.height / 2, saturationAmount, hueAmount, warmthAmount)
