@@ -204,6 +204,7 @@ class EditorExportService {
             align: operation.align,
             animationIn: operation.animationIn,
             animationOut: operation.animationOut,
+            depthLayer: operation.depthLayer,
           ),
         );
       } else if (operation is TextOverlay) {
