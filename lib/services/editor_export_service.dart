@@ -169,6 +169,7 @@ class EditorExportService {
         volume: clip.volume,
         isVideo: isVideo,
         hasAudio: isVideo,
+        reverse: clip.isReversed,
         scale: clip.transform.scale,
         rotation: clip.transform.rotation,
         offsetX: clip.transform.position.dx,
