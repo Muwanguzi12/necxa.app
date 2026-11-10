@@ -464,7 +464,7 @@ class VideoEnhancementService {
       filterComplex +=
           "${concatParts}concat=n=${clips.length}:v=1:a=1[outv][outa_orig];";
     } else {
-      filterComplex += "[v0]copy[outv];[a0]acopy[outa_orig];";
+      filterComplex += "[v0]null[outv];[a0]anull[outa_orig];";
     }
 
     String currentVideo = "outv";
