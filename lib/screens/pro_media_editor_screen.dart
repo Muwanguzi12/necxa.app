@@ -49,6 +49,7 @@ class VideoClip {
   double speed;
   double volume;
   bool hasAudio;
+  bool isReversed;
   double scale;
   double rotation;
   double offsetX;
@@ -65,6 +66,7 @@ class VideoClip {
     this.speed = 1.0,
     this.volume = 1.0,
     this.hasAudio = true,
+    this.isReversed = false,
     this.scale = 1.0,
     this.rotation = 0.0,
     this.offsetX = 0.0,
@@ -82,6 +84,7 @@ class VideoClip {
     speed: speed,
     volume: volume,
     hasAudio: hasAudio,
+    isReversed: isReversed,
     scale: scale,
     rotation: rotation,
     offsetX: offsetX,
@@ -259,6 +262,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               offsetX: clip.transform.position.dx,
               offsetY: clip.transform.position.dy,
               opacity: clip.transform.opacity,
+              isReversed: clip.isReversed,
             ),
           )
           .toList();
@@ -617,6 +621,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           sourceEnd: sourceEnd,
           speed: clip.speed,
           volume: clip.volume,
+          isReversed: clip.isReversed,
           operation: TrimOperation(
             start: sourceStart,
             end: sourceEnd,
@@ -2569,6 +2574,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   _showTransformEditor,
                 ),
                 _quickAction(Icons.speed, 'Speed', _showSpeedSheet),
+                _quickAction(Icons.flip, 'Reverse', _toggleReverse),
                 _quickAction(Icons.blur_on, 'Fade', _showFadeSheet),
                 _quickAction(
                   Icons.compare_arrows,
@@ -2813,6 +2819,41 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     } else if (mode == 'move' && finalIndex >= 0) {
       _loadClip(finalIndex);
     }
+  }
+
+  void _toggleReverse() {
+    if (_sequence.isEmpty) {
+      TimelineClip? audioClip;
+      for (final track in _project.tracks) {
+        for (final candidate in track.clips) {
+          if (candidate.operation is AudioClipOperation) {
+            audioClip = candidate;
+            break;
+          }
+        }
+        if (audioClip != null) break;
+      }
+      if (audioClip == null) {
+        _feedback('Select a video, photo, or audio clip first');
+        return;
+      }
+      _saveHistory();
+      final operation = audioClip.operation as AudioClipOperation;
+      setState(() {
+        operation.reverse = !operation.reverse;
+        audioClip!.isReversed = operation.reverse;
+      });
+      _feedback(operation.reverse ? 'Audio reversed for export' : 'Audio reverse removed');
+      return;
+    }
+    if (_activeClipIndex < 0 || _activeClipIndex >= _sequence.length) return;
+    _saveHistory();
+    final clip = _sequence[_activeClipIndex];
+    setState(() => clip.isReversed = !clip.isReversed);
+    _syncSharedProjectFromSequence();
+    _feedback(clip.isVideo
+        ? (clip.isReversed ? 'Reverse video and original audio on export' : 'Video reverse removed')
+        : (clip.isReversed ? 'Photo mirrored horizontally' : 'Photo mirror removed'));
   }
 
   void _handleSplit() {
