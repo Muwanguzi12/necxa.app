@@ -790,15 +790,29 @@ class VideoEnhancementService {
 
   /// Extracts a small mono audio file for the Text Studio transcription flow.
   /// The original video is never modified or uploaded.
-  Future<File?> extractAudioForTranscription(File inputMedia) async {
+  Future<File?> extractAudioForTranscription(
+    File inputMedia, {
+    double start = 0,
+    double? end,
+  }) async {
     if (!_isSupportedMediaFile(inputMedia)) {
       throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
+    }
+    final trimStart = start.clamp(0.0, double.infinity).toDouble();
+    final trimDuration = end == null ? null : (end - trimStart);
+    if (trimDuration != null && trimDuration <= 0) {
+      throw ArgumentError('The selected clip trim range is invalid.');
     }
     final tempDir = await getTemporaryDirectory();
     final outputPath =
         '${tempDir.path}/necxa_transcribe_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    // Seek and extract only the selected clip range. This avoids creating a
+    // full-length audio copy when the source video approaches 1 GB.
+    final trimArgs = trimDuration == null
+        ? ''
+        : "-ss $trimStart -t $trimDuration ";
     final command =
-        "-i '${_escapePath(inputMedia.path)}' -vn -ac 1 -ar 16000 "
+        "-i '${_escapePath(inputMedia.path)}' $trimArgs-vn -ac 1 -ar 16000 "
         "-c:a aac -b:a 48k -y '${_escapePath(outputPath)}'";
     try {
       final session = await FFmpegKit.execute(command);
