@@ -1629,7 +1629,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   Widget _buildSequenceTimeline() {
     const pixelsPerSecond = 48.0;
     final duration = _totalDuration > 0 ? _totalDuration : 1.0;
-    final totalWidth = math.max(320.0, duration * pixelsPerSecond);
+    final double totalWidth = math.max(320.0, duration * pixelsPerSecond).toDouble();
     final viewportWidth = MediaQuery.of(context).size.width - 32;
     final playheadSeconds =
         _project.playback.state.currentTime.inMilliseconds / 1000.0;
@@ -1687,6 +1687,50 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       setState(() => _activeClipIndex = index);
                       _loadClip(index);
                     },
+                    onPanStart: (details) {
+                      if (_videoTrackLocked) return;
+                      final clipWidth = math.max(4.0,
+                        seconds * pixelsPerSecond - 2).toDouble();
+                      final mode = details.localPosition.dx <= 9
+                          ? 'trim-start'
+                          : details.localPosition.dx >= clipWidth - 9
+                              ? 'trim-end' : 'move';
+                      if (mode == 'move') return;
+                      if (clip.duration <= 0) {
+                        _feedback('Media duration is still loading');
+                        return;
+                      }
+                      _saveHistory();
+                      setState(() {
+                        _timelineDragIndex = index;
+                        _timelineDragMode = mode;
+                        _timelineDragOriginX = details.globalPosition.dx;
+                        _timelineOriginalStart = clip.start;
+                        _timelineOriginalEnd = clip.end;
+                      });
+                    },
+                    onPanUpdate: (details) {
+                      if (_timelineDragIndex != index ||
+                          _timelineDragMode == null ||
+                          _timelineDragMode == 'move') return;
+                      final delta = (details.globalPosition.dx -
+                        _timelineDragOriginX) / pixelsPerSecond * clip.speed;
+                      setState(() {
+                        if (_timelineDragMode == 'trim-start') {
+                          clip.start = (_timelineOriginalStart + delta)
+                            .clamp(0.0, math.max(0.0,
+                              _timelineOriginalEnd - 0.1)).toDouble();
+                        } else {
+                          final maxEnd = clip.duration > 0
+                              ? clip.duration : _timelineOriginalEnd;
+                          clip.end = (_timelineOriginalEnd + delta)
+                            .clamp(math.min(maxEnd, clip.start + 0.1),
+                              maxEnd).toDouble();
+                        }
+                      });
+                    },
+                    onPanEnd: (_) => _finishTimelineDrag(clip),
+                    onPanCancel: () => _finishTimelineDrag(clip),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
                       decoration: BoxDecoration(
@@ -1810,7 +1854,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
-            width: math.max(viewportWidth, totalWidth + 68),
+            width: math.max(viewportWidth, totalWidth + 68).toDouble(),
             child: Column(children: [
               Row(children: [
                 const SizedBox(width: 68),
