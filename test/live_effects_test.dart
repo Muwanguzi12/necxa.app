@@ -100,6 +100,44 @@ void main() {
       expect(native.warmth, closeTo(0.12, 0.0001));
     });
 
+    test('Cinema and Neon preview matrices use shared native parameters', () {
+      for (final preset in ['cinema', 'neon']) {
+        final meta = NecxaFilterMeta(
+          id: 'preset_$preset',
+          displayName: preset,
+          category: 'color',
+          brightness: 0.05,
+          contrast: 1.1,
+          saturation: 1.4,
+          hue: 0.08,
+          colorMatrixPreset: preset,
+        );
+        final native = NecxaEffectsEngine.nativeParametersForMeta(
+          meta,
+          intensity: 0.65,
+        );
+        final preview = NecxaEffectsEngine.buildMatrixForMeta(
+          meta,
+          intensity: 0.65,
+        );
+        final expected = NecxaEffectsEngine.buildMatrix(
+          brightness: native.brightness,
+          contrast: native.contrast,
+          saturation: native.saturation,
+          hue: native.hue,
+        );
+        expect(preview, expected);
+        final exported = NecxaEffectsEngine.buildFfmpegEqFilter(
+          meta,
+          intensity: 0.65,
+        );
+        expect(exported, contains('brightness='));
+        expect(exported, contains('contrast='));
+        expect(exported, contains('saturation='));
+        expect(exported, contains('hue='));
+      }
+    });
+
     test('Original native preview maps to neutral parameters', () {
       final native = NecxaEffectsEngine.nativeParametersForMeta(
         NecxaFilterMeta.none,
