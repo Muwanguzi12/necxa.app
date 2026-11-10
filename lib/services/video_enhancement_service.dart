@@ -170,6 +170,16 @@ class VideoEnhancementService {
     }
   }
 
+  bool _isSupportedAudioSource(String source) {
+    final uri = Uri.tryParse(source);
+    if (uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host.isNotEmpty) {
+      return true;
+    }
+    return _isSupportedMediaFile(File(source));
+  }
+
   /// Complete video enhancement pipeline
   Future<File> enhanceVideo({
     required File inputVideo,
@@ -279,7 +289,7 @@ class VideoEnhancementService {
       }
     }
     for (final track in audioTracks) {
-      if (!_isSupportedMediaFile(File(track.path))) {
+      if (!_isSupportedAudioSource(track.path)) {
         throw ArgumentError('An audio track is missing or exceeds 1 GB.');
       }
     }
@@ -584,12 +594,21 @@ class VideoEnhancementService {
       final track = audioTracks[i];
       final index = audioTrackIndexes[i]!;
       final label = 'timeline_audio_$i';
+      final sourceDuration = track.timelineDuration > 0
+          ? track.timelineDuration * track.speed
+          : null;
       final trimEnd = track.sourceEnd == null ? '' : ':end=${track.sourceEnd}';
+      final trimDuration = sourceDuration == null
+          ? ''
+          : ',atrim=duration=${sourceDuration.toStringAsFixed(3)}';
       final reverse = track.reverse ? ',areverse' : '';
       final tempo = _atempoFilter(track.speed);
       final delay = (track.timelineStart * 1000).round().clamp(0, 1 << 31);
-      final fadeIn = track.fadeIn.clamp(0.0, track.timelineDuration / 2);
-      final fadeOut = track.fadeOut.clamp(0.0, track.timelineDuration / 2);
+      final fadeWindow = track.timelineDuration > 0
+          ? track.timelineDuration / 2
+          : 0.0;
+      final fadeIn = track.fadeIn.clamp(0.0, fadeWindow);
+      final fadeOut = track.fadeOut.clamp(0.0, fadeWindow);
       final fadeInFilter = fadeIn > 0 ? ',afade=t=in:st=0:d=$fadeIn' : '';
       final fadeOutStart = (track.timelineDuration - fadeOut).clamp(
         0.0,
@@ -599,14 +618,14 @@ class VideoEnhancementService {
           ? ',afade=t=out:st=$fadeOutStart:d=$fadeOut'
           : '';
       filterComplex +=
-          "[$index:a]atrim=start=${track.sourceStart}$trimEnd,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,volume=${track.volume},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
+          "[$index:a]atrim=start=${track.sourceStart}$trimEnd$trimDuration,asetpts=PTS-STARTPTS,$tempo$reverse$fadeInFilter$fadeOutFilter,volume=${track.volume.clamp(0.0, 4.0)},aresample=44100,aformat=channel_layouts=stereo,adelay=$delay|$delay[$label];";
       audioSources += '[$label]';
       inputsCount++;
     }
 
     if (inputsCount > 1) {
       filterComplex +=
-          "${audioSources}amix=inputs=$inputsCount:duration=first:dropout_transition=2[outa]";
+          "${audioSources}amix=inputs=$inputsCount:duration=first:dropout_transition=2:normalize=0,alimiter=limit=0.95[outa]";
     } else {
       filterComplex += "[outa_orig]anull[outa]";
     }
