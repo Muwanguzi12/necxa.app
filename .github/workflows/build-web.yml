@@ -1,9 +1,9 @@
 name: Build Web App
 
 on:
+  # Publish the web build from main; use workflow_dispatch for a deliberate
+  # web build without merging unrelated platform work.
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -29,7 +29,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
           cache: true
 
       - name: Enable web support
@@ -64,13 +64,11 @@ jobs:
           retention-days: 14
 
       - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: build/web
 
   deploy:
-    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
