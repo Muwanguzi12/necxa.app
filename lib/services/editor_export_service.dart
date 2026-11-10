@@ -275,6 +275,7 @@ class EditorExportService {
               depthLayer: operation.depthLayer,
               themeId: operation.themeId,
               wordTimings: operation.wordTimings,
+              fontFilePath: operation.fontFilePath,
             ),
           );
         } else if (operation is TextOverlay) {
