@@ -49,7 +49,7 @@ jobs:
           fi
           mapfile -t dart_files < <(
             git diff --name-only "$RANGE" -- '*.dart' |
-              grep -E '\\.dart$' |
+              grep -E '\.dart$' |
               grep -v '^lib/screens/mobile_media_editor.dart$' || true
           )
           if (( ${#dart_files[@]} == 0 )); then
