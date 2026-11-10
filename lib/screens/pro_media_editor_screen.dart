@@ -172,6 +172,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   String? _timelineDragMode;
   double _timelineDragOriginX = 0;
   double _timelineDragDeltaX = 0;
+  double _timelineDragAppliedX = 0;
   double _timelineOriginalStart = 0;
   double _timelineOriginalEnd = 0;
 
@@ -1595,45 +1596,108 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         final width = (seconds * pixelsPerSecond).clamp(72.0, 190.0).toDouble();
         final selected = index == _activeClipIndex;
         final dragging = _timelineDragIndex == index;
-        return Transform.translate(offset: Offset(dragging ? _timelineDragDeltaX : 0, 0), child: GestureDetector(
-          onTap: () { setState(() => _activeClipIndex = index); _loadClip(index); },
-          onPanStart: (details) {
-            if (_videoTrackLocked) return;
-            _saveHistory();
-            setState(() {
-              _timelineDragIndex = index; _timelineDragOriginX = details.globalPosition.dx; _timelineDragDeltaX = 0;
-              _timelineOriginalStart = clip.start; _timelineOriginalEnd = clip.end; _activeClipIndex = index;
-              _timelineDragMode = details.localPosition.dx <= 14 ? 'trim-start' :
-                (details.localPosition.dx >= width - 14 ? 'trim-end' : 'move');
-            });
-          },
-          onPanUpdate: (details) {
-            if (_timelineDragIndex != index || _timelineDragMode == null) return;
-            final dx = details.globalPosition.dx - _timelineDragOriginX;
-            setState(() {
-              _timelineDragDeltaX = dx;
-              if (_timelineDragMode == 'trim-start') {
-                final delta = dx / pixelsPerSecond * clip.speed;
-                clip.start = (_timelineOriginalStart + delta).clamp(0.0, _timelineOriginalEnd - 0.1).toDouble();
-              } else if (_timelineDragMode == 'trim-end') {
-                final delta = dx / pixelsPerSecond * clip.speed;
-                clip.end = (_timelineOriginalEnd + delta).clamp(clip.start + 0.1, clip.duration).toDouble();
+        return Transform.translate(
+          offset: Offset(dragging ? _timelineDragDeltaX : 0, 0),
+          child: GestureDetector(
+            key: ValueKey('sequence-clip-${clip.file.path}'),
+            onTap: () {
+              final currentIndex = _sequence.indexOf(clip);
+              if (currentIndex < 0) return;
+              setState(() => _activeClipIndex = currentIndex);
+              _loadClip(currentIndex);
+            },
+            onPanStart: (details) {
+              if (_videoTrackLocked) return;
+              final mode = details.localPosition.dx <= 14
+                  ? 'trim-start'
+                  : (details.localPosition.dx >= width - 14 ? 'trim-end' : 'move');
+              if (mode != 'move' && clip.duration <= 0) {
+                _feedback('Media duration is still loading');
+                return;
               }
-            });
-          },
-          onPanEnd: (_) {
-            final mode = _timelineDragMode; final dx = _timelineDragDeltaX;
-            setState(() {
-              if (mode == 'move' && dx.abs() >= 36) {
-                final target = (index + (dx > 0 ? 1 : -1)).clamp(0, _sequence.length - 1).toInt();
-                if (target != index) { final moved = _sequence.removeAt(index); _sequence.insert(target, moved); _activeClipIndex = target; HapticFeedback.selectionClick(); }
+              _saveHistory();
+              setState(() {
+                _timelineDragIndex = _sequence.indexOf(clip);
+                _timelineDragOriginX = details.globalPosition.dx;
+                _timelineDragDeltaX = 0;
+                _timelineDragAppliedX = 0;
+                _timelineOriginalStart = clip.start;
+                _timelineOriginalEnd = clip.end;
+                _activeClipIndex = _sequence.indexOf(clip);
+                _timelineDragMode = mode;
+              });
+            },
+            onPanUpdate: (details) {
+              final currentIndex = _sequence.indexOf(clip);
+              if (_timelineDragIndex != currentIndex || _timelineDragMode == null) return;
+              final dx = details.globalPosition.dx - _timelineDragOriginX;
+              setState(() {
+                if (_timelineDragMode == 'move') {
+                  var remaining = dx - _timelineDragAppliedX;
+                  // Magnetic slot changes happen as the dragged clip crosses
+                  // each neighbour's midpoint, supporting multi-clip moves.
+                  while (remaining > 0 && _timelineDragIndex! < _sequence.length - 1) {
+                    final next = _sequence[_timelineDragIndex! + 1];
+                    final nextWidth = (((next.end - next.start) / next.speed) * pixelsPerSecond)
+                        .clamp(72.0, 190.0).toDouble() + 4;
+                    final threshold = nextWidth / 2;
+                    if (remaining < threshold) break;
+                    final from = _timelineDragIndex!;
+                    final moved = _sequence.removeAt(from);
+                    _sequence.insert(from + 1, moved);
+                    _timelineDragIndex = from + 1;
+                    _timelineDragAppliedX += threshold;
+                    remaining = dx - _timelineDragAppliedX;
+                    HapticFeedback.selectionClick();
+                  }
+                  while (remaining < 0 && _timelineDragIndex! > 0) {
+                    final previous = _sequence[_timelineDragIndex! - 1];
+                    final previousWidth = (((previous.end - previous.start) / previous.speed) * pixelsPerSecond)
+                        .clamp(72.0, 190.0).toDouble() + 4;
+                    final threshold = previousWidth / 2;
+                    if (remaining > -threshold) break;
+                    final from = _timelineDragIndex!;
+                    final moved = _sequence.removeAt(from);
+                    _sequence.insert(from - 1, moved);
+                    _timelineDragIndex = from - 1;
+                    _timelineDragAppliedX -= threshold;
+                    remaining = dx - _timelineDragAppliedX;
+                    HapticFeedback.selectionClick();
+                  }
+                  _activeClipIndex = _timelineDragIndex!;
+                  _timelineDragDeltaX = dx - _timelineDragAppliedX;
+                } else if (_timelineDragMode == 'trim-start') {
+                  final delta = dx / pixelsPerSecond * clip.speed;
+                  final maxStart = math.max(0.0, _timelineOriginalEnd - 0.1);
+                  clip.start = (_timelineOriginalStart + delta).clamp(0.0, maxStart).toDouble();
+                } else if (_timelineDragMode == 'trim-end') {
+                  final delta = dx / pixelsPerSecond * clip.speed;
+                  final maxEnd = clip.duration > 0 ? clip.duration : _timelineOriginalEnd;
+                  final minEnd = math.min(maxEnd, clip.start + 0.1);
+                  clip.end = (_timelineOriginalEnd + delta).clamp(minEnd, maxEnd).toDouble();
+                }
+              });
+            },
+            onPanEnd: (_) {
+              final mode = _timelineDragMode;
+              final finalIndex = _sequence.indexOf(clip);
+              setState(() {
+                if (mode == 'move' && finalIndex >= 0) {
+                  _activeClipIndex = finalIndex;
+                }
+                _timelineDragIndex = null;
+                _timelineDragMode = null;
+                _timelineDragDeltaX = 0;
+                _timelineDragAppliedX = 0;
+              });
+              _syncSharedProjectFromSequence();
+              if (_videoController != null && mode != 'move' && finalIndex >= 0) {
+                _videoController!.seekTo(Duration(milliseconds: (clip.start * 1000).round()));
+              } else if (mode == 'move' && finalIndex >= 0) {
+                _loadClip(finalIndex);
               }
-              _timelineDragIndex = null; _timelineDragMode = null; _timelineDragDeltaX = 0;
-            });
-            _syncSharedProjectFromSequence();
-            if (_videoController != null && mode != 'move') { _videoController!.seekTo(Duration(milliseconds: (clip.start * 1000).round())); }
-          },
-          child: Container(width: width, margin: const EdgeInsets.only(right: 4, top: 3, bottom: 3),
+            },
+            child: Container(width: width, margin: const EdgeInsets.only(right: 4, top: 3, bottom: 3),
             decoration: BoxDecoration(color: selected ? C.brand.withOpacity(0.24) : const Color(0xFF243247),
               borderRadius: BorderRadius.circular(6), border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12), width: selected ? 1.5 : 1)),
             child: Stack(children: [
