@@ -169,7 +169,6 @@ class AudioEnhancementService {
       '-hide_banner',
       '-y',
       '-i', inputAudio.path,
-      '-stream_loop', '-1',
       '-i', backgroundMusic.path,
       '-filter_complex',
       '[1:a]${musicFilters.join(',')}[music];'
