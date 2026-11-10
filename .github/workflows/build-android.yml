@@ -2,7 +2,7 @@ name: Build Android
 
 on:
   push:
-    branches: [ main, feature/engagement-service-skeleton ]
+    branches: [ main, feature/engagement-service-skeleton, feature/unified-realtime-effects-engine ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
