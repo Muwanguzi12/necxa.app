@@ -4806,11 +4806,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               break;
             case 'pop':
               animationScale = 0.82 + (0.18 * enterProgress);
-              animationOpacity *= enterProgress;
+              animationOpacity *= ((globalTime - overlayStart) / 0.08).clamp(0.0, 1.0);
               break;
             case 'zoom':
               animationScale = 0.55 + (0.45 * enterProgress);
-              animationOpacity *= enterProgress;
+              animationOpacity *= ((globalTime - overlayStart) / 0.08).clamp(0.0, 1.0);
               break;
             case 'bounce':
               animationOffset += Offset(
