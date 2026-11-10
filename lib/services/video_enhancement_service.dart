@@ -180,6 +180,74 @@ class VideoEnhancementService {
     return _isSupportedMediaFile(File(source));
   }
 
+  Future<File> _downloadAudioSource(String source) async {
+    final uri = Uri.tryParse(source);
+    if (uri == null ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
+        uri.host.isEmpty) {
+      final local = File(source);
+      if (!_isSupportedMediaFile(local)) {
+        throw ArgumentError('An audio track is missing or exceeds 1 GB.');
+      }
+      return local;
+    }
+
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20);
+    File? output;
+    IOSink? sink;
+    try {
+      final request = await client.getUrl(uri).timeout(
+        const Duration(seconds: 30),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 60),
+      );
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        throw HttpException(
+          'Audio source download failed with HTTP ${response.statusCode}.',
+          uri: uri,
+        );
+      }
+      if (response.contentLength > maxMediaFileBytes) {
+        await response.drain<void>();
+        throw ArgumentError('An audio track exceeds the 1 GB limit.');
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      output = File(
+        '${tempDir.path}/necxa_audio_source_${DateTime.now().microsecondsSinceEpoch}.media',
+      );
+      sink = output.openWrite();
+      var receivedBytes = 0;
+      await for (final chunk in response) {
+        receivedBytes += chunk.length;
+        if (receivedBytes > maxMediaFileBytes) {
+          throw ArgumentError('An audio track exceeds the 1 GB limit.');
+        }
+        sink.add(chunk);
+      }
+      await sink.flush();
+      await sink.close();
+      sink = null;
+      if (receivedBytes == 0 || !output.existsSync()) {
+        throw const FileSystemException('Downloaded audio source is empty.');
+      }
+      return output;
+    } catch (_) {
+      if (output != null && output.existsSync()) {
+        try {
+          await output.delete();
+        } catch (_) {}
+      }
+      rethrow;
+    } finally {
+      if (sink != null) await sink.close();
+      client.close(force: true);
+    }
+  }
+
   /// Complete video enhancement pipeline
   Future<File> enhanceVideo({
     required File inputVideo,
@@ -332,6 +400,26 @@ class VideoEnhancementService {
         throw ArgumentError('An audio track is missing or exceeds 1 GB.');
       }
     }
+    // Resolve signed storage URLs to bounded local files before FFmpeg runs.
+    // This avoids relying on FFmpeg's optional network protocol support.
+    final resolvedAudioTracks = <RenderAudioTrack>[];
+    final downloadedAudioFiles = <File>[];
+    for (final track in audioTracks) {
+      final sourceFile = await _downloadAudioSource(track.path);
+      if (sourceFile.path != track.path) downloadedAudioFiles.add(sourceFile);
+      resolvedAudioTracks.add(RenderAudioTrack(
+        path: sourceFile.path,
+        sourceStart: track.sourceStart,
+        sourceEnd: track.sourceEnd,
+        timelineStart: track.timelineStart,
+        volume: track.volume,
+        speed: track.speed,
+        reverse: track.reverse,
+        timelineDuration: track.timelineDuration,
+        fadeIn: track.fadeIn,
+        fadeOut: track.fadeOut,
+      ));
+    }
     if (backgroundMusicPath != null &&
         !_isSupportedMediaFile(File(backgroundMusicPath))) {
       throw ArgumentError('Background music is missing or exceeds 1 GB.');
@@ -374,8 +462,8 @@ class VideoEnhancementService {
     }
 
     final audioTrackIndexes = <int, int>{};
-    for (int i = 0; i < audioTracks.length; i++) {
-      inputs += "-i '${_escapePath(audioTracks[i].path)}' ";
+    for (int i = 0; i < resolvedAudioTracks.length; i++) {
+      inputs += "-i '${_escapePath(resolvedAudioTracks[i].path)}' ";
       audioTrackIndexes[i] = nextIndex++;
     }
 
@@ -629,8 +717,8 @@ class VideoEnhancementService {
       inputsCount++;
     }
 
-    for (int i = 0; i < audioTracks.length; i++) {
-      final track = audioTracks[i];
+    for (int i = 0; i < resolvedAudioTracks.length; i++) {
+      final track = resolvedAudioTracks[i];
       final index = audioTrackIndexes[i]!;
       final label = 'timeline_audio_$i';
       final sourceDuration = track.timelineDuration > 0
@@ -677,6 +765,11 @@ class VideoEnhancementService {
     debugPrint('Executing smarter FFmpeg command: $command');
     final session = await FFmpegKit.execute(command);
     final returnCode = await session.getReturnCode();
+    for (final temporaryFile in downloadedAudioFiles) {
+      try {
+        if (temporaryFile.existsSync()) await temporaryFile.delete();
+      } catch (_) {}
+    }
 
     if (ReturnCode.isSuccess(returnCode)) {
       debugPrint('FFmpeg SUCCESS: Master file generated at $outputPath');
