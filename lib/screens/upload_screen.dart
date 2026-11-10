@@ -530,6 +530,10 @@ class _UploadScreenState extends State<UploadScreen>
       final res = await ImagePicker().pickMultipleMedia();
       if (res.isNotEmpty) {
         setState(() {
+          _audioBakedIntoVisual = false;
+          _expectedEmbeddedAudio = false;
+          _visualAlreadyCompressed = false;
+          _preparedVisualFiles = null;
           _multiFiles = res.map((x) => File(x.path)).toList();
           _visualFile = _multiFiles.first;
           _isVideo =
@@ -1284,7 +1288,6 @@ class _UploadScreenState extends State<UploadScreen>
           'layers': _multiFiles.length,
           'has_voice_over': _voiceOverFile != null,
           'audio_mixed_into_video': _audioBakedIntoVisual,
-          'audio_mixed_into_video': _audioBakedIntoVisual,
           'text_layers': _overlays.length,
           'overlays': _overlays,
           'start_offsets': _startOffsets,
@@ -1355,6 +1358,7 @@ class _UploadScreenState extends State<UploadScreen>
       });
     }
 
+    final playbackAudioUrl = _audioBakedIntoVisual ? null : audioUrl;
     final post = await _runPublishingStage(
       stage: 'community_post_creation',
       status: 'Creating Feed post...',
@@ -1368,7 +1372,7 @@ class _UploadScreenState extends State<UploadScreen>
         'thumbnail_url': thumbUrl,
         'media_type': mediaType,
         'media_asset_id': mediaAssetId,
-        'audio_url': audioUrl,
+        'audio_url': playbackAudioUrl,
         'music_track_id': _bakedTrack?.id,
         'creator_mode': 'unified',
         'is_fast_sync': true,
@@ -1377,6 +1381,7 @@ class _UploadScreenState extends State<UploadScreen>
           'objective': 'awareness',
           'layers': _multiFiles.length,
           'has_voice_over': _voiceOverFile != null,
+          'audio_mixed_into_video': _audioBakedIntoVisual,
           'text_layers': _overlays.length,
           'overlays': _overlays,
           'start_offsets': _startOffsets,
