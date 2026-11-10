@@ -90,6 +90,11 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Install verified Necxa Studio FFmpeg runtime
+        env:
+          NECXA_FFMPEG_READ_TOKEN: ${{ secrets.NECXA_FFMPEG_READ_TOKEN }}
+        run: bash scripts/install-necxa-ffmpeg.sh
+
       - name: Print build identity
         run: |
           echo "Commit : $GITHUB_SHA"
