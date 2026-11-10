@@ -703,7 +703,7 @@ class VideoEnhancementService {
         ? '-af areverse -c:a aac -b:a 96k'
         : '-an';
     final command =
-        "-i '${_escapePath(inputVideo.path)}' -vf reverse $audioArgs "
+        "-i '${_escapePath(inputVideo.path)}' -vf \"scale=-2:720,reverse\" $audioArgs "
         "-c:v libx264 -preset ultrafast -crf 28 -movflags +faststart "
         "-y '${_escapePath(outputPath)}'";
     try {
