@@ -4874,9 +4874,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       : o.align == 'right'
                           ? TextAlign.right
                           : TextAlign.center;
-                  final fontFamily = o.fontFamily.toLowerCase() == 'syne'
-                      ? 'Roboto'
-                      : o.fontFamily;
+                  final fontFamily = switch (o.themeId) {
+                    'afro' => 'serif',
+                    'bold' => 'Roboto',
+                    _ => switch (o.fontFamily.toLowerCase()) {
+                        'serif' => 'serif',
+                        'monospace' => 'monospace',
+                        'cursive' => 'cursive',
+                        'roboto' || 'syne' => 'Roboto',
+                        _ => 'Roboto',
+                      },
+                  };
                   final themeShadowColor = switch (o.themeId) {
                     'neon' => const Color(0xFF16E8F2),
                     'karaoke' => const Color(0xFFFFD166),
@@ -4905,6 +4913,24 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           ]
                         : null,
                   );
+                  final karaokeColor = o.themeId == 'neon'
+                      ? const Color(0xFF7DF9FF)
+                      : o.themeId == 'afro'
+                          ? const Color(0xFFFFB45C)
+                          : const Color(0xFFFFD166);
+                  final lyricSpans = o.wordTimings.isEmpty
+                      ? <TextSpan>[TextSpan(text: o.text)]
+                      : o.wordTimings.map((word) {
+                          final wordStart = (word['start'] as num?)?.toDouble() ?? 0;
+                          final wordEnd = (word['end'] as num?)?.toDouble() ?? 0;
+                          final wordText = (word['text'] ?? '').toString();
+                          final isActiveWord = globalTime - overlayStart >= wordStart &&
+                              globalTime - overlayStart < wordEnd;
+                          return TextSpan(
+                            text: '$wordText ',
+                            style: isActiveWord ? TextStyle(color: karaokeColor) : null,
+                          );
+                        }).toList();
                   child = Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -4928,7 +4954,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                 ..color = Colors.black,
                             ),
                           ),
-                        Text(o.text, textAlign: textAlign, style: fillStyle),
+                        Text.rich(
+                          TextSpan(style: fillStyle, children: lyricSpans),
+                          textAlign: textAlign,
+                        ),
                       ],
                     ),
                   );
