@@ -201,6 +201,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   int _activeClipIndex = 0;
   final Set<VideoClip> _selectedClips = <VideoClip>{};
   bool _multiSelectMode = false;
+  bool _groupMoveMode = false;
+  List<VideoClip>? _groupDragOriginalSequence;
+  double _groupDragOriginX = 0;
+  double _groupDragPixelsPerSecond = 48;
+  VideoClip? _groupDragAnchorClip;
   int? _timelineDragIndex;
   String? _timelineDragMode;
   double _timelineDragOriginX = 0;
@@ -1780,9 +1785,21 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       }
                     },
                     onPanStart: (details) {
-                      // Selection and movement are separate modes. In Select
-                      // mode, taps change selection; they never start a drag.
-                      if (_videoTrackLocked || _multiSelectMode) return;
+                      if (_videoTrackLocked) return;
+                      if (_multiSelectMode) {
+                        if (!_groupMoveMode ||
+                            !_selectedClips.contains(clip) ||
+                            _selectedClips.length < 2) return;
+                        _saveHistory();
+                        setState(() {
+                          _groupDragOriginalSequence = List<VideoClip>.from(_sequence);
+                          _groupDragOriginX = details.globalPosition.dx;
+                          _groupDragPixelsPerSecond = pixelsPerSecond;
+                          _groupDragAnchorClip = clip;
+                        });
+                        HapticFeedback.selectionClick();
+                        return;
+                      }
                       final clipWidth = math.max(4.0,
                         seconds * pixelsPerSecond - 2).toDouble();
                       final mode = details.localPosition.dx <= 9
@@ -1806,6 +1823,13 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       });
                     },
                     onPanUpdate: (details) {
+                      if (_groupDragOriginalSequence != null) {
+                        _updateSelectedGroupDrag(
+                          details.globalPosition.dx - _groupDragOriginX,
+                        );
+                        return;
+                      }
+                      if (_multiSelectMode) return;
                       if (_timelineDragIndex == null ||
                           _timelineDragMode == null) return;
                       final dx = details.globalPosition.dx - _timelineDragOriginX;
@@ -1863,8 +1887,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         }
                       });
                     },
-                    onPanEnd: (_) => _finishTimelineDrag(clip),
-                    onPanCancel: () => _finishTimelineDrag(clip),
+                    onPanEnd: (_) {
+                      if (_groupDragOriginalSequence != null) {
+                        _finishSelectedGroupDrag();
+                      } else {
+                        _finishTimelineDrag(clip);
+                      }
+                    },
+                    onPanCancel: () {
+                      if (_groupDragOriginalSequence != null) {
+                        _finishSelectedGroupDrag();
+                      } else {
+                        _finishTimelineDrag(clip);
+                      }
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
                       decoration: BoxDecoration(
@@ -1982,7 +2018,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           Text('TIMELINE', style: syne(sz: 9, w: FontWeight.w900, c: C.dim, ls: 1)),
           const Spacer(),
           if (_multiSelectMode)
-            Text('Tap clips to add or remove', style: dm(sz: 8, c: C.dim))
+            Text(_groupMoveMode
+                ? 'Drag any selected clip to move the group'
+                : 'Tap clips to add or remove',
+              style: dm(sz: 8, c: C.dim))
           else
             Text('${duration.toStringAsFixed(1)}s · Drag clips to reorder',
               style: dm(sz: 8, c: C.dim)),
@@ -1991,6 +2030,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             onPressed: () => setState(() {
               if (_multiSelectMode) {
                 _multiSelectMode = false;
+                _groupMoveMode = false;
                 _selectedClips.clear();
                 if (_sequence.isNotEmpty) {
                   _selectedClips.add(
@@ -2014,8 +2054,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           Row(children: [
             Text('${_selectedClips.length} SELECTED', style: syne(sz: 8, w: FontWeight.w800, c: C.brand)),
             const Spacer(),
-            TextButton(onPressed: () => setState(() { _selectedClips..clear()..addAll(_sequence); }), child: Text('ALL', style: syne(sz: 8, w: FontWeight.w800, c: C.text))),
-            TextButton(onPressed: () => setState(() { _selectedClips.clear(); }), child: Text('CLEAR', style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
+            if (_selectedClips.length > 1)
+              TextButton(
+                onPressed: () => setState(() => _groupMoveMode = !_groupMoveMode),
+                child: Text(_groupMoveMode ? 'CANCEL MOVE' : 'MOVE GROUP',
+                  style: syne(sz: 8, w: FontWeight.w900, c: C.brand)),
+              ),
+            TextButton(onPressed: () => setState(() { _selectedClips..clear()..addAll(_sequence); _groupMoveMode = false; }), child: Text('ALL', style: syne(sz: 8, w: FontWeight.w800, c: C.text))),
+            TextButton(onPressed: () => setState(() { _selectedClips.clear(); _groupMoveMode = false; }), child: Text('CLEAR', style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
           ]),
         const SizedBox(height: 4),
         SingleChildScrollView(
@@ -3101,6 +3147,79 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         ],
       ),
     );
+  }
+
+  void _updateSelectedGroupDrag(double deltaX) {
+    final original = _groupDragOriginalSequence;
+    final anchor = _groupDragAnchorClip;
+    if (original == null || anchor == null || _groupDragPixelsPerSecond <= 0) {
+      return;
+    }
+
+    final selected = original.where(_selectedClips.contains).toList();
+    if (selected.length < 2) return;
+    final firstSelectedIndex = original.indexWhere(_selectedClips.contains);
+    if (firstSelectedIndex < 0) return;
+
+    double originalGroupStart = 0;
+    for (var i = 0; i < firstSelectedIndex; i++) {
+      final item = original[i];
+      originalGroupStart += (item.end - item.start) / item.speed;
+    }
+    final groupDuration = selected.fold<double>(
+      0,
+      (sum, item) => sum + (item.end - item.start) / item.speed,
+    );
+    final targetGroupCenter = originalGroupStart +
+        (deltaX / _groupDragPixelsPerSecond) + groupDuration / 2;
+
+    final remaining = original.where((item) => !_selectedClips.contains(item)).toList();
+    var insertionIndex = 0;
+    var cursor = 0.0;
+    for (final item in remaining) {
+      final itemDuration = (item.end - item.start) / item.speed;
+      final itemCenter = cursor + itemDuration / 2;
+      if (itemCenter < targetGroupCenter) {
+        insertionIndex++;
+      } else {
+        break;
+      }
+      cursor += itemDuration;
+    }
+    insertionIndex = insertionIndex.clamp(0, remaining.length);
+
+    final reordered = <VideoClip>[
+      ...remaining.take(insertionIndex),
+      ...selected,
+      ...remaining.skip(insertionIndex),
+    ];
+    if (reordered.length != _sequence.length) return;
+
+    setState(() {
+      _sequence = reordered;
+      _activeClipIndex = _sequence.indexOf(anchor).clamp(0, _sequence.length - 1);
+    });
+  }
+
+  void _finishSelectedGroupDrag() {
+    final original = _groupDragOriginalSequence;
+    if (original == null) return;
+    final changed = _sequence.length == original.length &&
+        !List.generate(_sequence.length, (i) => identical(_sequence[i], original[i]))
+            .every((same) => same);
+    setState(() {
+      _groupDragOriginalSequence = null;
+      _groupDragAnchorClip = null;
+      _groupMoveMode = false;
+      if (_sequence.isNotEmpty) {
+        _activeClipIndex = _activeClipIndex.clamp(0, _sequence.length - 1);
+      }
+    });
+    if (changed) {
+      _syncSharedProjectFromSequence();
+      HapticFeedback.mediumImpact();
+      _feedback('Selected clips moved together');
+    }
   }
 
   void _finishTimelineDrag(VideoClip clip) {
