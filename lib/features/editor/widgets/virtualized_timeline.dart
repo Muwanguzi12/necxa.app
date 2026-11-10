@@ -321,7 +321,7 @@ class _VirtualizedTimelineState extends State<VirtualizedTimeline> {
       }
       _lastAppliedDelta = clip.duration - _originalDuration;
     } else {
-      if (clip.speed <= 0) return;
+      if (clip.speed <= 0 || _originalDuration < minDuration) return;
       final minimumDeltaMs = -(_originalDuration - minDuration).inMilliseconds;
       final originalSourceEnd = _originalSourceEnd ??
           (_originalSourceStart +
