@@ -247,6 +247,11 @@ class EditorExportService {
       }
     }
     var effects = const RenderEffects();
+    final hasSoloAudio = tracks.where((item) => item.isVisible)
+        .expand((item) => item.clips).where((item) => !item.isHidden)
+        .any((item) => item.operation is AudioClipOperation &&
+            (item.operation as AudioClipOperation).solo &&
+            !(item.operation as AudioClipOperation).muted);
     for (final track in tracks.where((item) => item.isVisible)) {
       for (final clip in track.clips.where((item) => !item.isHidden)) {
         final operation = clip.operation;
@@ -314,7 +319,8 @@ class EditorExportService {
           final effectiveSpeed = clip.speed == 1.0
               ? operation.speed
               : clip.speed;
-          if (path != null && path.isNotEmpty && effectiveVolume > 0) {
+          final isMuted = operation.muted || (hasSoloAudio && !operation.solo);
+          if (path != null && path.isNotEmpty && effectiveVolume > 0 && !isMuted) {
             audioTracks.add(
               RenderAudioTrack(
                 path: path,
@@ -333,6 +339,12 @@ class EditorExportService {
                 timelineDuration: clip.duration.inMilliseconds / 1000,
                 fadeIn: operation.fadeIn,
                 fadeOut: operation.fadeOut,
+                pan: operation.pan,
+                muted: operation.muted,
+                solo: operation.solo,
+                volumeAutomation: operation.volumeAutomation
+                    .map((point) => <String, double>{'time': point.time, 'volume': point.volume})
+                    .toList(),
                 duckingIntervals: track.type == TrackType.music
                     ? voiceoverIntervals
                     : const [],
