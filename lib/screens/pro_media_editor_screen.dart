@@ -4378,6 +4378,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var selectedColor = overlay.color;
     var animationIn = overlay.animationIn;
     var animationOut = overlay.animationOut;
+    var depthLayer = overlay.depthLayer;
     const fontFamilies = ['Syne', 'Roboto', 'serif', 'monospace', 'cursive'];
     const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop'];
     final duration = _totalDuration > 0 ? _totalDuration : 30.0;
@@ -4449,6 +4450,18 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     items: animations.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_', ' ')))).toList(),
                     onChanged: (value) => refresh(() => animationOut = value ?? 'none'),
                   ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: depthLayer,
+                    dropdownColor: const Color(0xFF202938),
+                    style: dm(sz: 12, c: C.text),
+                    decoration: const InputDecoration(labelText: 'Performer depth', isDense: true),
+                    items: const [
+                      DropdownMenuItem(value: 'background', child: Text('Behind performer')),
+                      DropdownMenuItem(value: 'foreground', child: Text('In front of performer')),
+                    ],
+                    onChanged: (value) => refresh(() => depthLayer = value ?? 'foreground'),
+                  ),
                   const SizedBox(height: 18),
                   Row(children: [
                     Expanded(child: OutlinedButton.icon(
@@ -4500,6 +4513,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           overlay.color = selectedColor;
                           overlay.animationIn = animationIn;
                           overlay.animationOut = animationOut;
+                          overlay.depthLayer = depthLayer;
                           _syncSharedProjectFromSequence();
                         });
                         Navigator.pop(sheetContext);
