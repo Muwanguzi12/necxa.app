@@ -4805,7 +4805,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               animationOffset += Offset(48 * (1 - enterProgress), 0);
               break;
             case 'pop':
-              animationScale = 0.88 + (0.12 * enterProgress);
+              animationScale = 0.82 + (0.18 * enterProgress);
               animationOpacity *= enterProgress;
               break;
             case 'zoom':
@@ -5291,6 +5291,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         ),
                       ),
                       Text('Uses the selected clip audio. It is sent securely through Supabase 2 to Necxa AI Engine for transcription.', style: dm(sz: 10, c: C.dim)),
+                      Text('Word highlights use exact word timestamps when supplied; segment-only transcripts are split into estimated word timings.', style: dm(sz: 10, c: C.dim)),
                     ],
                     sectionTitle('Display timer'),
                     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
