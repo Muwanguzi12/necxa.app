@@ -4983,6 +4983,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var isTranscribing = false;
     List<Map<String, dynamic>>? aiCaptionSegments;
     final duration = _totalDuration > 0 ? _totalDuration : 30.0;
+    final startSecondsController = TextEditingController(text: '0.0');
+    final endSecondsController = TextEditingController(text: duration.toStringAsFixed(1));
     final themes = <String, Map<String, dynamic>>{
       'cinematic': {'label': 'Cinematic', 'color': const Color(0xFFF7F4ED), 'size': 30.0, 'shadow': true},
       'neon': {'label': 'Neon', 'color': const Color(0xFF7DF9FF), 'size': 34.0, 'shadow': true},
@@ -5107,41 +5109,47 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                               }
                               final clipDuration = ((clip.end - clip.start) / clip.speed)
                                   .clamp(0.1, double.infinity).toDouble();
-                              final rawSegments = result['segments'] is List
-                                  ? result['segments'] as List
-                                  : (result['words'] is List ? result['words'] as List : <dynamic>[]);
+                              final rawSegments = result['words'] is List
+                                  ? result['words'] as List
+                                  : (result['segments'] is List ? result['segments'] as List : <dynamic>[]);
                               final timed = <Map<String, dynamic>>[];
                               var lineText = '';
                               var lineStart = 0.0;
                               var lineEnd = 0.0;
+                              var lineWords = <Map<String, dynamic>>[];
                               void flushLine() {
                                 if (lineText.trim().isEmpty) return;
-                                timed.add({'text': lineText.trim(), 'start': lineStart, 'end': lineEnd});
+                                timed.add({'text': lineText.trim(), 'start': lineStart, 'end': lineEnd,
+                                  'words': lineWords.map((word) => <String, dynamic>{
+                                    'text': word['text'],
+                                    'start': (word['start'] as double) - lineStart,
+                                    'end': (word['end'] as double) - lineStart,
+                                  }).toList()});
                                 lineText = '';
+                                lineWords = <Map<String, dynamic>>[];
                               }
-
                               for (final item in rawSegments) {
                                 if (item is! Map) continue;
-                                final word = (item['text'] ?? item['word'] ?? '').toString().trim();
+                                final phrase = (item['text'] ?? item['word'] ?? '').toString().trim();
                                 final sourceStart = (item['start'] as num?)?.toDouble();
                                 final sourceEnd = (item['end'] as num?)?.toDouble();
-                                if (word.isEmpty || sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
-                                // The audio extractor returns only the selected
-                                // source trim, so ASR timestamps start at zero.
-                                // Convert source-time offsets to the clip playback clock.
-                                final wordStart = (sourceStart / clip.speed)
-                                    .clamp(0.0, clipDuration).toDouble();
-                                final wordEnd = (sourceEnd / clip.speed)
-                                    .clamp(0.0, clipDuration).toDouble();
-                                if (wordEnd <= wordStart) continue;
-                                if (lineText.isNotEmpty &&
-                                    (lineText.length + word.length + 1 > 42 ||
-                                     wordStart - lineStart > 4.2)) {
-                                  flushLine();
+                                if (phrase.isEmpty || sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
+                                final segmentStart = (sourceStart / clip.speed).clamp(0.0, clipDuration).toDouble();
+                                final segmentEnd = (sourceEnd / clip.speed).clamp(0.0, clipDuration).toDouble();
+                                if (segmentEnd <= segmentStart) continue;
+                                final pieces = phrase.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+                                final totalChars = pieces.fold<int>(0, (sum, part) => sum + part.length);
+                                var consumedChars = 0;
+                                for (final piece in pieces) {
+                                  final pieceStart = segmentStart + (segmentEnd - segmentStart) * consumedChars / totalChars;
+                                  consumedChars += piece.length;
+                                  final pieceEnd = segmentStart + (segmentEnd - segmentStart) * consumedChars / totalChars;
+                                  if (lineText.isNotEmpty && (lineText.length + piece.length + 1 > 42 || pieceStart - lineStart > 4.2)) flushLine();
+                                  if (lineText.isEmpty) lineStart = pieceStart;
+                                  lineText = lineText.isEmpty ? piece : '$lineText $piece';
+                                  lineEnd = pieceEnd;
+                                  lineWords.add({'text': piece, 'start': pieceStart, 'end': pieceEnd});
                                 }
-                                if (lineText.isEmpty) lineStart = wordStart;
-                                lineText = lineText.isEmpty ? word : '$lineText $word';
-                                lineEnd = wordEnd;
                               }
                               flushLine();
 
@@ -5164,11 +5172,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                 var cursor = 0.0;
                                 for (var i = 0; i < lines.length; i++) {
                                   final span = totalWeight == 0 ? 0.0 : clipDuration * weights[i] / totalWeight;
-                                  timed.add({
-                                    'text': lines[i],
-                                    'start': cursor,
-                                    'end': i == lines.length - 1 ? clipDuration : cursor + span,
-                                  });
+                                  final lineEnd = i == lines.length - 1 ? clipDuration : cursor + span;
+                                  final words = lines[i].split(RegExp(r'\s+')).where((word) => word.isNotEmpty).toList();
+                                  final weight = words.fold<int>(0, (sum, word) => sum + word.length);
+                                  var wordCursor = 0.0;
+                                  final wordTimings = <Map<String, dynamic>>[];
+                                  for (final word in words) {
+                                    final wordSpan = weight == 0 ? 0.0 : span * word.length / weight;
+                                    wordTimings.add({'text': word, 'start': wordCursor, 'end': wordCursor + wordSpan});
+                                    wordCursor += wordSpan;
+                                  }
+                                  timed.add({'text': lines[i], 'start': cursor, 'end': lineEnd, 'words': wordTimings});
                                   cursor += span;
                                 }
                               }
@@ -5204,8 +5218,19 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     ],
                     sectionTitle('Display timer'),
                     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                      Text('Start  ${(start * duration).toStringAsFixed(1)}s', style: dm(sz: 11, c: C.text)),
-                      Text('End  ${(end * duration).toStringAsFixed(1)}s', style: dm(sz: 11, c: C.text)),
+                      Text('Display duration  ${((end - start) * duration).toStringAsFixed(2)}s', style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
+                      Text('Project ${duration.toStringAsFixed(1)}s', style: dm(sz: 10, c: C.dim)),
+                    ]),
+                    Row(children: [
+                      Expanded(child: TextField(controller: startSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'Start (seconds)', isDense: true), onChanged: (value) {
+                        final seconds = double.tryParse(value); if (seconds == null) return;
+                        refresh(() { start = (seconds / duration).clamp(0.0, 0.999).toDouble(); if (start >= end) end = (start + 0.001).clamp(0.0, 1.0).toDouble(); endSecondsController.text = (end * duration).toStringAsFixed(2); });
+                      })),
+                      const SizedBox(width: 10),
+                      Expanded(child: TextField(controller: endSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'End (seconds)', isDense: true), onChanged: (value) {
+                        final seconds = double.tryParse(value); if (seconds == null) return;
+                        refresh(() => end = (seconds / duration).clamp(start + 0.001, 1.0).toDouble());
+                      })),
                     ]),
                     RangeSlider(
                       values: RangeValues(start, end),
@@ -5213,7 +5238,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       max: 1,
                       divisions: 100,
                       activeColor: C.brand,
-                      onChanged: (value) => refresh(() { start = value.start; end = value.end; }),
+                      onChanged: (value) => refresh(() { start = value.start; end = value.end; startSecondsController.text = (start * duration).toStringAsFixed(2); endSecondsController.text = (end * duration).toStringAsFixed(2); }),
                     ),
                     if (isMultiLine)
                       Text('Each non-empty row becomes its own editable timeline layer, initially spaced evenly across this range. Adjust individual timings below.', style: dm(sz: 10, c: C.dim)),
@@ -5375,6 +5400,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                 animationIn: animationIn,
                                 animationOut: animationOut,
                                 themeId: selectedTheme,
+                                wordTimings: segment != null && segment['words'] is List
+                                    ? (segment['words'] as List).whereType<Map>().map((word) => Map<String, dynamic>.from(word)).toList()
+                                    : _buildEvenWordTimings(lines[index], (layerEnd - layerStart) * duration),
                               ));
                             }
                             _syncSharedProjectFromSequence();
@@ -5391,7 +5419,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           );
         },
       ),
-    ).whenComplete(textController.dispose);
+    ).whenComplete(() { textController.dispose(); startSecondsController.dispose(); endSecondsController.dispose(); });
+  }
+
+  List<Map<String, dynamic>> _buildEvenWordTimings(String text, double duration) {
+    final words = text.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).toList();
+    final totalWeight = words.fold<int>(0, (sum, word) => sum + word.length);
+    if (words.isEmpty || totalWeight == 0 || duration <= 0) return const [];
+    var cursor = 0.0;
+    return words.map((word) {
+      final span = duration * word.length / totalWeight;
+      final timing = <String, dynamic>{'text': word, 'start': cursor, 'end': cursor + span};
+      cursor += span;
+      return timing;
+    }).toList();
   }
 
   void _showEditTextLayerSheet(int index) {
@@ -5406,6 +5447,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     var animationIn = overlay.animationIn;
     var animationOut = overlay.animationOut;
     var depthLayer = overlay.depthLayer;
+    final startSecondsController = TextEditingController(text: (start * (_totalDuration > 0 ? _totalDuration : 30.0)).toStringAsFixed(2));
+    final endSecondsController = TextEditingController(text: (end * (_totalDuration > 0 ? _totalDuration : 30.0)).toStringAsFixed(2));
     const fontFamilies = ['Roboto', 'serif', 'monospace', 'cursive'];
     const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop', 'zoom', 'bounce'];
     final duration = _totalDuration > 0 ? _totalDuration : 30.0;
@@ -5429,9 +5472,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   ]),
                   TextField(controller: controller, maxLines: 4, style: dm(sz: 14, c: C.text), decoration: const InputDecoration(labelText: 'Text')),
                   const SizedBox(height: 14),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    Text('Start ${(start * duration).toStringAsFixed(1)}s', style: dm(sz: 11, c: C.text)),
-                    Text('End ${(end * duration).toStringAsFixed(1)}s', style: dm(sz: 11, c: C.text)),
+                  Text('Visible duration  ${((end - start) * duration).toStringAsFixed(2)}s', style: dm(sz: 11, c: C.brand, w: FontWeight.w700)),
+                  Row(children: [
+                    Expanded(child: TextField(controller: startSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'Start (seconds)', isDense: true), onChanged: (value) {
+                      final seconds = double.tryParse(value); if (seconds == null) return;
+                      refresh(() { start = (seconds / duration).clamp(0.0, 0.999).toDouble(); if (start >= end) end = (start + 0.001).clamp(0.0, 1.0).toDouble(); endSecondsController.text = (end * duration).toStringAsFixed(2); });
+                    })),
+                    const SizedBox(width: 10),
+                    Expanded(child: TextField(controller: endSecondsController, keyboardType: const TextInputType.numberWithOptions(decimal: true), style: dm(sz: 12, c: C.text), decoration: const InputDecoration(labelText: 'End (seconds)', isDense: true), onChanged: (value) {
+                      final seconds = double.tryParse(value); if (seconds == null) return;
+                      refresh(() => end = (seconds / duration).clamp(start + 0.001, 1.0).toDouble());
+                    })),
                   ]),
                   RangeSlider(
                     values: RangeValues(start, end),
@@ -5439,7 +5490,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     max: 1,
                     divisions: 100,
                     activeColor: C.brand,
-                    onChanged: (value) => refresh(() { start = value.start; end = value.end; }),
+                    onChanged: (value) => refresh(() { start = value.start; end = value.end; startSecondsController.text = (start * duration).toStringAsFixed(2); endSecondsController.text = (end * duration).toStringAsFixed(2); }),
                   ),
                   Text('Font size', style: dm(sz: 11, c: C.sub)),
                   Slider(value: fontSize, min: 16, max: 64, divisions: 24, activeColor: C.brand, onChanged: (value) => refresh(() => fontSize = value)),
@@ -5530,6 +5581,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         if (controller.text.trim().isEmpty || end <= start) return;
                         _saveHistory();
                         setState(() {
+                          if (overlay.text != controller.text.trim()) overlay.wordTimings = const [];
                           overlay.text = controller.text.trim();
                           overlay.start = start;
                           overlay.end = end;
@@ -5553,7 +5605,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           ),
         ),
       ),
-    ).whenComplete(controller.dispose);
+    ).whenComplete(() { controller.dispose(); startSecondsController.dispose(); endSecondsController.dispose(); });
   }
 
   void _showFrameOverlayPicker() {
