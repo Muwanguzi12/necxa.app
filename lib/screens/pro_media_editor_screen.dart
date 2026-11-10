@@ -1578,9 +1578,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [title, Spacer(), actions]),
-                SizedBox(height: 10),
-                meta,
+                Row(children: [title, Spacer()]),
+                SizedBox(height: 9),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: actions,
+                ),
+                SizedBox(height: 9),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: meta,
+                ),
               ],
             );
           }
@@ -1603,25 +1611,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 920) {
-          final panelHeight = (constraints.maxHeight * 0.30)
-              .clamp(180.0, 240.0)
-              .toDouble();
           return Column(
             children: [
-              _buildCategoryPanel(horizontal: true),
-              SizedBox(height: 12),
               Expanded(child: _buildPreviewStage()),
-              SizedBox(height: 12),
-              SizedBox(
-                height: panelHeight,
-                child: Row(
-                  children: [
-                    Expanded(child: _buildAssetsPanel()),
-                    SizedBox(width: 12),
-                    Expanded(child: _buildInspectorPanel()),
-                  ],
-                ),
-              ),
+              SizedBox(height: 10),
+              SizedBox(height: 78, child: _buildMobileClipStrip()),
             ],
           );
         }
@@ -1641,6 +1635,121 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildMobileClipStrip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C1018),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: C.text.withOpacity(0.08)),
+      ),
+      child: Row(
+        children: [
+          Tooltip(
+            message: 'Add media',
+            child: IconButton(
+              visualDensity: VisualDensity.compact,
+              onPressed: _addClip,
+              icon: Icon(Icons.add_circle_outline, color: C.brand, size: 22),
+            ),
+          ),
+          Expanded(
+            child: _sequence.isEmpty
+                ? Center(
+                    child: Text(
+                      'Add a video or photo to begin',
+                      style: dm(sz: 11, c: C.dim),
+                    ),
+                  )
+                : ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _sequence.length,
+                    separatorBuilder: (_, __) => SizedBox(width: 7),
+                    itemBuilder: (context, index) {
+                      final clip = _sequence[index];
+                      final selected = _selectedClips.contains(clip);
+                      final active = index == _activeClipIndex;
+                      final fileName = clip.file.path
+                          .split(RegExp(r'[\\/]+'))
+                          .last;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            if (_multiSelectMode) {
+                              if (!_selectedClips.add(clip)) {
+                                _selectedClips.remove(clip);
+                              }
+                            } else {
+                              _selectedClips
+                                ..clear()
+                                ..add(clip);
+                            }
+                            _activeClipIndex = index;
+                          });
+                          _loadClip(index);
+                        },
+                        child: Container(
+                          constraints: BoxConstraints(maxWidth: 148, minWidth: 104),
+                          padding: EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? C.brand.withOpacity(0.13)
+                                : C.text.withOpacity(0.045),
+                            borderRadius: BorderRadius.circular(7),
+                            border: Border.all(
+                              color: active
+                                  ? C.brand
+                                  : C.text.withOpacity(0.08),
+                              width: active ? 1.4 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                clip.isVideo ? Icons.movie_outlined : Icons.image_outlined,
+                                color: selected ? C.brand : C.sub,
+                                size: 16,
+                              ),
+                              SizedBox(width: 6),
+                              Flexible(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      fileName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: syne(
+                                        sz: 9,
+                                        w: FontWeight.w700,
+                                        c: C.text,
+                                      ),
+                                    ),
+                                    Text(
+                                      '\${((clip.end - clip.start) / clip.speed).toStringAsFixed(1)}s',
+                                      style: dm(sz: 8, c: C.dim),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (_multiSelectMode && selected) ...[
+                                SizedBox(width: 4),
+                                Icon(Icons.check_circle, color: C.brand, size: 13),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
