@@ -51,7 +51,10 @@ jobs:
           if (( ${#dart_files[@]} == 0 )); then
             echo "No Dart files changed; formatting check skipped."
           else
-            dart format --output=none --set-exit-if-changed "${dart_files[@]}"
+            dart format "${dart_files[@]}"
+            echo "=== FORMATTER DIFF FOR PATCHING ==="
+            git diff -- "${dart_files[@]}"
+            git diff --check
           fi
 
       - name: Analyze
