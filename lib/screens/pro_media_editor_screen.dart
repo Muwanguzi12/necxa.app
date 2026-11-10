@@ -2036,42 +2036,50 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       ]),
     );
 
-    Widget textLane() {
-      final overlays = _overlays.asMap().entries.toList();
+    Widget overlayLane(
+      String label,
+      IconData icon,
+      bool Function(OverlayOperation) accepts,
+    ) {
+      final overlays = _overlays.asMap().entries
+          .where((entry) => accepts(entry.value))
+          .toList();
+      if (overlays.isEmpty) return const SizedBox.shrink();
       return SizedBox(
-        height: math.max(54.0, overlays.length * 34.0).toDouble(),
+        height: math.max(42.0, overlays.length * 34.0).toDouble(),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          trackLabel(Icons.text_fields, 'TEXT'),
+          trackLabel(icon, label),
           Expanded(child: SizedBox(
-            height: math.max(50.0, overlays.length * 34.0).toDouble(),
+            height: math.max(40.0, overlays.length * 34.0).toDouble(),
             child: Stack(children: [
-              for (var index = 0; index < overlays.length; index++)
+              for (var laneIndex = 0; laneIndex < overlays.length; laneIndex++)
                 Builder(builder: (context) {
-                  final entry = overlays[index];
+                  final entry = overlays[laneIndex];
+                  final overlayIndex = entry.key;
                   final overlay = entry.value;
                   final startSeconds = overlay.start.clamp(0.0, 1.0) * duration;
                   final endSeconds = overlay.end.clamp(0.0, 1.0) * duration;
                   final left = startSeconds * pixelsPerSecond;
                   final width = math.max(18.0,
                     (endSeconds - startSeconds) * pixelsPerSecond).toDouble();
-                  final top = index * 34.0 + 2;
-                  final selected = _timelineOverlaySelected == index;
+                  final top = laneIndex * 34.0 + 2;
+                  final selected = _timelineOverlaySelected == overlayIndex;
                   return Positioned(
                     left: left, top: top, width: width, height: 28,
                     child: GestureDetector(
                       onTap: () {
-                        setState(() => _timelineOverlaySelected = index);
-                        _showEditTextLayerSheet(index);
+                        setState(() => _timelineOverlaySelected = overlayIndex);
+                        _showEditTextLayerSheet(overlayIndex);
                       },
                       onPanStart: (details) {
                         _saveHistory();
-                        _timelineOverlayDragIndex = index;
+                        _timelineOverlayDragIndex = overlayIndex;
                         _timelineOverlayDragOriginX = details.globalPosition.dx;
                         _timelineOverlayDragStart = overlay.start;
                         _timelineOverlayDragEnd = overlay.end;
                       },
                       onPanUpdate: (details) {
-                        if (_timelineOverlayDragIndex != index) return;
+                        if (_timelineOverlayDragIndex != overlayIndex) return;
                         final delta = (details.globalPosition.dx -
                           _timelineOverlayDragOriginX) /
                           (pixelsPerSecond * duration);
@@ -2089,7 +2097,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         _timelineOverlayDragIndex = null;
                         _syncSharedProjectFromSequence();
                       },
-                      onPanCancel: () => _timelineOverlayDragIndex = null,
+                      onPanCancel: () {
+                        _timelineOverlayDragIndex = null;
+                      },
                       child: Container(
                         alignment: Alignment.centerLeft,
                         padding: const EdgeInsets.symmetric(horizontal: 5),
@@ -2114,6 +2124,83 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         ]),
       );
     }
+
+    Widget audioLane({
+      required String label,
+      required IconData icon,
+      required String? title,
+      required double start,
+      required double end,
+      required Color color,
+      required VoidCallback onTap,
+    }) {
+      if (title == null || title.isEmpty) return const SizedBox.shrink();
+      final laneStart = start.clamp(0.0, duration);
+      final laneEnd = end.clamp(laneStart, duration);
+      final laneWidth = math.max(18.0,
+        (laneEnd - laneStart) * pixelsPerSecond).toDouble();
+      return SizedBox(
+        height: 42,
+        child: Row(children: [
+          trackLabel(icon, label),
+          Expanded(child: SizedBox(
+            height: 36,
+            child: Stack(children: [
+              Positioned(
+                left: laneStart * pixelsPerSecond,
+                width: laneWidth,
+                top: 3,
+                bottom: 3,
+                child: GestureDetector(
+                  onTap: onTap,
+                  child: Container(
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.symmetric(horizontal: 7),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.28),
+                      border: Border.all(color: color.withOpacity(0.8)),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Row(children: [
+                      Icon(icon, size: 11, color: C.text),
+                      const SizedBox(width: 4),
+                      Expanded(child: Text(title,
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: dm(sz: 8, c: C.text, w: FontWeight.w700))),
+                    ]),
+                  ),
+                ),
+              ),
+              Positioned(left: playheadX - 1, top: 0, bottom: 0,
+                child: Container(width: 2, color: C.brand)),
+            ]),
+          )),
+        ]),
+      );
+    }
+
+    final musicTitle = _selectedTrack?.title;
+    final voiceTitle = _voiceOverFile == null
+        ? null
+        : _voiceOverFile!.path.split(Platform.pathSeparator).last;
+    final captionLane = overlayLane(
+      'CAPTIONS',
+      Icons.closed_caption_outlined,
+      (overlay) => overlay.kind.toLowerCase().contains('caption'),
+    );
+    final lyricLane = overlayLane(
+      'LYRICS',
+      Icons.lyrics_outlined,
+      (overlay) => overlay.kind.toLowerCase().contains('lyric'),
+    );
+    final otherTextLane = overlayLane(
+      'TEXT',
+      Icons.text_fields,
+      (overlay) {
+        final kind = overlay.kind.toLowerCase();
+        return !kind.contains('caption') && !kind.contains('lyric');
+      },
+    );
 
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 5, 8, 7),
@@ -2184,7 +2271,27 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               ]),
               videoLane(),
               const SizedBox(height: 3),
-              textLane(),
+              audioLane(
+                label: 'MUSIC',
+                icon: Icons.music_note,
+                title: musicTitle,
+                start: _audioOffset,
+                end: _audioOffset + (_audioEnd - _audioStart),
+                color: const Color(0xFFA78BFA),
+                onTap: _showSoundPicker,
+              ),
+              audioLane(
+                label: 'VOICE',
+                icon: Icons.mic,
+                title: voiceTitle,
+                start: 0,
+                end: duration,
+                color: const Color(0xFF34D399),
+                onTap: _showVolumeSheet,
+              ),
+              captionLane,
+              lyricLane,
+              otherTextLane,
             ]),
           ),
         ),
