@@ -63,6 +63,7 @@ class RenderOverlay {
   final String animationIn;
   final String animationOut;
   final String align;
+  final String depthLayer;
 
   RenderOverlay({
     required this.type,
@@ -83,6 +84,7 @@ class RenderOverlay {
     this.animationIn = 'none',
     this.animationOut = 'none',
     this.align = 'center',
+    this.depthLayer = 'foreground',
   });
 }
 
