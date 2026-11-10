@@ -2237,34 +2237,25 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     ],
                   ),
                   Spacer(),
-                  _circleBtn(Icons.save_outlined, _onSaveDraft),
-                  SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: _onNext,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: C.blue,
-                        borderRadius: BorderRadius.circular(10),
-                        boxShadow: [
-                          BoxShadow(
-                            color: C.blue.withOpacity(0.25),
-                            blurRadius: 18,
-                            offset: Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        'Export',
-                        style: syne(
-                          sz: 11,
-                          w: FontWeight.w900,
-                          c: C.text,
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: C.text.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: C.text.withOpacity(0.08)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.layers_outlined, size: 13, color: C.brand),
+                        SizedBox(width: 6),
+                        Text(
+                          _multiSelectMode
+                              ? '${_selectedClips.length} selected'
+                              : (_sequence.isEmpty ? 'No media' : 'Editing clip ${_activeClipIndex + 1}'),
+                          style: dm(sz: 10, c: C.text),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ],
