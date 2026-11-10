@@ -20,6 +20,7 @@ class ClipData {
   final double volume;
   final bool isVideo;
   final bool hasAudio;
+  final bool reverse;
   final double scale;
   final double rotation;
   final double offsetX;
@@ -34,6 +35,7 @@ class ClipData {
     this.volume = 1.0,
     this.isVideo = true,
     this.hasAudio = true,
+    this.reverse = false,
     this.scale = 1.0,
     this.rotation = 0.0,
     this.offsetX = 0.0,
@@ -315,7 +317,7 @@ class VideoEnhancementService {
 
       if (clip.isVideo) {
         filterComplex +=
-            "[$i:v]trim=start=${clip.start}:end=${clip.end},setpts=${1.0 / clip.speed}*(PTS-STARTPTS),fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
+            "[$i:v]trim=start=${clip.start}:end=${clip.end},setpts=PTS-STARTPTS${clip.reverse ? ',reverse,setpts=PTS-STARTPTS' : ''},setpts=${1.0 / clip.speed}*PTS,fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
         filterComplex += _clipTransformFilter(clip, targetWidth, targetHeight);
         if (safeFade > 0.05) {
           filterComplex +=
@@ -324,7 +326,7 @@ class VideoEnhancementService {
         filterComplex += "[v$i];";
       } else {
         filterComplex +=
-            "[$i:v]loop=loop=-1:size=1:start=0,trim=duration=$duration,setpts=PTS-STARTPTS,fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
+            "[$i:v]loop=loop=-1:size=1:start=0,trim=duration=$duration,setpts=PTS-STARTPTS${clip.reverse ? ',hflip' : ''},fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
         filterComplex += _clipTransformFilter(clip, targetWidth, targetHeight);
         if (safeFade > 0.05) {
           filterComplex +=
@@ -355,7 +357,7 @@ class VideoEnhancementService {
         // Use [i:a] if available, otherwise use silence
         // We use amix with silence to ensure an audio stream exists even if input has none
         filterComplex +=
-            "[$i:a]atrim=start=${clip.start}:end=${clip.end},asetpts=PTS-STARTPTS,$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a_orig_$i];";
+            "[$i:a]atrim=start=${clip.start}:end=${clip.end},asetpts=PTS-STARTPTS${clip.reverse ? ',areverse' : ''},$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a_orig_$i];";
         // Mix with a slice of silence for extreme robustness
         filterComplex +=
             "[$silentIndex:a]atrim=duration=${duration / clip.speed},asetpts=PTS-STARTPTS[silence$i];";
