@@ -63,6 +63,8 @@ class RenderOverlay {
   final String animationIn;
   final String animationOut;
   final String align;
+  final String fontFamily;
+  final bool stroke;
   final String depthLayer;
 
   RenderOverlay({
@@ -84,6 +86,8 @@ class RenderOverlay {
     this.animationIn = 'none',
     this.animationOut = 'none',
     this.align = 'center',
+    this.fontFamily = 'Syne',
+    this.stroke = false,
     this.depthLayer = 'foreground',
   });
 }
@@ -461,6 +465,18 @@ class VideoEnhancementService {
         final shadow = overlay.shadow
             ? ":shadowcolor=black@0.65:shadowx=2:shadowy=2"
             : "";
+        final border = overlay.stroke
+            ? ":borderw=2:bordercolor=black@0.9"
+            : "";
+        // FFmpeg's fontconfig lookup may not contain app-bundled fonts on every
+        // device, so use portable family aliases for predictable export.
+        final font = switch (overlay.fontFamily.toLowerCase()) {
+          'serif' => 'Serif',
+          'monospace' => 'Monospace',
+          'cursive' => 'Cursive',
+          'roboto' => 'Roboto',
+          _ => 'Sans',
+        };
         final normalizedX = overlay.x.clamp(0.0, 1.0);
         final baseX = overlay.align == 'left'
             ? "w*${normalizedX}"
@@ -489,7 +505,7 @@ class VideoEnhancementService {
           xExpr = "if(gt(t,$endTime-$animationSeconds),$baseX-(1-($endTime-t)/$animationSeconds)*48,$xExpr)";
         }
         filterComplex +=
-            "[$currentVideo]drawtext=text='$text':x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow:enable='between(t,$startTime,$endTime)'[$nextLabel];";
+            "[$currentVideo]drawtext=text='$text':font='$font':x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow$border:enable='between(t,$startTime,$endTime)'[$nextLabel];";
       } else {
         continue;
       }
