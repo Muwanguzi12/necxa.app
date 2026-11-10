@@ -454,9 +454,10 @@ class VideoEnhancementService {
             "[$currentVideo][$imageLabel]overlay=x='(W-w)*${overlay.x.clamp(0.0, 1.0)}':y='(H-h)*${overlay.y.clamp(0.0, 1.0)}':enable='between(t,$startTime,$endTime)'[$nextLabel];";
       } else if ((overlay.text ?? '').trim().isNotEmpty) {
         final text = _escapeDrawText(overlay.text!.trim());
-        final fontSize = (overlay.fontSize * overlay.scale)
+        final baseFontSize = (overlay.fontSize * overlay.scale)
             .clamp(10.0, 96.0)
             .toStringAsFixed(0);
+        var fontSize = baseFontSize;
         final fontColor = _ffmpegColor(overlay.color, overlay.opacity);
         final boxColor = _ffmpegColor(
           overlay.background,
@@ -470,12 +471,15 @@ class VideoEnhancementService {
             : "";
         // FFmpeg's fontconfig lookup may not contain app-bundled fonts on every
         // device, so use portable family aliases for predictable export.
+        // Roboto is available to Flutter and Android's FFmpeg fontconfig.
+        // Legacy Syne layers use the same Roboto fallback in preview and export
+        // until a shared, bundled Syne font asset is added.
         final font = switch (overlay.fontFamily.toLowerCase()) {
           'serif' => 'Serif',
           'monospace' => 'Monospace',
           'cursive' => 'Cursive',
-          'roboto' => 'Roboto',
-          _ => 'Sans',
+          'roboto' || 'syne' => 'Roboto',
+          _ => 'Roboto',
         };
         final normalizedX = overlay.x.clamp(0.0, 1.0);
         final baseX = overlay.align == 'left'
@@ -495,6 +499,7 @@ class VideoEnhancementService {
         } else if (overlay.animationIn == 'slide_left') {
           xExpr = "if(lt(t,$startTime+$animationSeconds),$baseX+(1-(t-$startTime)/$animationSeconds)*48,$baseX)";
         } else if (overlay.animationIn == 'pop') {
+          fontSize = "'if(lt(t,$startTime+0.35),$baseFontSize*(0.82+0.18*max(0,(t-$startTime)/0.35)),$baseFontSize)'";
           alphaExpr = "if(lt(t,$startTime+0.08),max(0,(t-$startTime)/0.08),1)";
         }
         if (overlay.animationOut == 'fade') {
@@ -503,6 +508,9 @@ class VideoEnhancementService {
           yExpr = "if(gt(t,$endTime-$animationSeconds),$baseY-(1-($endTime-t)/$animationSeconds)*36,$yExpr)";
         } else if (overlay.animationOut == 'slide_left') {
           xExpr = "if(gt(t,$endTime-$animationSeconds),$baseX-(1-($endTime-t)/$animationSeconds)*48,$xExpr)";
+        } else if (overlay.animationOut == 'pop') {
+          fontSize = "'if(gt(t,$endTime-$animationSeconds),$baseFontSize*(0.82+0.18*max(0,($endTime-t)/$animationSeconds)),$baseFontSize)'";
+          alphaExpr = "($alphaExpr)*if(gt(t,$endTime-$animationSeconds),max(0,($endTime-t)/$animationSeconds),1)";
         }
         filterComplex +=
             "[$currentVideo]drawtext=text='$text':font='$font':x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow$border:enable='between(t,$startTime,$endTime)'[$nextLabel];";
