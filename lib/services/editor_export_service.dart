@@ -9,6 +9,9 @@ import 'media_compression_service.dart';
 import '../models/edit_models.dart';
 import 'video_enhancement_service.dart';
 import 'filter_catalogue_service.dart';
+import 'ffmpeg_stub.dart'
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart'
+    show FFprobeKit;
 
 class EditorExportResult {
   final bool success;
@@ -17,6 +20,7 @@ class EditorExportResult {
   final String? verificationSummary;
   final List<String> issues;
   final Map<String, dynamic> verificationPayload;
+  final bool audioExpected;
 
   const EditorExportResult({
     required this.success,
@@ -25,6 +29,7 @@ class EditorExportResult {
     this.verificationSummary,
     this.issues = const [],
     this.verificationPayload = const {},
+    this.audioExpected = false,
   });
 }
 
@@ -54,18 +59,45 @@ class EditorExportService {
       }
       final tempDir = await getTemporaryDirectory();
       onStage?.call('Saving project');
-      final outputFile = File(
-        '${tempDir.path}/$projectName-${DateTime.now().millisecondsSinceEpoch}.mp4',
-      );
       final rendered = tracks == null
           ? null
           : await renderTimeline(tracks: tracks, aspectRatio: aspectRatio);
-      await (rendered ?? sourceVideo).copy(outputFile.path);
+      if (tracks != null && rendered == null) {
+        return const EditorExportResult(
+          success: false,
+          issues: ['The timeline did not produce a final video.'],
+        );
+      }
+      final renderSource = rendered ?? sourceVideo;
+      if (!await renderSource.exists() || await renderSource.length() == 0) {
+        return const EditorExportResult(
+          success: false,
+          issues: ['The final video file is missing or empty.'],
+        );
+      }
 
       onStage?.call('Compressing video');
       final compressedFile = await MediaCompressionService.compressVideo(
-        outputFile,
+        renderSource,
       );
+      final audioExpected = tracks == null
+          ? await _fileHasAudioStream(sourceVideo)
+          : await projectHasAudio(tracks);
+      final streamCheck = await inspectFinalMp4(
+        compressedFile,
+        requireAudio: audioExpected,
+      );
+      if (streamCheck['video'] != true || streamCheck['valid'] != true) {
+        return EditorExportResult(
+          success: false,
+          issues: [
+            audioExpected
+                ? 'The exported MP4 is missing its expected video or audio stream.'
+                : 'The exported MP4 is missing its video stream.',
+          ],
+          audioExpected: audioExpected,
+        );
+      }
 
       onStage?.call('Preparing publishing package');
       final frameDirectory = await Directory.systemTemp.createTemp(
@@ -126,6 +158,7 @@ class EditorExportService {
         verificationSummary: issues.isEmpty ? 'Verified for publishing' : null,
         issues: issues,
         verificationPayload: verification,
+        audioExpected: audioExpected,
       );
     } catch (e) {
       debugPrint('Editor export failed: $e');
@@ -155,10 +188,15 @@ class EditorExportService {
           ..sort((a, b) => a.start.compareTo(b.start));
     if (visualClips.isEmpty) return null;
 
-    final clips = visualClips.map((clip) {
+    final clips = <ClipData>[];
+    for (final clip in visualClips) {
       final path = clip.file!.path.toLowerCase();
-      final isVideo = path.endsWith('.mp4') || path.endsWith('.mov');
-      return ClipData(
+      final isVideo = path.endsWith('.mp4') ||
+          path.endsWith('.mov') ||
+          path.endsWith('.m4v') ||
+          path.endsWith('.mkv') ||
+          path.endsWith('.webm');
+      clips.add(ClipData(
         path: clip.file!.path,
         start: clip.sourceStart.inMilliseconds / 1000,
         end:
@@ -168,21 +206,22 @@ class EditorExportService {
         speed: clip.speed,
         volume: clip.volume,
         isVideo: isVideo,
-        hasAudio: isVideo,
+        hasAudio: isVideo && await _fileHasAudioStream(clip.file!),
         reverse: clip.isReversed,
         scale: clip.transform.scale,
         rotation: clip.transform.rotation,
         offsetX: clip.transform.position.dx,
         offsetY: clip.transform.position.dy,
         opacity: clip.transform.opacity,
-      );
-    }).toList();
+      ));
+    }
 
     final overlays = <RenderOverlay>[];
     final transitions = <RenderTransition>[];
     final audioTracks = <RenderAudioTrack>[];
     var effects = const RenderEffects();
-    for (final clip in tracks.expand((track) => track.clips)) {
+    for (final track in tracks.where((item) => item.isVisible)) {
+      for (final clip in track.clips.where((item) => !item.isHidden)) {
       final operation = clip.operation;
       if (operation is OverlayOperation) {
         overlays.add(
@@ -239,7 +278,13 @@ class EditorExportService {
         );
       } else if (operation is AudioClipOperation) {
         final path = clip.file?.path ?? operation.sourceUrl;
-        if (path != null && path.isNotEmpty) {
+        final effectiveVolume = clip.volume == 1.0
+            ? operation.volume
+            : clip.volume;
+        final effectiveSpeed = clip.speed == 1.0
+            ? operation.speed
+            : clip.speed;
+        if (path != null && path.isNotEmpty && effectiveVolume > 0) {
           audioTracks.add(
             RenderAudioTrack(
               path: path,
@@ -252,8 +297,8 @@ class EditorExportService {
                       ? null
                       : clip.sourceEnd!.inMilliseconds / 1000),
               timelineStart: clip.start.inMilliseconds / 1000,
-              volume: clip.volume,
-              speed: clip.speed,
+              volume: effectiveVolume,
+              speed: effectiveSpeed,
               reverse: clip.isReversed || operation.reverse,
               timelineDuration: clip.duration.inMilliseconds / 1000,
               fadeIn: operation.fadeIn,
@@ -263,6 +308,7 @@ class EditorExportService {
         }
       } else if (operation is EffectOperation) {
         effects = operation.renderEffects();
+      }
       }
     }
     FilterOperation? filter;
@@ -287,6 +333,60 @@ class EditorExportService {
       audioTracks: audioTracks,
       effects: effects,
     );
+  }
+
+  static Future<bool> projectHasAudio(List<TimelineTrack> tracks) async {
+    for (final track in tracks.where((item) => item.isVisible)) {
+      for (final clip in track.clips.where((item) => !item.isHidden)) {
+        final operation = clip.operation;
+        if (operation is AudioClipOperation) {
+          final volume = clip.volume == 1.0 ? operation.volume : clip.volume;
+          final source = clip.file?.path ?? operation.sourceUrl;
+          if (source != null && source.isNotEmpty && volume > 0) return true;
+        }
+        if ((track.type == TrackType.video || track.type == TrackType.images) &&
+            clip.file != null &&
+            await _fileHasAudioStream(clip.file!)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static Future<bool> _fileHasAudioStream(File file) async {
+    try {
+      final session = await FFprobeKit.getMediaInformation(file.path);
+      final info = session.getMediaInformation();
+      return info?.getStreams().any((stream) => stream.getType() == 'audio') ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Validates the actual MP4 written to disk, not the FFmpeg return code alone.
+  static Future<Map<String, bool>> inspectFinalMp4(
+    File file, {
+    bool requireAudio = false,
+  }) async {
+    if (!await file.exists() || await file.length() == 0) {
+      return const {'valid': false, 'video': false, 'audio': false};
+    }
+    try {
+      final session = await FFprobeKit.getMediaInformation(file.path);
+      final info = session.getMediaInformation();
+      final streams = info?.getStreams() ?? const [];
+      final hasVideo = streams.any((stream) => stream.getType() == 'video');
+      final hasAudio = streams.any((stream) => stream.getType() == 'audio');
+      return {
+        'valid': hasVideo && (!requireAudio || hasAudio),
+        'video': hasVideo,
+        'audio': hasAudio,
+      };
+    } catch (_) {
+      return const {'valid': false, 'video': false, 'audio': false};
+    }
   }
 
   static RenderEffects _effectsForFilter(
