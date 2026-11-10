@@ -188,6 +188,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   double _timelineOverlayDragOriginX = 0;
   double _timelineOverlayDragStart = 0;
   double _timelineOverlayDragEnd = 0;
+  double _timelineLastPaintedSecond = -1;
 
   // Professional Metadata
   final Map<int, TransitionOperation> _transitions = {};
@@ -533,8 +534,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           await controller.pause();
         }
       }
-      if (_isPlaying != state.isPlaying && mounted) {
-        setState(() => _isPlaying = state.isPlaying);
+      final timelineSecond = state.currentTime.inMilliseconds / 1000.0;
+      if (mounted &&
+          ((_isPlaying != state.isPlaying) ||
+           (timelineSecond - _timelineLastPaintedSecond).abs() >= 0.1)) {
+        setState(() {
+          _isPlaying = state.isPlaying;
+          _timelineLastPaintedSecond = timelineSecond;
+        });
       }
     } finally {
       _syncingPlayback = false;
