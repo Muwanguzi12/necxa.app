@@ -3303,6 +3303,30 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       });
 
       _syncAudioToVideo();
+      _saveHistory();
+      final musicTrack = TimelineModelUtils.ensureTrackForType(
+        _project.tracks,
+        TrackType.music,
+      );
+      musicTrack.clips.removeWhere(
+        (clip) => clip.id == 'desktop-selected-music',
+      );
+      TimelineModelUtils.insertClip(
+        _project.tracks,
+        TimelineClip(
+          id: 'desktop-selected-music',
+          start: Duration.zero,
+          duration: Duration(milliseconds: (_audioEnd * 1000).round()),
+          volume: _bgmVolume,
+          operation: AudioClipOperation(
+            sourceType: 'music',
+            sourceUrl: result.audioUrl,
+            label: result.title,
+            volume: _bgmVolume,
+          ),
+        ),
+        TrackType.music,
+      );
 
       _musicPlayer.setReleaseMode(ReleaseMode.loop);
       await _musicPlayer.play(UrlSource(result.audioUrl));
