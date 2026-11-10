@@ -1562,6 +1562,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           clip.copyWith(operation: updated),
           recordHistory: false,
         );
+        final videoPlayer = _videoController;
+        if (videoPlayer != null && videoPlayer.value.isInitialized) {
+          unawaited(videoPlayer.setVolume(
+            (_isMuted || _hasSoloAudioTrack) ? 0.0 : _originalVolume,
+          ));
+        }
         unawaited(_syncTimelineAudio(
           _project.playback.state.currentTime,
           playing: _project.playback.state.isPlaying,
