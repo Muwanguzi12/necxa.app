@@ -40,6 +40,8 @@ enum ImageFilter {
 }
 
 class VideoClip {
+  /// Stable project identity; survives preview adapter recreation and reordering.
+  final String id;
   final File file;
   File? proxyFile; // Lightweight version for editing
   File? reversePreviewFile;
@@ -67,6 +69,7 @@ class VideoClip {
   double blur;
 
   VideoClip({
+    String? id,
     required this.file,
     this.proxyFile,
     this.reversePreviewFile,
@@ -91,9 +94,10 @@ class VideoClip {
     this.vignette = 0.0,
     this.grain = 0.0,
     this.blur = 0.0,
-  });
+  }) : id = id ?? 'editor-${file.path.hashCode}-${DateTime.now().microsecondsSinceEpoch}';
 
   VideoClip copy() => VideoClip(
+    id: id,
     file: file,
     proxyFile: proxyFile,
     reversePreviewFile: reversePreviewFile,
@@ -290,6 +294,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       _sequence = sharedClips
           .map(
             (clip) => VideoClip(
+              id: clip.id,
               file: clip.file!,
               start: clip.sourceStart.inMilliseconds / 1000,
               end:
@@ -698,7 +703,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       TimelineModelUtils.insertClip(
         project.tracks,
         TimelineClip(
-          id: 'desktop-${index}-${clip.file.path.hashCode}',
+          id: clip.id,
           start: timelineStart,
           duration: timelineDuration,
           file: clip.file,
