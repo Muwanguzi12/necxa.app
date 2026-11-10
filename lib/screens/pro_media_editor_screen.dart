@@ -1355,8 +1355,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           }
 
           final durationSeconds = clip.duration.inMilliseconds / 1000.0;
-          final fadeIn = operation.fadeIn;
-          final fadeOut = operation.fadeOut;
+          final fadeWindow = durationSeconds / 2;
+          final fadeIn = operation.fadeIn.clamp(0.0, fadeWindow).toDouble();
+          final fadeOut = operation.fadeOut.clamp(0.0, fadeWindow).toDouble();
           var fade = 1.0;
           if (fadeIn > 0 && elapsed < fadeIn) {
             fade = (elapsed / fadeIn).clamp(0.0, 1.0);
