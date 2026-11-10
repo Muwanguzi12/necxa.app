@@ -886,12 +886,19 @@ class VideoEnhancementService {
           final point = automation[pointIndex];
           final next = automation[pointIndex + 1];
           final start = point['time']!.clamp(0.0, track.timelineDuration);
-          final end = next['time']!.clamp(start + 0.001, track.timelineDuration);
+          final end = next['time']!.clamp(0.0, track.timelineDuration);
           final from = point['volume']!.clamp(0.0, 1.0);
           final to = next['volume']!.clamp(0.0, 1.0);
-          final ramp = end > start ? '$from+($to-$from)*(t-$start)/(${end-start})' : to.toStringAsFixed(3);
+          final ramp = end > start
+              ? '$from+($to-$from)*(t-$start)/(${end-start})'
+              : to.toStringAsFixed(3);
           expression = 'if(lt(t,$end),$ramp,$expression)';
         }
+        final firstTime = automation.first['time']!
+            .clamp(0.0, track.timelineDuration);
+        final firstVolume = automation.first['volume']!
+            .clamp(0.0, 1.0).toStringAsFixed(3);
+        expression = 'if(lt(t,$firstTime),$firstVolume,$expression)';
         automationFilter = ",volume='$expression'";
       }
       final pan = track.pan.clamp(-1.0, 1.0).toStringAsFixed(3);
