@@ -35,6 +35,7 @@ class SubjectSegmentationService {
   static const int _maxDurationSeconds = 120;
   static const int _batchDurationSeconds = 2;
   static const int _maxFrames = _maxDurationSeconds * _fps;
+  static const int _maxSourceBytes = 1024 * 1024 * 1024;
 
   bool _cancelled = false;
 
@@ -47,6 +48,9 @@ class SubjectSegmentationService {
     _cancelled = false;
     if (!sourceVideo.existsSync() || sourceVideo.lengthSync() == 0) {
       throw ArgumentError('The source video is missing or empty.');
+    }
+    if (sourceVideo.lengthSync() > _maxSourceBytes) {
+      throw ArgumentError('Subject masking supports source files up to 1 GB.');
     }
 
     final support = await getTemporaryDirectory();
@@ -68,6 +72,8 @@ class SubjectSegmentationService {
     try {
       // Keep the ML Kit mask at its bounded model resolution. The renderer
       // scales this matte to the video dimensions during compositing.
+      // Segmentation is deliberately capped at 120 seconds to bound on-device
+      // compute and scratch storage, even when the source file is up to 1 GB.
       segmenter = SelfieSegmenter(
         mode: SegmenterMode.stream,
         enableRawSizeMask: false,
