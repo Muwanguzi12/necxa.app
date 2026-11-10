@@ -346,14 +346,18 @@ class VideoEnhancementService {
         !sourceEnd.isFinite) {
       return null;
     }
-    final tempDir = await getTemporaryDirectory();
-    final outputPath =
-        '${tempDir.path}/necxa_reverse_audio_${DateTime.now().microsecondsSinceEpoch}.m4a';
-    final duration = sourceEnd - sourceStart;
-    final command =
-        "-i '${_escapePath(source)}' -ss $sourceStart -t $duration "
-        "-vn -af areverse -c:a aac -b:a 192k -y '${_escapePath(outputPath)}'";
+    File? resolvedSource;
+    var downloadedSource = false;
     try {
+      resolvedSource = await _downloadAudioSource(source);
+      downloadedSource = resolvedSource.path != source;
+      final tempDir = await getTemporaryDirectory();
+      final outputPath =
+          '${tempDir.path}/necxa_reverse_audio_${DateTime.now().microsecondsSinceEpoch}.m4a';
+      final duration = sourceEnd - sourceStart;
+      final command =
+          "-i '${_escapePath(resolvedSource.path)}' -ss $sourceStart -t $duration "
+          "-vn -af areverse -c:a aac -b:a 192k -y '${_escapePath(outputPath)}'";
       final session = await FFmpegKit.execute(command);
       final code = await session.getReturnCode();
       final output = File(outputPath);
@@ -367,10 +371,17 @@ class VideoEnhancementService {
       );
     } catch (error) {
       debugPrint('Reverse audio preview error: $error');
+    } finally {
+      if (downloadedSource &&
+          resolvedSource != null &&
+          resolvedSource.existsSync()) {
+        try {
+          await resolvedSource.delete();
+        } catch (_) {}
+      }
     }
     return null;
   }
-
   /// Combine multiple clips into a single video file
   Future<File?> combineSequence({
     required List<ClipData> clips,
