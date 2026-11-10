@@ -280,19 +280,31 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       false; // In a real app, fetch this from user state
 
   // Audio timeline values are stored on their TimelineClip/AudioClipOperation.
-  TimelineClip? get _musicClip => _project.tracks
-      .where((track) => track.type == TrackType.music)
-      .expand((track) => track.clips)
-      .where((clip) => clip.operation is AudioClipOperation)
-      .cast<TimelineClip?>()
-      .firstWhere((clip) => clip!.operation is AudioClipOperation && (clip.operation as AudioClipOperation).sourceType == 'music', orElse: () => null);
+  TimelineClip? get _musicClip {
+    for (final track in _project.tracks) {
+      if (track.type != TrackType.music) continue;
+      for (final clip in track.clips) {
+        final operation = clip.operation;
+        if (operation is AudioClipOperation && operation.sourceType == 'music') {
+          return clip;
+        }
+      }
+    }
+    return null;
+  }
 
-  TimelineClip? get _voiceClip => _project.tracks
-      .where((track) => track.type == TrackType.voiceOver)
-      .expand((track) => track.clips)
-      .where((clip) => clip.operation is AudioClipOperation)
-      .cast<TimelineClip?>()
-      .firstWhere((clip) => clip!.operation is AudioClipOperation && (clip.operation as AudioClipOperation).sourceType == 'voiceOver', orElse: () => null);
+  TimelineClip? get _voiceClip {
+    for (final track in _project.tracks) {
+      if (track.type != TrackType.voiceOver) continue;
+      for (final clip in track.clips) {
+        final operation = clip.operation;
+        if (operation is AudioClipOperation && operation.sourceType == 'voiceOver') {
+          return clip;
+        }
+      }
+    }
+    return null;
+  }
 
   AudioClipOperation? get _musicOperation => _musicClip?.operation as AudioClipOperation?;
   AudioClipOperation? get _voiceOperation => _voiceClip?.operation as AudioClipOperation?;
