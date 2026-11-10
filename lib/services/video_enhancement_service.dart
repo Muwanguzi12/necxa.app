@@ -67,6 +67,7 @@ class RenderOverlay {
   final bool stroke;
   final String depthLayer;
   final String themeId;
+  final List<Map<String, dynamic>> wordTimings;
 
   RenderOverlay({
     required this.type,
@@ -91,6 +92,7 @@ class RenderOverlay {
     this.stroke = false,
     this.depthLayer = 'foreground',
     this.themeId = 'cinematic',
+    this.wordTimings = const <Map<String, dynamic>>[],
   });
 }
 
@@ -748,6 +750,40 @@ class VideoEnhancementService {
         }
         filterComplex +=
             "[$currentVideo]drawtext=text='$text':font='$font':x='$xExpr':y='$yExpr':alpha='$alphaExpr':fontsize=$fontSize:fontcolor=$fontColor:box=1:boxcolor=$boxColor:boxborderw=12$shadow$border:enable='between(t,$startTime,$endTime)'[$nextLabel];";
+        // Karaoke words are layered over the base lyric line. Their timestamps
+        // are relative to the overlay start and are preserved from ASR.
+        var wordInputLabel = nextLabel;
+        final wordList = overlay.wordTimings;
+        for (var wordIndex = 0; wordIndex < wordList.length; wordIndex++) {
+          final wordTiming = wordList[wordIndex];
+          final wordValue = (wordTiming['text'] ?? '').toString().trim();
+          final wordStartOffset = (wordTiming['start'] as num?)?.toDouble();
+          final wordEndOffset = (wordTiming['end'] as num?)?.toDouble();
+          if (wordValue.isEmpty || wordStartOffset == null ||
+              wordEndOffset == null || wordEndOffset <= wordStartOffset) {
+            continue;
+          }
+          final safeWord = _escapeDrawText(wordValue);
+          final prefixLength = wordList
+              .take(wordIndex)
+              .fold<int>(0, (sum, item) =>
+                  sum + (item['text']?.toString().length ?? 0) + 1);
+          final approximateGlyphWidth = overlay.fontSize * overlay.scale * 0.52;
+          final phraseWidth = (overlay.text ?? '').length * approximateGlyphWidth;
+          final wordOffset = prefixLength * approximateGlyphWidth;
+          final wordOutputLabel = 'karaoke_${imageOverlayIndexes.length}_${wordIndex}_${overlay.start.toStringAsFixed(3).replaceAll('.', '_')}';
+          final highlightColor = overlay.themeId == 'neon'
+              ? '#7DF9FF'
+              : overlay.themeId == 'afro'
+                  ? '#FFB45C'
+                  : '#FFD166';
+          filterComplex +=
+              "[$wordInputLabel]drawtext=text='$safeWord':font='$font':x='(w-$phraseWidth)/2+$wordOffset':y='$baseY':fontsize=$baseFontSize:fontcolor=$highlightColor:enable='between(t,${startTime + wordStartOffset},${startTime + wordEndOffset})'[$wordOutputLabel];";
+          wordInputLabel = wordOutputLabel;
+        }
+        if (wordInputLabel != nextLabel) {
+          currentVideo = wordInputLabel;
+        }
       } else {
         continue;
       }
