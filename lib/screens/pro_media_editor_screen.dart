@@ -57,6 +57,14 @@ class VideoClip {
   double offsetX;
   double offsetY;
   double opacity;
+  ImageFilter? filter;
+  double brightness;
+  double contrast;
+  double saturation;
+  double hue;
+  double vignette;
+  double grain;
+  double blur;
 
   VideoClip({
     required this.file,
@@ -75,6 +83,14 @@ class VideoClip {
     this.offsetX = 0.0,
     this.offsetY = 0.0,
     this.opacity = 1.0,
+    this.filter,
+    this.brightness = 0.0,
+    this.contrast = 1.0,
+    this.saturation = 1.0,
+    this.hue = 0.0,
+    this.vignette = 0.0,
+    this.grain = 0.0,
+    this.blur = 0.0,
   });
 
   VideoClip copy() => VideoClip(
@@ -94,6 +110,14 @@ class VideoClip {
     offsetX: offsetX,
     offsetY: offsetY,
     opacity: opacity,
+    filter: filter,
+    brightness: brightness,
+    contrast: contrast,
+    saturation: saturation,
+    hue: hue,
+    vignette: vignette,
+    grain: grain,
+    blur: blur,
   );
 
   bool get isVideo =>
@@ -175,6 +199,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   // Multi-track Sequencer State
   late List<VideoClip> _sequence;
   int _activeClipIndex = 0;
+  final Set<VideoClip> _selectedClips = <VideoClip>{};
+  bool _multiSelectMode = false;
   int? _timelineDragIndex;
   String? _timelineDragMode;
   double _timelineDragOriginX = 0;
@@ -246,6 +272,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         ? [widget.initialImage!]
                         : []));
     _sequence = files.map((f) => VideoClip(file: f)).toList();
+    if (_sequence.isNotEmpty) _selectedClips.add(_sequence.first);
     if (sharedFiles.isNotEmpty) {
       final sharedClips = _project.tracks
           .where(
@@ -660,9 +687,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             position: Offset(clip.offsetX, clip.offsetY),
             opacity: clip.opacity,
           ),
-          filter: _selectedFilter == null
+          filter: clip.filter == null
               ? null
-              : FilterOperation(filterName: _selectedFilter!.name),
+              : FilterOperation(filterName: clip.filter!.name),
         ),
         clip.isVideo ? TrackType.video : TrackType.images,
       );
@@ -783,6 +810,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _showAdjustSheet() {
+    if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    _syncLookControlsFromClip(targets.first);
+    _saveHistory();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -804,18 +835,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               SizedBox(height: 24),
               _adjustSlider('Brightness', _brightness, -0.5, 0.5, (v) {
                 setModalState(() => _brightness = v);
+                for (final target in targets) { target.brightness = v; }
                 setState(() {});
               }),
               _adjustSlider('Contrast', _contrast, 0.5, 1.5, (v) {
                 setModalState(() => _contrast = v);
+                for (final target in targets) { target.contrast = v; }
                 setState(() {});
               }),
               _adjustSlider('Saturation', _saturation, 0.0, 2.0, (v) {
                 setModalState(() => _saturation = v);
+                for (final target in targets) { target.saturation = v; }
                 setState(() {});
               }),
               _adjustSlider('Hue', _hue, -3.14, 3.14, (v) {
                 setModalState(() => _hue = v);
+                for (final target in targets) { target.hue = v; }
                 setState(() {});
               }),
               SizedBox(height: 16),
@@ -826,6 +861,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     _contrast = 1.0;
                     _saturation = 1.0;
                     _hue = 0.0;
+                    for (final target in targets) {
+                      target.brightness = 0.0;
+                      target.contrast = 1.0;
+                      target.saturation = 1.0;
+                      target.hue = 0.0;
+                    }
                   });
                   setState(() {});
                 },
@@ -1684,15 +1725,34 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   final prior = _sequence[i];
                   offset += (prior.end - prior.start) / prior.speed;
                 }
-                final selected = index == _activeClipIndex;
+                final selected = _selectedClips.contains(clip);
                 return Positioned(
                   left: offset * pixelsPerSecond,
                   width: math.max(4.0, seconds * pixelsPerSecond - 2).toDouble(),
                   top: 2, bottom: 2,
                   child: GestureDetector(
                     onTap: () {
-                      setState(() => _activeClipIndex = index);
-                      _loadClip(index);
+                      if (_multiSelectMode) {
+                        setState(() {
+                          if (!_selectedClips.add(clip)) _selectedClips.remove(clip);
+                          _activeClipIndex = index;
+                          if (_selectedClips.isEmpty) _multiSelectMode = false;
+                        });
+                      } else {
+                        setState(() {
+                          _activeClipIndex = index;
+                          _selectedClips..clear()..add(clip);
+                        });
+                        _loadClip(index);
+                      }
+                    },
+                    onLongPress: () {
+                      setState(() {
+                        _multiSelectMode = true;
+                        if (!_selectedClips.add(clip)) _selectedClips.remove(clip);
+                        _activeClipIndex = index;
+                      });
+                      HapticFeedback.selectionClick();
                     },
                     onPanStart: (details) {
                       if (_videoTrackLocked) return;
@@ -1783,7 +1843,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                       decoration: BoxDecoration(
                         color: selected ? C.brand.withOpacity(0.38) : const Color(0xFF26364C),
                         borderRadius: BorderRadius.circular(5),
-                        border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12)),
+                        border: Border.all(color: selected ? C.brand : C.text.withOpacity(0.12), width: selected ? 2 : 1),
                       ),
                       child: Row(children: [
                         Icon(clip.isVideo ? Icons.movie_outlined : Icons.image_outlined,
@@ -1894,9 +1954,16 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         Row(children: [
           Text('TIMELINE', style: syne(sz: 9, w: FontWeight.w900, c: C.dim, ls: 1)),
           const Spacer(),
-          Text('${duration.toStringAsFixed(1)}s · Drag text blocks to retime',
+          Text('${duration.toStringAsFixed(1)}s · Long-press clips to multi-select',
             style: dm(sz: 8, c: C.dim)),
         ]),
+        if (_multiSelectMode)
+          Row(children: [
+            Text('${_selectedClips.length} SELECTED', style: syne(sz: 8, w: FontWeight.w800, c: C.brand)),
+            const Spacer(),
+            TextButton(onPressed: () => setState(() { _selectedClips..clear()..addAll(_sequence); }), child: Text('ALL', style: syne(sz: 8, w: FontWeight.w800, c: C.text))),
+            TextButton(onPressed: () => setState(() { _selectedClips.clear(); _multiSelectMode = false; }), child: Text('CLEAR', style: syne(sz: 8, w: FontWeight.w800, c: C.sub))),
+          ]),
         const SizedBox(height: 4),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -3513,15 +3580,49 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     }
   }
 
+  List<VideoClip> get _effectTargets {
+    if (_selectedClips.isNotEmpty) return _selectedClips.toList();
+    if (_sequence.isEmpty) return <VideoClip>[];
+    return <VideoClip>[_sequence[_activeClipIndex.clamp(0, _sequence.length - 1)]];
+  }
+
+  void _syncLookControlsFromClip(VideoClip clip) {
+    _selectedFilter = clip.filter;
+    _brightness = clip.brightness;
+    _contrast = clip.contrast;
+    _saturation = clip.saturation;
+    _hue = clip.hue;
+    _effectVignette = clip.vignette;
+    _effectGrain = clip.grain;
+    _effectBlur = clip.blur;
+  }
+
+  void _applyLookControlsToTargets() {
+    for (final clip in _effectTargets) {
+      clip.filter = _selectedFilter;
+      clip.brightness = _brightness;
+      clip.contrast = _contrast;
+      clip.saturation = _saturation;
+      clip.hue = _hue;
+      clip.vignette = _effectVignette;
+      clip.grain = _effectGrain;
+      clip.blur = _effectBlur;
+    }
+    _syncSharedProjectFromSequence();
+  }
+
   void _showTransformEditor() {
     if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    if (targets.isEmpty) return;
+    _saveHistory();
+    final clip = targets.first;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (context, setModalState) {
-          final clip = _sequence[_activeClipIndex];
           return Container(
             padding: EdgeInsets.fromLTRB(24, 20, 24, 28),
             decoration: BoxDecoration(
@@ -3545,33 +3646,35 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 ),
                 SizedBox(height: 18),
                 _adjustSlider('Scale', clip.scale, 0.5, 2.4, (v) {
-                  setModalState(() => clip.scale = v);
+                  setModalState(() { for (final target in targets) { target.scale = v; } });
                   setState(() {});
                 }),
                 _adjustSlider('Rotation', clip.rotation, -0.8, 0.8, (v) {
-                  setModalState(() => clip.rotation = v);
+                  setModalState(() { for (final target in targets) { target.rotation = v; } });
                   setState(() {});
                 }),
                 _adjustSlider('Position X', clip.offsetX, -160, 160, (v) {
-                  setModalState(() => clip.offsetX = v);
+                  setModalState(() { for (final target in targets) { target.offsetX = v; } });
                   setState(() {});
                 }),
                 _adjustSlider('Position Y', clip.offsetY, -220, 220, (v) {
-                  setModalState(() => clip.offsetY = v);
+                  setModalState(() { for (final target in targets) { target.offsetY = v; } });
                   setState(() {});
                 }),
                 _adjustSlider('Opacity', clip.opacity, 0.05, 1.0, (v) {
-                  setModalState(() => clip.opacity = v);
+                  setModalState(() { for (final target in targets) { target.opacity = v; } });
                   setState(() {});
                 }),
                 SizedBox(height: 10),
                 _actionRow(Icons.restart_alt, 'Reset Transform', () {
                   setModalState(() {
-                    clip.scale = 1.0;
-                    clip.rotation = 0.0;
-                    clip.offsetX = 0.0;
-                    clip.offsetY = 0.0;
-                    clip.opacity = 1.0;
+                    for (final target in targets) {
+                      target.scale = 1.0;
+                      target.rotation = 0.0;
+                      target.offsetX = 0.0;
+                      target.offsetY = 0.0;
+                      target.opacity = 1.0;
+                    }
                   });
                   setState(() {});
                 }, c: C.brand),
@@ -3584,6 +3687,10 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _showEffectsEditor() {
+    if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    _syncLookControlsFromClip(targets.first);
+    _saveHistory();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3606,14 +3713,17 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               SizedBox(height: 18),
               _adjustSlider('Vignette', _effectVignette, 0.0, 1.0, (v) {
                 setModalState(() => _effectVignette = v);
+                for (final target in targets) { target.vignette = v; }
                 setState(() {});
               }),
               _adjustSlider('Film grain', _effectGrain, 0.0, 1.0, (v) {
                 setModalState(() => _effectGrain = v);
+                for (final target in targets) { target.grain = v; }
                 setState(() {});
               }),
               _adjustSlider('Soft blur', _effectBlur, 0.0, 8.0, (v) {
                 setModalState(() => _effectBlur = v);
+                for (final target in targets) { target.blur = v; }
                 setState(() {});
               }),
               SizedBox(height: 10),
@@ -3622,6 +3732,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   _effectVignette = 0.0;
                   _effectGrain = 0.0;
                   _effectBlur = 0.0;
+                  for (final target in targets) {
+                    target.vignette = 0.0;
+                    target.grain = 0.0;
+                    target.blur = 0.0;
+                  }
                 });
                 setState(() {});
               }, c: C.brand),
@@ -3694,9 +3809,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         _effectBlur = 1.2;
         break;
     }
+    _applyLookControlsToTargets();
   }
 
   void _showFilterSheet() {
+    if (_sequence.isEmpty) return;
+    final targets = _effectTargets;
+    _syncLookControlsFromClip(targets.first);
+    _saveHistory();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3926,20 +4046,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         player = CustomPaint(
           painter: ShaderPainter(
             shader: _shaderProgram!.fragmentShader(),
-            brightness: _brightness,
-            contrast: _contrast,
-            saturation: _saturation,
-            hue: _hue,
+            brightness: clip?.brightness ?? 0.0,
+            contrast: clip?.contrast ?? 1.0,
+            saturation: clip?.saturation ?? 1.0,
+            hue: clip?.hue ?? 0.0,
           ),
           child: player,
         );
       }
 
-      if (_effectBlur > 0) {
+      if ((clip?.blur ?? 0.0) > 0) {
         player = ImageFiltered(
           imageFilter: ui.ImageFilter.blur(
-            sigmaX: _effectBlur,
-            sigmaY: _effectBlur,
+            sigmaX: clip!.blur,
+            sigmaY: clip.blur,
           ),
           child: player,
         );
@@ -3949,24 +4069,24 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         fit: StackFit.expand,
         children: [
           player,
-          if (_effectVignette > 0)
+          if ((clip?.vignette ?? 0.0) > 0)
             IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: RadialGradient(
                     colors: [
                       Colors.transparent,
-                      Colors.black.withOpacity(0.72 * _effectVignette),
+                      Colors.black.withOpacity(0.72 * clip!.vignette),
                     ],
                     stops: const [0.55, 1.0],
                   ),
                 ),
               ),
             ),
-          if (_effectGrain > 0)
+          if ((clip?.grain ?? 0.0) > 0)
             IgnorePointer(
               child: CustomPaint(
-                painter: GrainPainter(intensity: _effectGrain),
+                painter: GrainPainter(intensity: clip!.grain),
               ),
             ),
         ],
