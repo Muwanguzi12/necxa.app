@@ -1136,29 +1136,45 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     if (_sequence.isEmpty) return;
 
     File? combinedFile;
+    var audioExpected = false;
     if (flatten) {
       setState(() => _isProcessing = true);
       try {
-        _feedback("Synthesizing Mult-Media Studio...");
-        final project = _project;
-        combinedFile = project == null
-            ? null
-            : await EditorExportService.renderTimeline(
-                // Freeze one consistent edit state before asynchronous rendering.
-                tracks: project.createSnapshot(),
-                aspectRatio: _selectedAspectRatio,
-              );
+        _feedback("Rendering final video and audio...");
+        final snapshot = _project.createSnapshot();
+        audioExpected = await EditorExportService.projectHasAudio(snapshot);
+        combinedFile = await EditorExportService.renderTimeline(
+          tracks: snapshot,
+          aspectRatio: _selectedAspectRatio,
+        );
 
         if (combinedFile == null) {
-          _feedback("Failed to generate master file.");
+          _feedback("The final video could not be rendered. Your timeline is unchanged.");
         } else {
-          _feedback("Master File Ready! 🎉");
+          final validation = await EditorExportService.inspectFinalMp4(
+            combinedFile,
+            requireAudio: audioExpected,
+          );
+          if (validation['valid'] != true) {
+            combinedFile = null;
+            _feedback(
+              audioExpected
+                  ? "Export validation failed: the MP4 is missing expected audio or video."
+                  : "Export validation failed: the MP4 is missing its video stream.",
+            );
+          } else {
+            _feedback("Final MP4 validated and ready.");
+          }
         }
       } catch (e) {
-        _feedback("Error combining video: $e");
+        combinedFile = null;
+        _feedback("Error rendering final media: $e");
       } finally {
         if (mounted) setState(() => _isProcessing = false);
       }
+      // Never fall back to publishing the first source clip when flattening
+      // fails; that would silently discard timeline edits and audio.
+      if (combinedFile == null) return;
     }
 
     Navigator.pop(context, {
@@ -1166,6 +1182,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       'track': _selectedTrack,
       'flatten': flatten,
       'combined_file': combinedFile,
+      'audio_expected': audioExpected,
       'music_vol': _bgmVolume,
       'voice_vol': _voiceVolume,
       'original_vol': _originalVolume,
@@ -1204,7 +1221,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       'clip_count': _sequence.length,
     });
   }
-
 
   void _togglePlayback() {
     setState(() => _isPlaying = !_isPlaying);
