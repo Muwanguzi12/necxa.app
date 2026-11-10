@@ -145,8 +145,8 @@ class OverlayOperation extends EditOperation {
     this.stroke = false,
     this.align = 'center',
     this.fontFamily = 'Syne',
-    this.animationIn = 'fade',
-    this.animationOut = 'fade',
+    this.animationIn = 'none',
+    this.animationOut = 'none',
     this.themeId = 'cinematic',
   }) : super('overlay');
 
@@ -172,8 +172,8 @@ class OverlayOperation extends EditOperation {
       stroke: values['stroke'] as bool? ?? false,
       align: values['align'] as String? ?? 'center',
       fontFamily: values['fontFamily'] as String? ?? 'Syne',
-      animationIn: values['animationIn'] as String? ?? 'fade',
-      animationOut: values['animationOut'] as String? ?? 'fade',
+      animationIn: values['animationIn'] as String? ?? 'none',
+      animationOut: values['animationOut'] as String? ?? 'none',
       themeId: values['themeId'] as String? ?? 'cinematic',
     );
   }
