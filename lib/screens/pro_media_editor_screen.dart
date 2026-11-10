@@ -3911,29 +3911,187 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   }
 
   void _showTextOverlaySheet() {
-    setState(() {
-      _saveHistory();
-      _overlays.add(
-        OverlayOperation.fromLegacy({
-          'type': 'text',
-          'text': 'Enter Text',
-          'start': 0.0,
-          'end': 1.0,
-          'x': 0.5,
-          'y': 0.5,
-          'scale': 1.0,
-          'rotation': 0.0,
-          'opacity': 1.0,
-          'fontSize': 28.0,
-          'color': C.text,
-          'background': Colors.black,
-          'backgroundOpacity': 0.0,
-          'shadow': true,
-        }),
-      );
-      _syncSharedProjectFromSequence();
-    });
-    _feedback("Text overlay added");
+    final textController = TextEditingController();
+    var lyricsMode = false;
+    var start = 0.0;
+    var end = 1.0;
+    var fontSize = 30.0;
+    var selectedTheme = 'cinematic';
+    var animationIn = 'fade';
+    var animationOut = 'fade';
+    var selectedColor = const Color(0xFFF7F4ED);
+    final duration = _totalDuration > 0 ? _totalDuration : 30.0;
+    final themes = <String, Map<String, dynamic>>{
+      'cinematic': {'label': 'Cinematic', 'color': const Color(0xFFF7F4ED), 'size': 30.0, 'shadow': true},
+      'neon': {'label': 'Neon', 'color': const Color(0xFF7DF9FF), 'size': 34.0, 'shadow': true},
+      'karaoke': {'label': 'Karaoke', 'color': const Color(0xFFFFD166), 'size': 32.0, 'shadow': true},
+      'minimal': {'label': 'Minimal', 'color': const Color(0xFFFFFFFF), 'size': 26.0, 'shadow': false},
+      'bold': {'label': 'Bold', 'color': const Color(0xFFFFFFFF), 'size': 38.0, 'shadow': true},
+      'afro': {'label': 'Afro glow', 'color': const Color(0xFFFFB45C), 'size': 32.0, 'shadow': true},
+    };
+    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop', 'typewriter'];
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF111722),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, refresh) {
+          Widget sectionTitle(String label) => Padding(
+            padding: const EdgeInsets.only(top: 16, bottom: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(label.toUpperCase(), style: syne(sz: 10, w: FontWeight.w800, c: C.sub, ls: 1.2)),
+            ),
+          );
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(18, 16, 18, MediaQuery.of(context).viewInsets.bottom + 20),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Expanded(child: Text('TEXT STUDIO', style: syne(sz: 16, w: FontWeight.w900, c: C.text, ls: 1))),
+                      IconButton(onPressed: () => Navigator.pop(sheetContext), icon: Icon(Icons.close, color: C.sub)),
+                    ]),
+                    Text('Create captions, lyrics and animated titles.', style: dm(sz: 11, c: C.sub)),
+                    const SizedBox(height: 14),
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: false, label: Text('Single text'), icon: Icon(Icons.title)),
+                        ButtonSegment(value: true, label: Text('Lyrics lines'), icon: Icon(Icons.music_note)),
+                      ],
+                      selected: {lyricsMode},
+                      onSelectionChanged: (value) => refresh(() => lyricsMode = value.first),
+                      showSelectedIcon: false,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: textController,
+                      minLines: lyricsMode ? 4 : 2,
+                      maxLines: 8,
+                      style: dm(sz: 14, c: C.text),
+                      decoration: InputDecoration(
+                        hintText: lyricsMode ? 'Enter one lyric line per row…' : 'Type your title or caption…',
+                        hintStyle: dm(sz: 12, c: C.dim),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.045),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                      ),
+                    ),
+                    sectionTitle('Display timer'),
+                    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      Text('Start  \${(start * duration).toStringAsFixed(1)}s', style: dm(sz: 11, c: C.text)),
+                      Text('End  \${(end * duration).toStringAsFixed(1)}s', style: dm(sz: 11, c: C.text)),
+                    ]),
+                    RangeSlider(
+                      values: RangeValues(start, end),
+                      min: 0,
+                      max: 1,
+                      divisions: 100,
+                      activeColor: C.brand,
+                      onChanged: (value) => refresh(() { start = value.start; end = value.end; }),
+                    ),
+                    Text('Lyrics mode divides this time range evenly between non-empty lines.', style: dm(sz: 10, c: C.dim)),
+                    sectionTitle('Themes'),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: themes.entries.map((entry) {
+                        final active = selectedTheme == entry.key;
+                        return ChoiceChip(
+                          label: Text(entry.value['label'] as String),
+                          selected: active,
+                          onSelected: (_) => refresh(() {
+                            selectedTheme = entry.key;
+                            selectedColor = entry.value['color'] as Color;
+                            fontSize = entry.value['size'] as double;
+                          }),
+                          labelStyle: dm(sz: 11, c: active ? Colors.black : C.text, w: FontWeight.w700),
+                          selectedColor: selectedColor,
+                          backgroundColor: Colors.white.withOpacity(0.06),
+                        );
+                      }).toList(),
+                    ),
+                    sectionTitle('Text size'),
+                    Slider(
+                      value: fontSize,
+                      min: 16,
+                      max: 64,
+                      divisions: 24,
+                      activeColor: C.brand,
+                      label: fontSize.round().toString(),
+                      onChanged: (value) => refresh(() => fontSize = value),
+                    ),
+                    sectionTitle('Entrance animation'),
+                    DropdownButtonFormField<String>(
+                      value: animationIn,
+                      dropdownColor: const Color(0xFF202938),
+                      style: dm(sz: 12, c: C.text),
+                      decoration: const InputDecoration(isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
+                      items: animations.map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_', ' ').toUpperCase()))).toList(),
+                      onChanged: (value) => refresh(() => animationIn = value ?? 'fade'),
+                    ),
+                    sectionTitle('Exit animation'),
+                    DropdownButtonFormField<String>(
+                      value: animationOut,
+                      dropdownColor: const Color(0xFF202938),
+                      style: dm(sz: 12, c: C.text),
+                      decoration: const InputDecoration(isDense: true, filled: true, fillColor: Color(0xFF1B2431), border: OutlineInputBorder()),
+                      items: animations.where((value) => value != 'typewriter').map((value) => DropdownMenuItem(value: value, child: Text(value.replaceAll('_', ' ').toUpperCase()))).toList(),
+                      onChanged: (value) => refresh(() => animationOut = value ?? 'fade'),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: C.brand, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14)),
+                        icon: const Icon(Icons.add),
+                        label: Text(lyricsMode ? 'ADD LYRIC LINES' : 'ADD TEXT LAYER', style: syne(sz: 11, w: FontWeight.w900, c: Colors.black)),
+                        onPressed: () {
+                          final value = textController.text.trim();
+                          if (value.isEmpty || end <= start) return;
+                          final lines = lyricsMode
+                              ? value.split(RegExp(r'\r?\n')).map((line) => line.trim()).where((line) => line.isNotEmpty).toList()
+                              : [value];
+                          if (lines.isEmpty) return;
+                          _saveHistory();
+                          final interval = (end - start) / lines.length;
+                          setState(() {
+                            for (var index = 0; index < lines.length; index++) {
+                              _overlays.add(OverlayOperation(
+                                kind: 'text',
+                                text: lines[index],
+                                start: start + interval * index,
+                                end: index == lines.length - 1 ? end : start + interval * (index + 1),
+                                position: const Offset(0.5, 0.72),
+                                fontSize: fontSize,
+                                color: selectedColor,
+                                shadow: themes[selectedTheme]!['shadow'] as bool,
+                                align: 'center',
+                                fontFamily: 'Syne',
+                                animationIn: animationIn,
+                                animationOut: animationOut,
+                                themeId: selectedTheme,
+                              ));
+                            }
+                            _syncSharedProjectFromSequence();
+                          });
+                          Navigator.pop(sheetContext);
+                          _feedback(lyricsMode ? '\${lines.length} timed lyric lines added' : 'Text layer added');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(textController.dispose);
   }
 
   void _showFrameOverlayPicker() {
