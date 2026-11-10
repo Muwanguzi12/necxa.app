@@ -430,10 +430,25 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
     }
 
-    if (widget.initialTrack != null) {
-      _selectedTrack = widget.initialTrack;
+    if (widget.initialTrack != null && _musicClip == null) {
+      final track = widget.initialTrack!;
+      _project.upsertClip(TrackType.music, TimelineClip(
+        id: 'desktop-audio-music',
+        start: Duration.zero,
+        duration: track.timelineDuration,
+        volume: 0.5,
+        operation: AudioClipOperation(
+          sourceType: 'music',
+          sourceUrl: track.audioUrl,
+          label: track.title,
+          volume: 0.5,
+          startOffset: 0,
+          endOffset: track.duration.toDouble(),
+        ),
+      ));
+      _selectedTrack = track;
       _musicPlayer.setReleaseMode(ReleaseMode.loop);
-      _musicPlayer.play(UrlSource(_selectedTrack!.audioUrl));
+      _musicPlayer.play(UrlSource(track.audioUrl));
     }
 
     _loadClip(_activeClipIndex);
@@ -5317,10 +5332,22 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       // Stop recording
       final recording = await _voiceoverService.stop();
       if (recording != null) {
-        setState(() {
-          _voiceOverFile = recording.file;
-          _isRecordingVoice = false;
-        });
+        final duration = _project.playback.state.duration > Duration.zero
+            ? _project.playback.state.duration
+            : const Duration(seconds: 30);
+        _project.upsertClip(TrackType.voiceOver, TimelineClip(
+          id: 'desktop-audio-voice',
+          start: Duration.zero,
+          duration: duration,
+          file: recording.file,
+          volume: 0.8,
+          operation: AudioClipOperation(
+            sourceType: 'voiceOver',
+            label: 'Voiceover',
+            volume: 0.8,
+          ),
+        ));
+        setState(() => _isRecordingVoice = false);
         _feedback("Voiceover recorded!");
       }
     } else {
