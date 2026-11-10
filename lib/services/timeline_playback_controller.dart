@@ -202,6 +202,9 @@ class TimelineHistoryController {
     return _redoStack.removeLast();
   }
 
+  static List<TimelineTrack> cloneTracks(List<TimelineTrack> tracks) =>
+      _cloneTracks(tracks);
+
   static List<TimelineTrack> _cloneTracks(List<TimelineTrack> tracks) => tracks
       .map(
         (track) => TimelineTrack(
@@ -236,7 +239,10 @@ class TimelineHistoryController {
     ),
     filter: clip.filter == null
         ? null
-        : FilterOperation(filterName: clip.filter!.filterName),
+        : FilterOperation(
+            filterName: clip.filter!.filterName,
+            intensity: clip.filter!.intensity,
+          ),
     isHidden: clip.isHidden,
     proxyFile: clip.proxyFile,
     isProxyReady: clip.isProxyReady,
@@ -249,6 +255,28 @@ class TimelineHistoryController {
     makeupGender: clip.makeupGender,
     makeupStyle: clip.makeupStyle,
     makeupIntensity: clip.makeupIntensity,
+    brightness: clip.brightness,
+    contrast: clip.contrast,
+    saturation: clip.saturation,
+    hue: clip.hue,
+    vignette: clip.vignette,
+    grain: clip.grain,
+    blur: clip.blur,
+    transitionIn: clip.transitionIn == null
+        ? null
+        : TransitionOperation(
+            presetId: clip.transitionIn!.presetId,
+            presetName: clip.transitionIn!.presetName,
+            category: clip.transitionIn!.category,
+            icon: clip.transitionIn!.icon,
+            duration: clip.transitionIn!.duration,
+            direction: clip.transitionIn!.direction,
+            intensity: clip.transitionIn!.intensity,
+            easeIn: clip.transitionIn!.easeIn,
+            easeOut: clip.transitionIn!.easeOut,
+            reverse: clip.transitionIn!.reverse,
+            isFavorite: clip.transitionIn!.isFavorite,
+          ),
   );
 
   static EditOperation _cloneOperation(EditOperation operation) {
@@ -331,10 +359,14 @@ class TimelineHistoryController {
   }
 }
 
+/// Owns the editable project model. Mutations are committed as transactions
+/// so playback is notified once per logical edit, rather than once per field.
 class EditorProjectController {
   final List<TimelineTrack> tracks;
   final TimelinePlaybackController playback;
   final TimelineHistoryController history;
+  int _revision = 0;
+  bool _disposed = false;
 
   EditorProjectController({
     List<TimelineTrack>? tracks,
@@ -342,14 +374,88 @@ class EditorProjectController {
     TimelineHistoryController? history,
   }) : tracks = tracks ?? <TimelineTrack>[],
        playback = playback ?? TimelinePlaybackController(),
-       history = history ?? TimelineHistoryController();
+       history = history ?? TimelineHistoryController() {
+    this.playback.updateProject(this.tracks);
+  }
 
-  void replaceTracks(List<TimelineTrack> replacement) {
+  int get revision => _revision;
+
+  /// A detached deep copy for export/render jobs. Later edits cannot mutate it.
+  List<TimelineTrack> createSnapshot() =>
+      TimelineHistoryController.cloneTracks(tracks);
+
+  /// Apply related edits and publish one consistent project update.
+  /// History is captured once before the transaction when [recordHistory] is true.
+  void transact(
+    void Function(List<TimelineTrack> tracks) edit, {
+    bool recordHistory = true,
+  }) {
+    if (_disposed) throw StateError('EditorProjectController is disposed');
+    if (recordHistory) history.capture(tracks);
+    edit(tracks);
+    _commit();
+  }
+
+  void replaceTracks(
+    List<TimelineTrack> replacement, {
+    bool recordHistory = false,
+  }) {
+    if (_disposed) throw StateError('EditorProjectController is disposed');
+    if (recordHistory) history.capture(tracks);
     tracks
       ..clear()
       ..addAll(replacement);
+    _commit();
+  }
+
+  void upsertClip(TrackType type, TimelineClip clip, {bool recordHistory = true}) {
+    transact((items) {
+      TimelineTrack? track;
+      for (final candidate in items) {
+        if (candidate.type == type) {
+          track = candidate;
+          break;
+        }
+      }
+      if (track == null) {
+        track = TimelineTrack(
+          id: 'track-${type.name}',
+          type: type,
+          clips: <TimelineClip>[],
+          label: type.defaultLabel,
+          icon: type.defaultIcon,
+        );
+        items.add(track);
+      }
+      final index = track.clips.indexWhere((item) => item.id == clip.id);
+      if (index < 0) {
+        track.clips.add(clip);
+      } else {
+        track.clips[index] = clip;
+      }
+    }, recordHistory: recordHistory);
+  }
+
+  bool removeClip(String clipId, {bool recordHistory = true}) {
+    var removed = false;
+    transact((items) {
+      for (final track in items) {
+        final before = track.clips.length;
+        track.clips.removeWhere((clip) => clip.id == clipId);
+        removed = removed || track.clips.length != before;
+      }
+      items.removeWhere((track) => track.clips.isEmpty);
+    }, recordHistory: recordHistory);
+    return removed;
+  }
+
+  void _commit() {
+    _revision++;
     playback.updateProject(tracks);
   }
 
-  void dispose() => playback.dispose();
+  void dispose() {
+    _disposed = true;
+    playback.dispose();
+  }
 }
