@@ -1695,8 +1695,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                           ? 'trim-start'
                           : details.localPosition.dx >= clipWidth - 9
                               ? 'trim-end' : 'move';
-                      if (mode == 'move') return;
-                      if (clip.duration <= 0) {
+                      if (mode != 'move' && clip.duration <= 0) {
                         _feedback('Media duration is still loading');
                         return;
                       }
@@ -1705,16 +1704,57 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                         _timelineDragIndex = index;
                         _timelineDragMode = mode;
                         _timelineDragOriginX = details.globalPosition.dx;
+                        _timelineDragThresholdX = 0;
+                        _timelineDragAppliedX = 0;
+                        _timelineDragDeltaX = 0;
                         _timelineOriginalStart = clip.start;
                         _timelineOriginalEnd = clip.end;
                       });
                     },
                     onPanUpdate: (details) {
-                      if (_timelineDragIndex != index ||
-                          _timelineDragMode == null ||
-                          _timelineDragMode == 'move') return;
-                      final delta = (details.globalPosition.dx -
-                        _timelineDragOriginX) / pixelsPerSecond * clip.speed;
+                      if (_timelineDragIndex == null ||
+                          _timelineDragMode == null) return;
+                      final dx = details.globalPosition.dx - _timelineDragOriginX;
+                      if (_timelineDragMode == 'move') {
+                        setState(() {
+                          var remaining = dx - _timelineDragThresholdX;
+                          while (remaining > 0 &&
+                              _timelineDragIndex! < _sequence.length - 1) {
+                            final next = _sequence[_timelineDragIndex! + 1];
+                            final nextWidth = math.max(4.0,
+                              ((next.end - next.start) / next.speed) *
+                                pixelsPerSecond).toDouble();
+                            final threshold = nextWidth / 2;
+                            if (remaining < threshold) break;
+                            final from = _timelineDragIndex!;
+                            final moved = _sequence.removeAt(from);
+                            _sequence.insert(from + 1, moved);
+                            _timelineDragIndex = from + 1;
+                            _timelineDragThresholdX += threshold;
+                            remaining = dx - _timelineDragThresholdX;
+                            HapticFeedback.selectionClick();
+                          }
+                          while (remaining < 0 && _timelineDragIndex! > 0) {
+                            final previous = _sequence[_timelineDragIndex! - 1];
+                            final previousWidth = math.max(4.0,
+                              ((previous.end - previous.start) / previous.speed) *
+                                pixelsPerSecond).toDouble();
+                            final threshold = previousWidth / 2;
+                            if (remaining > -threshold) break;
+                            final from = _timelineDragIndex!;
+                            final moved = _sequence.removeAt(from);
+                            _sequence.insert(from - 1, moved);
+                            _timelineDragIndex = from - 1;
+                            _timelineDragThresholdX -= threshold;
+                            remaining = dx - _timelineDragThresholdX;
+                            HapticFeedback.selectionClick();
+                          }
+                          _activeClipIndex = _timelineDragIndex!;
+                        });
+                        return;
+                      }
+                      if (_timelineDragIndex != index) return;
+                      final delta = dx / pixelsPerSecond * clip.speed;
                       setState(() {
                         if (_timelineDragMode == 'trim-start') {
                           clip.start = (_timelineOriginalStart + delta)
