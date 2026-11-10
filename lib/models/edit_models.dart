@@ -128,6 +128,7 @@ class OverlayOperation extends EditOperation {
   String themeId;
   String depthLayer;
   List<Map<String, dynamic>> wordTimings;
+  String? fontFilePath;
 
   OverlayOperation({
     required this.kind,
@@ -152,6 +153,7 @@ class OverlayOperation extends EditOperation {
     this.themeId = 'cinematic',
     this.depthLayer = 'foreground',
     this.wordTimings = const <Map<String, dynamic>>[],
+    this.fontFilePath,
   }) : super('overlay');
 
   factory OverlayOperation.fromLegacy(Map<String, dynamic> values) {
@@ -184,6 +186,7 @@ class OverlayOperation extends EditOperation {
           .whereType<Map>()
           .map((word) => Map<String, dynamic>.from(word))
           .toList(),
+      fontFilePath: values['fontFilePath'] as String?,
     );
   }
 
@@ -210,6 +213,7 @@ class OverlayOperation extends EditOperation {
     themeId: themeId,
     depthLayer: depthLayer,
     wordTimings: wordTimings.map((word) => Map<String, dynamic>.from(word)).toList(),
+    fontFilePath: fontFilePath,
   );
 
   @override
@@ -238,6 +242,7 @@ class OverlayOperation extends EditOperation {
     'themeId': themeId,
     'depthLayer': depthLayer,
     'wordTimings': wordTimings,
+    'fontFilePath': fontFilePath,
   };
 }
 
