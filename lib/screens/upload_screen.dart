@@ -400,6 +400,12 @@ class _UploadScreenState extends State<UploadScreen>
       return;
     }
     final file = File(f.path);
+    _audioBakedIntoVisual = false;
+    _expectedEmbeddedAudio = false;
+    _visualAlreadyCompressed = false;
+    _preparedVisualFiles = null;
+    _uploadedMediaCache = null;
+    _uploadedFileCache.clear();
     if (!mounted) return;
     final resumeLivePreview = _shouldRunLivePreview;
     if (resumeLivePreview) await _stopLivePreview();
