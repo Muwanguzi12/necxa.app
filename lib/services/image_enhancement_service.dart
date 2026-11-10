@@ -53,10 +53,16 @@ class ImageEnhancementService {
     
     // Step 7: Resize
     onProgress?.call(0.9);
+    final targetWidth = options.upscale
+        ? (options.maxWidth ?? sharpened.width) * options.upscaleFactor
+        : options.maxWidth;
+    final targetHeight = options.upscale
+        ? (options.maxHeight ?? sharpened.height) * options.upscaleFactor
+        : options.maxHeight;
     img.Image resized = _resizeToFitContainer(
       sharpened,
-      maxWidth: options.maxWidth,
-      maxHeight: options.maxHeight,
+      maxWidth: targetWidth?.round(),
+      maxHeight: targetHeight?.round(),
       maintainAspectRatio: true,
     );
     
@@ -80,13 +86,15 @@ class ImageEnhancementService {
     }
     final count = image.width * image.height;
     if (count == 0) return balanced;
-    final avgR = totalR / count;
-    final avgG = totalG / count;
-    final avgB = totalB / count;
-    
-    final rGain = avgR > 0 ? 128.0 / avgR : 1.0;
-    final gGain = avgG > 0 ? 128.0 / avgG : 1.0;
-    final bGain = avgB > 0 ? 128.0 / avgB : 1.0;
+    final average = _LocalAverage(
+      r: totalR / count,
+      g: totalG / count,
+      b: totalB / count,
+    );
+
+    final rGain = average.r > 0 ? 128.0 / average.r : 1.0;
+    final gGain = average.g > 0 ? 128.0 / average.g : 1.0;
+    final bGain = average.b > 0 ? 128.0 / average.b : 1.0;
     
     for (int y = 0; y < image.height; y++) {
       for (int x = 0; x < image.width; x++) {
@@ -176,14 +184,80 @@ class ImageEnhancementService {
   }
 
   img.Image _sharpenImage(img.Image image, double amount) {
-    final result = img.Image.from(image);
-    img.convolution(result, filter: [-1, -1, -1, -1, 9, -1, -1, -1, -1]);
-    return result;
+    final strength = amount.clamp(0.0, 1.0);
+    if (strength == 0) return image;
+
+    final sharpened = img.Image.from(image);
+    img.convolution(
+      sharpened,
+      filter: [-1, -1, -1, -1, 9, -1, -1, -1, -1],
+    );
+    if (strength == 1) return sharpened;
+
+    final blended = img.Image.from(image);
+    for (var y = 0; y < image.height; y++) {
+      for (var x = 0; x < image.width; x++) {
+        final originalPixel = image.getPixel(x, y);
+        final sharpenedPixel = sharpened.getPixel(x, y);
+        blended.setPixelRgba(
+          x,
+          y,
+          (originalPixel.r + (sharpenedPixel.r - originalPixel.r) * strength)
+              .round()
+              .clamp(0, 255),
+          (originalPixel.g + (sharpenedPixel.g - originalPixel.g) * strength)
+              .round()
+              .clamp(0, 255),
+          (originalPixel.b + (sharpenedPixel.b - originalPixel.b) * strength)
+              .round()
+              .clamp(0, 255),
+          originalPixel.a.toInt(),
+        );
+      }
+    }
+    return blended;
   }
 
-  img.Image _resizeToFitContainer(img.Image image, {int? maxWidth, int? maxHeight, bool maintainAspectRatio = true}) {
+  img.Image _resizeToFitContainer(
+    img.Image image, {
+    int? maxWidth,
+    int? maxHeight,
+    bool maintainAspectRatio = true,
+  }) {
     if (maxWidth == null && maxHeight == null) return image;
-    return img.copyResize(image, width: maxWidth, height: maxHeight, interpolation: img.Interpolation.linear);
+    if (maxWidth != null && maxWidth <= 0 ||
+        maxHeight != null && maxHeight <= 0) {
+      throw ArgumentError('Image dimensions must be positive.');
+    }
+
+    if (!maintainAspectRatio) {
+      return img.copyResize(
+        image,
+        width: maxWidth,
+        height: maxHeight,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+
+    final widthLimit = maxWidth ?? image.width;
+    final heightLimit = maxHeight ?? image.height;
+    final widthScale = widthLimit / image.width;
+    final heightScale = heightLimit / image.height;
+    final scaleFactor = maxWidth == null
+        ? heightScale
+        : maxHeight == null
+        ? widthScale
+        : (widthScale < heightScale ? widthScale : heightScale);
+
+    // A maximum bound must not enlarge the image unless the caller explicitly
+    // enables upscaling through EnhancementOptions.
+    final boundedScale = scaleFactor > 1 ? 1.0 : scaleFactor;
+    return img.copyResize(
+      image,
+      width: (image.width * boundedScale).round().clamp(1, widthLimit),
+      height: (image.height * boundedScale).round().clamp(1, heightLimit),
+      interpolation: img.Interpolation.linear,
+    );
   }
 
   Future<String> _saveImage(img.Image image) async {
