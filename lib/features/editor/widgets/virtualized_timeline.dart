@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'dart:math' as math;
 import '../../../models/edit_models.dart';
 
 /// Virtualized timeline widget that only renders visible clips
