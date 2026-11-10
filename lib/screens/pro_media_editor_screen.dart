@@ -3841,6 +3841,40 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           return globalTime >= start && globalTime <= end;
         })
         .map((o) {
+          final overlayStart = o.start * totalDuration;
+          final overlayEnd = o.end * totalDuration;
+          const animationDuration = 0.35;
+          final enterProgress = ((globalTime - overlayStart) / animationDuration).clamp(0.0, 1.0);
+          final exitProgress = ((overlayEnd - globalTime) / animationDuration).clamp(0.0, 1.0);
+          var animationOpacity = 1.0;
+          var animationOffset = Offset.zero;
+          var animationScale = 1.0;
+          switch (o.animationIn) {
+            case 'fade':
+              animationOpacity *= enterProgress;
+              break;
+            case 'slide_up':
+              animationOffset += Offset(0, 36 * (1 - enterProgress));
+              break;
+            case 'slide_left':
+              animationOffset += Offset(48 * (1 - enterProgress), 0);
+              break;
+            case 'pop':
+              animationScale = 0.88 + (0.12 * enterProgress);
+              animationOpacity *= enterProgress;
+              break;
+          }
+          switch (o.animationOut) {
+            case 'fade':
+              animationOpacity *= exitProgress;
+              break;
+            case 'slide_up':
+              animationOffset += Offset(0, -36 * (1 - exitProgress));
+              break;
+            case 'slide_left':
+              animationOffset += Offset(-48 * (1 - exitProgress), 0);
+              break;
+          }
           return Positioned.fill(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -3876,7 +3910,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: o.fontSize,
-                      color: o.color.withOpacity(o.opacity),
+                      fontFamily: o.fontFamily,
+                      color: o.color.withOpacity(o.opacity * animationOpacity),
                       fontWeight: FontWeight.bold,
                       shadows: o.shadow
                           ? [Shadow(blurRadius: 8, color: Colors.black54)]
@@ -3885,6 +3920,13 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                   );
                 }
 
+                child = Opacity(
+                  opacity: animationOpacity.clamp(0.0, 1.0),
+                  child: Transform.translate(
+                    offset: animationOffset,
+                    child: child,
+                  ),
+                );
                 return Positioned(
                   left: x,
                   top: y,
@@ -3893,7 +3935,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     child: Transform.rotate(
                       angle: o.rotation,
                       child: Transform.scale(
-                        scale: o.scale,
+                        scale: o.scale * animationScale,
                         child: SizedBox(
                           width: 300,
                           height: 100,
@@ -3929,7 +3971,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       'bold': {'label': 'Bold', 'color': const Color(0xFFFFFFFF), 'size': 38.0, 'shadow': true},
       'afro': {'label': 'Afro glow', 'color': const Color(0xFFFFB45C), 'size': 32.0, 'shadow': true},
     };
-    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop', 'typewriter'];
+    const animations = ['none', 'fade', 'slide_up', 'slide_left', 'pop'];
 
     showModalBottomSheet<void>(
       context: context,
