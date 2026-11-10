@@ -351,7 +351,14 @@ class EditorExportService {
           final source = clip.file?.path ?? operation.sourceUrl;
           if (source != null && source.isNotEmpty && volume > 0) return true;
         }
+        final visualPath = clip.file?.path.toLowerCase() ?? '';
+        final isVideo = visualPath.endsWith('.mp4') ||
+            visualPath.endsWith('.mov') ||
+            visualPath.endsWith('.m4v') ||
+            visualPath.endsWith('.mkv') ||
+            visualPath.endsWith('.webm');
         if ((track.type == TrackType.video || track.type == TrackType.images) &&
+            isVideo &&
             clip.file != null &&
             await _fileHasAudioStream(clip.file!)) {
           return true;
@@ -362,14 +369,12 @@ class EditorExportService {
   }
 
   static Future<bool> _fileHasAudioStream(File file) async {
-    try {
-      final session = await FFprobeKit.getMediaInformation(file.path);
-      final info = session.getMediaInformation();
-      return info?.getStreams().any((stream) => stream.getType() == 'audio') ??
-          false;
-    } catch (_) {
-      return false;
+    final session = await FFprobeKit.getMediaInformation(file.path);
+    final info = session.getMediaInformation();
+    if (info == null) {
+      throw StateError('Unable to inspect media streams for ${file.path}.');
     }
+    return info.getStreams().any((stream) => stream.getType() == 'audio');
   }
 
   /// Validates the actual MP4 written to disk, not the FFmpeg return code alone.
