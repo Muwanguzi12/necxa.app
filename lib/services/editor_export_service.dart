@@ -77,9 +77,11 @@ class EditorExportService {
       }
 
       onStage?.call('Compressing video');
-      final compressedFile = await MediaCompressionService.compressVideo(
-        renderSource,
-      );
+      // Timeline renders are already encoded as the final MP4 master. Do not
+      // run a second lossy compression pass over the completed audio mix.
+      final compressedFile = tracks != null
+          ? renderSource
+          : await MediaCompressionService.compressVideo(renderSource);
       final audioExpected = tracks == null
           ? await _fileHasAudioStream(sourceVideo)
           : await projectHasAudio(tracks);
