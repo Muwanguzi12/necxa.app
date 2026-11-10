@@ -794,6 +794,7 @@ class VideoEnhancementService {
     File inputMedia, {
     double start = 0,
     double? end,
+    bool reverse = false,
   }) async {
     if (!_isSupportedMediaFile(inputMedia)) {
       throw ArgumentError('Select a media file smaller than or equal to 1 GB.');
@@ -811,8 +812,9 @@ class VideoEnhancementService {
     final trimArgs = trimDuration == null
         ? ''
         : "-ss $trimStart -t $trimDuration ";
+    final audioFilters = reverse ? '-af areverse ' : '';
     final command =
-        "-i '${_escapePath(inputMedia.path)}' $trimArgs-vn -ac 1 -ar 16000 "
+        "-i '${_escapePath(inputMedia.path)}' $trimArgs-vn $audioFilters-ac 1 -ar 16000 "
         "-c:a aac -b:a 48k -y '${_escapePath(outputPath)}'";
     try {
       final session = await FFmpegKit.execute(command);
