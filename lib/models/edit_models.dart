@@ -855,6 +855,14 @@ class EffectOperation extends EditOperation {
   };
 }
 
+/// A volume automation point measured in seconds from the start of its clip.
+class AudioVolumePoint {
+  final double time;
+  final double volume;
+  const AudioVolumePoint({required this.time, required this.volume});
+  Map<String, dynamic> toJson() => {'time': time, 'volume': volume};
+}
+
 /// Shared audio operation used by desktop and mobile editors for music,
 /// voiceovers, and sound effects inserted into the timeline.
 class AudioClipOperation extends EditOperation {
@@ -866,6 +874,10 @@ class AudioClipOperation extends EditOperation {
   bool reverse;
   double fadeIn;
   double fadeOut;
+  double pan;
+  bool muted;
+  bool solo;
+  List<AudioVolumePoint> volumeAutomation;
   final double? startOffset;
   final double? endOffset;
 
@@ -878,6 +890,10 @@ class AudioClipOperation extends EditOperation {
     this.reverse = false,
     this.fadeIn = 0.0,
     this.fadeOut = 0.0,
+    this.pan = 0.0,
+    this.muted = false,
+    this.solo = false,
+    this.volumeAutomation = const <AudioVolumePoint>[],
     this.startOffset,
     this.endOffset,
   }) : super('audio');
@@ -893,6 +909,10 @@ class AudioClipOperation extends EditOperation {
     'reverse': reverse,
     'fadeIn': fadeIn,
     'fadeOut': fadeOut,
+    'pan': pan,
+    'muted': muted,
+    'solo': solo,
+    'volumeAutomation': volumeAutomation.map((point) => point.toJson()).toList(),
     'startOffset': startOffset,
     'endOffset': endOffset,
   };

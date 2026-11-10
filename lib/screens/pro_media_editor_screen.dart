@@ -318,6 +318,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   AudioClipOperation? get _musicOperation => _musicClip?.operation as AudioClipOperation?;
   AudioClipOperation? get _voiceOperation => _voiceClip?.operation as AudioClipOperation?;
+  bool get _hasSoloAudioTrack => _project.tracks
+      .where((track) => track.isVisible)
+      .expand((track) => track.clips)
+      .where((clip) => !clip.isHidden && clip.operation is AudioClipOperation)
+      .any((clip) {
+        final operation = clip.operation as AudioClipOperation;
+        return operation.solo && !operation.muted;
+      });
   File? get _voiceOverFile => _voiceClip?.file;
   double get _bgmVolume => _musicOperation?.volume ?? 0.5;
   double get _voiceVolume => _voiceOperation?.volume ?? 0.8;
@@ -365,8 +373,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       operation: AudioClipOperation(sourceType: operation.sourceType,
         sourceUrl: operation.sourceUrl, label: operation.label, volume: value,
         speed: operation.speed, reverse: operation.reverse, fadeIn: operation.fadeIn,
-        fadeOut: operation.fadeOut, startOffset: operation.startOffset,
-        endOffset: operation.endOffset),
+        fadeOut: operation.fadeOut, pan: operation.pan, muted: operation.muted,
+        solo: operation.solo, volumeAutomation: operation.volumeAutomation,
+        startOffset: operation.startOffset, endOffset: operation.endOffset),
     ), recordHistory: false);
   }
 
@@ -380,8 +389,9 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       operation: AudioClipOperation(sourceType: operation.sourceType,
         sourceUrl: operation.sourceUrl, label: operation.label, volume: value,
         speed: operation.speed, reverse: operation.reverse, fadeIn: operation.fadeIn,
-        fadeOut: operation.fadeOut, startOffset: operation.startOffset,
-        endOffset: operation.endOffset),
+        fadeOut: operation.fadeOut, pan: operation.pan, muted: operation.muted,
+        solo: operation.solo, volumeAutomation: operation.volumeAutomation,
+        startOffset: operation.startOffset, endOffset: operation.endOffset),
     ), recordHistory: false);
   }
 
@@ -629,7 +639,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           clip.end = clip.duration;
         }
 
-        await controller.setVolume(_isMuted ? 0.0 : _originalVolume);
+        await controller.setVolume((_isMuted || _hasSoloAudioTrack) ? 0.0 : _originalVolume);
         if (!mounted || !identical(_videoController, controller)) return;
         await controller.setPlaybackSpeed(clip.speed);
         final sourceTime = seekTo ?? (clip.isReversed ? clip.end : clip.start);
@@ -729,6 +739,11 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       }
       final controller = _videoController;
       if (controller != null && controller.value.isInitialized) {
+        final expectedVideoVolume =
+            (_isMuted || _hasSoloAudioTrack) ? 0.0 : _originalVolume;
+        if ((controller.value.volume - expectedVideoVolume).abs() > 0.01) {
+          await controller.setVolume(expectedVideoVolume);
+        }
         final sourceExpected = _sequence[index].start + remaining;
         final expected = _sequence[index].isReversed
             ? _sequence[index].duration - sourceExpected
@@ -1297,10 +1312,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _lastTimelineAudioSync = playhead;
     try {
       final activeIds = <String>{};
+      final hasSoloAudio = _hasSoloAudioTrack;
       for (final track in _project.tracks.where((item) => item.isVisible)) {
         for (final clip in track.clips.where((item) => !item.isHidden)) {
           final operation = clip.operation;
           if (operation is! AudioClipOperation) continue;
+          if (operation.muted || (hasSoloAudio && !operation.solo)) continue;
           final clipEnd = clip.start + clip.duration;
           if (playhead < clip.start || playhead >= clipEnd) continue;
           final source = clip.file?.path ?? operation.sourceUrl;
@@ -1371,9 +1388,27 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
           if (fadeOut > 0 && remaining < fadeOut) {
             fade = math.min(fade, (remaining / fadeOut).clamp(0.0, 1.0));
           }
-          final baseVolume = clip.volume == 1.0
-              ? operation.volume
-              : clip.volume;
+          final baseVolume = clip.volume == 1.0 ? operation.volume : clip.volume;
+          final automation = List<AudioVolumePoint>.from(operation.volumeAutomation)
+            ..sort((a, b) => a.time.compareTo(b.time));
+          var automationVolume = 1.0;
+          if (automation.isNotEmpty) {
+            if (elapsed <= automation.first.time) {
+              automationVolume = automation.first.volume;
+            } else if (elapsed >= automation.last.time) {
+              automationVolume = automation.last.volume;
+            } else {
+              for (var pointIndex = 0; pointIndex < automation.length - 1; pointIndex++) {
+                final from = automation[pointIndex];
+                final to = automation[pointIndex + 1];
+                if (elapsed < from.time || elapsed > to.time) continue;
+                final span = to.time - from.time;
+                final progress = span <= 0 ? 1.0 : (elapsed - from.time) / span;
+                automationVolume = from.volume + (to.volume - from.volume) * progress;
+                break;
+              }
+            }
+          }
           var duckingFactor = 1.0;
           if (operation.sourceType == 'music') {
             final voiceoverActive = _project.tracks.any(
@@ -1396,10 +1431,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
             if (voiceoverActive) duckingFactor = 0.30;
           }
           await player.setVolume(
-            (baseVolume * fade * duckingFactor)
-                .clamp(0.0, 1.0)
-                .toDouble(),
+            (baseVolume * fade * duckingFactor * automationVolume)
+                .clamp(0.0, 1.0).toDouble(),
           );
+          try {
+            await player.setBalance(operation.pan.clamp(-1.0, 1.0).toDouble());
+          } catch (_) {}
           if (sourceChanged || _timelineAudioSpeeds[clip.id] != speed) {
             try {
               await player.setPlaybackRate(speed.clamp(0.5, 2.0).toDouble());
@@ -1472,6 +1509,143 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
   }
 
+  void _updateAudioMixer(
+    TrackType type, {
+    double? pan,
+    bool? muted,
+    bool? solo,
+    double? automationVolume,
+  }) {
+    for (final track in _project.tracks.where((item) => item.type == type)) {
+      for (final clip in track.clips) {
+        final operation = clip.operation;
+        if (operation is! AudioClipOperation) continue;
+        final automation = List<AudioVolumePoint>.from(operation.volumeAutomation);
+        if (automationVolume != null) {
+          final elapsed = ((_project.playback.state.currentTime - clip.start)
+                      .inMilliseconds /
+                  1000.0)
+              .clamp(0.0, clip.duration.inMilliseconds / 1000.0)
+              .toDouble();
+          final point = AudioVolumePoint(
+            time: elapsed,
+            volume: automationVolume.clamp(0.0, 4.0).toDouble(),
+          );
+          final existing = automation.indexWhere(
+            (item) => (item.time - elapsed).abs() < 0.05,
+          );
+          if (existing >= 0) {
+            automation[existing] = point;
+          } else {
+            automation.add(point);
+          }
+          automation.sort((a, b) => a.time.compareTo(b.time));
+        }
+        final updated = AudioClipOperation(
+          sourceType: operation.sourceType,
+          sourceUrl: operation.sourceUrl,
+          label: operation.label,
+          volume: operation.volume,
+          speed: operation.speed,
+          reverse: operation.reverse,
+          fadeIn: operation.fadeIn,
+          fadeOut: operation.fadeOut,
+          pan: pan ?? operation.pan,
+          muted: muted ?? operation.muted,
+          solo: solo ?? operation.solo,
+          volumeAutomation: automation,
+          startOffset: operation.startOffset,
+          endOffset: operation.endOffset,
+        );
+        _project.upsertClip(
+          type,
+          clip.copyWith(operation: updated),
+          recordHistory: false,
+        );
+        final videoPlayer = _videoController;
+        if (videoPlayer != null && videoPlayer.value.isInitialized) {
+          unawaited(videoPlayer.setVolume(
+            (_isMuted || _hasSoloAudioTrack) ? 0.0 : _originalVolume,
+          ));
+        }
+        unawaited(_syncTimelineAudio(
+          _project.playback.state.currentTime,
+          playing: _project.playback.state.isPlaying,
+          force: true,
+        ));
+        return;
+      }
+    }
+  }
+
+  Widget _audioTrackMixerControls({
+    required String title,
+    required AudioClipOperation operation,
+    required TrackType type,
+    required double automationVolume,
+    required StateSetter setModalState,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(title, style: syne(sz: 11, w: FontWeight.w800, c: C.text)),
+        ),
+        Row(
+          children: [
+            Text('L', style: dm(sz: 10, c: C.sub)),
+            Expanded(
+              child: Slider(
+                value: operation.pan.clamp(-1.0, 1.0).toDouble(),
+                min: -1,
+                max: 1,
+                onChanged: (value) {
+                  _updateAudioMixer(type, pan: value);
+                  setModalState(() {});
+                },
+                activeColor: C.brand,
+              ),
+            ),
+            Text('R', style: dm(sz: 10, c: C.sub)),
+          ],
+        ),
+        SwitchListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text('Mute', style: dm(sz: 11, c: C.sub)),
+          value: operation.muted,
+          onChanged: (value) {
+            _updateAudioMixer(type, muted: value);
+            setModalState(() {});
+          },
+        ),
+        SwitchListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text('Solo', style: dm(sz: 11, c: C.sub)),
+          value: operation.solo,
+          onChanged: (value) {
+            _updateAudioMixer(type, solo: value);
+            setModalState(() {});
+          },
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () {
+              _updateAudioMixer(type, automationVolume: automationVolume);
+              setModalState(() {});
+              _feedback('Volume keyframe added at the playhead');
+            },
+            icon: Icon(Icons.add, size: 15),
+            label: Text('KEYFRAME AT PLAYHEAD', style: syne(sz: 9, c: C.brand)),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showVolumeSheet() {
     showModalBottomSheet(
       context: context,
@@ -1508,6 +1682,26 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 _setVoiceVolume(v);
                 _voicePlayer.setVolume(v);
               }),
+              if (_musicOperation != null) ...[
+                Divider(color: C.dim),
+                _audioTrackMixerControls(
+                  title: 'BACKGROUND MUSIC',
+                  operation: _musicOperation!,
+                  type: TrackType.music,
+                  automationVolume: _bgmVolume,
+                  setModalState: setModalState,
+                ),
+              ],
+              if (_voiceOperation != null) ...[
+                Divider(color: C.dim),
+                _audioTrackMixerControls(
+                  title: 'VOICEOVER',
+                  operation: _voiceOperation!,
+                  type: TrackType.voiceOver,
+                  automationVolume: _voiceVolume,
+                  setModalState: setModalState,
+                ),
+              ],
               SizedBox(height: 20),
             ],
           ),
@@ -4187,6 +4381,8 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
         operation: AudioClipOperation(sourceType: operation.sourceType, sourceUrl: operation.sourceUrl,
           label: operation.label, volume: operation.volume, speed: operation.speed,
           reverse: operation.reverse, fadeIn: operation.fadeIn, fadeOut: operation.fadeOut,
+          pan: operation.pan, muted: operation.muted, solo: operation.solo,
+          volumeAutomation: operation.volumeAutomation,
           startOffset: 0, endOffset: end),
       ));
     }

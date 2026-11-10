@@ -320,6 +320,10 @@ class TimelineHistoryController {
         reverse: operation.reverse,
         fadeIn: operation.fadeIn,
         fadeOut: operation.fadeOut,
+        pan: operation.pan,
+        muted: operation.muted,
+        solo: operation.solo,
+        volumeAutomation: operation.volumeAutomation,
         startOffset: operation.startOffset,
         endOffset: operation.endOffset,
       );

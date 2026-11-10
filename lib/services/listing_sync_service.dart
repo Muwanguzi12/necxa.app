@@ -132,6 +132,8 @@ class ListingSyncService {
         ? message!
         : (error?.isNotEmpty ?? false)
         ? error!
+        : (details?.isNotEmpty ?? false)
+        ? details!
         : '$operation failed (${statusCode == 0 ? 'network error' : statusCode}). Please try again.';
     throw ListingSyncException(
       safeMessage,

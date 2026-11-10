@@ -159,6 +159,28 @@ void main() {
       expect(json['volume'], 0.75);
     });
 
+    test('serializes audio mixer controls and volume automation', () {
+      final operation = AudioClipOperation(
+        sourceType: 'voiceOver',
+        pan: -0.65,
+        muted: true,
+        solo: true,
+        volumeAutomation: const <AudioVolumePoint>[
+          AudioVolumePoint(time: 0, volume: 0),
+          AudioVolumePoint(time: 1.5, volume: 1),
+        ],
+      );
+
+      final json = operation.toJson();
+      expect(json['pan'], -0.65);
+      expect(json['muted'], isTrue);
+      expect(json['solo'], isTrue);
+      expect(json['volumeAutomation'], [
+        {'time': 0.0, 'volume': 0.0},
+        {'time': 1.5, 'volume': 1.0},
+      ]);
+    });
+
     test('inserts a shared text overlay clip into the text track', () {
       final tracks = <TimelineTrack>[];
       final clip = TimelineModelUtils.insertTextClip(tracks, text: 'Hello', start: Duration.zero);
