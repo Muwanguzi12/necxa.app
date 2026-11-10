@@ -180,9 +180,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   double _hue = 0.0;
 
   // Advanced Tools State
-  // Audio Mixer State
-  double _bgmVolume = 0.5;
-  double _voiceVolume = 0.8;
+  // Audio mixer values are read from the authoritative project clips.
   double _originalVolume = 1.0;
   final bool _isMuted = false;
   bool _isPlaying = false;
@@ -191,7 +189,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
   // Voice Over State
   bool _isRecordingVoice = false;
-  File? _voiceOverFile;
   final EditorVoiceoverService _voiceoverService = EditorVoiceoverService();
 
   // Mask Mode
@@ -282,10 +279,70 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
   bool _transitionsUnlocked =
       false; // In a real app, fetch this from user state
 
-  // Audio Timeline State
-  double _audioStart = 0;
-  double _audioEnd = 30; // 30s default
-  final double _audioOffset = 0; // Where it starts in the global timeline
+  // Audio timeline values are stored on their TimelineClip/AudioClipOperation.
+  TimelineClip? get _musicClip => _project.tracks
+      .where((track) => track.type == TrackType.music)
+      .expand((track) => track.clips)
+      .where((clip) => clip.operation is AudioClipOperation)
+      .cast<TimelineClip?>()
+      .firstWhere((clip) => clip!.operation is AudioClipOperation && (clip.operation as AudioClipOperation).sourceType == 'music', orElse: () => null);
+
+  TimelineClip? get _voiceClip => _project.tracks
+      .where((track) => track.type == TrackType.voiceOver)
+      .expand((track) => track.clips)
+      .where((clip) => clip.operation is AudioClipOperation)
+      .cast<TimelineClip?>()
+      .firstWhere((clip) => clip!.operation is AudioClipOperation && (clip.operation as AudioClipOperation).sourceType == 'voiceOver', orElse: () => null);
+
+  AudioClipOperation? get _musicOperation => _musicClip?.operation as AudioClipOperation?;
+  AudioClipOperation? get _voiceOperation => _voiceClip?.operation as AudioClipOperation?;
+  File? get _voiceOverFile => _voiceClip?.file;
+  double get _bgmVolume => _musicOperation?.volume ?? 0.5;
+  double get _voiceVolume => _voiceOperation?.volume ?? 0.8;
+  double get _audioStart => _musicOperation?.startOffset ?? 0.0;
+  double get _audioEnd => _musicOperation?.endOffset ?? 30.0;
+  double get _audioOffset => (_musicClip?.start.inMilliseconds ?? 0) / 1000.0;
+
+  void _setMusicVolume(double value) {
+    final clip = _musicClip;
+    final operation = _musicOperation;
+    if (clip == null || operation == null) return;
+    _project.upsertClip(TrackType.music, TimelineClip(
+      id: clip.id, start: clip.start, duration: clip.duration, file: clip.file,
+      volume: value,
+      operation: AudioClipOperation(sourceType: operation.sourceType,
+        sourceUrl: operation.sourceUrl, label: operation.label, volume: value,
+        speed: operation.speed, reverse: operation.reverse, fadeIn: operation.fadeIn,
+        fadeOut: operation.fadeOut, startOffset: operation.startOffset,
+        endOffset: operation.endOffset),
+    ), recordHistory: false);
+  }
+
+  void _setVoiceVolume(double value) {
+    final clip = _voiceClip;
+    final operation = _voiceOperation;
+    if (clip == null || operation == null) return;
+    _project.upsertClip(TrackType.voiceOver, TimelineClip(
+      id: clip.id, start: clip.start, duration: clip.duration, file: clip.file,
+      volume: value,
+      operation: AudioClipOperation(sourceType: operation.sourceType,
+        sourceUrl: operation.sourceUrl, label: operation.label, volume: value,
+        speed: operation.speed, reverse: operation.reverse, fadeIn: operation.fadeIn,
+        fadeOut: operation.fadeOut, startOffset: operation.startOffset,
+        endOffset: operation.endOffset),
+    ), recordHistory: false);
+  }
+
+  void _restoreAudioSelectionFromProject() {
+    final music = _musicOperation;
+    if (music != null && music.sourceUrl != null) {
+      _selectedTrack = MusicTrack(id: 'project-' + music.sourceUrl.hashCode.toString(),
+        title: music.label ?? 'Project music', artistName: 'Project audio',
+        audioUrl: music.sourceUrl!, duration: (_musicClip!.duration.inMilliseconds / 1000).round(),
+        licenseType: 'project');
+      _musicPlayer.setReleaseMode(ReleaseMode.loop);
+    }
+  }
 
   @override
   void initState() {
@@ -293,6 +350,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     _project = widget.projectController ?? EditorProjectController();
     _ownsProjectController = widget.projectController == null;
     _loadProState();
+    _restoreAudioSelectionFromProject();
     final sharedFiles =
         _project.tracks
             .where(
@@ -1053,7 +1111,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       setState(() => _isProcessing = true);
       try {
         _feedback("Synthesizing Mult-Media Studio...");
-        _syncDesktopAudioToProject();
         final project = _project;
         combinedFile = project == null
             ? null
@@ -1119,59 +1176,6 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     });
   }
 
-  void _syncDesktopAudioToProject() {
-    final project = _project;
-    project.transact((tracks) {
-      for (final track in tracks) {
-        track.clips.removeWhere(
-          (clip) => clip.id.startsWith('desktop-audio-'),
-        );
-      }
-      tracks.removeWhere((track) => track.clips.isEmpty);
-
-      final duration = Duration(
-        milliseconds: (_totalDuration * 1000).round(),
-      );
-      if (_selectedTrack != null) {
-        TimelineModelUtils.insertClip(
-          tracks,
-          TimelineClip(
-            id: 'desktop-audio-music',
-            start: Duration(milliseconds: (_audioOffset * 1000).round()),
-            duration: duration,
-            volume: _bgmVolume,
-            operation: AudioClipOperation(
-              sourceType: 'music',
-              sourceUrl: _selectedTrack!.audioUrl,
-              label: _selectedTrack!.title,
-              volume: _bgmVolume,
-              startOffset: _audioStart,
-              endOffset: _audioEnd,
-            ),
-          ),
-          TrackType.music,
-        );
-      }
-      if (_voiceOverFile != null) {
-        TimelineModelUtils.insertClip(
-          tracks,
-          TimelineClip(
-            id: 'desktop-audio-voice',
-            start: Duration.zero,
-            duration: duration,
-            file: _voiceOverFile,
-            volume: _voiceVolume,
-            operation: AudioClipOperation(
-              sourceType: 'voiceOver',
-              label: 'Voiceover',
-              volume: _voiceVolume,
-            ),
-          ),
-          TrackType.voiceOver,
-        );
-      }
-    }, recordHistory: false);
-  }
 
   void _togglePlayback() {
     setState(() => _isPlaying = !_isPlaying);
@@ -1293,14 +1297,14 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
               }),
               SizedBox(height: 16),
               _volSlider('Background Music', _bgmVolume, (v) {
-                setModalState(() => _bgmVolume = v);
-                setState(() => _bgmVolume = v);
+                setModalState(() {});
+                _setMusicVolume(v);
                 _musicPlayer.setVolume(v);
               }),
               SizedBox(height: 16),
               _volSlider('Voiceover', _voiceVolume, (v) {
-                setModalState(() => _voiceVolume = v);
-                setState(() => _voiceVolume = v);
+                setModalState(() {});
+                _setVoiceVolume(v);
                 _voicePlayer.setVolume(v);
               }),
               SizedBox(height: 20),
@@ -3959,10 +3963,19 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
       0.0,
       (sum, clip) => sum + (clip.end - clip.start),
     );
-    setState(() {
-      _audioStart = 0.0;
-      _audioEnd = totalVideoDuration.clamp(1.0, 60.0);
-    });
+    final end = totalVideoDuration.clamp(1.0, 60.0);
+    final current = _musicClip;
+    final operation = _musicOperation;
+    if (current != null && operation != null) {
+      _project.upsertClip(TrackType.music, TimelineClip(
+        id: current.id, start: current.start, duration: Duration(milliseconds: (end * 1000).round()),
+        file: current.file, volume: current.volume,
+        operation: AudioClipOperation(sourceType: operation.sourceType, sourceUrl: operation.sourceUrl,
+          label: operation.label, volume: operation.volume, speed: operation.speed,
+          reverse: operation.reverse, fadeIn: operation.fadeIn, fadeOut: operation.fadeOut,
+          startOffset: 0, endOffset: end),
+      ));
+    }
     _feedback("Audio Synced to ${totalVideoDuration.toStringAsFixed(1)}s");
   }
 
@@ -3978,35 +3991,20 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
     );
 
     if (result is MusicTrack) {
-      setState(() {
-        _selectedTrack = result;
+      final durationSeconds = _totalDuration.clamp(1.0, 60.0);
+      _project.transact((tracks) {
+        final musicTrack = TimelineModelUtils.ensureTrackForType(tracks, TrackType.music);
+        musicTrack.clips.removeWhere((clip) => clip.operation is AudioClipOperation &&
+            (clip.operation as AudioClipOperation).sourceType == 'music');
+        TimelineModelUtils.insertClip(tracks, TimelineClip(
+          id: 'desktop-audio-music', start: Duration.zero,
+          duration: Duration(milliseconds: (durationSeconds * 1000).round()),
+          volume: 0.5,
+          operation: AudioClipOperation(sourceType: 'music', sourceUrl: result.audioUrl,
+            label: result.title, volume: 0.5, startOffset: 0, endOffset: durationSeconds),
+        ), TrackType.music);
       });
-
-      _syncAudioToVideo();
-      _saveHistory();
-      final musicTrack = TimelineModelUtils.ensureTrackForType(
-        _project.tracks,
-        TrackType.music,
-      );
-      musicTrack.clips.removeWhere(
-        (clip) => clip.id == 'desktop-selected-music',
-      );
-      TimelineModelUtils.insertClip(
-        _project.tracks,
-        TimelineClip(
-          id: 'desktop-selected-music',
-          start: Duration.zero,
-          duration: Duration(milliseconds: (_audioEnd * 1000).round()),
-          volume: _bgmVolume,
-          operation: AudioClipOperation(
-            sourceType: 'music',
-            sourceUrl: result.audioUrl,
-            label: result.title,
-            volume: _bgmVolume,
-          ),
-        ),
-        TrackType.music,
-      );
+      setState(() => _selectedTrack = result);
 
       _musicPlayer.setReleaseMode(ReleaseMode.loop);
       await _musicPlayer.play(UrlSource(result.audioUrl));
