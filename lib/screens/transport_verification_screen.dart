@@ -117,6 +117,7 @@ class _TransportVerificationScreenState extends State<TransportVerificationScree
     if (res['verified'] == true) {
       await widget.state.checkDriverStatus();
       await widget.state.fetchAvailableDrivers();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Verification Successful! Plate: ${res['number_plate']}'),
