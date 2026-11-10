@@ -4069,7 +4069,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                             File? extractedAudio;
                             try {
                               extractedAudio = await VideoEnhancementService()
-                                  .extractAudioForTranscription(clip.file);
+                                  .extractAudioForTranscription(clip.file, start: clip.start, end: clip.end);
                               if (extractedAudio == null) {
                                 _feedback('Could not extract audio from this clip.');
                                 return;
@@ -4111,11 +4111,12 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                                 final sourceStart = (item['start'] as num?)?.toDouble();
                                 final sourceEnd = (item['end'] as num?)?.toDouble();
                                 if (word.isEmpty || sourceStart == null || sourceEnd == null || sourceEnd <= sourceStart) continue;
-                                // ASR timestamps refer to the complete source file. Convert
-                                // them into the selected trim's local playback clock.
-                                final wordStart = ((sourceStart - clip.start) / clip.speed)
+                                // The audio extractor returns only the selected
+                                // source trim, so ASR timestamps start at zero.
+                                // Convert source-time offsets to the clip playback clock.
+                                final wordStart = (sourceStart / clip.speed)
                                     .clamp(0.0, clipDuration).toDouble();
-                                final wordEnd = ((sourceEnd - clip.start) / clip.speed)
+                                final wordEnd = (sourceEnd / clip.speed)
                                     .clamp(0.0, clipDuration).toDouble();
                                 if (wordEnd <= wordStart) continue;
                                 if (lineText.isNotEmpty &&
