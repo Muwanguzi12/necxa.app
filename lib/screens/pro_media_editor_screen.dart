@@ -3911,7 +3911,7 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                     style: TextStyle(
                       fontSize: o.fontSize,
                       fontFamily: o.fontFamily,
-                      color: o.color.withOpacity(o.opacity * animationOpacity),
+                      color: o.color.withOpacity(o.opacity),
                       fontWeight: FontWeight.bold,
                       shadows: o.shadow
                           ? [Shadow(blurRadius: 8, color: Colors.black54)]
