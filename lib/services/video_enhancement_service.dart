@@ -689,6 +689,38 @@ class VideoEnhancementService {
   }
 
   /// PROXY ENGINE: Generate a lightweight 540p proxy for smooth editing
+
+  /// Creates a cached, full-resolution reverse proxy for responsive editor preview.
+  /// The original source remains untouched; export independently applies reverse
+  /// from the non-destructive timeline flag.
+  Future<File?> createReversedPreview({
+    required File inputVideo,
+    required bool hasAudio,
+  }) async {
+    if (!inputVideo.existsSync() || inputVideo.lengthSync() == 0) return null;
+    final outputPath = await _getOutputPath();
+    final audioArgs = hasAudio
+        ? '-af areverse -c:a aac -b:a 96k'
+        : '-an';
+    final command =
+        "-i '${_escapePath(inputVideo.path)}' -vf reverse $audioArgs "
+        "-c:v libx264 -preset ultrafast -crf 28 -movflags +faststart "
+        "-y '${_escapePath(outputPath)}'";
+    try {
+      final session = await FFmpegKit.execute(command);
+      final code = await session.getReturnCode();
+      final output = File(outputPath);
+      if (ReturnCode.isSuccess(code) && output.existsSync() &&
+          output.lengthSync() > 0) {
+        return output;
+      }
+      debugPrint('Reverse preview failed: ${await session.getAllLogsAsString()}');
+    } catch (error, stack) {
+      debugPrint('Reverse preview exception: $error\n$stack');
+    }
+    return null;
+  }
+
   Future<File> generateProxy(File inputVideo) async {
     final tempDir = await getTemporaryDirectory();
     final outputPath =
