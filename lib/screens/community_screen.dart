@@ -2097,7 +2097,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         (widget.post['dash_url']?.toString().isNotEmpty ?? false)
         ? widget.post['dash_url']
         : null;
-    final String? videoUrl = hlsUrl ?? dashUrl ?? mediaUrl;
+    // media_url is the authoritative published master (the validated MP4).
+    // Prefer it over adaptive derivatives that may be stale or audio-incomplete.
+    final String? videoUrl = mediaUrl ?? hlsUrl ?? dashUrl;
     final username = _profile?['display_name'] ?? 'Necxa User';
     final description = widget.post['content'] ?? widget.post['title'] ?? '';
 
