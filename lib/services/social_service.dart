@@ -733,7 +733,18 @@ class SocialService {
       );
 
       if (res.data?['success'] == true) {
-        return List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        final results = List<Map<String, dynamic>>.from(res.data['data'] ?? []);
+        return results.where((listing) {
+          final flag = listing['is_property_listing'];
+          final isProperty = flag == true || flag == 1 || flag == '1' ||
+              (flag is String && flag.toLowerCase() == 'true');
+          final category = (listing['category'] ?? '').toString().trim().toUpperCase();
+          const propertyCategories = {
+            'APARTMENT', 'HOUSE', 'VILLA', 'COMMERCIAL', 'LAND',
+            'RESIDENTIAL', 'REAL_ESTATE', 'PROPERTY',
+          };
+          return !isProperty && !propertyCategories.contains(category);
+        }).toList();
       }
       return [];
     } catch (e) {
