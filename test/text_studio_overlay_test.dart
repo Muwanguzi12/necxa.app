@@ -2,6 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:necxa_flutter/models/edit_models.dart';
 
 void main() {
+  test('legacy text overlays default to static text without a timer', () {
+    final restored = OverlayOperation.fromLegacy({
+      'type': 'text',
+      'text': 'Legacy caption',
+    });
+
+    expect(restored.timerMode, 'none');
+    expect(restored.timerDuration, 0);
+  });
+
   test('overlay preserves karaoke word timing and imported font metadata', () {
     final overlay = OverlayOperation(
       kind: 'text',
