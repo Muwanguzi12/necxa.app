@@ -230,7 +230,8 @@ class EditorExportService {
     for (final voiceTrack in tracks.where(
       (item) => item.isVisible && item.type == TrackType.voiceOver,
     )) {
-      for (final voiceClip in voiceTrack.clips.where((item) => !item.isHidden)) {
+      for (final voiceClip in
+          voiceTrack.clips.where((item) => !item.isHidden)) {
         final operation = voiceClip.operation;
         if (operation is! AudioClipOperation) continue;
         final volume = voiceClip.volume == 1.0
@@ -444,9 +445,10 @@ class EditorExportService {
         contrast: base.contrast,
         saturation: base.saturation,
         hue: base.hue,
-        vignette: (meta.displayName.toLowerCase() == 'cinema' || isNoirOrGrayscale)
-            ? (0.25 * t)
-            : base.vignette,
+        vignette:
+            (meta.displayName.toLowerCase() == 'cinema' || isNoirOrGrayscale)
+                ? (0.25 * t)
+                : base.vignette,
         blur: base.blur,
         grain: base.grain,
         necxaFilter: meta,
