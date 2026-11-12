@@ -198,29 +198,32 @@ class EditorExportService {
     final clips = <ClipData>[];
     for (final clip in visualClips) {
       final path = clip.file!.path.toLowerCase();
-      final isVideo = path.endsWith('.mp4') ||
+      final isVideo =
+          path.endsWith('.mp4') ||
           path.endsWith('.mov') ||
           path.endsWith('.m4v') ||
           path.endsWith('.mkv') ||
           path.endsWith('.webm');
-      clips.add(ClipData(
-        path: clip.file!.path,
-        start: clip.sourceStart.inMilliseconds / 1000,
-        end:
-            (clip.sourceEnd ?? clip.sourceStart + clip.sourceDuration)
-                .inMilliseconds /
-            1000,
-        speed: clip.speed,
-        volume: clip.volume,
-        isVideo: isVideo,
-        hasAudio: isVideo && await _fileHasAudioStream(clip.file!),
-        reverse: clip.isReversed,
-        scale: clip.transform.scale,
-        rotation: clip.transform.rotation,
-        offsetX: clip.transform.position.dx,
-        offsetY: clip.transform.position.dy,
-        opacity: clip.transform.opacity,
-      ));
+      clips.add(
+        ClipData(
+          path: clip.file!.path,
+          start: clip.sourceStart.inMilliseconds / 1000,
+          end:
+              (clip.sourceEnd ?? clip.sourceStart + clip.sourceDuration)
+                  .inMilliseconds /
+              1000,
+          speed: clip.speed,
+          volume: clip.volume,
+          isVideo: isVideo,
+          hasAudio: isVideo && await _fileHasAudioStream(clip.file!),
+          reverse: clip.isReversed,
+          scale: clip.transform.scale,
+          rotation: clip.transform.rotation,
+          offsetX: clip.transform.position.dx,
+          offsetY: clip.transform.position.dy,
+          opacity: clip.transform.opacity,
+        ),
+      );
     }
 
     final overlays = <RenderOverlay>[];
@@ -230,8 +233,9 @@ class EditorExportService {
     for (final voiceTrack in tracks.where(
       (item) => item.isVisible && item.type == TrackType.voiceOver,
     )) {
-      for (final voiceClip in
-          voiceTrack.clips.where((item) => !item.isHidden)) {
+      for (final voiceClip in voiceTrack.clips.where(
+        (item) => !item.isHidden,
+      )) {
         final operation = voiceClip.operation;
         if (operation is! AudioClipOperation) continue;
         final volume = voiceClip.volume == 1.0
@@ -383,7 +387,8 @@ class EditorExportService {
           if (source != null && source.isNotEmpty && volume > 0) return true;
         }
         final visualPath = clip.file?.path.toLowerCase() ?? '';
-        final isVideo = visualPath.endsWith('.mp4') ||
+        final isVideo =
+            visualPath.endsWith('.mp4') ||
             visualPath.endsWith('.mov') ||
             visualPath.endsWith('.m4v') ||
             visualPath.endsWith('.mkv') ||
@@ -440,7 +445,8 @@ class EditorExportService {
     final t = intensity.clamp(0.0, 1.0);
     final meta = FilterCatalogueService.findByName(name);
     if (meta != null && !meta.isNone) {
-      final isNoirOrGrayscale = meta.colorMatrixPreset == 'grayscale' ||
+      final isNoirOrGrayscale =
+          meta.colorMatrixPreset == 'grayscale' ||
           meta.displayName.toLowerCase() == 'noir';
       return RenderEffects(
         brightness: base.brightness,
@@ -449,14 +455,13 @@ class EditorExportService {
         hue: base.hue,
         vignette:
             (meta.displayName.toLowerCase() == 'cinema' || isNoirOrGrayscale)
-                ? (0.25 * t)
-                : base.vignette,
+            ? (0.25 * t)
+            : base.vignette,
         blur: base.blur,
         grain: base.grain,
         necxaFilter: meta,
         necxaFilterIntensity: t,
       );
-
     }
 
     switch (name.toLowerCase()) {
@@ -506,5 +511,3 @@ class EditorExportService {
     }
   }
 }
-
-
