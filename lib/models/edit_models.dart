@@ -1265,6 +1265,8 @@ class TimelineModelUtils {
     double? scale,
     double? rotation,
     String? id,
+    String timerMode = 'none',
+    double timerDuration = 0,
   }) {
     final clip = TimelineClip(
       id: id ?? 'text-${DateTime.now().millisecondsSinceEpoch}',
