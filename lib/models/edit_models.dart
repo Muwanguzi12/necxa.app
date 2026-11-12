@@ -186,10 +186,11 @@ class OverlayOperation extends EditOperation {
       animationOut: values['animationOut'] as String? ?? 'none',
       themeId: values['themeId'] as String? ?? 'cinematic',
       depthLayer: values['depthLayer'] as String? ?? 'foreground',
-      wordTimings: (values['wordTimings'] as List<dynamic>? ?? const <dynamic>[])
-          .whereType<Map>()
-          .map((word) => Map<String, dynamic>.from(word))
-          .toList(),
+      wordTimings:
+          (values['wordTimings'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<Map>()
+              .map((word) => Map<String, dynamic>.from(word))
+              .toList(),
       fontFilePath: values['fontFilePath'] as String?,
       timerMode: values['timerMode'] as String? ?? 'none',
       timerDuration: (values['timerDuration'] as num?)?.toDouble() ?? 0,
@@ -218,7 +219,9 @@ class OverlayOperation extends EditOperation {
     animationOut: animationOut,
     themeId: themeId,
     depthLayer: depthLayer,
-    wordTimings: wordTimings.map((word) => Map<String, dynamic>.from(word)).toList(),
+    wordTimings: wordTimings
+        .map((word) => Map<String, dynamic>.from(word))
+        .toList(),
     fontFilePath: fontFilePath,
     timerMode: timerMode,
     timerDuration: timerDuration,
