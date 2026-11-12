@@ -38,6 +38,8 @@ class TextOverlay extends EditOperation {
   double scale;
   double rotation;
   TextStyle style;
+  String timerMode;
+  double timerDuration;
 
   TextOverlay({
     this.text = 'Enter Text',
