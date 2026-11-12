@@ -450,7 +450,9 @@ class CommerceService {
   }
 
   /// Retrieves recent stock adjustments and history for the vendor's products.
-  Future<List<Map<String, dynamic>>> fetchStockHistory({String? listingId}) async {
+  Future<List<Map<String, dynamic>>> fetchStockHistory({
+    String? listingId,
+  }) async {
     final response = await _backend.invoke(
       'stock_history',
       body: {if (listingId != null) 'listingId': listingId},

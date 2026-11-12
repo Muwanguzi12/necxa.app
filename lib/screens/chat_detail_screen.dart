@@ -44,14 +44,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       widget.state.markRoomAsRead(conv.id);
       if (conv.isSupport) {
         // Poll for Goobox support replies while screen is active
-        _supportPollTimer = Timer.periodic(
-          const Duration(seconds: 4),
-          (_) {
-            if (mounted && widget.state.activeConversation?.id == conv.id) {
-              widget.state.syncSupportMessages(conv.id);
-            }
-          },
-        );
+        _supportPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+          if (mounted && widget.state.activeConversation?.id == conv.id) {
+            widget.state.syncSupportMessages(conv.id);
+          }
+        });
       }
     }
 
@@ -584,9 +581,7 @@ class _MsgBubble extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 gradient: bubbleGrad,
-                color: (isMe && !isSystem)
-                    ? null
-                    : C.text.withOpacity(.05),
+                color: (isMe && !isSystem) ? null : C.text.withOpacity(.05),
                 border: (isMe && !isSystem)
                     ? null
                     : Border.all(color: C.text.withOpacity(.1)),
@@ -1117,5 +1112,3 @@ class _MsgInput extends StatelessWidget {
     );
   }
 }
-
-

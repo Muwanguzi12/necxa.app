@@ -15,6 +15,7 @@ class CreatorChatListScreen extends StatefulWidget {
   @override
   State<CreatorChatListScreen> createState() => _CreatorChatListScreenState();
 }
+
 class _CreatorChatListScreenState extends State<CreatorChatListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -121,11 +122,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.forum_outlined,
-                  size: 60,
-                  color: C.dim,
-                ),
+                Icon(Icons.forum_outlined, size: 60, color: C.dim),
                 const SizedBox(height: 16),
                 Text(
                   'NO CREATOR INTERACTIONS YET',
