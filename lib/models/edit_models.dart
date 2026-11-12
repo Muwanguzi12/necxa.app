@@ -64,6 +64,8 @@ class TextOverlay extends EditOperation {
     'rotation': rotation,
     'font': style.fontFamily,
     'fontSize': style.fontSize,
+    'timerMode': timerMode,
+    'timerDuration': timerDuration,
     // ignore: deprecated_member_use
     'color': '#${style.color?.value.toRadixString(16)}',
   };
