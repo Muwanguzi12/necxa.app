@@ -294,6 +294,8 @@ class EditorExportService {
               rotation: operation.rotation,
               fontSize: operation.style.fontSize ?? 28,
               color: operation.style.color ?? C.text,
+              timerMode: operation.timerMode,
+              timerDuration: operation.timerDuration,
             ),
           );
         } else if (operation is TransitionOperation) {
