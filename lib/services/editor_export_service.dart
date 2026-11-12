@@ -276,6 +276,8 @@ class EditorExportService {
               themeId: operation.themeId,
               wordTimings: operation.wordTimings,
               fontFilePath: operation.fontFilePath,
+              timerMode: operation.timerMode,
+              timerDuration: operation.timerDuration,
             ),
           );
         } else if (operation is TextOverlay) {
