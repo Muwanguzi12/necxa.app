@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, feature/integrate-necxa-studio-ffmpeg ]
   pull_request:
-    branches: [ main, feature/unified-realtime-effects-engine ]
+    branches: [ main, feature/unified-realtime-effects-engine, feature/integrate-necxa-studio-ffmpeg ]
   workflow_dispatch:
 
 concurrency:
