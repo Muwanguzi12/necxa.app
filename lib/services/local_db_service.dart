@@ -22,17 +22,30 @@ class LocalDbService {
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
   static const Set<String> _propertyCategories = {
-    'APARTMENT', 'HOUSE', 'VILLA', 'COMMERCIAL', 'LAND',
-    'RESIDENTIAL', 'REAL_ESTATE', 'PROPERTY',
+    'APARTMENT',
+    'HOUSE',
+    'VILLA',
+    'COMMERCIAL',
+    'LAND',
+    'RESIDENTIAL',
+    'REAL_ESTATE',
+    'PROPERTY',
   };
 
   static bool _isPropertyListing(Map<String, dynamic> listing) {
     final flag = listing['is_property_listing'];
-    final isProperty = flag == true || flag == 1 || flag == '1' ||
+    final isProperty =
+        flag == true ||
+        flag == 1 ||
+        flag == '1' ||
         (flag is String && flag.toLowerCase() == 'true');
-    final category = (listing['category'] ?? '').toString().trim().toUpperCase();
+    final category = (listing['category'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase();
     return isProperty || _propertyCategories.contains(category);
   }
+
   static const int _dbVersion = 20;
 
   static String? _extractUrl(dynamic value) {
@@ -215,7 +228,8 @@ class LocalDbService {
           // Purge legacy property rows accidentally stored in the shop cache.
           await db.delete(
             'shop_listings',
-            where: "UPPER(COALESCE(category, '')) IN ('APARTMENT','HOUSE','VILLA','COMMERCIAL','LAND','RESIDENTIAL','REAL_ESTATE','PROPERTY')",
+            where:
+                "UPPER(COALESCE(category, '')) IN ('APARTMENT','HOUSE','VILLA','COMMERCIAL','LAND','RESIDENTIAL','REAL_ESTATE','PROPERTY')",
           );
           try {
             await db.execute(
@@ -910,7 +924,8 @@ class LocalDbService {
     final db = await database;
     final rows = await db.query(
       'shop_listings',
-      where: "COALESCE(is_property_listing, 0) = 0 AND UPPER(COALESCE(category, '')) NOT IN ('APARTMENT','HOUSE','VILLA','COMMERCIAL','LAND','RESIDENTIAL','REAL_ESTATE','PROPERTY')${category != null ? ' AND category = ?' : ''}",
+      where:
+          "COALESCE(is_property_listing, 0) = 0 AND UPPER(COALESCE(category, '')) NOT IN ('APARTMENT','HOUSE','VILLA','COMMERCIAL','LAND','RESIDENTIAL','REAL_ESTATE','PROPERTY')${category != null ? ' AND category = ?' : ''}",
       whereArgs: category != null ? [category] : null,
       orderBy: 'created_at DESC',
       limit: limit,
@@ -1726,7 +1741,8 @@ class LocalDbService {
           'channel_id': channelId,
           'user_id': comment['userId']?.toString(),
           'user_name':
-              (comment['userName'] ?? comment['user'])?.toString() ?? 'Necxa User',
+              (comment['userName'] ?? comment['user'])?.toString() ??
+              'Necxa User',
           'user_avatar':
               (comment['avatar'] ?? comment['userAvatar'])?.toString() ?? '',
           'text': comment['text']?.toString() ?? '',
