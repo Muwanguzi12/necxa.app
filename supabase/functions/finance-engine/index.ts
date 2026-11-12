@@ -2229,10 +2229,17 @@ serve(async (req) => {
 
     if (action === "update_commerce_inventory") {
       const listingId = String(body.listingId ?? "");
-      const stockCount = Number(body.stockCount);
+      const hasStockCount = body.stockCount != null;
+      const stockCount = hasStockCount ? Number(body.stockCount) : null;
       const status = body.status == null ? null : String(body.status);
-      if (!listingId || !Number.isInteger(stockCount) || stockCount < 0) {
-        return json({ success: false, message: "A valid listingId and stockCount are required." }, 400);
+      const title = body.title == null ? null : String(body.title).trim();
+      const priceUgx = body.priceUgx == null ? null : Number(body.priceUgx);
+
+      if (!listingId ||
+          (hasStockCount && (!Number.isInteger(stockCount) || Number(stockCount) < 0)) ||
+          (title !== null && !title) ||
+          (priceUgx !== null && (!Number.isInteger(priceUgx) || priceUgx < 0))) {
+        return json({ success: false, message: "Provide a valid listingId and valid product fields." }, 400);
       }
       if (status !== null && !["active", "paused", "sold", "draft"].includes(status)) {
         return json({ success: false, message: "Invalid listing status." }, 400);
@@ -2247,9 +2254,19 @@ serve(async (req) => {
         return json({ success: false, message: "Only the listing owner can change inventory." }, 403);
       }
 
-      const updates: Record<string, unknown> = { stock_count: stockCount, updated_at: new Date().toISOString() };
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (hasStockCount) updates.stock_count = stockCount;
       if (status !== null) updates.status = status;
-      const { error: sourceUpdateError } = await userSupabase.from("listings").update(updates).eq("id", listingId);
+      if (title !== null) updates.title = title;
+      if (priceUgx !== null) updates.price = priceUgx;
+      if (Object.keys(updates).length === 1) {
+        return json({ success: false, message: "No product changes were supplied." }, 400);
+      }
+
+      const { error: sourceUpdateError } = await userSupabase
+        .from("listings")
+        .update(updates)
+        .eq("id", listingId);
       if (sourceUpdateError) throw new Error(sourceUpdateError.message);
       const syncedListing = await syncCommerceListing(listingId, true);
       return json({ success: true, listing: syncedListing });
@@ -2319,6 +2336,10 @@ serve(async (req) => {
       if (updates.length === 0) {
         return json({ success: false, message: "No updates provided." }, 400);
       }
+      if (updates.length > 100) {
+        return json({ success: false, message: "A maximum of 100 products can be updated at once." }, 400);
+      }
+
       const results: { listingId: string; success: boolean; error?: string }[] = [];
       for (const upd of updates) {
         const listingId = String(upd.listingId ?? "");
@@ -2327,7 +2348,8 @@ serve(async (req) => {
           results.push({ listingId, success: false, error: "Invalid listingId or stock count." });
           continue;
         }
-        const { error: updError } = await userSupabase
+
+        const { data: updatedListing, error: updError } = await userSupabase
           .from("listings")
           .update({
             stock_count: stockCount,
@@ -2335,10 +2357,34 @@ serve(async (req) => {
             status: stockCount === 0 ? "paused" : "active",
           })
           .eq("id", listingId)
-          .or(`user_id.eq.${user.id},lister_id.eq.${user.id}`);
-        results.push({ listingId, success: !updError, error: updError?.message });
+          .or(`user_id.eq.${user.id},lister_id.eq.${user.id}`)
+          .select("id")
+          .maybeSingle();
+
+        if (updError || !updatedListing) {
+          results.push({
+            listingId,
+            success: false,
+            error: updError?.message ?? "Listing not found or not owned by this vendor.",
+          });
+          continue;
+        }
+
+        try {
+          await syncCommerceListing(listingId, true);
+          results.push({ listingId, success: true });
+        } catch (syncError) {
+          results.push({
+            listingId,
+            success: false,
+            error: syncError instanceof Error ? syncError.message : String(syncError),
+          });
+        }
       }
-      return json({ success: true, results });
+      return json({
+        success: results.every((result) => result.success),
+        results,
+      });
     }
 
     if (action === "stock_history") {
