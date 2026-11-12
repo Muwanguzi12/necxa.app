@@ -1277,6 +1277,8 @@ class TimelineModelUtils {
         position: position ?? const Offset(0.5, 0.5),
         scale: scale ?? 1.0,
         rotation: rotation ?? 0.0,
+        timerMode: timerMode,
+        timerDuration: timerDuration,
         style:
             style ??
             const TextStyle(
