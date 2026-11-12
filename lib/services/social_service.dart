@@ -596,9 +596,7 @@ class SocialService {
         query = query.eq('category', category.toUpperCase());
       }
       final rows = List<Map<String, dynamic>>.from(
-        await query
-            .order('created_at', ascending: false)
-            .limit(limit),
+        await query.order('created_at', ascending: false).limit(limit),
       );
       if (category == null) {
         _shopCache = rows;
@@ -1504,7 +1502,7 @@ class SocialService {
         normalized['is_verified'] =
             res['trust_score_tier'] == 'titan_trust' ||
             res['trust_score_tier'] == 'verified';
-        
+
         _profileCache[userId] = normalized;
         return normalized;
       }
@@ -1689,15 +1687,23 @@ class SocialService {
     final userId = client.auth.currentUser?.id;
 
     // 1. Optimistic removal from in-memory feed and shop caches
-    _feedCache.removeWhere((p) => (p['id'] ?? p['post_id'])?.toString() == targetId);
-    _shopCache.removeWhere((l) => (l['id'] ?? l['listing_id'])?.toString() == targetId);
+    _feedCache.removeWhere(
+      (p) => (p['id'] ?? p['post_id'])?.toString() == targetId,
+    );
+    _shopCache.removeWhere(
+      (l) => (l['id'] ?? l['listing_id'])?.toString() == targetId,
+    );
     state.notify();
 
     // 2. Purge immediately from SQLite local database so it never reappears on reload
     try {
       final localDb = LocalDbService();
       final db = await localDb.database;
-      await db.delete('community_posts', where: 'id = ?', whereArgs: [targetId]);
+      await db.delete(
+        'community_posts',
+        where: 'id = ?',
+        whereArgs: [targetId],
+      );
       await db.delete('shop_listings', where: 'id = ?', whereArgs: [targetId]);
     } catch (e) {
       debugPrint('[SocialService] LocalDb hideContent error: $e');
@@ -1709,10 +1715,7 @@ class SocialService {
         'clever-processor',
         body: {
           'action': 'not-interested',
-          'payload': {
-            'target_id': targetId,
-            'content_type': type,
-          },
+          'payload': {'target_id': targetId, 'content_type': type},
         },
       );
     } catch (_) {

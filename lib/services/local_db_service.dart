@@ -1690,7 +1690,8 @@ class LocalDbService {
           'channel_id': channelId,
           'user_id': comment['userId']?.toString(),
           'user_name':
-              (comment['userName'] ?? comment['user'])?.toString() ?? 'Necxa User',
+              (comment['userName'] ?? comment['user'])?.toString() ??
+              'Necxa User',
           'user_avatar':
               (comment['avatar'] ?? comment['userAvatar'])?.toString() ?? '',
           'text': comment['text']?.toString() ?? '',
