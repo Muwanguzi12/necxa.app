@@ -8,6 +8,8 @@ void main() {
       text: 'Necxa makes editing easier',
       fontFamily: 'NecxaFont_12345',
       fontFilePath: '/app/support/necxa_fonts/sample.ttf',
+      timerMode: 'countdown',
+      timerDuration: 42,
       wordTimings: const [
         {'text': 'Necxa', 'start': 0.0, 'end': 0.4},
         {'text': 'makes', 'start': 0.4, 'end': 0.7},
@@ -22,9 +24,13 @@ void main() {
     expect(restored.wordTimings, hasLength(4));
     expect(restored.wordTimings[2]['text'], 'editing');
     expect(restored.wordTimings[2]['start'], 0.7);
+    expect(restored.timerMode, 'countdown');
+    expect(restored.timerDuration, 42);
 
     final copied = overlay.copy();
     expect(copied.fontFilePath, overlay.fontFilePath);
     expect(copied.wordTimings, overlay.wordTimings);
+    expect(copied.timerMode, 'countdown');
+    expect(copied.timerDuration, 42);
   });
 }
