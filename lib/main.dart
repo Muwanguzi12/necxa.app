@@ -44,13 +44,6 @@ void main() async {
     databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
 
-  if (!kIsWeb) {
-    try {
-      cameras = await availableCameras();
-    } catch (e) {
-      debugPrint('Camera error: $e');
-    }
-  }
   await Supabase.initialize(
     url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
     anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
@@ -83,12 +76,6 @@ void main() async {
   };
   // --------------------------------------------------------------------------
 
-  if (!kIsWeb) {
-    final notifService = NotificationService();
-    await notifService.init();
-    await notifService.requestPermissions();
-  }
-
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -96,6 +83,31 @@ void main() async {
     ),
   );
   runApp(const NecxaApp());
+
+  // Optional device services must not block Flutter's first frame. Start them
+  // only after the app is visible so Android can display runtime permission UI.
+  if (!kIsWeb) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      () async {
+        try {
+          cameras = await availableCameras();
+          debugPrint('Available cameras: ${cameras.length}');
+        } catch (e, stack) {
+          debugPrint('Camera initialization failed: $e\n$stack');
+        }
+      }();
+
+      () async {
+        try {
+          final notifService = NotificationService();
+          await notifService.init();
+          await notifService.requestPermissions();
+        } catch (e, stack) {
+          debugPrint('Notification initialization failed: $e\n$stack');
+        }
+      }();
+    });
+  }
 }
 
 class AppScrollBehavior extends MaterialScrollBehavior {
