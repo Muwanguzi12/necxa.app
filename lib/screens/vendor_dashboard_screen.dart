@@ -1053,8 +1053,8 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         const SizedBox(width: 8),
                         Text(
                           status == 'active'
-                              ? 'Mark Out of Stock'
-                              : 'Mark In Stock',
+                              ? 'Pause Listing'
+                              : 'Activate Listing',
                           style: dm(sz: 13, c: Colors.white),
                         ),
                       ],
@@ -1726,16 +1726,21 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         : () async {
                             setModalState(() => saving = true);
                             try {
-                              await _commerce.bulkUpdateInventory(stockValues);
+                              final results = await _commerce
+                                  .bulkUpdateInventory(stockValues);
+                              final failed = results
+                                  .where((result) => result['success'] != true)
+                                  .toList();
+                              final succeeded = results.length - failed.length;
                               if (mounted) {
                                 Navigator.of(modalCtx).pop();
                                 await _refreshDashboard();
+                                final message = failed.isEmpty
+                                    ? 'Updated stock for $succeeded products.'
+                                    : '$succeeded updated; ${failed.length} failed. '
+                                          'Refresh and retry the failed products.';
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Inventory quantities successfully updated!',
-                                    ),
-                                  ),
+                                  SnackBar(content: Text(message)),
                                 );
                               }
                             } catch (e) {
@@ -1999,8 +2004,22 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                                 int.tryParse(stockCtrl.text.trim()) ?? 0;
                             setModalState(() => saving = true);
                             try {
+                              final newTitle = titleCtrl.text.trim();
+                              final newPrice = int.tryParse(
+                                priceCtrl.text.trim(),
+                              );
+                              if (newTitle.isEmpty ||
+                                  newPrice == null ||
+                                  newPrice < 0 ||
+                                  newStock < 0) {
+                                throw const FormatException(
+                                  'Enter a product title and valid non-negative price and stock.',
+                                );
+                              }
                               await _commerce.updateInventory(
                                 listingId: id,
+                                title: newTitle,
+                                priceUgx: newPrice,
                                 stockCount: newStock,
                               );
                               if (mounted) {
@@ -2801,8 +2820,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     try {
       await _commerce.updateInventory(
         listingId: listingId,
-        stockCount: 0, // stock unchanged — backend will keep existing
-        status: currentlyActive ? 'inactive' : 'active',
+        status: currentlyActive ? 'paused' : 'active',
       );
       await _refreshDashboard();
     } catch (error) {
