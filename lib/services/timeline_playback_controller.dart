@@ -294,6 +294,8 @@ class TimelineHistoryController {
         scale: operation.scale,
         rotation: operation.rotation,
         style: operation.style,
+        timerMode: operation.timerMode,
+        timerDuration: operation.timerDuration,
       );
     }
     if (operation is FilterOperation) {
