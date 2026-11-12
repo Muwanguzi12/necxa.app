@@ -69,6 +69,8 @@ class RenderOverlay {
   final String themeId;
   final List<Map<String, dynamic>> wordTimings;
   final String? fontFilePath;
+  final String timerMode;
+  final double timerDuration;
 
   RenderOverlay({
     required this.type,
@@ -95,6 +97,8 @@ class RenderOverlay {
     this.themeId = 'cinematic',
     this.wordTimings = const <Map<String, dynamic>>[],
     this.fontFilePath,
+    this.timerMode = 'none',
+    this.timerDuration = 0,
   });
 }
 
@@ -475,7 +479,7 @@ class VideoEnhancementService {
     for (int i = 0; i < overlays.length; i++) {
       final path = overlays[i].imagePath;
       if (path != null && path.isNotEmpty) {
-        inputs += "-i '${_escapePath(path)}' ";
+        inputs += "-stream_loop -1 -t ${_timelineDuration(clips).toStringAsFixed(3)} -i '${_escapePath(path)}' ";
         imageOverlayIndexes[i] = nextIndex;
         nextIndex++;
       }
@@ -657,12 +661,42 @@ class VideoEnhancementService {
         final rotate = overlay.rotation.abs() > 0.001
             ? ",rotate=${overlay.rotation}:c=none:ow=rotw(iw):oh=roth(ih)"
             : "";
+        const stickerAnimationSeconds = 0.35;
+        final baseX = "(W-w)*${overlay.x.clamp(0.0, 1.0)}";
+        final baseY = "(H-h)*${overlay.y.clamp(0.0, 1.0)}";
+        var stickerX = baseX;
+        var stickerY = baseY;
+        if (overlay.animationIn == 'slide_left') {
+          stickerX = "if(lt(t,$startTime+$stickerAnimationSeconds),$baseX+(1-(t-$startTime)/$stickerAnimationSeconds)*48,$baseX)";
+        } else if (overlay.animationIn == 'slide_up') {
+          stickerY = "if(lt(t,$startTime+$stickerAnimationSeconds),$baseY+(1-(t-$startTime)/$stickerAnimationSeconds)*36,$baseY)";
+        }
+        if (overlay.animationOut == 'slide_left') {
+          stickerX = "if(gt(t,$endTime-$stickerAnimationSeconds),$baseX-(1-($endTime-t)/$stickerAnimationSeconds)*48,$stickerX)";
+        } else if (overlay.animationOut == 'slide_up') {
+          stickerY = "if(gt(t,$endTime-$stickerAnimationSeconds),$baseY-(1-($endTime-t)/$stickerAnimationSeconds)*36,$stickerY)";
+        }
+        final stickerFades = <String>[];
+        if (overlay.animationIn == 'fade') {
+          stickerFades.add("fade=t=in:st=$startTime:d=$stickerAnimationSeconds:alpha=1");
+        }
+        if (overlay.animationOut == 'fade') {
+          stickerFades.add("fade=t=out:st=${(double.parse(endTime) - stickerAnimationSeconds).clamp(0.0, double.infinity)}:d=$stickerAnimationSeconds:alpha=1");
+        }
+        final stickerAlpha = "colorchannelmixer=aa=${overlay.opacity.clamp(0.0, 1.0)}";
         filterComplex +=
-            "[${imageOverlayIndexes[i]}:v]format=rgba,scale=$width:-1$rotate,colorchannelmixer=aa=${overlay.opacity.clamp(0.0, 1.0)}[$imageLabel];";
+            "[${imageOverlayIndexes[i]}:v]format=rgba,scale=$width:-1$rotate,$stickerAlpha${stickerFades.isEmpty ? '' : ',${stickerFades.join(',')}'}[$imageLabel];";
         filterComplex +=
-            "[$currentVideo][$imageLabel]overlay=x='(W-w)*${overlay.x.clamp(0.0, 1.0)}':y='(H-h)*${overlay.y.clamp(0.0, 1.0)}':enable='between(t,$startTime,$endTime)'[$nextLabel];";
+            "[$currentVideo][$imageLabel]overlay=x='$stickerX':y='$stickerY':eval=frame:enable='between(t,$startTime,$endTime)'[$nextLabel];";
       } else if ((overlay.text ?? '').trim().isNotEmpty) {
-        final text = _escapeDrawText(overlay.text!.trim());
+        final timerElapsed = "max(0\\,t-$startTime)";
+        final timerText = switch (overlay.timerMode) {
+          'count_up' => "%{eif\\:trunc($timerElapsed)\\:d}",
+          'countdown' =>
+            "%{eif\\:trunc(max(0\\,${overlay.timerDuration.toStringAsFixed(3)}-($timerElapsed)))\\:d}",
+          _ => null,
+        };
+        final text = timerText ?? _escapeDrawText(overlay.text!.trim());
         final baseFontSize = (overlay.fontSize * overlay.scale)
             .clamp(10.0, 96.0)
             .toStringAsFixed(0);
@@ -708,7 +742,7 @@ class VideoEnhancementService {
         };
         final fontPath = overlay.fontFilePath;
         final fontOption = fontPath != null && fontPath.isNotEmpty && File(fontPath).existsSync()
-            ? "fontfile='$fontPath'"
+            ? "fontfile='${_escapeDrawText(fontPath)}'"
             : "font='$font'";
         final normalizedX = overlay.x.clamp(0.0, 1.0);
         final baseX = overlay.align == 'left'
