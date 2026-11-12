@@ -44,13 +44,8 @@ void main() async {
     databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
 
-  if (!kIsWeb) {
-    try {
-      cameras = await availableCameras();
-    } catch (e) {
-      debugPrint('Camera error: $e');
-    }
-  }
+  // Camera enumeration is non-critical for first paint. Run it after
+  // the app is mounted so a camera plugin delay cannot hold the native splash.
   await Supabase.initialize(
     url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
     anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
@@ -83,19 +78,37 @@ void main() async {
   };
   // --------------------------------------------------------------------------
 
-  if (!kIsWeb) {
-    final notifService = NotificationService();
-    await notifService.init();
-    await notifService.requestPermissions();
-  }
-
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
     ),
   );
+  // Mount Flutter immediately after essential configuration. Optional
+  // native services must never keep Android on the launch screen.
   runApp(const NecxaApp());
+
+  if (!kIsWeb) {
+    () async {
+      try {
+        cameras = await availableCameras();
+        debugPrint('Camera discovery completed: ${cameras.length} camera(s).');
+      } catch (e, stack) {
+        debugPrint('Camera discovery failed: $e\\n$stack');
+      }
+    }();
+
+    () async {
+      try {
+        final notifService = NotificationService();
+        await notifService.init();
+        await notifService.requestPermissions();
+        debugPrint('Notification service initialized.');
+      } catch (e, stack) {
+        debugPrint('Notification initialization failed: $e\\n$stack');
+      }
+    }();
+  }
 }
 
 class AppScrollBehavior extends MaterialScrollBehavior {
