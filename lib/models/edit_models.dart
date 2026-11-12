@@ -51,6 +51,8 @@ class TextOverlay extends EditOperation {
       color: Color(0xFFF0F4FF),
       fontWeight: FontWeight.bold,
     ),
+    this.timerMode = 'none',
+    this.timerDuration = 0,
   }) : super('text');
 
   @override
