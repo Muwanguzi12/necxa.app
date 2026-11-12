@@ -342,15 +342,19 @@ class CommerceService {
 
   Future<Map<String, dynamic>> updateInventory({
     required String listingId,
-    required int stockCount,
+    int? stockCount,
     String? status,
+    String? title,
+    int? priceUgx,
   }) async {
     final response = await _backend.invoke(
       'update_commerce_inventory',
       body: {
         'listingId': listingId,
-        'stockCount': stockCount,
+        if (stockCount != null) 'stockCount': stockCount,
         if (status != null) 'status': status,
+        if (title != null) 'title': title,
+        if (priceUgx != null) 'priceUgx': priceUgx,
       },
     );
     return _map(response['listing']) ?? {};
@@ -437,7 +441,9 @@ class CommerceService {
   }
 
   /// Bulk updates multiple listings' stock counts in a single batch.
-  Future<List<dynamic>> bulkUpdateInventory(Map<String, int> updates) async {
+  Future<List<Map<String, dynamic>>> bulkUpdateInventory(
+    Map<String, int> updates,
+  ) async {
     final response = await _backend.invoke(
       'bulk_update_inventory',
       body: {
@@ -446,7 +452,7 @@ class CommerceService {
             .toList(),
       },
     );
-    return response['results'] as List<dynamic>? ?? const [];
+    return _maps(response['results']);
   }
 
   /// Retrieves recent stock adjustments and history for the vendor's products.
