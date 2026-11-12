@@ -688,7 +688,7 @@ class VideoEnhancementService {
             "[${imageOverlayIndexes[i]}:v]format=rgba,scale=$width:-1$rotate,$stickerAlpha${stickerFades.isEmpty ? '' : ',${stickerFades.join(',')}'}[$imageLabel];";
         filterComplex +=
             "[$currentVideo][$imageLabel]overlay=x='$stickerX':y='$stickerY':eval=frame:enable='between(t,$startTime,$endTime)'[$nextLabel];";
-      } else if ((overlay.text ?? '').trim().isNotEmpty) {
+      } else if ((overlay.text ?? '').trim().isNotEmpty || overlay.timerMode != 'none') {
         final timerElapsed = "max(0\\,t-$startTime)";
         final timerText = switch (overlay.timerMode) {
           'count_up' => "%{eif\\:trunc($timerElapsed)\\:d}",
