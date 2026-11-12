@@ -2,6 +2,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:necxa_flutter/models/edit_models.dart';
 
 void main() {
+  test('Text Studio timer layers persist their render settings', () {
+    final timer = TextOverlay(
+      text: '',
+      timerMode: 'countdown',
+      timerDuration: 90,
+    );
+
+    expect(timer.toJson()['timerMode'], 'countdown');
+    expect(timer.toJson()['timerDuration'], 90);
+  });
+
   test('legacy text overlays default to static text without a timer', () {
     final restored = OverlayOperation.fromLegacy({
       'type': 'text',
