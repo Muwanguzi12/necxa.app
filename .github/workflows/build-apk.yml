@@ -35,11 +35,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Inspect Dart formatter output (temporary)
-        run: |
-          dart format lib/models/edit_models.dart lib/services/editor_export_service.dart lib/services/video_enhancement_service.dart lib/services/timeline_playback_controller.dart
-          git diff -- lib/models/edit_models.dart lib/services/editor_export_service.dart lib/services/video_enhancement_service.dart lib/services/timeline_playback_controller.dart
-
       - name: Check formatting of changed Dart files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
