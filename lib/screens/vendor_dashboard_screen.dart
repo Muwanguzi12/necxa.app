@@ -491,7 +491,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     }).length;
     final totalStockValue = allListings.fold<int>(0, (sum, l) {
       final s = (l['stock_count'] as num?)?.round() ?? 0;
-      final p = (l['price_ugx'] as num?)?.round() ?? (l['price'] as num?)?.round() ?? 0;
+      final p =
+          (l['price_ugx'] as num?)?.round() ??
+          (l['price'] as num?)?.round() ??
+          0;
       return sum + (s * p);
     });
 
@@ -553,7 +556,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             ],
           ),
         ),
-        _buildStickyBottomSection(totalStockValue: totalStockValue, allListings: allListings),
+        _buildStickyBottomSection(
+          totalStockValue: totalStockValue,
+          allListings: allListings,
+        ),
       ],
     );
   }
@@ -608,7 +614,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                   ],
                 ),
                 child: const Center(
-                  child: Icon(Icons.inventory_2_outlined, color: Colors.white, size: 22),
+                  child: Icon(
+                    Icons.inventory_2_outlined,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -621,28 +631,31 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                       style: syne(sz: 16, w: FontWeight.w800, c: Colors.white),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      'Your stock at a glance',
-                      style: dm(sz: 12, c: C.sub),
-                    ),
+                    Text('Your stock at a glance', style: dm(sz: 12, c: C.sub)),
                   ],
                 ),
               ),
               PopupMenuButton<String>(
                 tooltip: 'Time Range',
                 color: const Color(0xFF1E293B),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 onSelected: (val) => setState(() => _selectedTimeRange = val),
-                itemBuilder: (_) => ['Today', 'This Week', 'This Month', 'All Time']
-                    .map(
-                      (t) => PopupMenuItem(
-                        value: t,
-                        child: Text(t, style: dm(sz: 13, c: Colors.white)),
-                      ),
-                    )
-                    .toList(),
+                itemBuilder: (_) =>
+                    ['Today', 'This Week', 'This Month', 'All Time']
+                        .map(
+                          (t) => PopupMenuItem(
+                            value: t,
+                            child: Text(t, style: dm(sz: 13, c: Colors.white)),
+                          ),
+                        )
+                        .toList(),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF0B1528),
                     borderRadius: BorderRadius.circular(20),
@@ -653,10 +666,18 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     children: [
                       Text(
                         _selectedTimeRange,
-                        style: dm(sz: 11, c: Colors.white70, w: FontWeight.w600),
+                        style: dm(
+                          sz: 11,
+                          c: Colors.white70,
+                          w: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(width: 4),
-                      const Icon(Icons.keyboard_arrow_down_rounded, size: 15, color: Colors.white70),
+                      const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 15,
+                        color: Colors.white70,
+                      ),
                     ],
                   ),
                 ),
@@ -802,10 +823,18 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
           ),
           child: IconButton(
             tooltip: 'Filter options',
-            icon: const Icon(Icons.tune_rounded, color: Colors.white70, size: 20),
+            icon: const Icon(
+              Icons.tune_rounded,
+              color: Colors.white70,
+              size: 20,
+            ),
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Filter by price and stock options are available above.')),
+                const SnackBar(
+                  content: Text(
+                    'Filter by price and stock options are available above.',
+                  ),
+                ),
               );
             },
           ),
@@ -819,7 +848,8 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
       scrollDirection: Axis.horizontal,
       child: Row(
         children: categories.map((cat) {
-          final isSelected = _selectedCategory.toLowerCase() == cat.toLowerCase();
+          final isSelected =
+              _selectedCategory.toLowerCase() == cat.toLowerCase();
           final label = cat == 'All' ? 'All ($totalCount)' : cat;
           return Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -828,17 +858,26 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
               onTap: () => setState(() => _selectedCategory = cat),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFF00E5FF) : const Color(0xFF0F172A),
+                  color: isSelected
+                      ? const Color(0xFF00E5FF)
+                      : const Color(0xFF0F172A),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: isSelected ? const Color(0xFF00E5FF) : const Color(0xFF1E293B),
+                    color: isSelected
+                        ? const Color(0xFF00E5FF)
+                        : const Color(0xFF1E293B),
                   ),
                   boxShadow: isSelected
                       ? [
                           BoxShadow(
-                            color: const Color(0xFF00E5FF).withValues(alpha: 0.3),
+                            color: const Color(
+                              0xFF00E5FF,
+                            ).withValues(alpha: 0.3),
                             blurRadius: 8,
                           ),
                         ]
@@ -864,7 +903,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     final id = listing['id']?.toString() ?? '';
     final title = listing['title']?.toString() ?? 'Product';
     final sku = listing['sku']?.toString() ?? '';
-    final price = (listing['price_ugx'] as num?)?.round() ?? (listing['price'] as num?)?.round() ?? 0;
+    final price =
+        (listing['price_ugx'] as num?)?.round() ??
+        (listing['price'] as num?)?.round() ??
+        0;
     final stock = (listing['stock_count'] as num?)?.round() ?? 0;
     final status = listing['status']?.toString() ?? 'active';
     final working = _workingId == id;
@@ -910,11 +952,19 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                       ),
                     ),
                     errorWidget: (_, __, ___) => const Center(
-                      child: Icon(Icons.shopping_bag_outlined, color: Color(0xFF00E5FF), size: 30),
+                      child: Icon(
+                        Icons.shopping_bag_outlined,
+                        color: Color(0xFF00E5FF),
+                        size: 30,
+                      ),
                     ),
                   )
                 : const Center(
-                    child: Icon(Icons.shopping_bag_outlined, color: Color(0xFF00E5FF), size: 30),
+                    child: Icon(
+                      Icons.shopping_bag_outlined,
+                      color: Color(0xFF00E5FF),
+                      size: 30,
+                    ),
                   ),
           ),
           const SizedBox(width: 12),
@@ -953,9 +1003,15 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 tooltip: 'Options',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                icon: const Icon(Icons.more_vert_rounded, color: Colors.white70, size: 20),
+                icon: const Icon(
+                  Icons.more_vert_rounded,
+                  color: Colors.white70,
+                  size: 20,
+                ),
                 color: const Color(0xFF1E293B),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 onSelected: (val) {
                   if (val == 'edit') {
                     _showEditProductSheet(listing);
@@ -970,9 +1026,16 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     value: 'edit',
                     child: Row(
                       children: [
-                        const Icon(Icons.edit_outlined, size: 16, color: Colors.white70),
+                        const Icon(
+                          Icons.edit_outlined,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
                         const SizedBox(width: 8),
-                        Text('Edit Product', style: dm(sz: 13, c: Colors.white)),
+                        Text(
+                          'Edit Product',
+                          style: dm(sz: 13, c: Colors.white),
+                        ),
                       ],
                     ),
                   ),
@@ -981,13 +1044,17 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     child: Row(
                       children: [
                         Icon(
-                          status == 'active' ? Icons.pause_circle_outline : Icons.play_circle_outline,
+                          status == 'active'
+                              ? Icons.pause_circle_outline
+                              : Icons.play_circle_outline,
                           size: 16,
                           color: Colors.white70,
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          status == 'active' ? 'Mark Out of Stock' : 'Mark In Stock',
+                          status == 'active'
+                              ? 'Mark Out of Stock'
+                              : 'Mark In Stock',
                           style: dm(sz: 13, c: Colors.white),
                         ),
                       ],
@@ -997,7 +1064,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     value: 'delete',
                     child: Row(
                       children: [
-                        const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                        const Icon(
+                          Icons.delete_outline,
+                          size: 16,
+                          color: Colors.redAccent,
+                        ),
                         const SizedBox(width: 8),
                         Text('Delete', style: dm(sz: 13, c: Colors.redAccent)),
                       ],
@@ -1048,7 +1119,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Text(
                         '$stock',
-                        style: syne(sz: 13, w: FontWeight.bold, c: Colors.white),
+                        style: syne(
+                          sz: 13,
+                          w: FontWeight.bold,
+                          c: Colors.white,
+                        ),
                       ),
                     ),
                     InkWell(
@@ -1084,10 +1159,14 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     final Color color = isOut
         ? const Color(0xFFEF4444)
         : (isLow ? const Color(0xFFF59E0B) : const Color(0xFF10B981));
-    final String label = isOut ? 'Out of Stock' : (isLow ? 'Low Stock' : 'In Stock');
+    final String label = isOut
+        ? 'Out of Stock'
+        : (isLow ? 'Low Stock' : 'In Stock');
     final IconData icon = isOut
         ? Icons.do_not_disturb_on_outlined
-        : (isLow ? Icons.warning_amber_rounded : Icons.check_circle_outline_rounded);
+        : (isLow
+              ? Icons.warning_amber_rounded
+              : Icons.check_circle_outline_rounded);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1101,7 +1180,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(label, style: dm(sz: 10, w: FontWeight.bold, c: color)),
+          Text(
+            label,
+            style: dm(sz: 10, w: FontWeight.bold, c: color),
+          ),
         ],
       ),
     );
@@ -1129,7 +1211,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             ),
             child: Row(
               children: [
-                const Icon(Icons.bar_chart_rounded, color: Color(0xFF00E5FF), size: 24),
+                const Icon(
+                  Icons.bar_chart_rounded,
+                  color: Color(0xFF00E5FF),
+                  size: 24,
+                ),
                 const SizedBox(width: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1138,7 +1224,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     const SizedBox(height: 2),
                     Text(
                       _money(totalStockValue),
-                      style: syne(sz: 15, w: FontWeight.w800, c: const Color(0xFF00E5FF)),
+                      style: syne(
+                        sz: 15,
+                        w: FontWeight.w800,
+                        c: const Color(0xFF00E5FF),
+                      ),
                     ),
                   ],
                 ),
@@ -1147,11 +1237,18 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                   borderRadius: BorderRadius.circular(20),
                   onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Detailed inventory valuation report coming soon.')),
+                      const SnackBar(
+                        content: Text(
+                          'Detailed inventory valuation report coming soon.',
+                        ),
+                      ),
                     );
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(20),
@@ -1164,7 +1261,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                       children: [
                         Text(
                           'View Report',
-                          style: syne(sz: 11, w: FontWeight.bold, c: const Color(0xFF00E5FF)),
+                          style: syne(
+                            sz: 11,
+                            w: FontWeight.bold,
+                            c: const Color(0xFF00E5FF),
+                          ),
                         ),
                         const SizedBox(width: 4),
                         const Icon(
@@ -1189,12 +1290,17 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     backgroundColor: const Color(0xFF00E5FF),
                     foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
                     elevation: 0,
                   ),
                   onPressed: _showAddProductSheet,
                   icon: const Icon(Icons.add, size: 18),
-                  label: Text('Add Product', style: syne(sz: 13, w: FontWeight.w800)),
+                  label: Text(
+                    'Add Product',
+                    style: syne(sz: 13, w: FontWeight.w800),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1206,11 +1312,20 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     side: const BorderSide(color: Color(0xFF334155)),
                     backgroundColor: const Color(0xFF0F172A),
                     padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
                   ),
                   onPressed: () => _showBulkUpdateSheet(allListings),
-                  icon: const Icon(Icons.file_download_outlined, size: 17, color: Colors.white70),
-                  label: Text('Bulk Update', style: syne(sz: 11, w: FontWeight.w700)),
+                  icon: const Icon(
+                    Icons.file_download_outlined,
+                    size: 17,
+                    color: Colors.white70,
+                  ),
+                  label: Text(
+                    'Bulk Update',
+                    style: syne(sz: 11, w: FontWeight.w700),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1222,11 +1337,20 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     side: const BorderSide(color: Color(0xFF334155)),
                     backgroundColor: const Color(0xFF0F172A),
                     padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
                   ),
                   onPressed: _showStockHistorySheet,
-                  icon: const Icon(Icons.history_rounded, size: 17, color: Colors.white70),
-                  label: Text('Stock History', style: syne(sz: 11, w: FontWeight.w700)),
+                  icon: const Icon(
+                    Icons.history_rounded,
+                    size: 17,
+                    color: Colors.white70,
+                  ),
+                  label: Text(
+                    'Stock History',
+                    style: syne(sz: 11, w: FontWeight.w700),
+                  ),
                 ),
               ),
             ],
@@ -1270,19 +1394,39 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('+ Add New Product', style: syne(sz: 18, w: FontWeight.w800, c: Colors.white)),
+                      Text(
+                        '+ Add New Product',
+                        style: syne(
+                          sz: 18,
+                          w: FontWeight.w800,
+                          c: Colors.white,
+                        ),
+                      ),
                       IconButton(
-                        icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white70,
+                        ),
                         onPressed: () => Navigator.of(modalCtx).pop(),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _sheetTextField(titleCtrl, 'Product Title *', Icons.title_rounded),
+                  _sheetTextField(
+                    titleCtrl,
+                    'Product Title *',
+                    Icons.title_rounded,
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      Expanded(child: _sheetTextField(skuCtrl, 'SKU (e.g. KSH-001)', Icons.qr_code_rounded)),
+                      Expanded(
+                        child: _sheetTextField(
+                          skuCtrl,
+                          'SKU (e.g. KSH-001)',
+                          Icons.qr_code_rounded,
+                        ),
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Container(
@@ -1297,11 +1441,25 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                               value: category,
                               dropdownColor: const Color(0xFF1E293B),
                               style: dm(sz: 13, c: Colors.white),
-                              items: ['Electronics', 'Fashion', 'Home & Living', 'Beauty', 'Food', 'General']
-                                  .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                                  .toList(),
+                              items:
+                                  [
+                                        'Electronics',
+                                        'Fashion',
+                                        'Home & Living',
+                                        'Beauty',
+                                        'Food',
+                                        'General',
+                                      ]
+                                      .map(
+                                        (c) => DropdownMenuItem(
+                                          value: c,
+                                          child: Text(c),
+                                        ),
+                                      )
+                                      .toList(),
                               onChanged: (val) {
-                                if (val != null) setModalState(() => category = val);
+                                if (val != null)
+                                  setModalState(() => category = val);
                               },
                             ),
                           ),
@@ -1332,9 +1490,18 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _sheetTextField(mediaCtrl, 'Image URL (optional)', Icons.link_rounded),
+                  _sheetTextField(
+                    mediaCtrl,
+                    'Image URL (optional)',
+                    Icons.link_rounded,
+                  ),
                   const SizedBox(height: 12),
-                  _sheetTextField(descCtrl, 'Description (optional)', Icons.notes_rounded, maxLines: 2),
+                  _sheetTextField(
+                    descCtrl,
+                    'Description (optional)',
+                    Icons.notes_rounded,
+                    maxLines: 2,
+                  ),
                   const SizedBox(height: 20),
                   SizedBox(
                     width: double.infinity,
@@ -1343,17 +1510,25 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00E5FF),
                         foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
                       ),
                       onPressed: saving
                           ? null
                           : () async {
                               final title = titleCtrl.text.trim();
-                              final price = int.tryParse(priceCtrl.text.trim()) ?? 0;
-                              final stock = int.tryParse(stockCtrl.text.trim()) ?? 0;
+                              final price =
+                                  int.tryParse(priceCtrl.text.trim()) ?? 0;
+                              final stock =
+                                  int.tryParse(stockCtrl.text.trim()) ?? 0;
                               if (title.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Please enter a product title.')),
+                                  const SnackBar(
+                                    content: Text(
+                                      'Please enter a product title.',
+                                    ),
+                                  ),
                                 );
                                 return;
                               }
@@ -1372,22 +1547,34 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                                   Navigator.of(modalCtx).pop();
                                   await _refreshDashboard();
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Product added successfully!')),
+                                    const SnackBar(
+                                      content: Text(
+                                        'Product added successfully!',
+                                      ),
+                                    ),
                                   );
                                 }
                               } catch (e) {
                                 setModalState(() => saving = false);
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Failed to add product: $e')),
+                                  SnackBar(
+                                    content: Text('Failed to add product: $e'),
+                                  ),
                                 );
                               }
                             },
                       child: saving
                           ? const SizedBox.square(
                               dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.black,
+                              ),
                             )
-                          : Text('Create Product', style: syne(sz: 14, w: FontWeight.w800)),
+                          : Text(
+                              'Create Product',
+                              style: syne(sz: 14, w: FontWeight.w800),
+                            ),
                     ),
                   ),
                 ],
@@ -1424,14 +1611,23 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Bulk Stock Update', style: syne(sz: 18, w: FontWeight.w800, c: Colors.white)),
+                    Text(
+                      'Bulk Stock Update',
+                      style: syne(sz: 18, w: FontWeight.w800, c: Colors.white),
+                    ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white70,
+                      ),
                       onPressed: () => Navigator.of(modalCtx).pop(),
                     ),
                   ],
                 ),
-                Text('Adjust quantities across your entire inventory', style: dm(sz: 12, c: C.sub)),
+                Text(
+                  'Adjust quantities across your entire inventory',
+                  style: dm(sz: 12, c: C.sub),
+                ),
                 const SizedBox(height: 16),
                 Expanded(
                   child: ListView.separated(
@@ -1442,7 +1638,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                       final id = item['id'].toString();
                       final currentVal = stockValues[id] ?? 0;
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFF1E293B),
                           borderRadius: BorderRadius.circular(10),
@@ -1457,7 +1656,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                                     item['title']?.toString() ?? 'Product',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: syne(sz: 13, w: FontWeight.w700, c: Colors.white),
+                                    style: syne(
+                                      sz: 13,
+                                      w: FontWeight.w700,
+                                      c: Colors.white,
+                                    ),
                                   ),
                                   Text(
                                     'Current: ${(item['stock_count'] as num?)?.round() ?? 0}',
@@ -1467,22 +1670,38 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.remove_circle_outline, color: Colors.white70, size: 20),
+                              icon: const Icon(
+                                Icons.remove_circle_outline,
+                                color: Colors.white70,
+                                size: 20,
+                              ),
                               onPressed: currentVal == 0
                                   ? null
-                                  : () => setModalState(() => stockValues[id] = currentVal - 1),
+                                  : () => setModalState(
+                                      () => stockValues[id] = currentVal - 1,
+                                    ),
                             ),
                             SizedBox(
                               width: 44,
                               child: Text(
                                 '$currentVal',
                                 textAlign: TextAlign.center,
-                                style: syne(sz: 14, w: FontWeight.w800, c: const Color(0xFF00E5FF)),
+                                style: syne(
+                                  sz: 14,
+                                  w: FontWeight.w800,
+                                  c: const Color(0xFF00E5FF),
+                                ),
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.add_circle_outline, color: Color(0xFF00E5FF), size: 20),
-                              onPressed: () => setModalState(() => stockValues[id] = currentVal + 1),
+                              icon: const Icon(
+                                Icons.add_circle_outline,
+                                color: Color(0xFF00E5FF),
+                                size: 20,
+                              ),
+                              onPressed: () => setModalState(
+                                () => stockValues[id] = currentVal + 1,
+                              ),
                             ),
                           ],
                         ),
@@ -1498,7 +1717,9 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF00E5FF),
                       foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
                     ),
                     onPressed: saving
                         ? null
@@ -1510,22 +1731,36 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                                 Navigator.of(modalCtx).pop();
                                 await _refreshDashboard();
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Inventory quantities successfully updated!')),
+                                  const SnackBar(
+                                    content: Text(
+                                      'Inventory quantities successfully updated!',
+                                    ),
+                                  ),
                                 );
                               }
                             } catch (e) {
                               setModalState(() => saving = false);
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Failed to update inventory: $e')),
+                                SnackBar(
+                                  content: Text(
+                                    'Failed to update inventory: $e',
+                                  ),
+                                ),
                               );
                             }
                           },
                     child: saving
                         ? const SizedBox.square(
                             dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
                           )
-                        : Text('Save All Updates', style: syne(sz: 14, w: FontWeight.w800)),
+                        : Text(
+                            'Save All Updates',
+                            style: syne(sz: 14, w: FontWeight.w800),
+                          ),
                   ),
                 ),
               ],
@@ -1554,14 +1789,23 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Stock History', style: syne(sz: 18, w: FontWeight.w800, c: Colors.white)),
+                  Text(
+                    'Stock History',
+                    style: syne(sz: 18, w: FontWeight.w800, c: Colors.white),
+                  ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white70,
+                    ),
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
                 ],
               ),
-              Text('Audit log of all manual and order stock transitions', style: dm(sz: 12, c: C.sub)),
+              Text(
+                'Audit log of all manual and order stock transitions',
+                style: dm(sz: 12, c: C.sub),
+              ),
               const SizedBox(height: 20),
               FutureBuilder<List<Map<String, dynamic>>>(
                 future: _commerce.fetchStockHistory(),
@@ -1569,7 +1813,9 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Expanded(
                       child: Center(
-                        child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+                        child: CircularProgressIndicator(
+                          color: Color(0xFF00E5FF),
+                        ),
                       ),
                     );
                   }
@@ -1580,7 +1826,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.history_toggle_off_rounded, size: 48, color: C.sub),
+                            Icon(
+                              Icons.history_toggle_off_rounded,
+                              size: 48,
+                              color: C.sub,
+                            ),
                             const SizedBox(height: 12),
                             Text(
                               'No stock change events recorded yet',
@@ -1599,7 +1849,8 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         final ev = events[i];
                         final oldStock = ev['old_stock'] ?? 0;
                         final newStock = ev['new_stock'] ?? 0;
-                        final isIncrease = (newStock as num) >= (oldStock as num);
+                        final isIncrease =
+                            (newStock as num) >= (oldStock as num);
                         return Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
@@ -1609,8 +1860,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                           child: Row(
                             children: [
                               Icon(
-                                isIncrease ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
-                                color: isIncrease ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                isIncrease
+                                    ? Icons.arrow_upward_rounded
+                                    : Icons.arrow_downward_rounded,
+                                color: isIncrease
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFFEF4444),
                                 size: 20,
                               ),
                               const SizedBox(width: 12),
@@ -1620,7 +1875,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                                   children: [
                                     Text(
                                       'Stock Adjusted: $oldStock → $newStock',
-                                      style: syne(sz: 13, w: FontWeight.w700, c: Colors.white),
+                                      style: syne(
+                                        sz: 13,
+                                        w: FontWeight.w700,
+                                        c: Colors.white,
+                                      ),
                                     ),
                                     Text(
                                       ev['created_at']?.toString() ?? '',
@@ -1646,9 +1905,15 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
 
   void _showEditProductSheet(Map<String, dynamic> listing) {
     final id = listing['id']?.toString() ?? '';
-    final titleCtrl = TextEditingController(text: listing['title']?.toString() ?? '');
+    final titleCtrl = TextEditingController(
+      text: listing['title']?.toString() ?? '',
+    );
     final priceCtrl = TextEditingController(
-      text: ((listing['price_ugx'] as num?)?.round() ?? (listing['price'] as num?)?.round() ?? 0).toString(),
+      text:
+          ((listing['price_ugx'] as num?)?.round() ??
+                  (listing['price'] as num?)?.round() ??
+                  0)
+              .toString(),
     );
     final stockCtrl = TextEditingController(
       text: ((listing['stock_count'] as num?)?.round() ?? 0).toString(),
@@ -1678,9 +1943,15 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Edit Product', style: syne(sz: 18, w: FontWeight.w800, c: Colors.white)),
+                    Text(
+                      'Edit Product',
+                      style: syne(sz: 18, w: FontWeight.w800, c: Colors.white),
+                    ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white70,
+                      ),
                       onPressed: () => Navigator.of(modalCtx).pop(),
                     ),
                   ],
@@ -1690,9 +1961,23 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _sheetTextField(priceCtrl, 'Price (UGX)', Icons.payments_outlined, isNumeric: true)),
+                    Expanded(
+                      child: _sheetTextField(
+                        priceCtrl,
+                        'Price (UGX)',
+                        Icons.payments_outlined,
+                        isNumeric: true,
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    Expanded(child: _sheetTextField(stockCtrl, 'Stock Count', Icons.all_inbox_rounded, isNumeric: true)),
+                    Expanded(
+                      child: _sheetTextField(
+                        stockCtrl,
+                        'Stock Count',
+                        Icons.all_inbox_rounded,
+                        isNumeric: true,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -1703,12 +1988,15 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF00E5FF),
                       foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
                     ),
                     onPressed: saving
                         ? null
                         : () async {
-                            final newStock = int.tryParse(stockCtrl.text.trim()) ?? 0;
+                            final newStock =
+                                int.tryParse(stockCtrl.text.trim()) ?? 0;
                             setModalState(() => saving = true);
                             try {
                               await _commerce.updateInventory(
@@ -1719,22 +2007,34 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                                 Navigator.of(modalCtx).pop();
                                 await _refreshDashboard();
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Product updated successfully!')),
+                                  const SnackBar(
+                                    content: Text(
+                                      'Product updated successfully!',
+                                    ),
+                                  ),
                                 );
                               }
                             } catch (e) {
                               setModalState(() => saving = false);
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Failed to update product: $e')),
+                                SnackBar(
+                                  content: Text('Failed to update product: $e'),
+                                ),
                               );
                             }
                           },
                     child: saving
                         ? const SizedBox.square(
                             dimension: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
                           )
-                        : Text('Save Changes', style: syne(sz: 14, w: FontWeight.w800)),
+                        : Text(
+                            'Save Changes',
+                            style: syne(sz: 14, w: FontWeight.w800),
+                          ),
                   ),
                 ),
               ],
@@ -1771,7 +2071,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: Color(0xFF00E5FF)),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
       ),
     );
   }
@@ -1966,37 +2269,37 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
       final key = order.orderNumber.split('-').first;
       buyerOrderCounts[key] = (buyerOrderCounts[key] ?? 0) + 1;
     }
-    final repeatBuyers =
-        buyerOrderCounts.values.where((c) => c > 1).length;
+    final repeatBuyers = buyerOrderCounts.values.where((c) => c > 1).length;
     final totalBuyers = buyerOrderCounts.length;
-    final repeatRatio =
-        totalBuyers > 0 ? (repeatBuyers / totalBuyers) : 0.0;
+    final repeatRatio = totalBuyers > 0 ? (repeatBuyers / totalBuyers) : 0.0;
 
     // Review response rate
     final totalReviews = _reviews.length;
     final respondedReviews = _reviews
-        .where((r) =>
-            r['seller_response'] != null &&
-            r['seller_response'].toString().isNotEmpty)
+        .where(
+          (r) =>
+              r['seller_response'] != null &&
+              r['seller_response'].toString().isNotEmpty,
+        )
         .length;
-    final responseRate =
-        totalReviews > 0 ? (respondedReviews / totalReviews) : 0.0;
+    final responseRate = totalReviews > 0
+        ? (respondedReviews / totalReviews)
+        : 0.0;
 
     // Retention score (0–100) weighted composite
     final avgRating = (dashboard.ratingAverage).clamp(0.0, 5.0);
     final ratingScore = avgRating / 5.0;
     final stockRisk = dashboard.lowStockListings > 0
-        ? (1.0 -
-                (dashboard.lowStockListings /
-                    (dashboard.activeListings + 1)))
-            .clamp(0.0, 1.0)
+        ? (1.0 - (dashboard.lowStockListings / (dashboard.activeListings + 1)))
+              .clamp(0.0, 1.0)
         : 1.0;
-    final retentionScore = ((repeatRatio * 0.35 +
-                ratingScore * 0.30 +
-                responseRate * 0.25 +
-                stockRisk * 0.10) *
-            100)
-        .round();
+    final retentionScore =
+        ((repeatRatio * 0.35 +
+                    ratingScore * 0.30 +
+                    responseRate * 0.25 +
+                    stockRisk * 0.10) *
+                100)
+            .round();
 
     // Top-5 buyers by order count
     final sortedBuyers = buyerOrderCounts.entries.toList()
@@ -2063,7 +2366,9 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: C.surface,
                     borderRadius: BorderRadius.circular(8),
@@ -2075,16 +2380,14 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Active Code',
-                              style: dm(sz: 10, c: C.sub),
-                            ),
+                            Text('Active Code', style: dm(sz: 10, c: C.sub)),
                             Text(
                               _activeLoyaltyCode,
                               style: syne(
-                                  sz: 17,
-                                  w: FontWeight.w800,
-                                  c: C.brandDk),
+                                sz: 17,
+                                w: FontWeight.w800,
+                                c: C.brandDk,
+                              ),
                             ),
                           ],
                         ),
@@ -2094,10 +2397,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         icon: const Icon(Icons.copy_rounded, size: 18),
                         onPressed: () {
                           Clipboard.setData(
-                              ClipboardData(text: _activeLoyaltyCode));
+                            ClipboardData(text: _activeLoyaltyCode),
+                          );
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                                content: Text('Code copied to clipboard')),
+                              content: Text('Code copied to clipboard'),
+                            ),
                           );
                         },
                       ),
@@ -2107,8 +2412,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    const Icon(Icons.trending_up_rounded,
-                        size: 16, color: Colors.greenAccent),
+                    const Icon(
+                      Icons.trending_up_rounded,
+                      size: 16,
+                      color: Colors.greenAccent,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       'Estimated +18% repeat-purchase lift',
@@ -2142,60 +2450,64 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
               border: Border.all(color: C.border),
             ),
             child: const Text(
-                '🎉 All tracked buyers have made repeat purchases!'),
+              '🎉 All tracked buyers have made repeat purchases!',
+            ),
           )
         else
-          ...churnRisk.map((entry) => Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: C.card,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: C.border),
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: C.surface,
-                      child: Text(
-                        entry.key.isNotEmpty
-                            ? entry.key[0].toUpperCase()
-                            : '?',
-                        style: syne(sz: 14, w: FontWeight.w800),
-                      ),
+          ...churnRisk.map(
+            (entry) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: C.card,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: C.border),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: C.surface,
+                    child: Text(
+                      entry.key.isNotEmpty ? entry.key[0].toUpperCase() : '?',
+                      style: syne(sz: 14, w: FontWeight.w800),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Buyer ${entry.key}',
-                            style: dm(sz: 13, w: FontWeight.w700),
-                          ),
-                          Text(
-                            '${entry.value} order · No repeat in 30+ days',
-                            style: dm(sz: 11, c: C.sub),
-                          ),
-                        ],
-                      ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Buyer ${entry.key}',
+                          style: dm(sz: 13, w: FontWeight.w700),
+                        ),
+                        Text(
+                          '${entry.value} order · No repeat in 30+ days',
+                          style: dm(sz: 11, c: C.sub),
+                        ),
+                      ],
                     ),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.chat_bubble_outline_rounded,
-                          size: 15),
-                      label: const Text('Thank You'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        textStyle: const TextStyle(fontSize: 11),
-                      ),
-                      onPressed: () => widget.state.go('new_chat'),
+                  ),
+                  OutlinedButton.icon(
+                    icon: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 15,
                     ),
-                  ],
-                ),
-              )),
+                    label: const Text('Thank You'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      textStyle: const TextStyle(fontSize: 11),
+                    ),
+                    onPressed: () => widget.state.go('new_chat'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         const SizedBox(height: 20),
 
         // ── 4. Top Buyer VIP Leaderboard ────────────────────────────────
@@ -2212,8 +2524,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: C.border),
             ),
-            child:
-                const Text('Complete orders to unlock your top buyers.'),
+            child: const Text('Complete orders to unlock your top buyers.'),
           )
         else
           ...top5.asMap().entries.map((entry) {
@@ -2222,17 +2533,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             final isVip = rank == 1;
             return Container(
               margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: isVip
-                    ? C.gold2.withValues(alpha: 0.08)
-                    : C.card,
+                color: isVip ? C.gold2.withValues(alpha: 0.08) : C.card,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: isVip
-                      ? C.gold2.withValues(alpha: 0.5)
-                      : C.border,
+                  color: isVip ? C.gold2.withValues(alpha: 0.5) : C.border,
                 ),
               ),
               child: Row(
@@ -2241,10 +2547,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     rank == 1
                         ? '🥇'
                         : rank == 2
-                            ? '🥈'
-                            : rank == 3
-                                ? '🥉'
-                                : '#$rank',
+                        ? '🥈'
+                        : rank == 3
+                        ? '🥉'
+                        : '#$rank',
                     style: const TextStyle(fontSize: 20),
                   ),
                   const SizedBox(width: 12),
@@ -2252,9 +2558,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     radius: 18,
                     backgroundColor: C.surface,
                     child: Text(
-                      buyer.key.isNotEmpty
-                          ? buyer.key[0].toUpperCase()
-                          : '?',
+                      buyer.key.isNotEmpty ? buyer.key[0].toUpperCase() : '?',
                       style: syne(sz: 13, w: FontWeight.w800),
                     ),
                   ),
@@ -2276,19 +2580,19 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         Container(
                           margin: const EdgeInsets.only(top: 2),
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: C.gold2.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                                color: C.gold2.withValues(alpha: 0.5)),
+                              color: C.gold2.withValues(alpha: 0.5),
+                            ),
                           ),
                           child: Text(
                             'VIP',
-                            style: dm(
-                                sz: 9,
-                                w: FontWeight.w800,
-                                c: C.gold2),
+                            style: dm(sz: 9, w: FontWeight.w800, c: C.gold2),
                           ),
                         ),
                     ],
@@ -2330,8 +2634,8 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                       c: responseRate >= 0.8
                           ? Colors.greenAccent
                           : responseRate >= 0.5
-                              ? Colors.orangeAccent
-                              : Colors.redAccent,
+                          ? Colors.orangeAccent
+                          : Colors.redAccent,
                     ),
                   ),
                 ],
@@ -2346,8 +2650,8 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                   color: responseRate >= 0.8
                       ? Colors.greenAccent
                       : responseRate >= 0.5
-                          ? Colors.orangeAccent
-                          : Colors.redAccent,
+                      ? Colors.orangeAccent
+                      : Colors.redAccent,
                 ),
               ),
               const SizedBox(height: 10),
@@ -2391,8 +2695,11 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             children: [
               Row(
                 children: [
-                  const Icon(Icons.lock_open_rounded,
-                      size: 16, color: Colors.greenAccent),
+                  const Icon(
+                    Icons.lock_open_rounded,
+                    size: 16,
+                    color: Colors.greenAccent,
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     'Necxa Escrow Protects Every Buyer',
@@ -2420,8 +2727,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
                   onPressed: () => _tabs.animateTo(3),
-                  icon: const Icon(Icons.account_balance_wallet_rounded,
-                      size: 16),
+                  icon: const Icon(
+                    Icons.account_balance_wallet_rounded,
+                    size: 16,
+                  ),
                   label: const Text('VIEW EARNINGS'),
                 ),
               ),
@@ -2976,10 +3285,7 @@ class _RetentionScoreCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Retention Score',
-                  style: dm(sz: 12, c: C.sub),
-                ),
+                Text('Retention Score', style: dm(sz: 12, c: C.sub)),
                 const SizedBox(height: 4),
                 Text(
                   _label,

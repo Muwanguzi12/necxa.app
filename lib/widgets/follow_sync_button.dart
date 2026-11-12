@@ -45,7 +45,8 @@ class _FollowSyncButtonState extends State<FollowSyncButton> {
       listenable: widget.state,
       builder: (context, _) {
         final currentUserId = widget.state.user?.id;
-        if (widget.targetUserId.isEmpty || widget.targetUserId == currentUserId) {
+        if (widget.targetUserId.isEmpty ||
+            widget.targetUserId == currentUserId) {
           return const SizedBox.shrink();
         }
 
@@ -81,26 +82,26 @@ class _FollowSyncButtonState extends State<FollowSyncButton> {
             ],
           )
         : (isFollowing
-            ? BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  width: 1.0,
-                ),
-              )
-            : BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
-                ),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
-                    blurRadius: 8,
+              ? BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    width: 1.0,
                   ),
-                ],
-              ));
+                )
+              : BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ));
 
     final IconData icon = isFriend
         ? Icons.people_alt_rounded
@@ -109,8 +110,8 @@ class _FollowSyncButtonState extends State<FollowSyncButton> {
     final String label = isFriend
         ? 'FRIENDS'
         : (isFollowing
-            ? 'FOLLOWING'
-            : (widget.isFollowBackContext ? 'FOLLOW BACK' : 'FOLLOW'));
+              ? 'FOLLOWING'
+              : (widget.isFollowBackContext ? 'FOLLOW BACK' : 'FOLLOW'));
 
     return GestureDetector(
       onTap: _loading ? null : _handleTap,
@@ -136,12 +137,7 @@ class _FollowSyncButtonState extends State<FollowSyncButton> {
             const SizedBox(width: 4),
             Text(
               label,
-              style: syne(
-                sz: 9.5,
-                w: FontWeight.w800,
-                c: tintColor,
-                ls: 0.5,
-              ),
+              style: syne(sz: 9.5, w: FontWeight.w800, c: tintColor, ls: 0.5),
             ),
           ],
         ),
@@ -170,27 +166,27 @@ class _FollowSyncButtonState extends State<FollowSyncButton> {
             ],
           )
         : (isFollowing
-            ? BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.22),
-                  width: 1.1,
-                ),
-              )
-            : BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
-                ),
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
+              ? BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.22),
+                    width: 1.1,
                   ),
-                ],
-              ));
+                )
+              : BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ));
 
     final IconData icon = isFriend
         ? Icons.people_alt_rounded
@@ -199,8 +195,8 @@ class _FollowSyncButtonState extends State<FollowSyncButton> {
     final String label = isFriend
         ? 'Friends'
         : (isFollowing
-            ? 'Following'
-            : (widget.isFollowBackContext ? 'Follow Back' : 'Follow'));
+              ? 'Following'
+              : (widget.isFollowBackContext ? 'Follow Back' : 'Follow'));
 
     return GestureDetector(
       onTap: _loading ? null : _handleTap,
@@ -226,12 +222,7 @@ class _FollowSyncButtonState extends State<FollowSyncButton> {
             const SizedBox(width: 6),
             Text(
               label,
-              style: syne(
-                sz: 11.5,
-                w: FontWeight.w800,
-                c: tintColor,
-                ls: 0.4,
-              ),
+              style: syne(sz: 11.5, w: FontWeight.w800, c: tintColor, ls: 0.4),
             ),
           ],
         ),

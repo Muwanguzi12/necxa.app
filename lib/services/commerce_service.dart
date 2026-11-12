@@ -39,7 +39,9 @@ class CommerceDashboardData {
     final productListings = rawListings.where(isProductListing).toList();
 
     return CommerceDashboardData(
-      activeListings: productListings.where((l) => l['status'] == 'active').length,
+      activeListings: productListings
+          .where((l) => l['status'] == 'active')
+          .length,
       lowStockListings: productListings.where((l) {
         final stock = (l['stock_count'] as num?)?.round() ?? 0;
         return stock <= 5;
@@ -95,7 +97,9 @@ class CommerceDashboardData {
     final mergedOrders = ordersById.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return CommerceDashboardData(
-      activeListings: mergedListings.where((l) => l['status'] == 'active').length,
+      activeListings: mergedListings
+          .where((l) => l['status'] == 'active')
+          .length,
       lowStockListings: mergedListings.where((l) {
         final stock = (l['stock_count'] as num?)?.round() ?? 0;
         return stock <= 5;
@@ -446,7 +450,9 @@ class CommerceService {
   }
 
   /// Retrieves recent stock adjustments and history for the vendor's products.
-  Future<List<Map<String, dynamic>>> fetchStockHistory({String? listingId}) async {
+  Future<List<Map<String, dynamic>>> fetchStockHistory({
+    String? listingId,
+  }) async {
     final response = await _backend.invoke(
       'stock_history',
       body: {if (listingId != null) 'listingId': listingId},

@@ -1,4 +1,4 @@
-﻿import 'package:livekit_client/livekit_client.dart';
+import 'package:livekit_client/livekit_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
@@ -119,20 +119,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   bool _startingBroadcast = false;
   bool _faceSymmetryProcessorAttached = false;
   Timer? _faceSymmetryUpdateTimer;
-  static const MethodChannel _faceSymmetryChannel =
-      MethodChannel('com.necxa/live_beauty');
+  static const MethodChannel _faceSymmetryChannel = MethodChannel(
+    'com.necxa/live_beauty',
+  );
   bool _isFrontCamera = true; // green room starts front-facing
   // ── Green Room Effects & Smart Filter Catalogue ───────────────────────────
   int _activeFilterIndex = 0; // 0 = Normal (no tint)
   double _beautySmoothing = 0.0; // 0..1
   int _skinSmoothingMode = 0; // 0=Natural, 1=Radiant, 2=Matte
   double _beautyWhitening = 0.0; // 0..1
-  int _skinBrighteningTone = 0; // 0=Warm Glow, 1=Cool Porcelain, 2=Natural Fresh
+  int _skinBrighteningTone =
+      0; // 0=Warm Glow, 1=Cool Porcelain, 2=Natural Fresh
   int _makeupGender = 0; // 0=Off, 1=Women, 2=Men
-  int _makeupStyle = 0; // 0=Natural/Groomed, 1=Radiant/Contour, 2=Glam/SunKissed
+  int _makeupStyle =
+      0; // 0=Natural/Groomed, 1=Radiant/Contour, 2=Glam/SunKissed
   double _makeupIntensity = 0.6; // 0..1
   double _faceSymmetry = 0.0; // 0..1
-  bool _symmetryMirrorLeft = true; // true = mirror left side onto right, false = right onto left
+  bool _symmetryMirrorLeft =
+      true; // true = mirror left side onto right, false = right onto left
   bool _showSymmetryGuide = true; // show alignment axis when symmetry > 0
   bool _mirrorMode = false;
   bool _showGrid = false;
@@ -365,11 +369,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       final moderatorIds = (data['moderatorIds'] as List? ?? const [])
           .map((id) => id.toString())
           .toSet();
-      if (mounted) setState(() {
-        _moderatorGuestIds
-          ..clear()
-          ..addAll(moderatorIds);
-      });
+      if (mounted)
+        setState(() {
+          _moderatorGuestIds
+            ..clear()
+            ..addAll(moderatorIds);
+        });
       if (guestId == widget.state.user?.id) {
         _showToast(
           data['isModerator'] == true
@@ -534,8 +539,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       _moderatorGuestIds
         ..clear()
         ..addAll(
-          (summary['moderatorIds'] as List? ?? const [])
-              .map((id) => id.toString()),
+          (summary['moderatorIds'] as List? ?? const []).map(
+            (id) => id.toString(),
+          ),
         );
     });
   }
@@ -551,7 +557,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       });
       _showToast('The host removed you from the guest stage.');
     } catch (error) {
-      debugPrint('Necxa Live: Could not return removed guest to audience: $error');
+      debugPrint(
+        'Necxa Live: Could not return removed guest to audience: $error',
+      );
     }
   }
 
@@ -800,7 +808,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     if (userId != null && userId == _hostUserId) return _hostDisplayName;
     final presenceName =
         _commentOwnerPresence(comment)?['userName']?.toString().trim() ?? '';
-    if (presenceName.isNotEmpty && presenceName != 'Viewer' && presenceName != 'User') {
+    if (presenceName.isNotEmpty &&
+        presenceName != 'Viewer' &&
+        presenceName != 'User') {
       return presenceName;
     }
     final storedName =
@@ -889,10 +899,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (failed)
               ListTile(
                 leading: Icon(Icons.sync_rounded, color: C.text),
-                title: Text(
-                  'Retry',
-                  style: TextStyle(color: C.text),
-                ),
+                title: Text('Retry', style: TextStyle(color: C.text)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   unawaited(
@@ -905,10 +912,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (isMine)
               ListTile(
                 leading: Icon(Icons.edit_rounded, color: C.text),
-                title: Text(
-                  'Edit',
-                  style: TextStyle(color: C.text),
-                ),
+                title: Text('Edit', style: TextStyle(color: C.text)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   unawaited(_editComment(comment));
@@ -932,10 +936,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             if (!isMine && !isLocal)
               ListTile(
                 leading: Icon(Icons.flag_outlined, color: C.text),
-                title: Text(
-                  'Report',
-                  style: TextStyle(color: C.text),
-                ),
+                title: Text('Report', style: TextStyle(color: C.text)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   unawaited(
@@ -1282,14 +1283,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   @override
   void dispose() {
     _faceSymmetryUpdateTimer?.cancel();
-    final symmetryTrack = widget.state.live.room?.localParticipant
-        ?.videoTrackPublications.firstOrNull?.track;
+    final symmetryTrack = widget
+        .state
+        .live
+        .room
+        ?.localParticipant
+        ?.videoTrackPublications
+        .firstOrNull
+        ?.track;
     if (_faceSymmetryProcessorAttached && symmetryTrack != null) {
-      unawaited(_faceSymmetryChannel.invokeMethod<void>('detach', {
-        'trackId': symmetryTrack.mediaStreamTrack.id,
-      }).catchError((Object error) {
-        debugPrint('Necxa Live: Face processor cleanup failed: $error');
-      }));
+      unawaited(
+        _faceSymmetryChannel
+            .invokeMethod<void>('detach', {
+              'trackId': symmetryTrack.mediaStreamTrack.id,
+            })
+            .catchError((Object error) {
+              debugPrint('Necxa Live: Face processor cleanup failed: $error');
+            }),
+      );
     }
     WidgetsBinding.instance.removeObserver(this);
     _commentsTimer?.cancel();
@@ -1353,8 +1364,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     _isFlippingCamera = true;
     try {
       HapticFeedback.lightImpact();
-      final nextPosition =
-          _isFrontCamera ? CameraPosition.back : CameraPosition.front;
+      final nextPosition = _isFrontCamera
+          ? CameraPosition.back
+          : CameraPosition.front;
       await videoTrack.setCameraPosition(nextPosition);
       if (mounted) {
         setState(() => _isFrontCamera = !_isFrontCamera);
@@ -1437,19 +1449,51 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   void _togglePinStudio() {
     HapticFeedback.selectionClick();
     setState(() => _isStudioPinned = !_isStudioPinned);
-    _showToast(_isStudioPinned ? 'Studio dashboard pinned' : 'Studio dashboard unpinned');
+    _showToast(
+      _isStudioPinned ? 'Studio dashboard pinned' : 'Studio dashboard unpinned',
+    );
   }
 
   void _openMusicPickerSheet() {
     HapticFeedback.mediumImpact();
 
     const tracks = <Map<String, dynamic>>[
-      {'title': 'Trending Afrobeats', 'artist': 'Various Artists', 'duration': '3:12', 'icon': Icons.music_note},
-      {'title': 'Lo-Fi Chill', 'artist': 'Lo-Fi Hub', 'duration': '4:05', 'icon': Icons.headphones},
-      {'title': 'Hip-Hop Vibes', 'artist': 'Urban Collective', 'duration': '2:58', 'icon': Icons.album},
-      {'title': 'Pop Hits Mix', 'artist': 'Top Charts', 'duration': '3:44', 'icon': Icons.queue_music},
-      {'title': 'Afro Dance', 'artist': 'DJ Necxa', 'duration': '3:20', 'icon': Icons.graphic_eq},
-      {'title': 'R&B Smooth', 'artist': 'Soul Station', 'duration': '4:18', 'icon': Icons.piano},
+      {
+        'title': 'Trending Afrobeats',
+        'artist': 'Various Artists',
+        'duration': '3:12',
+        'icon': Icons.music_note,
+      },
+      {
+        'title': 'Lo-Fi Chill',
+        'artist': 'Lo-Fi Hub',
+        'duration': '4:05',
+        'icon': Icons.headphones,
+      },
+      {
+        'title': 'Hip-Hop Vibes',
+        'artist': 'Urban Collective',
+        'duration': '2:58',
+        'icon': Icons.album,
+      },
+      {
+        'title': 'Pop Hits Mix',
+        'artist': 'Top Charts',
+        'duration': '3:44',
+        'icon': Icons.queue_music,
+      },
+      {
+        'title': 'Afro Dance',
+        'artist': 'DJ Necxa',
+        'duration': '3:20',
+        'icon': Icons.graphic_eq,
+      },
+      {
+        'title': 'R&B Smooth',
+        'artist': 'Soul Station',
+        'duration': '4:18',
+        'icon': Icons.piano,
+      },
     ];
 
     showModalBottomSheet(
@@ -1464,7 +1508,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               decoration: BoxDecoration(
                 color: const Color(0xF20D1017),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
                 border: Border.all(color: Colors.white12, width: 1.2),
               ),
               child: SafeArea(
@@ -1476,7 +1522,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     // Handle bar
                     Center(
                       child: Container(
-                        width: 40, height: 4,
+                        width: 40,
+                        height: 4,
                         margin: const EdgeInsets.only(bottom: 18),
                         decoration: BoxDecoration(
                           color: Colors.white24,
@@ -1491,10 +1538,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         Container(
                           padding: const EdgeInsets.all(9),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF7B2FFF).withValues(alpha: 0.18),
+                            color: const Color(
+                              0xFF7B2FFF,
+                            ).withValues(alpha: 0.18),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.library_music, color: Color(0xFF00E5FF), size: 20),
+                          child: const Icon(
+                            Icons.library_music,
+                            color: Color(0xFF00E5FF),
+                            size: 20,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Column(
@@ -1502,7 +1555,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           children: [
                             Text(
                               'Live Music',
-                              style: syne(sz: 16, w: FontWeight.w800, c: Colors.white),
+                              style: syne(
+                                sz: 16,
+                                w: FontWeight.w800,
+                                c: Colors.white,
+                              ),
                             ),
                             Text(
                               'Background music for your stream',
@@ -1518,15 +1575,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               setLocal(() => localSelected = null);
                             },
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.red.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                                border: Border.all(
+                                  color: Colors.red.withValues(alpha: 0.4),
+                                ),
                               ),
                               child: Text(
                                 'Remove',
-                                style: dm(sz: 11, w: FontWeight.w600, c: Colors.redAccent),
+                                style: dm(
+                                  sz: 11,
+                                  w: FontWeight.w600,
+                                  c: Colors.redAccent,
+                                ),
                               ),
                             ),
                           ),
@@ -1548,31 +1614,43 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 180),
                           margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
                           decoration: BoxDecoration(
                             color: isActive
-                                ? const Color(0xFF7B2FFF).withValues(alpha: 0.22)
+                                ? const Color(
+                                    0xFF7B2FFF,
+                                  ).withValues(alpha: 0.22)
                                 : Colors.white.withValues(alpha: 0.04),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: isActive
-                                  ? const Color(0xFF00E5FF).withValues(alpha: 0.55)
+                                  ? const Color(
+                                      0xFF00E5FF,
+                                    ).withValues(alpha: 0.55)
                                   : Colors.white.withValues(alpha: 0.08),
                             ),
                           ),
                           child: Row(
                             children: [
                               Container(
-                                width: 38, height: 38,
+                                width: 38,
+                                height: 38,
                                 decoration: BoxDecoration(
                                   color: isActive
-                                      ? const Color(0xFF7B2FFF).withValues(alpha: 0.35)
+                                      ? const Color(
+                                          0xFF7B2FFF,
+                                        ).withValues(alpha: 0.35)
                                       : Colors.white.withValues(alpha: 0.08),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
                                   track['icon'] as IconData,
-                                  color: isActive ? const Color(0xFF00E5FF) : Colors.white54,
+                                  color: isActive
+                                      ? const Color(0xFF00E5FF)
+                                      : Colors.white54,
                                   size: 18,
                                 ),
                               ),
@@ -1585,8 +1663,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       title,
                                       style: dm(
                                         sz: 13,
-                                        w: isActive ? FontWeight.w700 : FontWeight.w500,
-                                        c: isActive ? Colors.white : Colors.white70,
+                                        w: isActive
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                        c: isActive
+                                            ? Colors.white
+                                            : Colors.white70,
                                       ),
                                     ),
                                     Text(
@@ -1597,7 +1679,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                 ),
                               ),
                               if (isActive)
-                                const Icon(Icons.check_circle, color: Color(0xFF00E5FF), size: 18),
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Color(0xFF00E5FF),
+                                  size: 18,
+                                ),
                             ],
                           ),
                         ),
@@ -1624,7 +1710,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         decoration: BoxDecoration(
                           gradient: localSelected != null
                               ? const LinearGradient(
-                                  colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF)],
+                                  colors: [
+                                    Color(0xFF7B2FFF),
+                                    Color(0xFF00E5FF),
+                                  ],
                                 )
                               : null,
                           color: localSelected == null ? Colors.white10 : null,
@@ -1632,11 +1721,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         ),
                         child: Center(
                           child: Text(
-                            localSelected != null ? 'Set "$localSelected"' : 'No music selected',
+                            localSelected != null
+                                ? 'Set "$localSelected"'
+                                : 'No music selected',
                             style: syne(
                               sz: 13,
                               w: FontWeight.w800,
-                              c: localSelected != null ? Colors.black : Colors.white38,
+                              c: localSelected != null
+                                  ? Colors.black
+                                  : Colors.white38,
                               ls: 0.5,
                             ),
                           ),
@@ -1696,7 +1789,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       initialTime: TimeOfDay.fromDateTime(initial),
     );
     if (time == null || !mounted) return;
-    final selected = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
     if (!selected.isAfter(now) ||
         selected.difference(now) > const Duration(minutes: 30)) {
       _showToast('Choose a start time within the next 30 minutes.');
@@ -1733,8 +1832,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   void _scheduleFaceSymmetryProcessing(double intensity) {
     _faceSymmetryUpdateTimer?.cancel();
     _faceSymmetryUpdateTimer = Timer(const Duration(milliseconds: 80), () async {
-      final track = widget.state.live.room?.localParticipant
-          ?.videoTrackPublications.firstOrNull?.track;
+      final track = widget
+          .state
+          .live
+          .room
+          ?.localParticipant
+          ?.videoTrackPublications
+          .firstOrNull
+          ?.track;
       if (track == null) return;
       final trackId = track.mediaStreamTrack.id;
       // Guard: trackId must be non-null and non-empty, otherwise the native plugin won't find the track
@@ -1762,11 +1867,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           if (mounted) setState(() => _faceSymmetryProcessorAttached = true);
         }
       } on PlatformException catch (error) {
-        debugPrint('Necxa Live: Face symmetry processor error: ${error.message}');
+        debugPrint(
+          'Necxa Live: Face symmetry processor error: ${error.message}',
+        );
         // If attach/setIntensity fails, reset state so next call retries attach cleanly
         if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       } on MissingPluginException {
-        debugPrint('Necxa Live: Face symmetry processor is not available on this platform.');
+        debugPrint(
+          'Necxa Live: Face symmetry processor is not available on this platform.',
+        );
         if (mounted) setState(() => _faceSymmetryProcessorAttached = false);
       } catch (error) {
         debugPrint('Necxa Live: Could not update face symmetry: $error');
@@ -1807,7 +1916,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       Expanded(
                         child: Container(
                           height: 44,
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.55),
                             borderRadius: BorderRadius.circular(22),
@@ -1825,16 +1937,28 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                 decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
                                   gradient: LinearGradient(
-                                    colors: [Color(0xFFFF176B), Color(0xFF00E5FF)],
+                                    colors: [
+                                      Color(0xFFFF176B),
+                                      Color(0xFF00E5FF),
+                                    ],
                                   ),
                                 ),
                                 child: CircleAvatar(
                                   backgroundColor: const Color(0xFF242738),
-                                  backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
+                                  backgroundImage: avatar.isNotEmpty
+                                      ? CachedNetworkImageProvider(avatar)
+                                      : null,
                                   child: avatar.isEmpty
                                       ? Text(
-                                          _hostDisplayName.isNotEmpty ? _hostDisplayName[0].toUpperCase() : 'H',
-                                          style: dm(sz: 11, w: FontWeight.w900, c: Colors.white),
+                                          _hostDisplayName.isNotEmpty
+                                              ? _hostDisplayName[0]
+                                                    .toUpperCase()
+                                              : 'H',
+                                          style: dm(
+                                            sz: 11,
+                                            w: FontWeight.w900,
+                                            c: Colors.white,
+                                          ),
                                         )
                                       : null,
                                 ),
@@ -1849,8 +1973,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       children: [
                                         Flexible(
                                           child: Text(
-                                            _hostDisplayName.isNotEmpty ? _hostDisplayName : 'Your Live',
-                                            style: syne(sz: 12, w: FontWeight.w800, c: Colors.white),
+                                            _hostDisplayName.isNotEmpty
+                                                ? _hostDisplayName
+                                                : 'Your Live',
+                                            style: syne(
+                                              sz: 12,
+                                              w: FontWeight.w800,
+                                              c: Colors.white,
+                                            ),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
@@ -1898,7 +2028,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFFF176B).withValues(alpha: 0.35),
+                                color: const Color(
+                                  0xFFFF176B,
+                                ).withValues(alpha: 0.35),
                                 blurRadius: 10,
                                 offset: const Offset(0, 2),
                               ),
@@ -1907,7 +2039,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           alignment: Alignment.center,
                           child: Text(
                             'LIVE',
-                            style: syne(sz: 13, w: FontWeight.w900, c: Colors.white, ls: 0.5),
+                            style: syne(
+                              sz: 13,
+                              w: FontWeight.w900,
+                              c: Colors.white,
+                              ls: 0.5,
+                            ),
                           ),
                         ),
                       ),
@@ -1921,7 +2058,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           height: 44,
                           decoration: BoxDecoration(
                             color: _isStudioPinned
-                                ? const Color(0xFF00E5FF).withValues(alpha: 0.18)
+                                ? const Color(
+                                    0xFF00E5FF,
+                                  ).withValues(alpha: 0.18)
                                 : Colors.black.withValues(alpha: 0.55),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
@@ -1932,8 +2071,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           ),
                           alignment: Alignment.center,
                           child: Icon(
-                            _isStudioPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
-                            color: _isStudioPinned ? const Color(0xFF00E5FF) : Colors.white,
+                            _isStudioPinned
+                                ? Icons.push_pin_rounded
+                                : Icons.push_pin_outlined,
+                            color: _isStudioPinned
+                                ? const Color(0xFF00E5FF)
+                                : Colors.white,
                             size: 20,
                           ),
                         ),
@@ -1949,10 +2092,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.55),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.12),
+                            ),
                           ),
                           alignment: Alignment.center,
-                          child: const Icon(Icons.close, color: Colors.white, size: 22),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 22,
+                          ),
                         ),
                       ),
                     ],
@@ -1966,39 +2115,62 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       Expanded(
                         child: GestureDetector(
                           onTap: () {
-                            if (topGifterName == null || topGifterName.isEmpty) {
-                              _showToast('Top supporter will be highlighted here in real-time');
+                            if (topGifterName == null ||
+                                topGifterName.isEmpty) {
+                              _showToast(
+                                'Top supporter will be highlighted here in real-time',
+                              );
                             } else {
                               _showLiveAudience();
                             }
                           },
                           child: Container(
                             height: 48,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.55),
                               borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.12),
+                              ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.local_fire_department_rounded, color: Color(0xFFFF9100), size: 22),
+                                const Icon(
+                                  Icons.local_fire_department_rounded,
+                                  color: Color(0xFFFF9100),
+                                  size: 22,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Text(
                                         'TOP GIFTER',
-                                        style: dm(sz: 8.5, w: FontWeight.w700, c: Colors.white54, ls: 0.4),
+                                        style: dm(
+                                          sz: 8.5,
+                                          w: FontWeight.w700,
+                                          c: Colors.white54,
+                                          ls: 0.4,
+                                        ),
                                       ),
                                       const SizedBox(height: 1),
                                       Text(
-                                        topGifterName != null && topGifterName.isNotEmpty
+                                        topGifterName != null &&
+                                                topGifterName.isNotEmpty
                                             ? '$topGifterName ($topGifterAmount)'
                                             : 'No gifts yet',
-                                        style: syne(sz: 11, w: FontWeight.w600, c: Colors.white),
+                                        style: syne(
+                                          sz: 11,
+                                          w: FontWeight.w600,
+                                          c: Colors.white,
+                                        ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -2018,11 +2190,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           onTap: _openGoalDialog,
                           child: Container(
                             height: 48,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.55),
                               borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.12),
+                              ),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2030,26 +2207,44 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               children: [
                                 Row(
                                   children: [
-                                    const Icon(Icons.card_giftcard_rounded, color: Color(0xFFFFD700), size: 17),
+                                    const Icon(
+                                      Icons.card_giftcard_rounded,
+                                      color: Color(0xFFFFD700),
+                                      size: 17,
+                                    ),
                                     const SizedBox(width: 6),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'GOAL',
-                                            style: dm(sz: 8.5, w: FontWeight.w700, c: Colors.white54, ls: 0.4),
+                                            style: dm(
+                                              sz: 8.5,
+                                              w: FontWeight.w700,
+                                              c: Colors.white54,
+                                              ls: 0.4,
+                                            ),
                                           ),
                                           Text(
                                             '$giftTotal / $giftGoal NCX',
-                                            style: syne(sz: 10.5, w: FontWeight.w700, c: Colors.white),
+                                            style: syne(
+                                              sz: 10.5,
+                                              w: FontWeight.w700,
+                                              c: Colors.white,
+                                            ),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ],
                                       ),
                                     ),
-                                    const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
+                                    const Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: Colors.white54,
+                                      size: 16,
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 3),
@@ -2059,7 +2254,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                     value: goalProgress,
                                     minHeight: 2.5,
                                     backgroundColor: Colors.white12,
-                                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7B2FFF)),
+                                    valueColor:
+                                        const AlwaysStoppedAnimation<Color>(
+                                          Color(0xFF7B2FFF),
+                                        ),
                                   ),
                                 ),
                               ],
@@ -2076,7 +2274,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     onTap: _openMusicPickerSheet,
                     child: Container(
                       height: 50,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: _selectedMusicTrack != null
                             ? const Color(0xFF7B2FFF).withValues(alpha: 0.2)
@@ -2097,8 +2298,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               shape: BoxShape.circle,
                               gradient: LinearGradient(
                                 colors: _selectedMusicTrack != null
-                                    ? [const Color(0xFF00E5FF), const Color(0xFFFF176B)]
-                                    : [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)],
+                                    ? [
+                                        const Color(0xFF00E5FF),
+                                        const Color(0xFFFF176B),
+                                      ]
+                                    : [
+                                        const Color(0xFF7B2FFF),
+                                        const Color(0xFF00E5FF),
+                                      ],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                               ),
@@ -2118,8 +2325,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  _selectedMusicTrack ?? 'Add music & get gifts',
-                                  style: syne(sz: 12, w: FontWeight.w700, c: Colors.white),
+                                  _selectedMusicTrack ??
+                                      'Add music & get gifts',
+                                  style: syne(
+                                    sz: 12,
+                                    w: FontWeight.w700,
+                                    c: Colors.white,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -2136,7 +2348,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             ),
                           ),
                           Icon(
-                            _selectedMusicTrack != null ? Icons.tune_rounded : Icons.chevron_right_rounded,
+                            _selectedMusicTrack != null
+                                ? Icons.tune_rounded
+                                : Icons.chevron_right_rounded,
                             color: Colors.white60,
                             size: 20,
                           ),
@@ -2182,7 +2396,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           children: [
                             // Top-left 'X' inside card
                             GestureDetector(
-                              onTap: _startingBroadcast ? null : _closeLiveStudio,
+                              onTap: _startingBroadcast
+                                  ? null
+                                  : _closeLiveStudio,
                               child: Container(
                                 width: 36,
                                 height: 36,
@@ -2191,7 +2407,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                   shape: BoxShape.circle,
                                 ),
                                 alignment: Alignment.center,
-                                child: const Icon(Icons.close, color: Colors.white, size: 22),
+                                child: const Icon(
+                                  Icons.close,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
                               ),
                             ),
 
@@ -2199,17 +2419,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             GestureDetector(
                               onTap: _openTitleEditSheet,
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.black.withValues(alpha: 0.6),
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
-                                    color: const Color(0xFF2979FF).withValues(alpha: 0.45),
+                                    color: const Color(
+                                      0xFF2979FF,
+                                    ).withValues(alpha: 0.45),
                                     width: 1.1,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: const Color(0xFF2979FF).withValues(alpha: 0.16),
+                                      color: const Color(
+                                        0xFF2979FF,
+                                      ).withValues(alpha: 0.16),
                                       blurRadius: 10,
                                     ),
                                   ],
@@ -2225,30 +2452,55 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       decoration: const BoxDecoration(
                                         shape: BoxShape.circle,
                                         gradient: LinearGradient(
-                                          colors: [Color(0xFF7B2FFF), Color(0xFF00E5FF)],
+                                          colors: [
+                                            Color(0xFF7B2FFF),
+                                            Color(0xFF00E5FF),
+                                          ],
                                         ),
                                       ),
                                       child: CircleAvatar(
-                                        backgroundColor: const Color(0xFF242738),
-                                        backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
+                                        backgroundColor: const Color(
+                                          0xFF242738,
+                                        ),
+                                        backgroundImage: avatar.isNotEmpty
+                                            ? CachedNetworkImageProvider(avatar)
+                                            : null,
                                         child: avatar.isEmpty
-                                            ? const Icon(Icons.person, size: 12, color: Colors.white70)
+                                            ? const Icon(
+                                                Icons.person,
+                                                size: 12,
+                                                color: Colors.white70,
+                                              )
                                             : null,
                                       ),
                                     ),
                                     const SizedBox(width: 7),
                                     Text(
-                                      _liveTitleController.text.trim().isNotEmpty
+                                      _liveTitleController.text
+                                              .trim()
+                                              .isNotEmpty
                                           ? _liveTitleController.text.trim()
                                           : 'Your Live',
-                                      style: syne(sz: 12, w: FontWeight.w700, c: Colors.white),
+                                      style: syne(
+                                        sz: 12,
+                                        w: FontWeight.w700,
+                                        c: Colors.white,
+                                      ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(width: 6),
-                                    const Icon(Icons.edit_outlined, size: 12, color: Colors.white70),
+                                    const Icon(
+                                      Icons.edit_outlined,
+                                      size: 12,
+                                      color: Colors.white70,
+                                    ),
                                     const SizedBox(width: 4),
-                                    const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 18),
+                                    const Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      color: Colors.white70,
+                                      size: 18,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -2261,7 +2513,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       Center(
                         child: GestureDetector(
                           onTap: _triggerFocusCamera,
-                          child: _ReticleViewfinder(isFocusing: _isFocusingCamera),
+                          child: _ReticleViewfinder(
+                            isFocusing: _isFocusingCamera,
+                          ),
                         ),
                       ),
 
@@ -2318,13 +2572,22 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             // Mode Switcher Capsule (Camera | Voice | Gaming Beta)
                             Container(
                               height: 48,
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.black.withValues(alpha: 0.65),
                                 borderRadius: BorderRadius.circular(24),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                  width: 1,
+                                ),
                                 boxShadow: const [
-                                  BoxShadow(color: Colors.black45, blurRadius: 14, offset: Offset(0, 3)),
+                                  BoxShadow(
+                                    color: Colors.black45,
+                                    blurRadius: 14,
+                                    offset: Offset(0, 3),
+                                  ),
                                 ],
                               ),
                               child: Row(
@@ -2354,7 +2617,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                     width: 1,
                                     height: 20,
                                     color: Colors.white24,
-                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
                                   ),
 
                                   // Gaming
@@ -2375,14 +2640,22 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
 
                             // Prominent Gradient "Go LIVE" Button
                             GestureDetector(
-                              onTap: _startingBroadcast ? null : _startBroadcast,
+                              onTap: _startingBroadcast
+                                  ? null
+                                  : _startBroadcast,
                               child: Container(
                                 height: 50,
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
                                     colors: _startingBroadcast
-                                        ? [Colors.grey.shade700, Colors.grey.shade600]
-                                        : [const Color(0xFF7B2FFF), const Color(0xFF00E5FF)],
+                                        ? [
+                                            Colors.grey.shade700,
+                                            Colors.grey.shade600,
+                                          ]
+                                        : [
+                                            const Color(0xFF7B2FFF),
+                                            const Color(0xFF00E5FF),
+                                          ],
                                     begin: Alignment.centerLeft,
                                     end: Alignment.centerRight,
                                   ),
@@ -2390,7 +2663,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                   boxShadow: [
                                     if (!_startingBroadcast)
                                       BoxShadow(
-                                        color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                                        color: const Color(
+                                          0xFF00E5FF,
+                                        ).withValues(alpha: 0.4),
                                         blurRadius: 18,
                                         spreadRadius: 1,
                                         offset: const Offset(0, 4),
@@ -2402,16 +2677,28 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       ? const SizedBox(
                                           width: 22,
                                           height: 22,
-                                          child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.2,
+                                            color: Colors.white,
+                                          ),
                                         )
                                       : Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(Icons.wifi_tethering_rounded, color: Colors.white, size: 22),
+                                            const Icon(
+                                              Icons.wifi_tethering_rounded,
+                                              color: Colors.white,
+                                              size: 22,
+                                            ),
                                             const SizedBox(width: 8),
                                             Text(
                                               'Go LIVE',
-                                              style: syne(sz: 16, w: FontWeight.w900, c: Colors.white, ls: 0.8),
+                                              style: syne(
+                                                sz: 16,
+                                                w: FontWeight.w900,
+                                                c: Colors.white,
+                                                ls: 0.8,
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -2425,14 +2712,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.white60, size: 18),
+                                const Icon(
+                                  Icons.keyboard_arrow_up_rounded,
+                                  color: Colors.white60,
+                                  size: 18,
+                                ),
                                 const SizedBox(height: 2),
                                 Container(
                                   height: 42,
                                   decoration: BoxDecoration(
                                     color: Colors.black.withValues(alpha: 0.65),
                                     borderRadius: BorderRadius.circular(21),
-                                    border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      width: 1,
+                                    ),
                                   ),
                                   child: Row(
                                     children: [
@@ -2440,38 +2736,79 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                       Expanded(
                                         child: InkWell(
                                           onTap: () => _openLiveEffectsSheet(),
-                                          borderRadius: const BorderRadius.horizontal(left: Radius.circular(21)),
+                                          borderRadius:
+                                              const BorderRadius.horizontal(
+                                                left: Radius.circular(21),
+                                              ),
                                           child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
                                             children: [
-                                              const Icon(Icons.auto_awesome, color: C.brand, size: 15),
+                                              const Icon(
+                                                Icons.auto_awesome,
+                                                color: C.brand,
+                                                size: 15,
+                                              ),
                                               const SizedBox(width: 6),
-                                              Text('Effects', style: dm(sz: 12, w: FontWeight.w600, c: Colors.white)),
+                                              Text(
+                                                'Effects',
+                                                style: dm(
+                                                  sz: 12,
+                                                  w: FontWeight.w600,
+                                                  c: Colors.white,
+                                                ),
+                                              ),
                                               const SizedBox(width: 4),
-                                              const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
+                                              const Icon(
+                                                Icons.chevron_right_rounded,
+                                                color: Colors.white54,
+                                                size: 16,
+                                              ),
                                             ],
                                           ),
                                         ),
                                       ),
 
-                                      Container(width: 1, height: 20, color: Colors.white24),
+                                      Container(
+                                        width: 1,
+                                        height: 20,
+                                        color: Colors.white24,
+                                      ),
 
                                       // Schedule >
                                       Expanded(
                                         child: InkWell(
                                           onTap: _pickBroadcastTime,
-                                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(21)),
+                                          borderRadius:
+                                              const BorderRadius.horizontal(
+                                                right: Radius.circular(21),
+                                              ),
                                           child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
                                             children: [
-                                              const Icon(Icons.calendar_month_outlined, color: Colors.white, size: 15),
+                                              const Icon(
+                                                Icons.calendar_month_outlined,
+                                                color: Colors.white,
+                                                size: 15,
+                                              ),
                                               const SizedBox(width: 6),
                                               Text(
-                                                _plannedBroadcastTime != null ? _plannedBroadcastLabel() : 'Schedule',
-                                                style: dm(sz: 12, w: FontWeight.w600, c: Colors.white),
+                                                _plannedBroadcastTime != null
+                                                    ? _plannedBroadcastLabel()
+                                                    : 'Schedule',
+                                                style: dm(
+                                                  sz: 12,
+                                                  w: FontWeight.w600,
+                                                  c: Colors.white,
+                                                ),
                                               ),
                                               const SizedBox(width: 4),
-                                              const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 16),
+                                              const Icon(
+                                                Icons.chevron_right_rounded,
+                                                color: Colors.white54,
+                                                size: 16,
+                                              ),
                                             ],
                                           ),
                                         ),
@@ -2513,7 +2850,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               color: Colors.black.withValues(alpha: 0.5),
               shape: BoxShape.circle,
               border: Border.all(
-                color: hasGlow ? const Color(0xFF00E5FF) : Colors.white.withValues(alpha: 0.18),
+                color: hasGlow
+                    ? const Color(0xFF00E5FF)
+                    : Colors.white.withValues(alpha: 0.18),
                 width: 1.2,
               ),
               boxShadow: [
@@ -2556,7 +2895,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: active ? Colors.white : Colors.white60),
+              Icon(
+                icon,
+                size: 18,
+                color: active ? Colors.white : Colors.white60,
+              ),
               const SizedBox(width: 5),
               Text(
                 label,
@@ -2569,7 +2912,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               if (badge != null) ...[
                 const SizedBox(width: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF7B2FFF),
                     borderRadius: BorderRadius.circular(5),
@@ -2629,7 +2975,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     ),
                   ),
                 ),
-                Text('Stream Title', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+                Text(
+                  'Stream Title',
+                  style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+                ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: titleCtrl,
@@ -2641,8 +2990,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     hintStyle: const TextStyle(color: Colors.white38),
                     filled: true,
                     fillColor: Colors.black.withValues(alpha: 0.4),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-                    prefixIcon: const Icon(Icons.edit_note_rounded, color: C.brand),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.edit_note_rounded,
+                      color: C.brand,
+                    ),
                     counterText: '',
                   ),
                 ),
@@ -2651,16 +3006,23 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: () {
-                      setState(() => _liveTitleController.text = titleCtrl.text.trim());
+                      setState(
+                        () => _liveTitleController.text = titleCtrl.text.trim(),
+                      );
                       Navigator.pop(ctx);
                     },
                     style: FilledButton.styleFrom(
                       backgroundColor: C.brand,
                       foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
-                    child: Text('Done', style: syne(sz: 14, w: FontWeight.bold)),
+                    child: Text(
+                      'Done',
+                      style: syne(sz: 14, w: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],
@@ -2710,7 +3072,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     ),
                     const Spacer(),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white70, size: 20),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white70,
+                        size: 20,
+                      ),
                       onPressed: () => Navigator.pop(sheetCtx),
                     ),
                   ],
@@ -2721,7 +3087,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 _moreSettingTile(
                   icon: Icons.flip_rounded,
                   title: 'Mirror Camera',
-                  subtitle: _mirrorMode ? 'Flipped horizontally' : 'Standard view',
+                  subtitle: _mirrorMode
+                      ? 'Flipped horizontally'
+                      : 'Standard view',
                   value: _mirrorMode,
                   onChanged: (val) {
                     setState(() => _mirrorMode = val);
@@ -2765,11 +3133,26 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       color: Colors.white.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(Icons.flag_rounded, color: _liveGoal.isNotEmpty ? C.brand : Colors.white70, size: 20),
+                    child: Icon(
+                      Icons.flag_rounded,
+                      color: _liveGoal.isNotEmpty ? C.brand : Colors.white70,
+                      size: 20,
+                    ),
                   ),
-                  title: Text('Live Goal', style: dm(sz: 14, w: FontWeight.w600, c: Colors.white)),
-                  subtitle: Text(_liveGoal.isNotEmpty ? _liveGoal : 'Set a target for viewers', style: dm(sz: 11, c: C.dim)),
-                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+                  title: Text(
+                    'Live Goal',
+                    style: dm(sz: 14, w: FontWeight.w600, c: Colors.white),
+                  ),
+                  subtitle: Text(
+                    _liveGoal.isNotEmpty
+                        ? _liveGoal
+                        : 'Set a target for viewers',
+                    style: dm(sz: 11, c: C.dim),
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white54,
+                  ),
                   onTap: () {
                     Navigator.pop(sheetCtx);
                     _openGoalDialog();
@@ -2785,11 +3168,28 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       color: Colors.white.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(Icons.calendar_month_outlined, color: _plannedBroadcastTime != null ? C.brand : Colors.white70, size: 20),
+                    child: Icon(
+                      Icons.calendar_month_outlined,
+                      color: _plannedBroadcastTime != null
+                          ? C.brand
+                          : Colors.white70,
+                      size: 20,
+                    ),
                   ),
-                  title: Text('Schedule Broadcast', style: dm(sz: 14, w: FontWeight.w600, c: Colors.white)),
-                  subtitle: Text(_plannedBroadcastTime != null ? _plannedBroadcastLabel() : 'Not scheduled', style: dm(sz: 11, c: C.dim)),
-                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+                  title: Text(
+                    'Schedule Broadcast',
+                    style: dm(sz: 14, w: FontWeight.w600, c: Colors.white),
+                  ),
+                  subtitle: Text(
+                    _plannedBroadcastTime != null
+                        ? _plannedBroadcastLabel()
+                        : 'Not scheduled',
+                    style: dm(sz: 11, c: C.dim),
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white54,
+                  ),
                   onTap: () {
                     Navigator.pop(sheetCtx);
                     _pickBroadcastTime();
@@ -2820,14 +3220,21 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               color: Colors.white.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: value ? C.brand : Colors.white70, size: 20),
+            child: Icon(
+              icon,
+              color: value ? C.brand : Colors.white70,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: dm(sz: 14, w: FontWeight.w600, c: Colors.white)),
+                Text(
+                  title,
+                  style: dm(sz: 14, w: FontWeight.w600, c: Colors.white),
+                ),
                 Text(subtitle, style: dm(sz: 11, c: C.dim)),
               ],
             ),
@@ -2842,18 +3249,32 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-  Widget _buildEffectsAndBeautyTray({StateSetter? setSheetState, bool Function()? isSheetMounted}) {
-    final categories = ['All', 'beauty', 'super_face', 'symmetry', 'glow', 'color', 'creative'];
+  Widget _buildEffectsAndBeautyTray({
+    StateSetter? setSheetState,
+    bool Function()? isSheetMounted,
+  }) {
+    final categories = [
+      'All',
+      'beauty',
+      'super_face',
+      'symmetry',
+      'glow',
+      'color',
+      'creative',
+    ];
     final filteredCatalogue = _activeCategoryTab == 'All'
         ? _catalogueFilters
-        : _catalogueFilters.where((f) => f.category == _activeCategoryTab).toList();
+        : _catalogueFilters
+              .where((f) => f.category == _activeCategoryTab)
+              .toList();
 
     void update(VoidCallback fn) {
       if (mounted) setState(fn);
       // Guard: only call setSheetState if the sheet is still mounted to prevent
       // "setState() called after dispose()" crashes when the user moves the
       // Facial Symmetry (or any beauty) slider while the sheet is animating closed.
-      if (setSheetState != null && (isSheetMounted == null || isSheetMounted())) {
+      if (setSheetState != null &&
+          (isSheetMounted == null || isSheetMounted())) {
         try {
           setSheetState(fn);
         } catch (_) {
@@ -2878,18 +3299,29 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               GestureDetector(
                 onTap: () => update(() => _effectsPanelTab = 0),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: _effectsPanelTab == 0 ? C.brand.withValues(alpha: 0.25) : Colors.transparent,
+                    color: _effectsPanelTab == 0
+                        ? C.brand.withValues(alpha: 0.25)
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: _effectsPanelTab == 0 ? C.brand : Colors.transparent,
+                      color: _effectsPanelTab == 0
+                          ? C.brand
+                          : Colors.transparent,
                     ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.auto_awesome, size: 13, color: _effectsPanelTab == 0 ? C.brand : Colors.white60),
+                      Icon(
+                        Icons.auto_awesome,
+                        size: 13,
+                        color: _effectsPanelTab == 0 ? C.brand : Colors.white60,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         'Smart Filters',
@@ -2907,18 +3339,29 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               GestureDetector(
                 onTap: () => update(() => _effectsPanelTab = 1),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: _effectsPanelTab == 1 ? C.brand.withValues(alpha: 0.25) : Colors.transparent,
+                    color: _effectsPanelTab == 1
+                        ? C.brand.withValues(alpha: 0.25)
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: _effectsPanelTab == 1 ? C.brand : Colors.transparent,
+                      color: _effectsPanelTab == 1
+                          ? C.brand
+                          : Colors.transparent,
                     ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.face_retouching_natural, size: 13, color: _effectsPanelTab == 1 ? C.brand : Colors.white60),
+                      Icon(
+                        Icons.face_retouching_natural,
+                        size: 13,
+                        color: _effectsPanelTab == 1 ? C.brand : Colors.white60,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         'Beauty Retouch',
@@ -2933,7 +3376,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 ),
               ),
               const Spacer(),
-              if (_activeCatalogueFilter != null || _beautySmoothing > 0 || _beautyWhitening > 0 || _faceSymmetry > 0 || _makeupGender > 0)
+              if (_activeCatalogueFilter != null ||
+                  _beautySmoothing > 0 ||
+                  _beautyWhitening > 0 ||
+                  _faceSymmetry > 0 ||
+                  _makeupGender > 0)
                 GestureDetector(
                   onTap: () {
                     update(() {
@@ -2952,7 +3399,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     });
                     _scheduleFaceSymmetryProcessing(0);
                   },
-                  child: Text('Reset', style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600)),
+                  child: Text(
+                    'Reset',
+                    style: dm(sz: 11, c: Colors.redAccent, w: FontWeight.w600),
+                  ),
                 ),
             ],
           ),
@@ -2972,12 +3422,17 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   final isCatActive = _activeCategoryTab == cat;
                   final label = cat == 'super_face'
                       ? 'Super Face'
-                      : (cat == 'All' ? 'All' : cat[0].toUpperCase() + cat.substring(1));
+                      : (cat == 'All'
+                            ? 'All'
+                            : cat[0].toUpperCase() + cat.substring(1));
                   return GestureDetector(
                     onTap: () => update(() => _activeCategoryTab = cat),
                     child: Container(
                       margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: isCatActive ? C.brand : Colors.white10,
                         borderRadius: BorderRadius.circular(14),
@@ -3004,14 +3459,21 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             SizedBox(
               height: 96,
               child: _loadingCatalogue && _catalogueFilters.isEmpty
-                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2, color: C.brand))
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: C.brand,
+                      ),
+                    )
                   : ListView(
                       scrollDirection: Axis.horizontal,
                       children: [
                         // None / Original Card
                         _buildFilterCardItem(
                           displayName: 'Original',
-                          isSelected: _activeCatalogueFilter == null && _activeFilterIndex == 0,
+                          isSelected:
+                              _activeCatalogueFilter == null &&
+                              _activeFilterIndex == 0,
                           icon: Icons.block,
                           onTap: () {
                             update(() {
@@ -3023,7 +3485,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         // Dynamic Catalogue Filter Cards
                         ...filteredCatalogue.map((filter) {
                           if (filter.isNone) return const SizedBox.shrink();
-                          final isSelected = _activeCatalogueFilter?.id == filter.id;
+                          final isSelected =
+                              _activeCatalogueFilter?.id == filter.id;
                           return _buildFilterCardItem(
                             displayName: filter.displayName,
                             isSelected: isSelected,
@@ -3041,7 +3504,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             ),
 
             // Intensity Slider (when a catalogue filter is active)
-            if (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ...[
+            if (_activeCatalogueFilter != null &&
+                !_activeCatalogueFilter!.isNone) ...[
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -3059,7 +3523,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         value: _catalogueFilterIntensity,
                         min: 0,
                         max: 1,
-                        onChanged: (v) => update(() => _catalogueFilterIntensity = v),
+                        onChanged: (v) =>
+                            update(() => _catalogueFilterIntensity = v),
                       ),
                     ),
                   ),
@@ -3085,17 +3550,26 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: Row(
                   children: [
                     Text('Finish: ', style: dm(sz: 10, c: Colors.white60)),
-                    for (final item in [(0, 'Natural'), (1, 'Radiant'), (2, 'Matte')]) ...[
+                    for (final item in [
+                      (0, 'Natural'),
+                      (1, 'Radiant'),
+                      (2, 'Matte'),
+                    ]) ...[
                       GestureDetector(
                         onTap: () {
                           HapticFeedback.selectionClick();
                           update(() => _skinSmoothingMode = item.$1);
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           margin: const EdgeInsets.only(right: 6),
                           decoration: BoxDecoration(
-                            color: _skinSmoothingMode == item.$1 ? C.brand : Colors.white10,
+                            color: _skinSmoothingMode == item.$1
+                                ? C.brand
+                                : Colors.white10,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
@@ -3103,7 +3577,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             style: dm(
                               sz: 9,
                               w: FontWeight.w700,
-                              c: _skinSmoothingMode == item.$1 ? Colors.black : Colors.white70,
+                              c: _skinSmoothingMode == item.$1
+                                  ? Colors.black
+                                  : Colors.white70,
                             ),
                           ),
                         ),
@@ -3127,17 +3603,26 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 child: Row(
                   children: [
                     Text('Tone: ', style: dm(sz: 10, c: Colors.white60)),
-                    for (final item in [(0, 'Warm Glow'), (1, 'Porcelain'), (2, 'Natural')]) ...[
+                    for (final item in [
+                      (0, 'Warm Glow'),
+                      (1, 'Porcelain'),
+                      (2, 'Natural'),
+                    ]) ...[
                       GestureDetector(
                         onTap: () {
                           HapticFeedback.selectionClick();
                           update(() => _skinBrighteningTone = item.$1);
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           margin: const EdgeInsets.only(right: 6),
                           decoration: BoxDecoration(
-                            color: _skinBrighteningTone == item.$1 ? C.brand : Colors.white10,
+                            color: _skinBrighteningTone == item.$1
+                                ? C.brand
+                                : Colors.white10,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
@@ -3145,7 +3630,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             style: dm(
                               sz: 9,
                               w: FontWeight.w700,
-                              c: _skinBrighteningTone == item.$1 ? Colors.black : Colors.white70,
+                              c: _skinBrighteningTone == item.$1
+                                  ? Colors.black
+                                  : Colors.white70,
                             ),
                           ),
                         ),
@@ -3181,7 +3668,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         }
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: _symmetryMirrorLeft ? C.brand : Colors.white10,
                           borderRadius: BorderRadius.circular(10),
@@ -3191,7 +3681,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           style: dm(
                             sz: 9,
                             w: FontWeight.w700,
-                            c: _symmetryMirrorLeft ? Colors.black : Colors.white70,
+                            c: _symmetryMirrorLeft
+                                ? Colors.black
+                                : Colors.white70,
                           ),
                         ),
                       ),
@@ -3206,9 +3698,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         }
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
-                          color: !_symmetryMirrorLeft ? C.brand : Colors.white10,
+                          color: !_symmetryMirrorLeft
+                              ? C.brand
+                              : Colors.white10,
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
@@ -3216,7 +3713,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           style: dm(
                             sz: 9,
                             w: FontWeight.w700,
-                            c: !_symmetryMirrorLeft ? Colors.black : Colors.white70,
+                            c: !_symmetryMirrorLeft
+                                ? Colors.black
+                                : Colors.white70,
                           ),
                         ),
                       ),
@@ -3231,9 +3730,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            _showSymmetryGuide ? Icons.visibility : Icons.visibility_off,
+                            _showSymmetryGuide
+                                ? Icons.visibility
+                                : Icons.visibility_off,
                             size: 13,
-                            color: _showSymmetryGuide ? C.brand : Colors.white38,
+                            color: _showSymmetryGuide
+                                ? C.brand
+                                : Colors.white38,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -3257,9 +3760,16 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
             // Studio Makeup (Women & Men)
             Row(
               children: [
-                const Icon(Icons.auto_awesome, color: Color(0xFF00E5FF), size: 16),
+                const Icon(
+                  Icons.auto_awesome,
+                  color: Color(0xFF00E5FF),
+                  size: 16,
+                ),
                 const SizedBox(width: 8),
-                Text('Studio Makeup', style: syne(sz: 12, w: FontWeight.w800, c: Colors.white)),
+                Text(
+                  'Studio Makeup',
+                  style: syne(sz: 12, w: FontWeight.w800, c: Colors.white),
+                ),
                 const Spacer(),
                 for (final item in [(0, 'None'), (1, 'Women'), (2, 'Men')]) ...[
                   GestureDetector(
@@ -3273,10 +3783,15 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       });
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       margin: const EdgeInsets.only(left: 5),
                       decoration: BoxDecoration(
-                        color: _makeupGender == item.$1 ? C.brand : Colors.white10,
+                        color: _makeupGender == item.$1
+                            ? C.brand
+                            : Colors.white10,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -3284,7 +3799,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         style: dm(
                           sz: 10,
                           w: FontWeight.w700,
-                          c: _makeupGender == item.$1 ? Colors.black : Colors.white70,
+                          c: _makeupGender == item.$1
+                              ? Colors.black
+                              : Colors.white70,
                         ),
                       ),
                     ),
@@ -3299,20 +3816,34 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 children: [
                   const SizedBox(width: 24),
                   Text('Look: ', style: dm(sz: 10, c: Colors.white60)),
-                  for (final item in (_makeupGender == 1
-                      ? [(0, 'Rosy Glow'), (1, 'Natural Nude'), (2, 'Sunset Glam')]
-                      : [(0, 'Clean Groomed'), (1, 'Sharp Contour'), (2, 'Sun-Kissed')])) ...[
+                  for (final item
+                      in (_makeupGender == 1
+                          ? [
+                              (0, 'Rosy Glow'),
+                              (1, 'Natural Nude'),
+                              (2, 'Sunset Glam'),
+                            ]
+                          : [
+                              (0, 'Clean Groomed'),
+                              (1, 'Sharp Contour'),
+                              (2, 'Sun-Kissed'),
+                            ])) ...[
                     GestureDetector(
                       onTap: () {
                         HapticFeedback.selectionClick();
                         update(() => _makeupStyle = item.$1);
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         margin: const EdgeInsets.only(right: 6),
                         decoration: BoxDecoration(
                           color: _makeupStyle == item.$1
-                              ? (_makeupGender == 1 ? const Color(0xFFFF4081) : const Color(0xFF00E5FF))
+                              ? (_makeupGender == 1
+                                    ? const Color(0xFFFF4081)
+                                    : const Color(0xFF00E5FF))
                               : Colors.white10,
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -3321,7 +3852,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           style: dm(
                             sz: 9,
                             w: FontWeight.w700,
-                            c: _makeupStyle == item.$1 ? Colors.black : Colors.white70,
+                            c: _makeupStyle == item.$1
+                                ? Colors.black
+                                : Colors.white70,
                           ),
                         ),
                       ),
@@ -3338,7 +3871,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     Expanded(
                       child: SliderTheme(
                         data: SliderThemeData(
-                          activeTrackColor: _makeupGender == 1 ? const Color(0xFFFF4081) : const Color(0xFF00E5FF),
+                          activeTrackColor: _makeupGender == 1
+                              ? const Color(0xFFFF4081)
+                              : const Color(0xFF00E5FF),
                           inactiveTrackColor: Colors.white12,
                           thumbColor: Colors.white,
                           overlayColor: C.brand.withValues(alpha: 0.2),
@@ -3356,7 +3891,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                       '${(_makeupIntensity * 100).round()}%',
                       style: dm(
                         sz: 11,
-                        c: _makeupGender == 1 ? const Color(0xFFFF4081) : const Color(0xFF00E5FF),
+                        c: _makeupGender == 1
+                            ? const Color(0xFFFF4081)
+                            : const Color(0xFF00E5FF),
                         w: FontWeight.w600,
                       ),
                     ),
@@ -3394,7 +3931,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           children: [
             Expanded(
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(12),
+                ),
                 child: Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
@@ -3456,7 +3995,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               height: MediaQuery.sizeOf(sheetCtx).height * 0.75,
               decoration: BoxDecoration(
                 color: const Color(0xF20D1017),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
                 border: Border.all(color: Colors.white12, width: 1.2),
               ),
               child: Column(
@@ -3473,12 +4014,26 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.auto_awesome, color: C.brand, size: 20),
+                        const Icon(
+                          Icons.auto_awesome,
+                          color: C.brand,
+                          size: 20,
+                        ),
                         const SizedBox(width: 8),
-                        Text('Studio Effects & Beauty', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+                        Text(
+                          'Studio Effects & Beauty',
+                          style: syne(
+                            sz: 16,
+                            w: FontWeight.bold,
+                            c: Colors.white,
+                          ),
+                        ),
                         const Spacer(),
                         IconButton(
                           icon: const Icon(Icons.check, color: C.brand),
@@ -3493,7 +4048,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   Expanded(
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       child: _buildEffectsAndBeautyTray(
                         setSheetState: setSheet,
                         isSheetMounted: () => sheetAlive,
@@ -3508,8 +4066,6 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       ),
     ).whenComplete(() => sheetAlive = false);
   }
-
-
 
   // Enforcement card moved to lib/widgets/live_studio/live_enforcement_overlay.dart
 
@@ -3582,28 +4138,93 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     );
   }
 
-
   // ── Filter color matrices ──────────────────────────────────────────────────
   // Each row is [R,G,B,A,Offset] × 4 rows (RGBA)
   static const List<(String, List<double>)> _filterPresets = [
-    ('Normal', [
-      1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1,0,
-    ]),
-    ('Warm', [
-      1.2,0,0,0,0.05, 0,1.05,0,0,0, 0,0,0.85,0,0, 0,0,0,1,0,
-    ]),
-    ('Cool', [
-      0.85,0,0,0,0, 0,1.0,0,0,0, 0,0,1.25,0,0.05, 0,0,0,1,0,
-    ]),
-    ('Vivid', [
-      1.3,0,0,0,-0.1, 0,1.3,0,0,-0.1, 0,0,1.3,0,-0.1, 0,0,0,1,0,
-    ]),
-    ('Soft', [
-      0.9,0.05,0.05,0,0.02, 0.05,0.9,0.05,0,0.02, 0.05,0.05,0.9,0,0.02, 0,0,0,1,0,
-    ]),
-    ('B&W', [
-      0.33,0.59,0.11,0,0, 0.33,0.59,0.11,0,0, 0.33,0.59,0.11,0,0, 0,0,0,1,0,
-    ]),
+    ('Normal', [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]),
+    (
+      'Warm',
+      [1.2, 0, 0, 0, 0.05, 0, 1.05, 0, 0, 0, 0, 0, 0.85, 0, 0, 0, 0, 0, 1, 0],
+    ),
+    (
+      'Cool',
+      [0.85, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 1.25, 0, 0.05, 0, 0, 0, 1, 0],
+    ),
+    (
+      'Vivid',
+      [
+        1.3,
+        0,
+        0,
+        0,
+        -0.1,
+        0,
+        1.3,
+        0,
+        0,
+        -0.1,
+        0,
+        0,
+        1.3,
+        0,
+        -0.1,
+        0,
+        0,
+        0,
+        1,
+        0,
+      ],
+    ),
+    (
+      'Soft',
+      [
+        0.9,
+        0.05,
+        0.05,
+        0,
+        0.02,
+        0.05,
+        0.9,
+        0.05,
+        0,
+        0.02,
+        0.05,
+        0.05,
+        0.9,
+        0,
+        0.02,
+        0,
+        0,
+        0,
+        1,
+        0,
+      ],
+    ),
+    (
+      'B&W',
+      [
+        0.33,
+        0.59,
+        0.11,
+        0,
+        0,
+        0.33,
+        0.59,
+        0.11,
+        0,
+        0,
+        0.33,
+        0.59,
+        0.11,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+      ],
+    ),
   ];
 
   // Build a combined ColorMatrix for beauty (whitening/brightening = tone-adaptive luminance lift,
@@ -3701,10 +4322,26 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     }
 
     return [
-      rScale, 0, 0, 0, rOffset,
-      0, gScale, 0, 0, gOffset,
-      0, 0, bScale, 0, bOffset,
-      0, 0, 0, 1, 0,
+      rScale,
+      0,
+      0,
+      0,
+      rOffset,
+      0,
+      gScale,
+      0,
+      0,
+      gOffset,
+      0,
+      0,
+      bScale,
+      0,
+      bOffset,
+      0,
+      0,
+      0,
+      1,
+      0,
     ];
   }
 
@@ -3714,9 +4351,29 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     List<double> filterMatrix;
     if (_previewOriginal) {
       filterMatrix = const [
-        1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1,0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
       ];
-    } else if (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) {
+    } else if (_activeCatalogueFilter != null &&
+        !_activeCatalogueFilter!.isNone) {
       filterMatrix = NecxaEffectsEngine.buildMatrixForMeta(
         _activeCatalogueFilter!,
         intensity: _catalogueFilterIntensity,
@@ -3727,7 +4384,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       filterMatrix = legacyMatrix;
     }
 
-    final hasActiveFilter = (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
+    final hasActiveFilter =
+        (_activeCatalogueFilter != null && !_activeCatalogueFilter!.isNone) ||
         _activeFilterIndex != 0 ||
         _beautyWhitening > 0 ||
         _beautySmoothing > 0 ||
@@ -3781,10 +4439,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           end: mirrorLeft
                               ? Alignment.centerRight
                               : Alignment.centerLeft,
-                          colors: const [
-                            Color(0xFF00E5FF),
-                            Colors.transparent,
-                          ],
+                          colors: const [Color(0xFF00E5FF), Colors.transparent],
                         ),
                       ),
                     ),
@@ -3820,15 +4475,14 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       );
     }
 
-
     // Beauty skin smoothing: multi-pass edge-preserving porcelain diffusion
     if (!_previewOriginal && _beautySmoothing > 0.01) {
       final intensity = _beautySmoothing.clamp(0.0, 1.0);
       final glowColor = _skinSmoothingMode == 1
           ? const Color(0xFFFFF6EB) // Radiant / porcelain glow
           : _skinSmoothingMode == 2
-              ? const Color(0xFFEFE9DE) // Matte studio finish
-              : const Color(0xFFFFF2E2); // Natural warm diffusion
+          ? const Color(0xFFEFE9DE) // Matte studio finish
+          : const Color(0xFFFFF2E2); // Natural warm diffusion
 
       video = Stack(
         fit: StackFit.expand,
@@ -3850,7 +4504,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         radius: 0.82,
                         colors: [
                           glowColor.withValues(
-                            alpha: (_skinSmoothingMode == 1 ? 0.12 : 0.07) * intensity,
+                            alpha:
+                                (_skinSmoothingMode == 1 ? 0.12 : 0.07) *
+                                intensity,
                           ),
                           Colors.transparent,
                         ],
@@ -3971,7 +4627,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(label, style: dm(sz: 13, c: Colors.white)),
-                  Text('${(value * 100).round()}%', style: dm(sz: 12, c: Colors.white54)),
+                  Text(
+                    '${(value * 100).round()}%',
+                    style: dm(sz: 12, c: Colors.white54),
+                  ),
                 ],
               ),
               SliderTheme(
@@ -3994,7 +4653,13 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
   // (More sheet is defined above in the studio green room controls)
 
   void _openGoalDialog() {
-    final goals = ['100 Coins', '500 Coins', '1,000 Coins', '5,000 Coins', '10,000 Coins'];
+    final goals = [
+      '100 Coins',
+      '500 Coins',
+      '1,000 Coins',
+      '5,000 Coins',
+      '10,000 Coins',
+    ];
     final customCtrl = TextEditingController(text: _liveGoal);
     showModalBottomSheet(
       context: context,
@@ -4005,24 +4670,44 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)))),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Live Goal', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+                  Text(
+                    'Live Goal',
+                    style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+                  ),
                   if (_liveGoal.isNotEmpty)
                     TextButton(
                       onPressed: () {
                         setState(() => _liveGoal = '');
                         Navigator.pop(ctx);
                       },
-                      child: Text('Clear', style: dm(sz: 12, c: Colors.redAccent)),
+                      child: Text(
+                        'Clear',
+                        style: dm(sz: 12, c: Colors.redAccent),
+                      ),
                     ),
                 ],
               ),
@@ -4033,7 +4718,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 children: goals.map((g) {
                   final sel = _liveGoal == g;
                   return ChoiceChip(
-                    label: Text(g, style: dm(sz: 12, c: sel ? Colors.black : Colors.white)),
+                    label: Text(
+                      g,
+                      style: dm(sz: 12, c: sel ? Colors.black : Colors.white),
+                    ),
                     selected: sel,
                     selectedColor: C.brand,
                     backgroundColor: Colors.white10,
@@ -4057,7 +4745,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         isDense: true,
                         filled: true,
                         fillColor: Colors.white.withValues(alpha: 0.08),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                     ),
                   ),
@@ -4071,7 +4762,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     style: ElevatedButton.styleFrom(
                       backgroundColor: C.brand,
                       foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: const Text('Set'),
                   ),
@@ -4090,7 +4783,10 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: const Color(0xFF1A1D2A),
-        title: Text('Stream Title', style: syne(sz: 16, w: FontWeight.bold, c: Colors.white)),
+        title: Text(
+          'Stream Title',
+          style: syne(sz: 16, w: FontWeight.bold, c: Colors.white),
+        ),
         content: TextField(
           controller: ctrl,
           autofocus: true,
@@ -4099,14 +4795,24 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           decoration: InputDecoration(
             hintText: 'Add a catchy title…',
             hintStyle: dm(c: Colors.white38),
-            enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: C.brand)),
+            enabledBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.white24),
+            ),
+            focusedBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: C.brand),
+            ),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: Text('Cancel', style: dm(c: Colors.white54))),
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text('Cancel', style: dm(c: Colors.white54)),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: C.brand, foregroundColor: Colors.black),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: C.brand,
+              foregroundColor: Colors.black,
+            ),
             onPressed: () {
               setState(() => _liveTitleController.text = ctrl.text.trim());
               Navigator.pop(c);
@@ -4147,7 +4853,12 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(label, style: dm(sz: 14, c: Colors.white)),
-                  Text(subtitle, style: dm(sz: 11, c: Colors.white38), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    subtitle,
+                    style: dm(sz: 11, c: Colors.white38),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
             ),
@@ -4278,12 +4989,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
               const SizedBox(height: 24),
               Text(
                 'INITIALIZING ENGINE...',
-                style: syne(
-                  sz: 10,
-                  w: FontWeight.w900,
-                  c: C.dim,
-                  ls: 2,
-                ),
+                style: syne(sz: 10, w: FontWeight.w900, c: C.dim, ls: 2),
               ),
             ],
           ],
@@ -4295,11 +5001,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
     final participants = _videoParticipants(room);
     if (participants.isEmpty) {
       return Center(
-        child: Icon(
-          Icons.videocam_off_outlined,
-          color: C.dim,
-          size: 48,
-        ),
+        child: Icon(Icons.videocam_off_outlined, color: C.dim, size: 48),
       );
     }
 
@@ -4397,9 +5099,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         participants.any((participant) => participant != host);
   }
 
-  bool _isUserId(String value) =>
-      RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')
-          .hasMatch(value);
+  bool _isUserId(String value) => RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+  ).hasMatch(value);
 
   bool get _canModerateLive =>
       widget.isHost || _moderatorGuestIds.contains(widget.state.user?.id);
@@ -4446,16 +5148,33 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(displayName, style: syne(sz: 16, w: FontWeight.w900, c: C.text)),
+              Text(
+                displayName,
+                style: syne(sz: 16, w: FontWeight.w900, c: C.text),
+              ),
               const SizedBox(height: 12),
               if (guestId != widget.state.user?.id)
                 ListTile(
-                  leading: const Icon(Icons.card_giftcard_rounded, color: Color(0xFFFFA000)),
-                  title: Text('Gift $displayName', style: dm(sz: 14, c: C.text)),
-                  subtitle: Text('Send NCX directly to this guest', style: dm(sz: 11, c: C.sub)),
+                  leading: const Icon(
+                    Icons.card_giftcard_rounded,
+                    color: Color(0xFFFFA000),
+                  ),
+                  title: Text(
+                    'Gift $displayName',
+                    style: dm(sz: 14, c: C.text),
+                  ),
+                  subtitle: Text(
+                    'Send NCX directly to this guest',
+                    style: dm(sz: 11, c: C.sub),
+                  ),
                   onTap: () {
                     Navigator.pop(sheetContext);
-                    unawaited(_showGiftPicker(receiverId: guestId, receiverName: displayName));
+                    unawaited(
+                      _showGiftPicker(
+                        receiverId: guestId,
+                        receiverName: displayName,
+                      ),
+                    );
                   },
                 ),
               if (canFollow)
@@ -4467,7 +5186,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     color: C.brand,
                   ),
                   title: Text(
-                    widget.state.isFollowingSync(guestId) ? 'Unfollow' : 'Follow',
+                    widget.state.isFollowingSync(guestId)
+                        ? 'Unfollow'
+                        : 'Follow',
                     style: dm(sz: 14, c: C.text),
                   ),
                   onTap: () {
@@ -4485,7 +5206,9 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     color: const Color(0xFF62F5EA),
                   ),
                   title: Text(
-                    isModerator ? 'Remove live moderator' : 'Make live moderator',
+                    isModerator
+                        ? 'Remove live moderator'
+                        : 'Make live moderator',
                     style: dm(sz: 14, c: C.text),
                   ),
                   subtitle: Text(
@@ -4521,13 +5244,25 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.person_remove_rounded, color: Colors.redAccent),
-                  title: Text('Remove from live', style: dm(sz: 14, c: Colors.redAccent)),
-                  subtitle: Text('Returns this guest to the audience', style: dm(sz: 11, c: C.sub)),
+                  leading: const Icon(
+                    Icons.person_remove_rounded,
+                    color: Colors.redAccent,
+                  ),
+                  title: Text(
+                    'Remove from live',
+                    style: dm(sz: 14, c: Colors.redAccent),
+                  ),
+                  subtitle: Text(
+                    'Returns this guest to the audience',
+                    style: dm(sz: 11, c: C.sub),
+                  ),
                   onTap: () async {
                     Navigator.pop(sheetContext);
                     try {
-                      await widget.state.live.removeGuest(_channelName, guestId);
+                      await widget.state.live.removeGuest(
+                        _channelName,
+                        guestId,
+                      );
                       if (!mounted) return;
                       setState(() => _moderatorGuestIds.remove(guestId));
                       _showToast('$displayName was removed from the live.');
@@ -4559,9 +5294,8 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
         audioPublications.isEmpty ||
         audioPublications.every((publication) => publication.muted);
     final guestId = participant.identity;
-    final canFollowGuest = !isHostTile &&
-        guestId != widget.state.user?.id &&
-        _isUserId(guestId);
+    final canFollowGuest =
+        !isHostTile && guestId != widget.state.user?.id && _isUserId(guestId);
     final isFriend = canFollowGuest && widget.state.isFriendSync(guestId);
     final isFollowing = canFollowGuest && widget.state.isFollowingSync(guestId);
 
@@ -4605,11 +5339,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                 Positioned(
                   top: 8,
                   right: 8,
-                  child: Icon(
-                    Icons.mic_off_rounded,
-                    color: C.sub,
-                    size: 14,
-                  ),
+                  child: Icon(Icons.mic_off_rounded, color: C.sub, size: 14),
                 ),
               Positioned(
                 left: 7,
@@ -4856,18 +5586,11 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         ),
                         title: Text(
                           name,
-                          style: dm(
-                            sz: 12,
-                            w: FontWeight.w700,
-                            c: C.text,
-                          ),
+                          style: dm(sz: 12, w: FontWeight.w700, c: C.text),
                         ),
                         subtitle: username == null || username.isEmpty
                             ? null
-                            : Text(
-                                '@$username',
-                                style: dm(sz: 10, c: C.dim),
-                              ),
+                            : Text('@$username', style: dm(sz: 10, c: C.dim)),
                       );
                     },
                   ),
@@ -4966,11 +5689,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                         ),
                         title: Text(
                           name,
-                          style: dm(
-                            sz: 12,
-                            w: FontWeight.w700,
-                            c: C.text,
-                          ),
+                          style: dm(sz: 12, w: FontWeight.w700, c: C.text),
                         ),
                         subtitle: Text(
                           'Rank #$rank',
@@ -5335,10 +6054,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
       child: loading
           ? Padding(
               padding: EdgeInsets.all(10),
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: C.text,
-              ),
+              child: CircularProgressIndicator(strokeWidth: 2, color: C.text),
             )
           : Icon(icon, color: C.text, size: 19),
     );
@@ -5923,10 +6639,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                 style: const TextStyle(fontSize: 25),
                               ),
                               const SizedBox(height: 3),
-                              Text(
-                                reaction.$3,
-                                style: dm(sz: 8, c: C.sub),
-                              ),
+                              Text(reaction.$3, style: dm(sz: 8, c: C.sub)),
                             ],
                           ),
                         ),
@@ -6365,14 +7078,26 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                               width: 40,
                               height: 40,
                               child: () {
-                                final url = gift.imageUrl ?? 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/${gift.id}.jpeg';
+                                final url =
+                                    gift.imageUrl ??
+                                    'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons/${gift.id}.jpeg';
                                 return ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: CachedNetworkImage(
                                     imageUrl: url,
                                     fit: BoxFit.cover,
-                                    placeholder: (_, __) => Center(child: Text(gift.emoji, style: const TextStyle(fontSize: 32))),
-                                    errorWidget: (_, __, ___) => Center(child: Text(gift.emoji, style: const TextStyle(fontSize: 32))),
+                                    placeholder: (_, __) => Center(
+                                      child: Text(
+                                        gift.emoji,
+                                        style: const TextStyle(fontSize: 32),
+                                      ),
+                                    ),
+                                    errorWidget: (_, __, ___) => Center(
+                                      child: Text(
+                                        gift.emoji,
+                                        style: const TextStyle(fontSize: 32),
+                                      ),
+                                    ),
                                   ),
                                 );
                               }(),
@@ -6380,11 +7105,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                             const SizedBox(height: 8),
                             Text(
                               gift.name,
-                              style: dm(
-                                sz: 11,
-                                w: FontWeight.bold,
-                                c: C.text,
-                              ),
+                              style: dm(sz: 11, w: FontWeight.bold, c: C.text),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 4),
@@ -6578,11 +7299,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                     padding: const EdgeInsets.symmetric(vertical: 40),
                     child: Column(
                       children: [
-                        Icon(
-                          Icons.people_outline,
-                          color: C.dim,
-                          size: 40,
-                        ),
+                        Icon(Icons.people_outline, color: C.dim, size: 40),
                         const SizedBox(height: 12),
                         Text(
                           'No active co-hosting requests.',
@@ -6610,9 +7327,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                           decoration: BoxDecoration(
                             color: C.text.withOpacity(0.02),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: C.text.withOpacity(0.05),
-                            ),
+                            border: Border.all(color: C.text.withOpacity(0.05)),
                           ),
                           child: Row(
                             children: [
@@ -6629,11 +7344,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                                 child:
                                     req['avatar'] == null ||
                                         (req['avatar'] as String).isEmpty
-                                    ? Icon(
-                                        Icons.person,
-                                        size: 18,
-                                        color: C.dim,
-                                      )
+                                    ? Icon(Icons.person, size: 18, color: C.dim)
                                     : null,
                               ),
                               const SizedBox(width: 12),
@@ -6763,12 +7474,7 @@ class _LiveStudioScreenState extends State<LiveStudioScreen>
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'INVITE A VIEWER TO CO-STREAM',
-                    style: syne(
-                      sz: 10,
-                      w: FontWeight.bold,
-                      c: C.dim,
-                      ls: 1,
-                    ),
+                    style: syne(sz: 10, w: FontWeight.bold, c: C.dim, ls: 1),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -7132,9 +7838,7 @@ class _GridOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: CustomPaint(painter: _GridPainter()),
-    );
+    return IgnorePointer(child: CustomPaint(painter: _GridPainter()));
   }
 }
 
@@ -7145,11 +7849,27 @@ class _GridPainter extends CustomPainter {
       ..color = Colors.white.withValues(alpha: 0.25)
       ..strokeWidth = 0.7;
     // Two vertical lines (rule of thirds)
-    canvas.drawLine(Offset(size.width / 3, 0), Offset(size.width / 3, size.height), paint);
-    canvas.drawLine(Offset(size.width * 2 / 3, 0), Offset(size.width * 2 / 3, size.height), paint);
+    canvas.drawLine(
+      Offset(size.width / 3, 0),
+      Offset(size.width / 3, size.height),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 2 / 3, 0),
+      Offset(size.width * 2 / 3, size.height),
+      paint,
+    );
     // Two horizontal lines
-    canvas.drawLine(Offset(0, size.height / 3), Offset(size.width, size.height / 3), paint);
-    canvas.drawLine(Offset(0, size.height * 2 / 3), Offset(size.width, size.height * 2 / 3), paint);
+    canvas.drawLine(
+      Offset(0, size.height / 3),
+      Offset(size.width, size.height / 3),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(0, size.height * 2 / 3),
+      Offset(size.width, size.height * 2 / 3),
+      paint,
+    );
   }
 
   @override
@@ -7183,10 +7903,7 @@ class _FacialSymmetryPainter extends CustomPainter {
   final double intensity;
   final bool mirrorLeft;
 
-  _FacialSymmetryPainter({
-    required this.intensity,
-    required this.mirrorLeft,
-  });
+  _FacialSymmetryPainter({required this.intensity, required this.mirrorLeft});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -7234,7 +7951,11 @@ class _FacialSymmetryPainter extends CustomPainter {
 
     // Nose level tick (y = 0.48)
     final noseY = size.height * 0.48;
-    canvas.drawLine(Offset(cx - 10, noseY), Offset(cx + 10, noseY), markerPaint);
+    canvas.drawLine(
+      Offset(cx - 10, noseY),
+      Offset(cx + 10, noseY),
+      markerPaint,
+    );
 
     // Lip level tick (y = 0.58)
     final lipY = size.height * 0.58;
@@ -7242,7 +7963,11 @@ class _FacialSymmetryPainter extends CustomPainter {
 
     // Chin level tick (y = 0.68)
     final chinY = size.height * 0.68;
-    canvas.drawLine(Offset(cx - 12, chinY), Offset(cx + 12, chinY), markerPaint);
+    canvas.drawLine(
+      Offset(cx - 12, chinY),
+      Offset(cx + 12, chinY),
+      markerPaint,
+    );
 
     // Direction indicator near upper axis (L ➔ R or R ➔ L)
     final textPainter = TextPainter(
@@ -7257,7 +7982,10 @@ class _FacialSymmetryPainter extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    textPainter.paint(canvas, Offset(cx - textPainter.width / 2, size.height * 0.26));
+    textPainter.paint(
+      canvas,
+      Offset(cx - textPainter.width / 2, size.height * 0.26),
+    );
   }
 
   @override
@@ -7312,8 +8040,8 @@ class _StudioMakeupPainter extends CustomPainter {
       final blushColor = style == 0
           ? const Color(0xFFFF5277) // Rosy Glow (petal rose)
           : style == 1
-              ? const Color(0xFFFF8A65) // Natural Nude (soft peach)
-              : const Color(0xFFE91E63); // Sunset Glam (berry blush)
+          ? const Color(0xFFFF8A65) // Natural Nude (soft peach)
+          : const Color(0xFFE91E63); // Sunset Glam (berry blush)
 
       final blushAlpha = (m * 0.17).clamp(0.0, 0.22);
       final blushRadius = size.width * 0.22;
@@ -7332,12 +8060,15 @@ class _StudioMakeupPainter extends CustomPainter {
       // Right cheek blush
       final rightCheek = Offset(cx + (size.width * 0.20), size.height * 0.44);
       final rightBlushPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            blushColor.withValues(alpha: blushAlpha),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(center: rightCheek, radius: blushRadius));
+        ..shader =
+            RadialGradient(
+              colors: [
+                blushColor.withValues(alpha: blushAlpha),
+                Colors.transparent,
+              ],
+            ).createShader(
+              Rect.fromCircle(center: rightCheek, radius: blushRadius),
+            );
       canvas.drawCircle(rightCheek, blushRadius, rightBlushPaint);
 
       // Lip hydration & tint
@@ -7363,12 +8094,16 @@ class _StudioMakeupPainter extends CustomPainter {
       final jawPath = Path()
         ..moveTo(cx - (size.width * 0.35), size.height * 0.56)
         ..quadraticBezierTo(
-          cx - (size.width * 0.26), size.height * 0.70,
-          cx, size.height * 0.73,
+          cx - (size.width * 0.26),
+          size.height * 0.70,
+          cx,
+          size.height * 0.73,
         )
         ..quadraticBezierTo(
-          cx + (size.width * 0.26), size.height * 0.70,
-          cx + (size.width * 0.35), size.height * 0.56,
+          cx + (size.width * 0.26),
+          size.height * 0.70,
+          cx + (size.width * 0.35),
+          size.height * 0.56,
         );
 
       final jawPaint = Paint()
@@ -7426,19 +8161,23 @@ class _ReticleViewfinder extends StatelessWidget {
             children: [
               // 4 corner L-brackets — cyan when focusing
               Positioned(
-                top: 0, left: 0,
+                top: 0,
+                left: 0,
                 child: _corner(top: true, left: true, isFocusing: isFocusing),
               ),
               Positioned(
-                top: 0, right: 0,
+                top: 0,
+                right: 0,
                 child: _corner(top: true, left: false, isFocusing: isFocusing),
               ),
               Positioned(
-                bottom: 0, left: 0,
+                bottom: 0,
+                left: 0,
                 child: _corner(top: false, left: true, isFocusing: isFocusing),
               ),
               Positioned(
-                bottom: 0, right: 0,
+                bottom: 0,
+                right: 0,
                 child: _corner(top: false, left: false, isFocusing: isFocusing),
               ),
 
@@ -7478,7 +8217,11 @@ class _ReticleViewfinder extends StatelessWidget {
                           const SizedBox(height: 8),
                           Text(
                             'Camera ready',
-                            style: dm(sz: 12, w: FontWeight.w700, c: Colors.white),
+                            style: dm(
+                              sz: 12,
+                              w: FontWeight.w700,
+                              c: Colors.white,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -7495,7 +8238,11 @@ class _ReticleViewfinder extends StatelessWidget {
     );
   }
 
-  Widget _corner({required bool top, required bool left, required bool isFocusing}) {
+  Widget _corner({
+    required bool top,
+    required bool left,
+    required bool isFocusing,
+  }) {
     final color = isFocusing ? const Color(0xFF00E5FF) : Colors.white;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -7518,8 +8265,3 @@ class _ReticleViewfinder extends StatelessWidget {
     );
   }
 }
-
-
-
-
-
