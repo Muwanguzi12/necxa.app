@@ -2495,6 +2495,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
 
         if (clip.operation is TextOverlay) {
           final overlay = clip.operation as TextOverlay;
+          final elapsedSeconds =
+              (currentTime - clip.start).inSeconds.clamp(0, clip.duration.inSeconds);
+          final previewText = switch (overlay.timerMode) {
+            'count_up' => elapsedSeconds.toString(),
+            'countdown' =>
+              (overlay.timerDuration - elapsedSeconds).clamp(0, double.infinity).round().toString(),
+            _ => overlay.text,
+          };
           final alignment = Alignment(
             (overlay.position.dx * 2) - 1,
             (overlay.position.dy * 2) - 1,
@@ -2510,7 +2518,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     child: Transform.scale(
                       scale: overlay.scale,
                       child: Text(
-                        overlay.text,
+                        previewText,
                         textAlign: TextAlign.center,
                         style: overlay.style.copyWith(
                           color: overlay.style.color ?? Colors.white,
@@ -7902,15 +7910,20 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     String text, {
     TextStyle? style,
     Offset? position,
+    Duration? duration,
+    String timerMode = 'none',
+    double timerDuration = 0,
   }) {
     _captureTimeline();
     final clip = TimelineModelUtils.insertTextClip(
       _tracks,
       text: text,
       start: _currentTime,
-      duration: const Duration(seconds: 6),
+      duration: duration ?? const Duration(seconds: 6),
       style: style,
       position: position,
+      timerMode: timerMode,
+      timerDuration: timerDuration,
     );
 
     setState(() {
@@ -8072,6 +8085,33 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                       style: const TextStyle(fontSize: 32, color: Colors.white),
                     );
                     _showTextEditorSheet();
+                  }),
+                  _buildTextHubChip('Stopwatch', () {
+                    Navigator.pop(context);
+                    _insertTextLayer(
+                      '',
+                      timerMode: 'count_up',
+                      duration: const Duration(minutes: 1),
+                      style: const TextStyle(
+                        fontSize: 30,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    );
+                  }),
+                  _buildTextHubChip('Countdown 60s', () {
+                    Navigator.pop(context);
+                    _insertTextLayer(
+                      '',
+                      timerMode: 'countdown',
+                      timerDuration: 60,
+                      duration: const Duration(minutes: 1),
+                      style: const TextStyle(
+                        fontSize: 30,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    );
                   }),
                 ],
               ),
