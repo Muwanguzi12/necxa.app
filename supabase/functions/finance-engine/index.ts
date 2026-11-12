@@ -2354,7 +2354,6 @@ serve(async (req) => {
           .update({
             stock_count: stockCount,
             updated_at: new Date().toISOString(),
-            status: stockCount === 0 ? "paused" : "active",
           })
           .eq("id", listingId)
           .or(`user_id.eq.${user.id},lister_id.eq.${user.id}`)
