@@ -1153,20 +1153,25 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
   }
 
   Widget _buildStatusBadge(int stock, String status) {
-    final bool isOut = stock == 0 || status != 'active';
+    final bool isOut = stock == 0;
+    final bool isPaused = status != 'active' && !isOut;
     final bool isLow = stock > 0 && stock <= 5 && status == 'active';
 
     final Color color = isOut
         ? const Color(0xFFEF4444)
-        : (isLow ? const Color(0xFFF59E0B) : const Color(0xFF10B981));
+        : (isPaused
+              ? C.sub
+              : (isLow ? const Color(0xFFF59E0B) : const Color(0xFF10B981)));
     final String label = isOut
         ? 'Out of Stock'
-        : (isLow ? 'Low Stock' : 'In Stock');
+        : (isPaused ? 'Paused' : (isLow ? 'Low Stock' : 'In Stock'));
     final IconData icon = isOut
         ? Icons.do_not_disturb_on_outlined
-        : (isLow
-              ? Icons.warning_amber_rounded
-              : Icons.check_circle_outline_rounded);
+        : (isPaused
+              ? Icons.pause_circle_outline
+              : (isLow
+                    ? Icons.warning_amber_rounded
+                    : Icons.check_circle_outline_rounded));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -2000,8 +2005,9 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     onPressed: saving
                         ? null
                         : () async {
-                            final newStock =
-                                int.tryParse(stockCtrl.text.trim()) ?? 0;
+                            final newStock = int.tryParse(
+                              stockCtrl.text.trim(),
+                            );
                             setModalState(() => saving = true);
                             try {
                               final newTitle = titleCtrl.text.trim();
@@ -2011,6 +2017,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                               if (newTitle.isEmpty ||
                                   newPrice == null ||
                                   newPrice < 0 ||
+                                  newStock == null ||
                                   newStock < 0) {
                                 throw const FormatException(
                                   'Enter a product title and valid non-negative price and stock.',
