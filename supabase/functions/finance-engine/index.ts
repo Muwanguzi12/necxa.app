@@ -2230,7 +2230,7 @@ serve(async (req) => {
     if (action === "update_commerce_inventory") {
       const listingId = String(body.listingId ?? "");
       const hasStockCount = body.stockCount != null;
-      const stockCount = hasStockCount ? Number(body.stockCount) : null;
+      const stockCount = Number(body.stockCount);
       const status = body.status == null ? null : String(body.status);
       const title = body.title == null ? null : String(body.title).trim();
       const priceUgx = body.priceUgx == null ? null : Number(body.priceUgx);
