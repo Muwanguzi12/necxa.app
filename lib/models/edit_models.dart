@@ -76,7 +76,7 @@ class FilterOperation extends EditOperation {
   final String filterName; // e.g., 'sepia', 'grayscale', 'vignette'
   final double intensity;
   FilterOperation({required this.filterName, this.intensity = 1.0})
-      : super('filter');
+    : super('filter');
 
   @override
   Map<String, dynamic> toJson() => {
@@ -826,8 +826,6 @@ class EffectPreset {
   }
 }
 
-
-
 /// Shared effect operation stored on the timeline and reused across edit surfaces.
 class EffectOperation extends EditOperation {
   String presetId;
@@ -1308,4 +1306,3 @@ class TimelineModelUtils {
         .toList();
   }
 }
-
