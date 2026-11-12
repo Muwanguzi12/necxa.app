@@ -429,7 +429,9 @@ class VideoEnhancementService {
     // memory. Validate each source, including audio-only timeline inputs.
     for (final clip in clips) {
       if (!_isSupportedMediaFile(File(clip.path))) {
-        throw ArgumentError('A timeline media file is missing or exceeds 1 GB.');
+        throw ArgumentError(
+          'A timeline media file is missing or exceeds 1 GB.',
+        );
       }
     }
     for (final track in audioTracks) {
@@ -678,17 +680,22 @@ class VideoEnhancementService {
         }
         final stickerFades = <String>[];
         if (overlay.animationIn == 'fade') {
-          stickerFades.add("fade=t=in:st=$startTime:d=$stickerAnimationSeconds:alpha=1");
+          stickerFades.add(
+            "fade=t=in:st=$startTime:d=$stickerAnimationSeconds:alpha=1",
+          );
         }
         if (overlay.animationOut == 'fade') {
-          stickerFades.add("fade=t=out:st=${(double.parse(endTime) - stickerAnimationSeconds).clamp(0.0, double.infinity)}:d=$stickerAnimationSeconds:alpha=1");
+          stickerFades.add(
+            "fade=t=out:st=${(double.parse(endTime) - stickerAnimationSeconds).clamp(0.0, double.infinity)}:d=$stickerAnimationSeconds:alpha=1",
+          );
         }
         final stickerAlpha = "colorchannelmixer=aa=${overlay.opacity.clamp(0.0, 1.0)}";
         filterComplex +=
             "[${imageOverlayIndexes[i]}:v]format=rgba,scale=$width:-1$rotate,$stickerAlpha${stickerFades.isEmpty ? '' : ',${stickerFades.join(',')}'}[$imageLabel];";
         filterComplex +=
             "[$currentVideo][$imageLabel]overlay=x='$stickerX':y='$stickerY':eval=frame:enable='between(t,$startTime,$endTime)'[$nextLabel];";
-      } else if ((overlay.text ?? '').trim().isNotEmpty || overlay.timerMode != 'none') {
+      } else if ((overlay.text ?? '').trim().isNotEmpty ||
+          overlay.timerMode != 'none') {
         final timerElapsed = "max(0\\,t-$startTime)";
         final timerText = switch (overlay.timerMode) {
           'count_up' => "%{eif\\:trunc($timerElapsed)\\:d}",
@@ -741,7 +748,10 @@ class VideoEnhancementService {
             },
         };
         final fontPath = overlay.fontFilePath;
-        final fontOption = fontPath != null && fontPath.isNotEmpty && File(fontPath).existsSync()
+        final fontOption =
+            fontPath != null &&
+                fontPath.isNotEmpty &&
+                File(fontPath).existsSync()
             ? "fontfile='${_escapeDrawText(fontPath)}'"
             : "font='$font'";
         final normalizedX = overlay.x.clamp(0.0, 1.0);
@@ -809,7 +819,8 @@ class VideoEnhancementService {
               .fold<int>(0, (sum, item) =>
                   sum + (item['text']?.toString().length ?? 0) + 1);
           final approximateGlyphWidth = overlay.fontSize * overlay.scale * 0.52;
-          final phraseWidth = (overlay.text ?? '').length * approximateGlyphWidth;
+          final phraseWidth =
+              (overlay.text ?? '').length * approximateGlyphWidth;
           final wordOffset = prefixLength * approximateGlyphWidth;
           final wordOutputLabel = 'karaoke_${i}_${wordIndex}';
           final highlightColor = overlay.themeId == 'neon'
