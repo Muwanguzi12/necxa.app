@@ -410,7 +410,11 @@ class EditorProjectController {
     _commit();
   }
 
-  void upsertClip(TrackType type, TimelineClip clip, {bool recordHistory = true}) {
+  void upsertClip(
+    TrackType type,
+    TimelineClip clip, {
+    bool recordHistory = true,
+  }) {
     transact((items) {
       TimelineTrack? track;
       for (final candidate in items) {
