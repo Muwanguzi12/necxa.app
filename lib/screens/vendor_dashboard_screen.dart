@@ -2026,7 +2026,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                               await _commerce.updateInventory(
                                 listingId: id,
                                 title: newTitle,
-                                priceUgx: newPrice,
+                                priceUgx: newPrice?.toDouble(),
                                 stockCount: newStock,
                               );
                               if (mounted) {

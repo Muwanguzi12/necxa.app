@@ -1,0 +1,20 @@
+// jcenter-fix.init.gradle
+// Gradle 9 removed the jcenter() repository helper. Some Flutter plugins
+// (e.g. video_thumbnail) still declare jcenter() in their own build.gradle.
+// This init script runs before any project is evaluated and replaces every
+// jcenter repository with mavenCentral so the build doesn't fail.
+allprojects {
+    buildscript {
+        repositories {
+            removeIf { it instanceof MavenArtifactRepository && ((MavenArtifactRepository) it).url.host?.contains("jcenter") }
+            maven { url = uri("https://maven.google.com") }
+            mavenCentral()
+        }
+    }
+    repositories {
+        removeIf { it instanceof MavenArtifactRepository && ((MavenArtifactRepository) it).url.host?.contains("jcenter") }
+        maven { url = uri("https://maven.google.com") }
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
