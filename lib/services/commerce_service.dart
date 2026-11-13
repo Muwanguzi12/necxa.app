@@ -39,15 +39,13 @@ class CommerceDashboardData {
     final productListings = rawListings.where(isProductListing).toList();
 
     return CommerceDashboardData(
-      activeListings: json.containsKey('activeListings')
-          ? _integer(json['activeListings'])
-          : productListings.where((l) => l['status'] == 'active').length,
-      lowStockListings: json.containsKey('lowStockListings')
-          ? _integer(json['lowStockListings'])
-          : productListings.where((l) {
-              final stock = (l['stock_count'] as num?)?.round() ?? 0;
-              return stock <= 5;
-            }).length,
+      activeListings: productListings
+          .where((l) => l['status'] == 'active')
+          .length,
+      lowStockListings: productListings.where((l) {
+        final stock = (l['stock_count'] as num?)?.round() ?? 0;
+        return stock <= 5;
+      }).length,
       totalOrders: _integer(json['totalOrders']),
       openOrders: _integer(json['openOrders']),
       grossSalesUgx: _integer(json['grossSalesUgx']),
@@ -99,11 +97,17 @@ class CommerceDashboardData {
     final mergedOrders = ordersById.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return CommerceDashboardData(
-      // Compact deltas carry authoritative aggregate metrics separately
-      // from the partial listing records. Recomputing from those records can
-      // incorrectly reset dashboard counts when status/stock fields are absent.
-      activeListings: update.activeListings,
-      lowStockListings: update.lowStockListings,
+      activeListings: update.activeListings > 0
+          ? update.activeListings
+          : mergedListings
+                .where((l) => l['status'] == null || l['status'] == 'active')
+                .length,
+      lowStockListings: update.lowStockListings > 0
+          ? update.lowStockListings
+          : mergedListings.where((l) {
+              final stock = (l['stock_count'] as num?)?.round() ?? 0;
+              return stock <= 5;
+            }).length,
       totalOrders: update.totalOrders,
       openOrders: update.openOrders,
       grossSalesUgx: update.grossSalesUgx,
@@ -342,19 +346,15 @@ class CommerceService {
 
   Future<Map<String, dynamic>> updateInventory({
     required String listingId,
-    int? stockCount,
+    required int stockCount,
     String? status,
-    String? title,
-    int? priceUgx,
   }) async {
     final response = await _backend.invoke(
       'update_commerce_inventory',
       body: {
         'listingId': listingId,
-        if (stockCount != null) 'stockCount': stockCount,
+        'stockCount': stockCount,
         if (status != null) 'status': status,
-        if (title != null) 'title': title,
-        if (priceUgx != null) 'priceUgx': priceUgx,
       },
     );
     return _map(response['listing']) ?? {};
@@ -441,9 +441,7 @@ class CommerceService {
   }
 
   /// Bulk updates multiple listings' stock counts in a single batch.
-  Future<List<Map<String, dynamic>>> bulkUpdateInventory(
-    Map<String, int> updates,
-  ) async {
+  Future<List<dynamic>> bulkUpdateInventory(Map<String, int> updates) async {
     final response = await _backend.invoke(
       'bulk_update_inventory',
       body: {
@@ -452,7 +450,7 @@ class CommerceService {
             .toList(),
       },
     );
-    return _maps(response['results']);
+    return response['results'] as List<dynamic>? ?? const [];
   }
 
   /// Retrieves recent stock adjustments and history for the vendor's products.
