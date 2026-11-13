@@ -97,13 +97,17 @@ class CommerceDashboardData {
     final mergedOrders = ordersById.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return CommerceDashboardData(
-      activeListings: mergedListings
-          .where((l) => l['status'] == 'active')
-          .length,
-      lowStockListings: mergedListings.where((l) {
-        final stock = (l['stock_count'] as num?)?.round() ?? 0;
-        return stock <= 5;
-      }).length,
+      activeListings: update.activeListings > 0
+          ? update.activeListings
+          : mergedListings
+                .where((l) => l['status'] == null || l['status'] == 'active')
+                .length,
+      lowStockListings: update.lowStockListings > 0
+          ? update.lowStockListings
+          : mergedListings.where((l) {
+              final stock = (l['stock_count'] as num?)?.round() ?? 0;
+              return stock <= 5;
+            }).length,
       totalOrders: update.totalOrders,
       openOrders: update.openOrders,
       grossSalesUgx: update.grossSalesUgx,
