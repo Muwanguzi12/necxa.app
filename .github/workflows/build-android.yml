@@ -35,6 +35,11 @@ jobs:
     - name: Get dependencies
       run: flutter pub get
 
+    - name: Patch jcenter → mavenCentral for Gradle 9
+      run: |
+        mkdir -p ~/.gradle/init.d
+        cp android/jcenter-fix.init.gradle ~/.gradle/init.d/
+
     - name: Build Android Release APK
       env:
         GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
