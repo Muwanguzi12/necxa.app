@@ -36,14 +36,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Temporarily format and expose main.dart for exact formatter output
-        run: |
-          dart format lib/main.dart
-          echo "FORMATTED_MAIN_BASE64_BEGIN"
-          base64 -w0 lib/main.dart
-          echo
-          echo "FORMATTED_MAIN_BASE64_END"
-
       - name: Check formatting of changed Dart files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
