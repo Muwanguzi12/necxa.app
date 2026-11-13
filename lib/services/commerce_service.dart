@@ -346,14 +346,18 @@ class CommerceService {
 
   Future<Map<String, dynamic>> updateInventory({
     required String listingId,
-    required int stockCount,
+    int? stockCount,
+    String? title,
+    double? priceUgx,
     String? status,
   }) async {
     final response = await _backend.invoke(
       'update_commerce_inventory',
       body: {
         'listingId': listingId,
-        'stockCount': stockCount,
+        if (stockCount != null) 'stockCount': stockCount,
+        if (title != null) 'title': title,
+        if (priceUgx != null) 'priceUgx': priceUgx,
         if (status != null) 'status': status,
       },
     );
