@@ -127,11 +127,6 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Patch jcenter → mavenCentral for Gradle 9
-        run: |
-          find $HOME/.pub-cache -name "build.gradle" -path "*/video_thumbnail*" \
-            -exec sed -i 's/jcenter()/mavenCentral()/g' {} +
-
       - name: Build release APKs once
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m' -Dorg.gradle.logging.stacktrace=full"
