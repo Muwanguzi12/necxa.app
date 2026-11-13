@@ -20,13 +20,18 @@ class PublicProfileScreen extends StatefulWidget {
 String resolvePublicProfileName(Profile profile, AppState state) {
   final isMe = state.user?.id == profile.id;
   final fn = profile.fullName?.trim();
-  if (fn != null && fn.isNotEmpty && fn != 'NECXA NODE' && fn != 'Necxa User' && fn != 'Necxa Member') {
+  if (fn != null &&
+      fn.isNotEmpty &&
+      fn != 'NECXA NODE' &&
+      fn != 'Necxa User' &&
+      fn != 'Necxa Member') {
     return fn;
   }
   if (isMe) {
     final myFn = state.myProfile?['full_name']?.toString().trim();
     if (myFn != null && myFn.isNotEmpty && myFn != 'NECXA NODE') return myFn;
-    final metaFn = state.user?.userMetadata?['full_name']?.toString().trim() ??
+    final metaFn =
+        state.user?.userMetadata?['full_name']?.toString().trim() ??
         state.user?.userMetadata?['display_name']?.toString().trim() ??
         state.user?.userMetadata?['name']?.toString().trim();
     if (metaFn != null && metaFn.isNotEmpty) return metaFn;
@@ -90,7 +95,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     if (!artistFlag) {
       // Try checking if artist has tracks in Goobox Supabase
       try {
-        final gooboxTracks = await widget.state.artistMusic.fetchArtistTracks(targetId);
+        final gooboxTracks = await widget.state.artistMusic.fetchArtistTracks(
+          targetId,
+        );
         if (gooboxTracks.isNotEmpty) artistFlag = true;
       } catch (_) {}
     }
@@ -111,7 +118,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     super.dispose();
   }
 
-  Future<void> _handleFollowToggle(Profile profile, bool currentlyFollowing) async {
+  Future<void> _handleFollowToggle(
+    Profile profile,
+    bool currentlyFollowing,
+  ) async {
     if (_isTogglingFollow) return;
     _isTogglingFollow = true;
     final willFollow = !currentlyFollowing;
@@ -124,20 +134,25 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
       if (!success && mounted) {
         setState(() {
           _isLocallyFollowing = currentlyFollowing;
-          _localFollowerDelta = (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
+          _localFollowerDelta =
+              (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLocallyFollowing = currentlyFollowing;
-          _localFollowerDelta = (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
+          _localFollowerDelta =
+              (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: C.card,
             behavior: SnackBarBehavior.floating,
-            content: Text('Could not update follow status. Please check your connection.', style: dm(c: Colors.redAccent)),
+            content: Text(
+              'Could not update follow status. Please check your connection.',
+              style: dm(c: Colors.redAccent),
+            ),
           ),
         );
       }
@@ -161,7 +176,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: C.card,
-          content: Text('You cannot send a gift to yourself.', style: dm(c: C.text)),
+          content: Text(
+            'You cannot send a gift to yourself.',
+            style: dm(c: C.text),
+          ),
         ),
       );
       return;
@@ -224,9 +242,15 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
             children: [
               Icon(Icons.person_off_outlined, color: C.dim, size: 48),
               const SizedBox(height: 12),
-              Text('PROFILE NOT FOUND', style: syne(c: C.brand, sz: 14, w: FontWeight.bold)),
+              Text(
+                'PROFILE NOT FOUND',
+                style: syne(c: C.brand, sz: 14, w: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
-              Text('Please sign in or select a member profile.', style: dm(c: C.dim, sz: 12)),
+              Text(
+                'Please sign in or select a member profile.',
+                style: dm(c: C.dim, sz: 12),
+              ),
             ],
           ),
         ),
@@ -259,9 +283,15 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                 children: [
                   Icon(Icons.person_off_outlined, color: C.dim, size: 48),
                   const SizedBox(height: 12),
-                  Text('PROFILE NOT FOUND', style: syne(c: C.brand, sz: 14, w: FontWeight.bold)),
+                  Text(
+                    'PROFILE NOT FOUND',
+                    style: syne(c: C.brand, sz: 14, w: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
-                  Text('The requested profile could not be loaded.', style: dm(c: C.dim, sz: 12)),
+                  Text(
+                    'The requested profile could not be loaded.',
+                    style: dm(c: C.dim, sz: 12),
+                  ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
                     onPressed: () async {
@@ -281,10 +311,15 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
           );
         }
 
-        final isFollowing = _isLocallyFollowing ?? widget.state.followed.contains(profile.id);
+        final isFollowing =
+            _isLocallyFollowing ?? widget.state.followed.contains(profile.id);
         final isFriend = widget.state.isFriendSync(profile.id);
         final isMe = widget.state.user?.id == profile.id;
-        final effectiveFollowers = (profile.followersCount + (_localFollowerDelta ?? 0)).clamp(0, 999999999);
+        final effectiveFollowers =
+            (profile.followersCount + (_localFollowerDelta ?? 0)).clamp(
+              0,
+              999999999,
+            );
 
         return Scaffold(
           backgroundColor: C.bg,
@@ -314,14 +349,19 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
             body: Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
                   color: C.bg,
                   child: Container(
                     height: 48,
                     decoration: BoxDecoration(
                       color: const Color(0xFF070E22),
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.25)),
+                      border: Border.all(
+                        color: const Color(0xFF00E5FF).withOpacity(0.25),
+                      ),
                     ),
                     padding: const EdgeInsets.all(4),
                     child: TabBar(
@@ -341,7 +381,11 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                       indicatorSize: TabBarIndicatorSize.tab,
                       dividerColor: Colors.transparent,
                       labelStyle: syne(sz: 12, w: FontWeight.w900, ls: 0.8),
-                      unselectedLabelStyle: syne(sz: 12, w: FontWeight.w700, ls: 0.8),
+                      unselectedLabelStyle: syne(
+                        sz: 12,
+                        w: FontWeight.w700,
+                        ls: 0.8,
+                      ),
                       labelColor: Colors.white,
                       unselectedLabelColor: Colors.white70,
                       tabs: [
@@ -403,7 +447,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: widget.state.social.fetchUserListings(targetId),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: C.brand));
         }
         if (snapshot.hasError) {
@@ -413,12 +458,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
               children: [
                 Icon(Icons.cloud_off_rounded, color: C.dim, size: 36),
                 const SizedBox(height: 10),
-                Text('COULD NOT LOAD PRODUCTS', style: syne(sz: 11, c: C.dim, ls: 1.5)),
+                Text(
+                  'COULD NOT LOAD PRODUCTS',
+                  style: syne(sz: 11, c: C.dim, ls: 1.5),
+                ),
                 const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: () => setState(() {}),
                   icon: const Icon(Icons.refresh, size: 14, color: C.brand),
-                  label: Text('Retry', style: dm(sz: 12, c: C.brand, w: FontWeight.w700)),
+                  label: Text(
+                    'Retry',
+                    style: dm(sz: 12, c: C.brand, w: FontWeight.w700),
+                  ),
                 ),
               ],
             ),
@@ -432,29 +483,148 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
               children: [
                 Icon(Icons.inventory_2_outlined, color: C.dim, size: 36),
                 const SizedBox(height: 10),
-                Text('NO PRODUCTS LISTED', style: syne(sz: 11, c: C.dim, ls: 2)),
+                Text(
+                  'NO PRODUCTS LISTED',
+                  style: syne(sz: 11, c: C.dim, ls: 2),
+                ),
               ],
             ),
           );
         }
+
+        final inventoryProducts = list
+            .where((item) => !_isVideoListing(item))
+            .toList();
+        final videoListings = list
+            .where((item) => _isVideoListing(item))
+            .toList();
+
         return RefreshIndicator(
           color: C.brand,
           backgroundColor: C.card,
           onRefresh: () async {
-            await widget.state.social.fetchUserListings(targetId, forceRefresh: true);
+            await widget.state.social.fetchUserListings(
+              targetId,
+              forceRefresh: true,
+            );
             await widget.state.syncProfile(targetId);
             if (mounted) setState(() {});
           },
-          child: GridView.builder(
-            padding: const EdgeInsets.all(20),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 0.75,
-            ),
-            itemCount: list.length,
-            itemBuilder: (context, index) => _ProductGridItem(listing: list[index], state: widget.state),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              // ── 1. Store Inventory Showcase Panel (if vendor has direct inventory) ──
+              if (inventoryProducts.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _VendorStoreShowcasePanel(
+                    products: inventoryProducts,
+                    state: widget.state,
+                    hasVideoContent: videoListings.isNotEmpty,
+                    onOpenProduct: (product) =>
+                        _showProductDetailModal(context, product, widget.state),
+                  ),
+                ),
+
+              // ── 2. Video Clips Header (if both inventory and video listings exist) ──
+              if (inventoryProducts.isNotEmpty && videoListings.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.play_circle_outline_rounded,
+                            size: 16,
+                            color: Color(0xFF00E5FF),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'VIDEO SHOWCASE & CLIPS',
+                          style: syne(
+                            sz: 11,
+                            w: FontWeight.w900,
+                            c: C.dim,
+                            ls: 1.5,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${videoListings.length}',
+                            style: dm(
+                              sz: 10,
+                              w: FontWeight.bold,
+                              c: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // ── 3. Grid: If video listings exist, show them here. If only inventory products exist, show full inventory grid ──
+              if (videoListings.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio: 0.75,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _ProductGridItem(
+                        listing: videoListings[index],
+                        state: widget.state,
+                      ),
+                      childCount: videoListings.length,
+                    ),
+                  ),
+                )
+              else if (inventoryProducts.length > 2)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio: 0.72,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _InventoryProductCard(
+                        product: inventoryProducts[index],
+                        state: widget.state,
+                        onTap: () => _showProductDetailModal(
+                          context,
+                          inventoryProducts[index],
+                          widget.state,
+                        ),
+                      ),
+                      childCount: inventoryProducts.length,
+                    ),
+                  ),
+                ),
+            ],
           ),
         );
       },
@@ -466,7 +636,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: widget.state.social.fetchUserPosts(targetId),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: C.brand));
         }
         if (snapshot.hasError) {
@@ -476,12 +647,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
               children: [
                 Icon(Icons.cloud_off_rounded, color: C.dim, size: 36),
                 const SizedBox(height: 10),
-                Text('COULD NOT LOAD POSTS', style: syne(sz: 11, c: C.dim, ls: 1.5)),
+                Text(
+                  'COULD NOT LOAD POSTS',
+                  style: syne(sz: 11, c: C.dim, ls: 1.5),
+                ),
                 const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: () => setState(() {}),
                   icon: const Icon(Icons.refresh, size: 14, color: C.brand),
-                  label: Text('Retry', style: dm(sz: 12, c: C.brand, w: FontWeight.w700)),
+                  label: Text(
+                    'Retry',
+                    style: dm(sz: 12, c: C.brand, w: FontWeight.w700),
+                  ),
                 ),
               ],
             ),
@@ -504,7 +681,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
           color: C.brand,
           backgroundColor: C.card,
           onRefresh: () async {
-            await widget.state.social.fetchUserPosts(targetId, forceRefresh: true);
+            await widget.state.social.fetchUserPosts(
+              targetId,
+              forceRefresh: true,
+            );
             await widget.state.syncProfile(targetId);
             if (mounted) setState(() {});
           },
@@ -517,7 +697,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
               childAspectRatio: 0.8,
             ),
             itemCount: list.length,
-            itemBuilder: (context, index) => _GridItem(data: list[index], state: widget.state),
+            itemBuilder: (context, index) =>
+                _GridItem(data: list[index], state: widget.state),
           ),
         );
       },
@@ -529,7 +710,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
     final targetId = _effectiveTargetId;
     final bool isOwnProfile = targetId == widget.state.user?.id;
     final String displayName = isOwnProfile
-        ? (widget.state.artistName.isNotEmpty ? widget.state.artistName : 'Artist')
+        ? (widget.state.artistName.isNotEmpty
+              ? widget.state.artistName
+              : 'Artist')
         : 'Artist';
     final String genre = isOwnProfile
         ? (widget.state.artistGenre.isNotEmpty ? widget.state.artistGenre : '')
@@ -561,41 +744,67 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
             child: Row(
               children: [
                 Container(
-                  width: 48, height: 48,
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.2),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.mic_rounded, color: Colors.white, size: 24),
+                  child: const Icon(
+                    Icons.mic_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(children: [
-                        Flexible(child: Text(displayName, style: syne(sz: 17, w: FontWeight.w900))),
-                        const SizedBox(width: 6),
-                        const Icon(Icons.verified_rounded, color: Colors.white, size: 16),
-                      ]),
-                      if (genre.isNotEmpty) Text(genre, style: dm(sz: 12, c: Colors.white70)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              displayName,
+                              style: syne(sz: 17, w: FontWeight.w900),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.verified_rounded,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                      if (genre.isNotEmpty)
+                        Text(genre, style: dm(sz: 12, c: Colors.white70)),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text('VERIFIED ARTIST', style: syne(sz: 9, w: FontWeight.w900, ls: 1)),
+                  child: Text(
+                    'VERIFIED ARTIST',
+                    style: syne(sz: 9, w: FontWeight.w900, ls: 1),
+                  ),
                 ),
               ],
             ),
           ),
 
           const SizedBox(height: 24),
-          Text('RELEASES & TRACKS', style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 2)),
+          Text(
+            'RELEASES & TRACKS',
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 2),
+          ),
           const SizedBox(height: 14),
 
           // Music tracks — fetched directly from Goobox Supabase storage
@@ -604,11 +813,14 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
             builder: (context, snapshot) {
               final tracks = snapshot.data ?? [];
 
-              if (snapshot.connectionState == ConnectionState.waiting && tracks.isEmpty) {
-                return const Center(child: Padding(
-                  padding: EdgeInsets.all(32),
-                  child: CircularProgressIndicator(color: Color(0xFF7B2FFF)),
-                ));
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  tracks.isEmpty) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: CircularProgressIndicator(color: Color(0xFF7B2FFF)),
+                  ),
+                );
               }
 
               if (tracks.isEmpty) {
@@ -625,7 +837,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: tracks.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) => _GooboxMusicTrackTile(track: tracks[i], state: widget.state),
+                itemBuilder: (context, i) => _GooboxMusicTrackTile(
+                  track: tracks[i],
+                  state: widget.state,
+                ),
               );
             },
           ),
@@ -633,12 +848,25 @@ class _PublicProfileScreenState extends State<PublicProfileScreen>
           if (isOwnProfile) ...[
             const SizedBox(height: 24),
             OutlinedButton.icon(
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 18, color: Color(0xFFA855F7)),
-              label: Text('Upload New Track', style: dm(sz: 14, c: const Color(0xFFA855F7), w: FontWeight.w700)),
+              icon: const Icon(
+                Icons.add_circle_outline_rounded,
+                size: 18,
+                color: Color(0xFFA855F7),
+              ),
+              label: Text(
+                'Upload New Track',
+                style: dm(
+                  sz: 14,
+                  c: const Color(0xFFA855F7),
+                  w: FontWeight.w700,
+                ),
+              ),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFFA855F7)),
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
               onPressed: () => widget.state.go('upload'),
             ),
@@ -689,7 +917,9 @@ class _ProfileHeader extends StatelessWidget {
         : 'Welcome to my profile! Feel free to connect, message, and explore my listings and posts.';
     final reputationScore = (profile.reputation > 0)
         ? profile.reputation.toStringAsFixed(1)
-        : (profile.trustScore > 0 ? (profile.trustScore / 10).toStringAsFixed(1) : '5.0');
+        : (profile.trustScore > 0
+              ? (profile.trustScore / 10).toStringAsFixed(1)
+              : '5.0');
     final topPad = MediaQuery.of(context).padding.top;
 
     return Column(
@@ -714,14 +944,27 @@ class _ProfileHeader extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(5),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)]),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)],
+                          ),
                           borderRadius: BorderRadius.circular(7),
                         ),
-                        child: const Icon(Icons.person_pin_rounded, size: 14, color: Colors.white),
+                        child: const Icon(
+                          Icons.person_pin_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
                       ),
                       const SizedBox(width: 8),
-                      Text('PUBLIC PROFILE',
-                          style: syne(sz: 13, w: FontWeight.w900, ls: 2, c: C.brand)),
+                      Text(
+                        'PUBLIC PROFILE',
+                        style: syne(
+                          sz: 13,
+                          w: FontWeight.w900,
+                          ls: 2,
+                          c: C.brand,
+                        ),
+                      ),
                     ],
                   ),
                   _HUDButton(icon: Icons.more_horiz, onTap: onOptions),
@@ -747,7 +990,9 @@ class _ProfileHeader extends StatelessWidget {
                       clipBehavior: Clip.none,
                       children: [
                         _AvatarContainer(url: profile.avatarUrl, size: 84),
-                        if (profile.verified || profile.trustScoreTier == 'titan_trust' || profile.aiVerified)
+                        if (profile.verified ||
+                            profile.trustScoreTier == 'titan_trust' ||
+                            profile.aiVerified)
                           Positioned(
                             bottom: -2,
                             right: -2,
@@ -776,38 +1021,68 @@ class _ProfileHeader extends StatelessWidget {
                         children: [
                           Text(
                             displayName.toUpperCase(),
-                            style: syne(sz: 21, w: FontWeight.w900, fs: FontStyle.italic, ls: -0.5),
+                            style: syne(
+                              sz: 21,
+                              w: FontWeight.w900,
+                              fs: FontStyle.italic,
+                              ls: -0.5,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              Text('@', style: dm(sz: 13, c: const Color(0xFF00E5FF))),
+                              Text(
+                                '@',
+                                style: dm(sz: 13, c: const Color(0xFF00E5FF)),
+                              ),
                               Flexible(
                                 child: Text(
                                   profile.username,
-                                  style: dm(sz: 13, w: FontWeight.w700, c: const Color(0xFF00E5FF)),
+                                  style: dm(
+                                    sz: 13,
+                                    w: FontWeight.w700,
+                                    c: const Color(0xFF00E5FF),
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF00E5FF).withValues(alpha: .08),
+                                  color: const Color(
+                                    0xFF00E5FF,
+                                  ).withValues(alpha: .08),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .3)),
+                                  border: Border.all(
+                                    color: const Color(
+                                      0xFF00E5FF,
+                                    ).withValues(alpha: .3),
+                                  ),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.verified_user_outlined, size: 10, color: Color(0xFF00E5FF)),
+                                    const Icon(
+                                      Icons.verified_user_outlined,
+                                      size: 10,
+                                      color: Color(0xFF00E5FF),
+                                    ),
                                     const SizedBox(width: 4),
                                     Text(
                                       _formatTier(profile.trustScoreTier),
-                                      style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: const Color(0xFF00E5FF)),
+                                      style: dm(
+                                        sz: 9,
+                                        w: FontWeight.w800,
+                                        ls: 0.5,
+                                        c: const Color(0xFF00E5FF),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -825,7 +1100,12 @@ class _ProfileHeader extends StatelessWidget {
                 // ── Bio text (Full width, italic) ──────────────────────
                 Text(
                   bioText,
-                  style: dm(sz: 12.5, fs: FontStyle.italic, c: C.text.withValues(alpha: .75), h: 1.45),
+                  style: dm(
+                    sz: 12.5,
+                    fs: FontStyle.italic,
+                    c: C.text.withValues(alpha: .75),
+                    h: 1.45,
+                  ),
                 ),
 
                 const SizedBox(height: 16),
@@ -842,11 +1122,15 @@ class _ProfileHeader extends StatelessWidget {
                           child: Container(
                             height: 48,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)]),
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)],
+                              ),
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF00E5FF).withValues(alpha: .25),
+                                  color: const Color(
+                                    0xFF00E5FF,
+                                  ).withValues(alpha: .25),
                                   blurRadius: 12,
                                   offset: const Offset(0, 4),
                                 ),
@@ -855,9 +1139,21 @@ class _ProfileHeader extends StatelessWidget {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 17),
+                                const Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  color: Colors.white,
+                                  size: 17,
+                                ),
                                 const SizedBox(width: 8),
-                                Text('MESSAGE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: Colors.white)),
+                                Text(
+                                  'MESSAGE',
+                                  style: syne(
+                                    sz: 13,
+                                    w: FontWeight.w900,
+                                    ls: 1,
+                                    c: Colors.white,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -872,10 +1168,18 @@ class _ProfileHeader extends StatelessWidget {
                           child: Container(
                             height: 48,
                             decoration: BoxDecoration(
-                              color: isFollowing ? Colors.transparent : const Color(0xFF00E5FF).withValues(alpha: .12),
+                              color: isFollowing
+                                  ? Colors.transparent
+                                  : const Color(
+                                      0xFF00E5FF,
+                                    ).withValues(alpha: .12),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: isFollowing ? const Color(0xFF00E5FF) : const Color(0xFF00E5FF).withValues(alpha: .4),
+                                color: isFollowing
+                                    ? const Color(0xFF00E5FF)
+                                    : const Color(
+                                        0xFF00E5FF,
+                                      ).withValues(alpha: .4),
                                 width: 1.5,
                               ),
                             ),
@@ -883,18 +1187,33 @@ class _ProfileHeader extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(
-                                  isFollowing ? Icons.how_to_reg_rounded : Icons.person_add_outlined,
+                                  isFollowing
+                                      ? Icons.how_to_reg_rounded
+                                      : Icons.person_add_outlined,
                                   color: const Color(0xFF00E5FF),
                                   size: 17,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  isFriend ? 'FRIENDS' : isFollowing ? 'FOLLOWING' : 'FOLLOW',
-                                  style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: const Color(0xFF00E5FF)),
+                                  isFriend
+                                      ? 'FRIENDS'
+                                      : isFollowing
+                                      ? 'FOLLOWING'
+                                      : 'FOLLOW',
+                                  style: syne(
+                                    sz: 13,
+                                    w: FontWeight.w900,
+                                    ls: 1,
+                                    c: const Color(0xFF00E5FF),
+                                  ),
                                 ),
                                 if (isFollowing) ...[
                                   const SizedBox(width: 4),
-                                  const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF00E5FF), size: 16),
+                                  const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: Color(0xFF00E5FF),
+                                    size: 16,
+                                  ),
                                 ],
                               ],
                             ),
@@ -917,7 +1236,9 @@ class _ProfileHeader extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFFFA000).withValues(alpha: .3),
+                                color: const Color(
+                                  0xFFFFA000,
+                                ).withValues(alpha: .3),
                                 blurRadius: 10,
                                 offset: const Offset(0, 3),
                               ),
@@ -943,14 +1264,24 @@ class _ProfileHeader extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: C.brand.withValues(alpha: .10),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: C.brand.withValues(alpha: .4)),
+                        border: Border.all(
+                          color: C.brand.withValues(alpha: .4),
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.edit_outlined, size: 16, color: C.brand),
                           const SizedBox(width: 8),
-                          Text('EDIT PROFILE', style: syne(sz: 13, w: FontWeight.w900, ls: 1, c: C.brand)),
+                          Text(
+                            'EDIT PROFILE',
+                            style: syne(
+                              sz: 13,
+                              w: FontWeight.w900,
+                              ls: 1,
+                              c: C.brand,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -960,7 +1291,10 @@ class _ProfileHeader extends StatelessWidget {
 
                 // ── Stats Row ──────────────────────────────────────────
                 Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: C.text.withValues(alpha: .03),
                     borderRadius: BorderRadius.circular(20),
@@ -1012,24 +1346,51 @@ class _ProfileHeader extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF00E5FF).withValues(alpha: .12),
+                                color: const Color(
+                                  0xFF00E5FF,
+                                ).withValues(alpha: .12),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Icon(Icons.info_outline_rounded, color: Color(0xFF00E5FF), size: 16),
+                              child: const Icon(
+                                Icons.info_outline_rounded,
+                                color: Color(0xFF00E5FF),
+                                size: 16,
+                              ),
                             ),
                             const SizedBox(width: 10),
-                            Text('ABOUT PROFILE', style: syne(sz: 13, w: FontWeight.w900, ls: 1)),
+                            Text(
+                              'ABOUT PROFILE',
+                              style: syne(sz: 13, w: FontWeight.w900, ls: 1),
+                            ),
                             const Spacer(),
                             GestureDetector(
-                              onTap: () => _showProfileDetailsSheet(context, profile, bioText, reputationScore),
+                              onTap: () => _showProfileDetailsSheet(
+                                context,
+                                profile,
+                                bioText,
+                                reputationScore,
+                              ),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
                                 decoration: BoxDecoration(
                                   color: C.text.withValues(alpha: .04),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: C.text.withValues(alpha: .08)),
+                                  border: Border.all(
+                                    color: C.text.withValues(alpha: .08),
+                                  ),
                                 ),
-                                child: Text('VIEW MORE ›', style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: const Color(0xFF00E5FF))),
+                                child: Text(
+                                  'VIEW MORE ›',
+                                  style: dm(
+                                    sz: 9,
+                                    w: FontWeight.w800,
+                                    ls: 1,
+                                    c: const Color(0xFF00E5FF),
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -1047,13 +1408,19 @@ class _ProfileHeader extends StatelessWidget {
                             SizedBox(
                               width: 58,
                               height: 58,
-                              child: CustomPaint(painter: _GeodesicSpherePainter()),
+                              child: CustomPaint(
+                                painter: _GeodesicSpherePainter(),
+                              ),
                             ),
                             const SizedBox(width: 14),
                             Expanded(
                               child: Text(
                                 bioText,
-                                style: dm(sz: 12.5, c: C.text.withValues(alpha: .75), h: 1.45),
+                                style: dm(
+                                  sz: 12.5,
+                                  c: C.text.withValues(alpha: .75),
+                                  h: 1.45,
+                                ),
                                 maxLines: 3,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1073,7 +1440,10 @@ class _ProfileHeader extends StatelessWidget {
                               child: _MetricProgressBar(
                                 label: 'REPUTATION',
                                 value: '$reputationScore / 10',
-                                progress: ((double.tryParse(reputationScore) ?? 5.0) / 10.0).clamp(0.0, 1.0),
+                                progress:
+                                    ((double.tryParse(reputationScore) ?? 5.0) /
+                                            10.0)
+                                        .clamp(0.0, 1.0),
                                 color: const Color(0xFF00E5FF),
                                 icon: Icons.star_rounded,
                               ),
@@ -1083,7 +1453,10 @@ class _ProfileHeader extends StatelessWidget {
                               child: _MetricProgressBar(
                                 label: 'TRUST SCORE',
                                 value: '${profile.trustScore}%',
-                                progress: (profile.trustScore / 100.0).clamp(0.0, 1.0),
+                                progress: (profile.trustScore / 100.0).clamp(
+                                  0.0,
+                                  1.0,
+                                ),
                                 color: const Color(0xFFA855F7),
                                 icon: Icons.verified_user_rounded,
                               ),
@@ -1101,7 +1474,9 @@ class _ProfileHeader extends StatelessWidget {
                           children: [
                             _SysBadge(
                               icon: Icons.location_on_outlined,
-                              label: (profile.district != null && profile.district!.isNotEmpty)
+                              label:
+                                  (profile.district != null &&
+                                      profile.district!.isNotEmpty)
                                   ? profile.district!.toUpperCase()
                                   : 'EAST AFRICA',
                             ),
@@ -1151,10 +1526,17 @@ class _ProfileHeader extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               color: C.bg.withValues(alpha: .94),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
               border: Border.all(color: C.text.withValues(alpha: .1)),
             ),
-            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).padding.bottom + 20),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              16,
+              20,
+              MediaQuery.of(ctx).padding.bottom + 20,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1178,15 +1560,24 @@ class _ProfileHeader extends StatelessWidget {
                         color: C.brand.withValues(alpha: .12),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Icon(Icons.badge_outlined, color: C.brand, size: 20),
+                      child: Icon(
+                        Icons.badge_outlined,
+                        color: C.brand,
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('PROFILE DETAILS', style: syne(sz: 15, w: FontWeight.w900)),
-                        Text('Member overview and account status',
-                            style: dm(sz: 11, c: C.dim)),
+                        Text(
+                          'PROFILE DETAILS',
+                          style: syne(sz: 15, w: FontWeight.w900),
+                        ),
+                        Text(
+                          'Member overview and account status',
+                          style: dm(sz: 11, c: C.dim),
+                        ),
                       ],
                     ),
                     const Spacer(),
@@ -1199,7 +1590,10 @@ class _ProfileHeader extends StatelessWidget {
                 const SizedBox(height: 16),
                 Divider(color: C.text.withValues(alpha: .06)),
                 const SizedBox(height: 12),
-                Text('ABOUT', style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim)),
+                Text(
+                  'ABOUT',
+                  style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim),
+                ),
                 const SizedBox(height: 6),
                 Container(
                   width: double.infinity,
@@ -1215,7 +1609,10 @@ class _ProfileHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                Text('ACCOUNT METRICS', style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim)),
+                Text(
+                  'ACCOUNT METRICS',
+                  style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -1318,9 +1715,7 @@ class _ProfileBanner extends StatelessWidget {
             ),
           ),
           // Earth/Tech globe CustomPaint
-          Positioned.fill(
-            child: CustomPaint(painter: _EarthGlobePainter()),
-          ),
+          Positioned.fill(child: CustomPaint(painter: _EarthGlobePainter())),
           // Bottom fade to bg
           Positioned(
             bottom: 0,
@@ -1374,9 +1769,15 @@ class _EarthGlobePainter extends CustomPainter {
     // Draw latitude ellipses
     for (double i = -0.7; i <= 0.7; i += 0.35) {
       final yOffset = cy + i * r;
-      final radAtY = math.sqrt(math.max(0.0, r * r - (yOffset - cy) * (yOffset - cy)));
+      final radAtY = math.sqrt(
+        math.max(0.0, r * r - (yOffset - cy) * (yOffset - cy)),
+      );
       canvas.drawOval(
-        Rect.fromCenter(center: Offset(cx, yOffset), width: radAtY * 2, height: radAtY * 0.6),
+        Rect.fromCenter(
+          center: Offset(cx, yOffset),
+          width: radAtY * 2,
+          height: radAtY * 0.6,
+        ),
         arcPaint,
       );
     }
@@ -1384,7 +1785,11 @@ class _EarthGlobePainter extends CustomPainter {
     // Draw longitude ellipses
     for (double i = 0.2; i <= 1.0; i += 0.35) {
       canvas.drawOval(
-        Rect.fromCenter(center: Offset(cx, cy), width: r * 2 * i, height: r * 2),
+        Rect.fromCenter(
+          center: Offset(cx, cy),
+          width: r * 2 * i,
+          height: r * 2,
+        ),
         arcPaint,
       );
     }
@@ -1448,18 +1853,18 @@ class _GeodesicSpherePainter extends CustomPainter {
     // 3D vertices of an icosahedron
     final phi = (1.0 + math.sqrt(5.0)) / 2.0;
     final rawVertices = [
-      [-1.0,  phi,  0.0],
-      [ 1.0,  phi,  0.0],
-      [-1.0, -phi,  0.0],
-      [ 1.0, -phi,  0.0],
-      [ 0.0, -1.0,  phi],
-      [ 0.0,  1.0,  phi],
-      [ 0.0, -1.0, -phi],
-      [ 0.0,  1.0, -phi],
-      [ phi,  0.0, -1.0],
-      [ phi,  0.0,  1.0],
-      [-phi,  0.0, -1.0],
-      [-phi,  0.0,  1.0],
+      [-1.0, phi, 0.0],
+      [1.0, phi, 0.0],
+      [-1.0, -phi, 0.0],
+      [1.0, -phi, 0.0],
+      [0.0, -1.0, phi],
+      [0.0, 1.0, phi],
+      [0.0, -1.0, -phi],
+      [0.0, 1.0, -phi],
+      [phi, 0.0, -1.0],
+      [phi, 0.0, 1.0],
+      [-phi, 0.0, -1.0],
+      [-phi, 0.0, 1.0],
     ];
 
     // Isometric rotation
@@ -1498,7 +1903,11 @@ class _GeodesicSpherePainter extends CustomPainter {
         final dist = math.sqrt(dx * dx + dy * dy + dz * dz);
         if ((dist - 2.0).abs() < 0.2) {
           final isFront = (zVals[i] + zVals[j]) > -0.2;
-          canvas.drawLine(pts2d[i], pts2d[j], isFront ? linePaint : innerLinePaint);
+          canvas.drawLine(
+            pts2d[i],
+            pts2d[j],
+            isFront ? linePaint : innerLinePaint,
+          );
         }
       }
     }
@@ -1578,7 +1987,6 @@ class _MetricProgressBar extends StatelessWidget {
   }
 }
 
-
 class _MetricDetailBox extends StatelessWidget {
   final String title;
   final String value;
@@ -1608,7 +2016,10 @@ class _MetricDetailBox extends StatelessWidget {
             children: [
               Icon(icon, size: 14, color: color),
               const SizedBox(width: 6),
-              Text(title, style: dm(sz: 9, w: FontWeight.w800, c: C.dim)),
+              Text(
+                title,
+                style: dm(sz: 9, w: FontWeight.w800, c: C.dim),
+              ),
             ],
           ),
           const SizedBox(height: 4),
@@ -1685,7 +2096,8 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     Navigator.pop(context);
     SharePlus.instance.share(
       ShareParams(
-        text: 'Check out @${profile.username} on Necxa: https://goobox.necxa.uk/@${profile.username}',
+        text:
+            'Check out @${profile.username} on Necxa: https://goobox.necxa.uk/@${profile.username}',
         subject: '$displayName on Necxa',
       ),
     );
@@ -1731,7 +2143,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           SnackBar(
             backgroundColor: C.card,
             behavior: SnackBarBehavior.floating,
-            content: Text('Posts from @${profile.username} muted.', style: dm(c: C.text)),
+            content: Text(
+              'Posts from @${profile.username} muted.',
+              style: dm(c: C.text),
+            ),
           ),
         );
       }
@@ -1741,7 +2156,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           SnackBar(
             backgroundColor: C.card,
             behavior: SnackBarBehavior.floating,
-            content: Text('Could not mute account. Please try again.', style: dm(c: Colors.redAccent)),
+            content: Text(
+              'Could not mute account. Please try again.',
+              style: dm(c: Colors.redAccent),
+            ),
           ),
         );
       }
@@ -1761,7 +2179,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           children: [
             const Icon(Icons.block_rounded, color: Colors.redAccent, size: 22),
             const SizedBox(width: 10),
-            Text('Block @${profile.username}?', style: syne(sz: 16, w: FontWeight.bold)),
+            Text(
+              'Block @${profile.username}?',
+              style: syne(sz: 16, w: FontWeight.bold),
+            ),
           ],
         ),
         content: Text(
@@ -1771,18 +2192,26 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dlgCtx),
-            child: Text('Cancel', style: dm(c: C.dim, w: FontWeight.w600)),
+            child: Text(
+              'Cancel',
+              style: dm(c: C.dim, w: FontWeight.w600),
+            ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.redAccent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             onPressed: () {
               Navigator.pop(dlgCtx);
               _blockUser(context);
             },
-            child: Text('Block', style: syne(w: FontWeight.bold, c: Colors.white)),
+            child: Text(
+              'Block',
+              style: syne(w: FontWeight.bold, c: Colors.white),
+            ),
           ),
         ],
       ),
@@ -1798,7 +2227,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           SnackBar(
             backgroundColor: C.card,
             behavior: SnackBarBehavior.floating,
-            content: Text('@${profile.username} blocked. You will no longer see their content.', style: dm(c: Colors.redAccent)),
+            content: Text(
+              '@${profile.username} blocked. You will no longer see their content.',
+              style: dm(c: Colors.redAccent),
+            ),
           ),
         );
         state.goBack();
@@ -1809,7 +2241,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           SnackBar(
             backgroundColor: C.card,
             behavior: SnackBarBehavior.floating,
-            content: Text('Failed to block account: $e', style: dm(c: Colors.redAccent)),
+            content: Text(
+              'Failed to block account: $e',
+              style: dm(c: Colors.redAccent),
+            ),
           ),
         );
       }
@@ -1825,7 +2260,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           SnackBar(
             backgroundColor: C.card,
             behavior: SnackBarBehavior.floating,
-            content: Text('@${profile.username} unblocked.', style: dm(c: C.brand)),
+            content: Text(
+              '@${profile.username} unblocked.',
+              style: dm(c: C.brand),
+            ),
           ),
         );
       }
@@ -1835,7 +2273,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           SnackBar(
             backgroundColor: C.card,
             behavior: SnackBarBehavior.floating,
-            content: Text('Failed to unblock account: $e', style: dm(c: Colors.redAccent)),
+            content: Text(
+              'Failed to unblock account: $e',
+              style: dm(c: Colors.redAccent),
+            ),
           ),
         );
       }
@@ -1870,7 +2311,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Select a reason for reporting @${profile.username}:', style: dm(sz: 12, c: C.dim)),
+            Text(
+              'Select a reason for reporting @${profile.username}:',
+              style: dm(sz: 12, c: C.dim),
+            ),
             const SizedBox(height: 12),
             ...reasons.map(
               (r) => ListTile(
@@ -1886,7 +2330,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
                         SnackBar(
                           backgroundColor: C.card,
                           behavior: SnackBarBehavior.floating,
-                          content: Text('Report submitted. Our team is reviewing this account.', style: dm(c: C.brand)),
+                          content: Text(
+                            'Report submitted. Our team is reviewing this account.',
+                            style: dm(c: C.brand),
+                          ),
                         ),
                       );
                     }
@@ -1896,7 +2343,10 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
                         SnackBar(
                           backgroundColor: C.card,
                           behavior: SnackBarBehavior.floating,
-                          content: Text('Could not submit report. Please try again.', style: dm(c: Colors.redAccent)),
+                          content: Text(
+                            'Could not submit report. Please try again.',
+                            style: dm(c: Colors.redAccent),
+                          ),
                         ),
                       );
                     }
@@ -1922,14 +2372,20 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(color: C.text.withValues(alpha: .1)),
           ),
-          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(context).padding.bottom + 20),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            MediaQuery.of(context).padding.bottom + 20,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // Handle pill
               Center(
                 child: Container(
-                  width: 44, height: 4,
+                  width: 44,
+                  height: 4,
                   decoration: BoxDecoration(
                     color: C.dim.withValues(alpha: .5),
                     borderRadius: BorderRadius.circular(2),
@@ -1947,11 +2403,22 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(displayName, style: syne(sz: 16, w: FontWeight.w800), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text(
+                          displayName,
+                          style: syne(sz: 16, w: FontWeight.w800),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         const SizedBox(height: 2),
-                        Text('@${profile.username}', style: dm(sz: 13, w: FontWeight.w600, c: C.brand)),
+                        Text(
+                          '@${profile.username}',
+                          style: dm(sz: 13, w: FontWeight.w600, c: C.brand),
+                        ),
                         const SizedBox(height: 4),
-                        Text('${profile.trustScore}% Trust • ${profile.followersCount} Followers', style: dm(sz: 11, c: C.dim)),
+                        Text(
+                          '${profile.trustScore}% Trust • ${profile.followersCount} Followers',
+                          style: dm(sz: 11, c: C.dim),
+                        ),
                       ],
                     ),
                   ),
@@ -1962,18 +2429,58 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
               const SizedBox(height: 8),
 
               // Options
-              _OptionTile(icon: Icons.share_outlined, label: 'Share Profile', color: C.brand, onTap: () => _shareProfile(context)),
-              _OptionTile(icon: Icons.link_rounded, label: 'Copy Profile Link', color: C.purple, onTap: () => _copyLink(context)),
+              _OptionTile(
+                icon: Icons.share_outlined,
+                label: 'Share Profile',
+                color: C.brand,
+                onTap: () => _shareProfile(context),
+              ),
+              _OptionTile(
+                icon: Icons.link_rounded,
+                label: 'Copy Profile Link',
+                color: C.purple,
+                onTap: () => _copyLink(context),
+              ),
 
               if (!isMe) ...[
-                _OptionTile(icon: Icons.chat_bubble_outline_rounded, label: 'Send Message', color: C.brand, onTap: () => _openMessage(context)),
-                _OptionTile(icon: Icons.card_giftcard_rounded, label: 'Send Gift', color: Colors.amberAccent, onTap: () => _sendGift(context)),
-                _OptionTile(icon: Icons.volume_off_outlined, label: 'Mute Posts', color: C.dim, onTap: () => _muteUser(context)),
+                _OptionTile(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: 'Send Message',
+                  color: C.brand,
+                  onTap: () => _openMessage(context),
+                ),
+                _OptionTile(
+                  icon: Icons.card_giftcard_rounded,
+                  label: 'Send Gift',
+                  color: Colors.amberAccent,
+                  onTap: () => _sendGift(context),
+                ),
+                _OptionTile(
+                  icon: Icons.volume_off_outlined,
+                  label: 'Mute Posts',
+                  color: C.dim,
+                  onTap: () => _muteUser(context),
+                ),
                 if (state.isBlocked(profile.id))
-                  _OptionTile(icon: Icons.lock_open_rounded, label: 'Unblock User', color: Colors.orangeAccent, onTap: () => _unblockUser(context))
+                  _OptionTile(
+                    icon: Icons.lock_open_rounded,
+                    label: 'Unblock User',
+                    color: Colors.orangeAccent,
+                    onTap: () => _unblockUser(context),
+                  )
                 else
-                  _OptionTile(icon: Icons.block_rounded, label: 'Block User', color: Colors.redAccent, onTap: () => _confirmBlockUser(context)),
-                _OptionTile(icon: Icons.flag_outlined, label: 'Report Account', color: Colors.redAccent, onTap: () => _showReportDialog(context)),
+                  _OptionTile(
+                    icon: Icons.block_rounded,
+                    label: 'Block User',
+                    color: Colors.redAccent,
+                    onTap: () => _confirmBlockUser(context),
+                  ),
+                _OptionTile(
+                  icon: Icons.flag_outlined,
+                  label: 'Report Account',
+                  color: Colors.redAccent,
+                  onTap: () => _showReportDialog(context),
+                ),
               ] else ...[
                 _OptionTile(
                   icon: Icons.edit_note_rounded,
@@ -1992,7 +2499,6 @@ class _PublicProfileOptionsSheet extends StatelessWidget {
     );
   }
 }
-
 
 // ── Option Tile ───────────────────────────────────────────────────────────────
 
@@ -2029,8 +2535,912 @@ class _OptionTile extends StatelessWidget {
                 child: Icon(icon, color: color, size: 18),
               ),
               const SizedBox(width: 14),
-              Expanded(child: Text(label, style: syne(sz: 13, w: FontWeight.w600, c: C.text))),
+              Expanded(
+                child: Text(
+                  label,
+                  style: syne(sz: 13, w: FontWeight.w600, c: C.text),
+                ),
+              ),
               Icon(Icons.chevron_right_rounded, color: C.dim, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Showcase Product & Direct Inventory Widgets ──────────────────────────────
+
+bool _isVideoListing(Map<String, dynamic> item) {
+  final mediaType = item['media_type']?.toString().toLowerCase();
+  if (mediaType == 'video') return true;
+  final url = (item['media_url'] ?? '').toString().toLowerCase().trim();
+  if (url.isEmpty) return false;
+  return url.contains('.mp4') ||
+      url.contains('.mov') ||
+      url.contains('.webm') ||
+      url.contains('.m3u8') ||
+      url.contains('/videos/') ||
+      url.contains('video');
+}
+
+void _showProductDetailModal(
+  BuildContext context,
+  Map<String, dynamic> product,
+  AppState state,
+) {
+  final title = (product['title'] ?? product['name'] ?? 'Product').toString();
+  final price = (product['price'] is num)
+      ? (product['price'] as num).toDouble()
+      : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0;
+  final sku = product['sku']?.toString();
+  final stock = (product['stock_count'] is num)
+      ? (product['stock_count'] as num).toInt()
+      : int.tryParse(product['stock_count']?.toString() ?? '1') ?? 1;
+  final description = product['description']?.toString() ?? '';
+  final category = product['category']?.toString() ?? 'General';
+  final photos = product['photos'] as List? ?? [];
+  final rawUrl = (photos.isNotEmpty ? photos[0] : product['media_url'])
+      ?.toString()
+      .trim();
+  final url =
+      (rawUrl != null &&
+          rawUrl.isNotEmpty &&
+          (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+      ? rawUrl
+      : null;
+
+  final isOutOfStock = stock <= 0;
+  final isLowStock = stock > 0 && stock <= 4;
+
+  final sellerId =
+      (product['user_id'] ?? product['lister_id'])?.toString() ?? '';
+  final sellerProfile = product['profiles'] as Map<String, dynamic>?;
+  final sellerName =
+      (sellerProfile?['display_name'] ??
+              sellerProfile?['full_name'] ??
+              'Vendor')
+          .toString();
+  final sellerAvatar =
+      (sellerProfile?['photo_url'] ?? sellerProfile?['avatar_url'])?.toString();
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (ctx) => Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: const BoxDecoration(
+        color: Color(0xFF091122),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    height: 220,
+                    width: double.infinity,
+                    color: const Color(0xFF132035),
+                    child: url != null
+                        ? Image.network(
+                            url,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Icon(
+                                Icons.shopping_bag_outlined,
+                                color: C.dim,
+                                size: 48,
+                              ),
+                            ),
+                          )
+                        : Center(
+                            child: Icon(
+                              Icons.shopping_bag_outlined,
+                              color: C.dim,
+                              size: 48,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        category.toUpperCase(),
+                        style: syne(
+                          sz: 10,
+                          w: FontWeight.bold,
+                          c: Colors.white70,
+                          ls: 1,
+                        ),
+                      ),
+                    ),
+                    if (sku != null && sku.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00E5FF).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFF00E5FF).withOpacity(0.3),
+                          ),
+                        ),
+                        child: Text(
+                          'SKU: $sku',
+                          style: dm(
+                            sz: 10,
+                            w: FontWeight.bold,
+                            c: const Color(0xFF00E5FF),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isOutOfStock
+                            ? Colors.redAccent.withOpacity(0.2)
+                            : isLowStock
+                            ? Colors.amber.withOpacity(0.2)
+                            : Colors.greenAccent.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isOutOfStock
+                                ? Icons.cancel_outlined
+                                : isLowStock
+                                ? Icons.warning_amber_rounded
+                                : Icons.check_circle_outline_rounded,
+                            size: 12,
+                            color: isOutOfStock
+                                ? Colors.redAccent
+                                : isLowStock
+                                ? Colors.amberAccent
+                                : Colors.greenAccent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isOutOfStock
+                                ? 'Out of Stock'
+                                : isLowStock
+                                ? 'Only $stock left'
+                                : 'In Stock ($stock)',
+                            style: syne(
+                              sz: 10,
+                              w: FontWeight.w900,
+                              c: isOutOfStock
+                                  ? Colors.redAccent
+                                  : isLowStock
+                                  ? Colors.amberAccent
+                                  : Colors.greenAccent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: syne(sz: 20, w: FontWeight.w900, c: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  ugx(price),
+                  style: syne(sz: 24, w: FontWeight.w900, c: C.brand),
+                ),
+                const SizedBox(height: 16),
+                if (description.isNotEmpty) ...[
+                  Text(
+                    'DESCRIPTION',
+                    style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    description,
+                    style: dm(sz: 13, c: Colors.white70, h: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.verified_user_outlined,
+                        color: Color(0xFF00E5FF),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Necxa Escrow Protection • Instant Mobile Money & Card Checkout',
+                          style: dm(sz: 11, c: Colors.white70),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            decoration: BoxDecoration(
+              color: const Color(0xFF070D1A),
+              border: Border(
+                top: BorderSide(color: Colors.white.withOpacity(0.08)),
+              ),
+            ),
+            child: Row(
+              children: [
+                if (sellerId.isNotEmpty && sellerId != state.user?.id) ...[
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      state.openCreatorChat(sellerId, sellerName, sellerAvatar);
+                    },
+                    icon: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 16,
+                    ),
+                    label: const Text('Chat'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: isOutOfStock
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            state.selectedListing = product;
+                            state.showCheckoutOverlay = true;
+                            state.notify();
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isOutOfStock
+                          ? Colors.white12
+                          : const Color(0xFF00E5FF),
+                      foregroundColor: isOutOfStock
+                          ? Colors.white38
+                          : Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.bolt_rounded,
+                          size: 18,
+                          color: isOutOfStock ? Colors.white38 : Colors.black,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isOutOfStock
+                              ? 'OUT OF STOCK'
+                              : 'BUY NOW • ${ugx(price)}',
+                          style: syne(
+                            sz: 13,
+                            w: FontWeight.w900,
+                            c: isOutOfStock ? Colors.white38 : Colors.black,
+                            ls: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// ── Vendor Store Showcase Panel ──────────────────────────────────────────────
+
+class _VendorStoreShowcasePanel extends StatelessWidget {
+  final List<Map<String, dynamic>> products;
+  final AppState state;
+  final bool hasVideoContent;
+  final ValueChanged<Map<String, dynamic>> onOpenProduct;
+
+  const _VendorStoreShowcasePanel({
+    required this.products,
+    required this.state,
+    required this.hasVideoContent,
+    required this.onOpenProduct,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B1528),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFF00E5FF).withOpacity(0.25),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E5FF).withOpacity(0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00E5FF), Color(0xFFD946EF)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00E5FF).withOpacity(0.35),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.storefront_rounded,
+                  color: Colors.black,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'VENDOR STORE',
+                          style: syne(
+                            sz: 13,
+                            w: FontWeight.w900,
+                            c: Colors.white,
+                            ls: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFF00E5FF).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            'DIRECT',
+                            style: syne(
+                              sz: 8,
+                              w: FontWeight.w900,
+                              c: const Color(0xFF00E5FF),
+                              ls: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${products.length} direct inventory ${products.length == 1 ? "product" : "products"} • Instant Buy',
+                      style: dm(sz: 11, c: C.dim),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 216,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              clipBehavior: Clip.none,
+              itemCount: products.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final product = products[index];
+                return _StoreShowcaseCard(
+                  product: product,
+                  state: state,
+                  onTap: () => onOpenProduct(product),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Store Showcase Card (Carousel Item) ──────────────────────────────────────
+
+class _StoreShowcaseCard extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final AppState state;
+  final VoidCallback onTap;
+
+  const _StoreShowcaseCard({
+    required this.product,
+    required this.state,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (product['title'] ?? product['name'] ?? 'Product').toString();
+    final price = (product['price'] is num)
+        ? (product['price'] as num).toDouble()
+        : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0;
+    final sku = product['sku']?.toString();
+    final stock = (product['stock_count'] is num)
+        ? (product['stock_count'] as num).toInt()
+        : int.tryParse(product['stock_count']?.toString() ?? '1') ?? 1;
+    final photos = product['photos'] as List? ?? [];
+    final rawUrl = (photos.isNotEmpty ? photos[0] : product['media_url'])
+        ?.toString()
+        .trim();
+    final url =
+        (rawUrl != null &&
+            rawUrl.isNotEmpty &&
+            (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+        ? rawUrl
+        : null;
+
+    final isOutOfStock = stock <= 0;
+    final isLowStock = stock > 0 && stock <= 4;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 160,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F1B2E),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
+                  ),
+                  child: Container(
+                    height: 100,
+                    width: double.infinity,
+                    color: const Color(0xFF14243B),
+                    child: url != null
+                        ? Image.network(
+                            url,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Icon(
+                                Icons.shopping_bag_outlined,
+                                color: C.dim,
+                                size: 32,
+                              ),
+                            ),
+                          )
+                        : Center(
+                            child: Icon(
+                              Icons.shopping_bag_outlined,
+                              color: C.dim,
+                              size: 32,
+                            ),
+                          ),
+                  ),
+                ),
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isOutOfStock
+                          ? Colors.redAccent.withOpacity(0.85)
+                          : isLowStock
+                          ? Colors.amber.withOpacity(0.85)
+                          : const Color(0xFF00E5FF).withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      isOutOfStock ? 'OUT' : 'STOCK: $stock',
+                      style: syne(
+                        sz: 8,
+                        w: FontWeight.w900,
+                        c: isOutOfStock ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                ),
+                if (sku != null && sku.isNotEmpty)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.65),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '#$sku',
+                        style: dm(sz: 8, w: FontWeight.bold, c: Colors.white70),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: syne(sz: 11, w: FontWeight.w800, c: Colors.white),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    ugx(price),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: syne(sz: 11, w: FontWeight.w900, c: C.brand),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 28,
+                    child: ElevatedButton(
+                      onPressed: isOutOfStock
+                          ? null
+                          : () {
+                              state.selectedListing = product;
+                              state.showCheckoutOverlay = true;
+                              state.notify();
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isOutOfStock
+                            ? Colors.white12
+                            : const Color(0xFF00E5FF),
+                        foregroundColor: isOutOfStock
+                            ? Colors.white38
+                            : Colors.black,
+                        padding: EdgeInsets.zero,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.bolt_rounded,
+                            size: 13,
+                            color: isOutOfStock ? Colors.white38 : Colors.black,
+                          ),
+                          const SizedBox(width: 2),
+                          Text(
+                            isOutOfStock ? 'Sold Out' : 'Buy Now',
+                            style: syne(
+                              sz: 10,
+                              w: FontWeight.w900,
+                              c: isOutOfStock ? Colors.white38 : Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Inventory Product Card (Grid Item) ───────────────────────────────────────
+
+class _InventoryProductCard extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final AppState state;
+  final VoidCallback onTap;
+
+  const _InventoryProductCard({
+    required this.product,
+    required this.state,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (product['title'] ?? product['name'] ?? 'Product').toString();
+    final price = (product['price'] is num)
+        ? (product['price'] as num).toDouble()
+        : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0;
+    final sku = product['sku']?.toString();
+    final stock = (product['stock_count'] is num)
+        ? (product['stock_count'] as num).toInt()
+        : int.tryParse(product['stock_count']?.toString() ?? '1') ?? 1;
+    final photos = product['photos'] as List? ?? [];
+    final rawUrl = (photos.isNotEmpty ? photos[0] : product['media_url'])
+        ?.toString()
+        .trim();
+    final url =
+        (rawUrl != null &&
+            rawUrl.isNotEmpty &&
+            (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+        ? rawUrl
+        : null;
+
+    final isOutOfStock = stock <= 0;
+    final isLowStock = stock > 0 && stock <= 4;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F1B2E),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: url != null
+                          ? Image.network(
+                              url,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: const Color(0xFF14243B),
+                                child: Center(
+                                  child: Icon(
+                                    Icons.shopping_bag_outlined,
+                                    color: C.dim,
+                                    size: 36,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Container(
+                              color: const Color(0xFF14243B),
+                              child: Center(
+                                child: Icon(
+                                  Icons.shopping_bag_outlined,
+                                  color: C.dim,
+                                  size: 36,
+                                ),
+                              ),
+                            ),
+                    ),
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isOutOfStock
+                              ? Colors.redAccent.withOpacity(0.9)
+                              : isLowStock
+                              ? Colors.amber.withOpacity(0.9)
+                              : const Color(0xFF00E5FF).withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isOutOfStock ? 'OUT' : 'STOCK: $stock',
+                          style: syne(
+                            sz: 9,
+                            w: FontWeight.w900,
+                            c: isOutOfStock ? Colors.white : Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (sku != null && sku.isNotEmpty)
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '#$sku',
+                            style: dm(
+                              sz: 9,
+                              w: FontWeight.bold,
+                              c: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: syne(sz: 13, w: FontWeight.w800, c: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            ugx(price),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: syne(sz: 13, w: FontWeight.w900, c: C.brand),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: isOutOfStock
+                              ? null
+                              : () {
+                                  state.selectedListing = product;
+                                  state.showCheckoutOverlay = true;
+                                  state.notify();
+                                },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isOutOfStock
+                                  ? Colors.white12
+                                  : const Color(0xFF00E5FF),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.bolt,
+                                  size: 12,
+                                  color: isOutOfStock
+                                      ? Colors.white38
+                                      : Colors.black,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  'Buy',
+                                  style: syne(
+                                    sz: 10,
+                                    w: FontWeight.w900,
+                                    c: isOutOfStock
+                                        ? Colors.white38
+                                        : Colors.black,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -2048,22 +3458,37 @@ class _ProductGridItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isVideo = _isVideoListing(listing);
     final photos = listing['photos'] as List? ?? [];
-    final rawUrl = (photos.isNotEmpty ? photos[0] : listing['media_url'])?.toString().trim();
-    final url = (rawUrl != null && rawUrl.isNotEmpty && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+    final rawUrl = (photos.isNotEmpty ? photos[0] : listing['media_url'])
+        ?.toString()
+        .trim();
+    final url =
+        (rawUrl != null &&
+            rawUrl.isNotEmpty &&
+            (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
         ? rawUrl
         : null;
-    final price = (listing['price'] is num) ? (listing['price'] as num).toDouble() : 0.0;
+    final price = (listing['price'] is num)
+        ? (listing['price'] as num).toDouble()
+        : 0.0;
 
     return GestureDetector(
       onTap: () {
-        final targetId = listing['id']?.toString() ?? listing['listing_id']?.toString();
+        if (!isVideo) {
+          _showProductDetailModal(context, listing, state);
+          return;
+        }
+        final targetId =
+            listing['id']?.toString() ?? listing['listing_id']?.toString();
         state.creatorTab = 'shop';
         state.pendingDestinationTab = 'shop';
         state.selectedListing = listing;
         if (targetId != null && targetId.isNotEmpty) {
           final exists = state.social.shopListings.any(
-            (it) => it['id']?.toString() == targetId || it['listing_id']?.toString() == targetId,
+            (it) =>
+                it['id']?.toString() == targetId ||
+                it['listing_id']?.toString() == targetId,
           );
           if (!exists) {
             state.social.shopListings.insert(0, listing);
@@ -2086,49 +3511,101 @@ class _ProductGridItem extends StatelessWidget {
                     ? Image.network(
                         url,
                         fit: BoxFit.cover,
-                        errorBuilder: (c, e, s) =>
-                            Container(color: C.card, child: Icon(Icons.broken_image, color: C.dim)),
+                        errorBuilder: (c, e, s) => Container(
+                          color: C.card,
+                          child: Icon(Icons.broken_image, color: C.dim),
+                        ),
                       )
-                    : Container(color: C.dim, child: Icon(Icons.shopping_bag, color: C.dim)),
+                    : Container(
+                        color: C.dim,
+                        child: Icon(Icons.shopping_bag, color: C.dim),
+                      ),
               ),
               Positioned(
-                bottom: 12, left: 12, right: 12,
+                bottom: 12,
+                left: 12,
+                right: 12,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 12,
+                      ),
                       color: Colors.black45,
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text(ugx(price),
-                                style: syne(sz: 14, w: FontWeight.w900, c: C.brand),
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              ugx(price),
+                              style: syne(
+                                sz: 14,
+                                w: FontWeight.w900,
+                                c: C.brand,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          Icon(Icons.bolt, color: C.brand, size: 14),
+                          GestureDetector(
+                            onTap: !isVideo
+                                ? () {
+                                    state.selectedListing = listing;
+                                    state.showCheckoutOverlay = true;
+                                    state.notify();
+                                  }
+                                : null,
+                            child: Icon(Icons.bolt, color: C.brand, size: 14),
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
-              if (listing['media_url'] != null)
-                Positioned(
-                  top: 12, right: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                    child: Row(
-                      children: [
-                        Icon(Icons.play_circle_fill, color: C.text, size: 12),
-                        const SizedBox(width: 4),
-                        Text('VIDEO', style: syne(sz: 8, w: FontWeight.w900, c: C.text)),
-                      ],
-                    ),
+              Positioned(
+                top: 12,
+                right: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isVideo
+                        ? Colors.black54
+                        : const Color(0xFF00E5FF).withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(8),
+                    border: isVideo
+                        ? null
+                        : Border.all(
+                            color: const Color(0xFF00E5FF).withOpacity(0.4),
+                          ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isVideo
+                            ? Icons.play_circle_fill
+                            : Icons.shopping_bag_rounded,
+                        color: isVideo ? C.text : const Color(0xFF00E5FF),
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isVideo ? 'VIDEO' : 'STORE',
+                        style: syne(
+                          sz: 8,
+                          w: FontWeight.w900,
+                          c: isVideo ? C.text : const Color(0xFF00E5FF),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
             ],
           ),
         ),
@@ -2146,7 +3623,9 @@ class _AvatarContainer extends StatelessWidget {
 
   bool get _hasValidUrl {
     final u = url?.trim();
-    return u != null && u.isNotEmpty && (u.startsWith('http://') || u.startsWith('https://'));
+    return u != null &&
+        u.isNotEmpty &&
+        (u.startsWith('http://') || u.startsWith('https://'));
   }
 
   @override
@@ -2171,19 +3650,20 @@ class _AvatarContainer extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(3),
       child: Container(
-        decoration: BoxDecoration(
-          color: C.bg,
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: C.bg, shape: BoxShape.circle),
         padding: const EdgeInsets.all(3),
         child: ClipOval(
           child: _hasValidUrl
               ? Image.network(
                   url!.trim(),
                   fit: BoxFit.cover,
-                  errorBuilder: (c, e, s) => Center(child: Icon(Icons.person, color: C.brand, size: size * .45)),
+                  errorBuilder: (c, e, s) => Center(
+                    child: Icon(Icons.person, color: C.brand, size: size * .45),
+                  ),
                 )
-              : Center(child: Icon(Icons.person, color: C.dim, size: size * .45)),
+              : Center(
+                  child: Icon(Icons.person, color: C.dim, size: size * .45),
+                ),
         ),
       ),
     );
@@ -2196,16 +3676,27 @@ class _StatItem extends StatelessWidget {
   final IconData icon;
   final String label, value;
   final Color color;
-  const _StatItem({required this.icon, required this.label, required this.value, required this.color});
+  const _StatItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) => Column(
     children: [
       Icon(icon, color: color, size: 18),
       const SizedBox(height: 6),
-      Text(value, style: syne(sz: 17, w: FontWeight.w900, fs: FontStyle.italic, c: color)),
+      Text(
+        value,
+        style: syne(sz: 17, w: FontWeight.w900, fs: FontStyle.italic, c: color),
+      ),
       const SizedBox(height: 4),
-      Text(label, style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim)),
+      Text(
+        label,
+        style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim),
+      ),
     ],
   );
 }
@@ -2228,10 +3719,16 @@ class _GridItem extends StatelessWidget {
     final isVideo = data['media_type'] == 'video';
     final rawMedia = data['media_url']?.toString().trim();
     final rawThumb = data['thumbnail_url']?.toString().trim();
-    final thumbUrl = (rawThumb != null && rawThumb.isNotEmpty && (rawThumb.startsWith('http://') || rawThumb.startsWith('https://')))
+    final thumbUrl =
+        (rawThumb != null &&
+            rawThumb.isNotEmpty &&
+            (rawThumb.startsWith('http://') || rawThumb.startsWith('https://')))
         ? rawThumb
         : null;
-    final mediaUrl = (rawMedia != null && rawMedia.isNotEmpty && (rawMedia.startsWith('http://') || rawMedia.startsWith('https://')))
+    final mediaUrl =
+        (rawMedia != null &&
+            rawMedia.isNotEmpty &&
+            (rawMedia.startsWith('http://') || rawMedia.startsWith('https://')))
         ? rawMedia
         : null;
     final displayImage = thumbUrl ?? mediaUrl;
@@ -2250,7 +3747,10 @@ class _GridItem extends StatelessWidget {
                   fit: BoxFit.cover,
                   onError: (_, __) {},
                   colorFilter: isVideo
-                      ? ColorFilter.mode(Colors.black.withValues(alpha: 0.3), BlendMode.darken)
+                      ? ColorFilter.mode(
+                          Colors.black.withValues(alpha: 0.3),
+                          BlendMode.darken,
+                        )
                       : null,
                 )
               : null,
@@ -2259,17 +3759,27 @@ class _GridItem extends StatelessWidget {
           children: [
             if (displayImage == null)
               Center(
-                child: Icon(isVideo ? Icons.videocam_outlined : Icons.image_outlined, color: C.dim, size: 28),
+                child: Icon(
+                  isVideo ? Icons.videocam_outlined : Icons.image_outlined,
+                  color: C.dim,
+                  size: 28,
+                ),
               ),
             if (isVideo && displayImage != null)
-              Center(child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40)),
+              Center(
+                child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40),
+              ),
             Positioned(
-              bottom: 12, left: 12,
+              bottom: 12,
+              left: 12,
               child: Row(
                 children: [
                   Icon(Icons.favorite, color: C.text, size: 12),
                   const SizedBox(width: 4),
-                  Text(kNum(likes is num ? likes.toInt() : 0), style: dm(sz: 10, w: FontWeight.w800, c: C.text)),
+                  Text(
+                    kNum(likes is num ? likes.toInt() : 0),
+                    style: dm(sz: 10, w: FontWeight.w800, c: C.text),
+                  ),
                 ],
               ),
             ),
@@ -2321,7 +3831,11 @@ class _ArtistEmptyMusic extends StatelessWidget {
           Text('No music released yet', style: syne(sz: 13, c: C.dim, ls: 1)),
           if (isOwnProfile) ...[
             const SizedBox(height: 16),
-            Text('Upload your first track to show it here', style: dm(sz: 12, c: C.sub), textAlign: TextAlign.center),
+            Text(
+              'Upload your first track to show it here',
+              style: dm(sz: 12, c: C.sub),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               icon: const Icon(Icons.cloud_upload_rounded, size: 18),
@@ -2330,8 +3844,13 @@ class _ArtistEmptyMusic extends StatelessWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF7B2FFF),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
             ),
           ],
@@ -2399,12 +3918,16 @@ class _GooboxMusicTrackTile extends StatelessWidget {
                                   coverUrl,
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.music_note_rounded,
-                                      color: Color(0xFFA855F7),
-                                      size: 26),
+                                    Icons.music_note_rounded,
+                                    color: Color(0xFFA855F7),
+                                    size: 26,
+                                  ),
                                 )
-                              : const Icon(Icons.music_note_rounded,
-                                  color: Color(0xFFA855F7), size: 26),
+                              : const Icon(
+                                  Icons.music_note_rounded,
+                                  color: Color(0xFFA855F7),
+                                  size: 26,
+                                ),
                         ),
                         if (activePlay)
                           Container(
@@ -2414,8 +3937,11 @@ class _GooboxMusicTrackTile extends StatelessWidget {
                               borderRadius: BorderRadius.circular(12),
                               color: Colors.black.withOpacity(0.4),
                             ),
-                            child: const Icon(Icons.equalizer_rounded,
-                                color: Color(0xFF00E5FF), size: 24),
+                            child: const Icon(
+                              Icons.equalizer_rounded,
+                              color: Color(0xFF00E5FF),
+                              size: 24,
+                            ),
                           ),
                       ],
                     ),
@@ -2431,7 +3957,9 @@ class _GooboxMusicTrackTile extends StatelessWidget {
                           style: syne(
                             sz: 14,
                             w: FontWeight.w700,
-                            c: activePlay ? const Color(0xFF00E5FF) : Colors.white,
+                            c: activePlay
+                                ? const Color(0xFF00E5FF)
+                                : Colors.white,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -2445,7 +3973,10 @@ class _GooboxMusicTrackTile extends StatelessWidget {
                               Container(
                                 width: 3,
                                 height: 3,
-                                decoration: BoxDecoration(color: C.dim, shape: BoxShape.circle),
+                                decoration: BoxDecoration(
+                                  color: C.dim,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
                               const SizedBox(width: 8),
                             ],
@@ -2455,7 +3986,11 @@ class _GooboxMusicTrackTile extends StatelessWidget {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(Icons.headphones_rounded, size: 12, color: C.dim),
+                            Icon(
+                              Icons.headphones_rounded,
+                              size: 12,
+                              color: C.dim,
+                            ),
                             const SizedBox(width: 4),
                             Text('$plays plays', style: dm(sz: 11, c: C.dim)),
                             const SizedBox(width: 12),
@@ -2466,22 +4001,33 @@ class _GooboxMusicTrackTile extends StatelessWidget {
                                 state.go('upload');
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF7B2FFF).withOpacity(0.2),
+                                  color: const Color(
+                                    0xFF7B2FFF,
+                                  ).withOpacity(0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.auto_awesome_rounded,
-                                        size: 10, color: Color(0xFFA855F7)),
+                                    const Icon(
+                                      Icons.auto_awesome_rounded,
+                                      size: 10,
+                                      color: Color(0xFFA855F7),
+                                    ),
                                     const SizedBox(width: 4),
-                                    Text('Use Sound',
-                                        style: syne(
-                                            sz: 9,
-                                            w: FontWeight.w800,
-                                            c: const Color(0xFFA855F7))),
+                                    Text(
+                                      'Use Sound',
+                                      style: syne(
+                                        sz: 9,
+                                        w: FontWeight.w800,
+                                        c: const Color(0xFFA855F7),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -2497,7 +4043,9 @@ class _GooboxMusicTrackTile extends StatelessWidget {
                       activePlay
                           ? Icons.pause_circle_filled_rounded
                           : Icons.play_circle_fill_rounded,
-                      color: activePlay ? const Color(0xFF00E5FF) : const Color(0xFF7B2FFF),
+                      color: activePlay
+                          ? const Color(0xFF00E5FF)
+                          : const Color(0xFF7B2FFF),
                       size: 36,
                     ),
                     onPressed: () => state.artistMusic.togglePlay(track),
