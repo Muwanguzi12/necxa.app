@@ -44,6 +44,26 @@ void main() async {
     databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
 
+  if (!kIsWeb) {
+    try {
+      cameras = await availableCameras();
+    } catch (e) {
+      debugPrint('Camera error: $e');
+    }
+  }
+  await Supabase.initialize(
+    url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
+    anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
+    authOptions: const FlutterAuthClientOptions(
+      // Email clients frequently open web magic links in a fresh tab or
+      // browser context where a PKCE verifier is unavailable. The implicit
+      // web callback carries the one-time session in the URL fragment, while
+      // native apps retain PKCE and the custom deep link.
+      authFlowType: kIsWeb ? AuthFlowType.implicit : AuthFlowType.pkce,
+      detectSessionInUri: true,
+    ),
+  );
+
   // -- CUSTOM ERROR TELEMETRY ------------------------------------------------
   // Catch UI / Framework errors
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -63,107 +83,28 @@ void main() async {
   };
   // --------------------------------------------------------------------------
 
+  if (!kIsWeb) {
+    final notifService = NotificationService();
+    await notifService.init();
+    await notifService.requestPermissions();
+  }
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const NecxaBootstrap());
-
-  // Optional device services must not block Flutter's first frame. Start them
-  // only after the app is visible so Android can display runtime permission UI.
-  if (!kIsWeb) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      () async {
-        try {
-          cameras = await availableCameras();
-          debugPrint('Available cameras: ${cameras.length}');
-        } catch (e, stack) {
-          debugPrint('Camera initialization failed: $e\n$stack');
-        }
-      }();
-
-      () async {
-        try {
-          final notifService = NotificationService();
-          await notifService.init();
-          await notifService.requestPermissions();
-        } catch (e, stack) {
-          debugPrint('Notification initialization failed: $e\n$stack');
-        }
-      }();
-    });
-  }
-}
-
-class NecxaBootstrap extends StatefulWidget {
-  const NecxaBootstrap({super.key});
-
-  @override
-  State<NecxaBootstrap> createState() => _NecxaBootstrapState();
-}
-
-class _NecxaBootstrapState extends State<NecxaBootstrap> {
-  late Future<void> _initialization;
-
-  @override
-  void initState() {
-    super.initState();
-    _initialization = _initializeSupabase();
-  }
-
-  Future<void> _initializeSupabase() async {
-    await Supabase.initialize(
-      url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
-      anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
-      authOptions: const FlutterAuthClientOptions(
-        authFlowType: kIsWeb ? AuthFlowType.implicit : AuthFlowType.pkce,
-        detectSessionInUri: true,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<void>(
-      future: _initialization,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return MaterialApp(
-            home: Scaffold(
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'Necxa could not finish starting.\\n${snapshot.error}',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const MaterialApp(
-            home: Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            ),
-          );
-        }
-        return const NecxaApp();
-      },
-    );
-  }
+  runApp(const NecxaApp());
 }
 
 class AppScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
-    PointerDeviceKind.touch,
-    PointerDeviceKind.mouse,
-    PointerDeviceKind.trackpad,
-  };
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+      };
 }
 
 class NecxaApp extends StatefulWidget {
