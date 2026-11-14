@@ -321,6 +321,13 @@ async function handleFetchShopFeed(userId: string, payload: any = {}) {
   const sinceTime = payload.since_time;
   const beforeTime = payload.before_time;
   const feedKey = `shop_feed:${category || 'All'}`;
+  const isShopProduct = (listing: any) => {
+    if (listing?.is_property_listing === true || listing?.is_property_listing === 1 ||
+        String(listing?.is_property_listing ?? '').toLowerCase() === 'true' ||
+        String(listing?.is_property_listing ?? '') === '1') return false;
+    const propertyCategories = new Set(['APARTMENT', 'HOUSE', 'VILLA', 'COMMERCIAL', 'LAND', 'RESIDENTIAL', 'REAL_ESTATE', 'PROPERTY']);
+    return !propertyCategories.has(String(listing?.category ?? '').trim().toUpperCase());
+  };
   
   if (redis && !sinceTime && !beforeTime) {
     try {
@@ -329,7 +336,7 @@ async function handleFetchShopFeed(userId: string, payload: any = {}) {
         const pipeline = redis.pipeline();
         cachedIds.forEach(id => pipeline.get(`listing:${id}`));
         const cachedResults = await pipeline.exec();
-        const validListings = cachedResults.filter(l => l !== null);
+        const validListings = cachedResults.filter((l: any) => l !== null && isShopProduct(l));
         
         if (validListings.length > 0) {
           console.log(`REDIS: Found ${validListings.length} shop listings in cache (${feedKey})`);
@@ -411,7 +418,9 @@ async function handleSearchListings(payload: any = {}) {
     lister:lister_id(display_name:full_name, photo_url:avatar_url)
   `;
 
-  let q = supabase.from('listings').select(baseSelect).eq('status', 'active');
+  let q = supabase.from('listings').select(baseSelect)
+    .eq('status', 'active')
+    .or('is_property_listing.is.null,is_property_listing.eq.false');
 
   // 1. Primary Text Search (FTS)
   if (safeQuery.length > 0) {
@@ -433,6 +442,7 @@ async function handleSearchListings(payload: any = {}) {
       .from('listings')
       .select(baseSelect)
       .eq('status', 'active')
+      .or('is_property_listing.is.null,is_property_listing.eq.false')
       .ilike('title', `%${safeQuery}%`)
       .limit(20);
     

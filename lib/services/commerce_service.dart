@@ -39,7 +39,9 @@ class CommerceDashboardData {
     final productListings = rawListings.where(isProductListing).toList();
 
     return CommerceDashboardData(
-      activeListings: productListings.where((l) => l['status'] == 'active').length,
+      activeListings: productListings
+          .where((l) => l['status'] == 'active')
+          .length,
       lowStockListings: productListings.where((l) {
         final stock = (l['stock_count'] as num?)?.round() ?? 0;
         return stock <= 5;
@@ -95,11 +97,17 @@ class CommerceDashboardData {
     final mergedOrders = ordersById.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return CommerceDashboardData(
-      activeListings: mergedListings.where((l) => l['status'] == 'active').length,
-      lowStockListings: mergedListings.where((l) {
-        final stock = (l['stock_count'] as num?)?.round() ?? 0;
-        return stock <= 5;
-      }).length,
+      activeListings: update.activeListings > 0
+          ? update.activeListings
+          : mergedListings
+                .where((l) => l['status'] == null || l['status'] == 'active')
+                .length,
+      lowStockListings: update.lowStockListings > 0
+          ? update.lowStockListings
+          : mergedListings.where((l) {
+              final stock = (l['stock_count'] as num?)?.round() ?? 0;
+              return stock <= 5;
+            }).length,
       totalOrders: update.totalOrders,
       openOrders: update.openOrders,
       grossSalesUgx: update.grossSalesUgx,
@@ -338,14 +346,18 @@ class CommerceService {
 
   Future<Map<String, dynamic>> updateInventory({
     required String listingId,
-    required int stockCount,
+    int? stockCount,
+    String? title,
+    double? priceUgx,
     String? status,
   }) async {
     final response = await _backend.invoke(
       'update_commerce_inventory',
       body: {
         'listingId': listingId,
-        'stockCount': stockCount,
+        if (stockCount != null) 'stockCount': stockCount,
+        if (title != null) 'title': title,
+        if (priceUgx != null) 'priceUgx': priceUgx,
         if (status != null) 'status': status,
       },
     );
@@ -405,6 +417,56 @@ class CommerceService {
     'delete_commerce_listing',
     body: {'listingId': listingId},
   );
+
+  /// Creates a new physical or digital product listing for this vendor.
+  Future<Map<String, dynamic>> addProduct({
+    required String title,
+    required int priceUgx,
+    required int stockCount,
+    String? sku,
+    String? category,
+    String? description,
+    String? mediaUrl,
+  }) async {
+    final response = await _backend.invoke(
+      'add_commerce_listing',
+      body: {
+        'title': title,
+        'priceUgx': priceUgx,
+        'stockCount': stockCount,
+        if (sku != null && sku.isNotEmpty) 'sku': sku,
+        if (category != null && category.isNotEmpty) 'category': category,
+        if (description != null && description.isNotEmpty)
+          'description': description,
+        if (mediaUrl != null && mediaUrl.isNotEmpty) 'mediaUrl': mediaUrl,
+      },
+    );
+    return _map(response['listing']) ?? {};
+  }
+
+  /// Bulk updates multiple listings' stock counts in a single batch.
+  Future<List<dynamic>> bulkUpdateInventory(Map<String, int> updates) async {
+    final response = await _backend.invoke(
+      'bulk_update_inventory',
+      body: {
+        'updates': updates.entries
+            .map((e) => {'listingId': e.key, 'stockCount': e.value})
+            .toList(),
+      },
+    );
+    return response['results'] as List<dynamic>? ?? const [];
+  }
+
+  /// Retrieves recent stock adjustments and history for the vendor's products.
+  Future<List<Map<String, dynamic>>> fetchStockHistory({
+    String? listingId,
+  }) async {
+    final response = await _backend.invoke(
+      'stock_history',
+      body: {if (listingId != null) 'listingId': listingId},
+    );
+    return _maps(response['events']);
+  }
 }
 
 int _integer(dynamic value) =>

@@ -228,7 +228,8 @@ class AppState extends ChangeNotifier {
       } else if (modeStr == 'ThemeMode.light') {
         _themeMode = ThemeMode.light;
       } else {
-        _themeMode = ThemeMode.dark; // default: dark mode (light = accessibility option)
+        _themeMode =
+            ThemeMode.dark; // default: dark mode (light = accessibility option)
       }
       C.themeMode = _themeMode;
 
@@ -250,7 +251,8 @@ class AppState extends ChangeNotifier {
 
   bool get hasDistributionAccess => isArtist && necxaCoins >= 150;
 
-  void setArtistStatus(bool status, {
+  void setArtistStatus(
+    bool status, {
     String name = '',
     String genre = '',
     String distributorLink = '',
@@ -442,7 +444,8 @@ class AppState extends ChangeNotifier {
   MusicTrack? initialMusicTrack;
   final DraftService drafts = DraftService();
   final MusicLibraryService music = MusicLibraryService();
-  final GooboxArtistMusicService artistMusic = GooboxArtistMusicService.instance;
+  final GooboxArtistMusicService artistMusic =
+      GooboxArtistMusicService.instance;
   final PaymentService payment = PaymentService();
   final FinanceGiftingService financeGifting = FinanceGiftingService();
   final FinanceLiquidationService liquidation = FinanceLiquidationService();
@@ -705,27 +708,7 @@ class AppState extends ChangeNotifier {
     if (user == null) return;
     final profile = await social.getProfile(user!.id);
     final financeSnapshot = await _loadPrimaryFinanceSnapshot(user!.id);
-    try {
-      final relationships = await social.loadMyFollowRelationships();
-      // RPC may return 'creator_id' or 'user_id' depending on version
-      followed
-        ..clear()
-        ..addAll(
-          relationships
-              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
-              .where((id) => id.isNotEmpty),
-        );
-      friends
-        ..clear()
-        ..addAll(
-          relationships
-              .where((r) => r['is_friend'] == true)
-              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
-              .where((id) => id.isNotEmpty),
-        );
-    } catch (error) {
-      debugPrint('Follow graph sync deferred: $error');
-    }
+    await refreshFollowRelationships();
 
     // Load blocked users from user_preferences
     try {
@@ -769,7 +752,6 @@ class AppState extends ChangeNotifier {
     };
     notify();
   }
-
 
   Future<void> updateAvatar() async {
     if (user == null) return;
@@ -823,14 +805,16 @@ class AppState extends ChangeNotifier {
     }
     // 3. Update local SQLite cache
     final localDb = LocalDbService();
-    await localDb.database.then(
-      (db) => db.update(
-        'social_profiles',
-        {'bio': trimmed},
-        where: 'id = ?',
-        whereArgs: [user!.id],
-      ),
-    ).catchError((_) => 0);
+    await localDb.database
+        .then(
+          (db) => db.update(
+            'social_profiles',
+            {'bio': trimmed},
+            where: 'id = ?',
+            whereArgs: [user!.id],
+          ),
+        )
+        .catchError((_) => 0);
     notify();
     return success;
   }
@@ -942,6 +926,7 @@ class AppState extends ChangeNotifier {
   String payMethod = 'momo';
   bool paying = false;
   bool paid = false;
+
   /// Set when reserveProperty() creates a pending escrow. PaymentScreen reads this.
   Map<String, dynamic>? currentEscrowInitiation;
   String? escrowError;
@@ -1603,7 +1588,7 @@ class AppState extends ChangeNotifier {
 
   // ── Property Actions ──
 
-    Future<void> unlockProperty(String id) async {
+  Future<void> unlockProperty(String id) async {
     if (user == null) return;
     paying = true;
     notify();
@@ -1626,21 +1611,24 @@ class AppState extends ChangeNotifier {
       } else {
         throw Exception(res['error'] ?? 'Unknown error');
       }
-} catch (e) {
+    } catch (e) {
       debugPrint('Unlock Error: $e');
       if (navigatorKey.currentContext != null) {
         showDialog(
           context: navigatorKey.currentContext!,
           builder: (ctx) => AlertDialog(
-            title: const Text('Unlock Error 🚨', style: TextStyle(color: Colors.red)),
+            title: const Text(
+              'Unlock Error 🚨',
+              style: TextStyle(color: Colors.red),
+            ),
             content: Text(e.toString()),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('OK'),
-              )
+              ),
             ],
-          )
+          ),
         );
       }
     }
@@ -1840,6 +1828,31 @@ class AppState extends ChangeNotifier {
   void toggleSave(String id) {
     saved.contains(id) ? saved.remove(id) : saved.add(id);
     notify();
+  }
+
+  Future<void> refreshFollowRelationships() async {
+    if (user == null) return;
+    try {
+      final relationships = await social.loadMyFollowRelationships();
+      followed
+        ..clear()
+        ..addAll(
+          relationships
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      friends
+        ..clear()
+        ..addAll(
+          relationships
+              .where((r) => r['is_friend'] == true)
+              .map((r) => (r['creator_id'] ?? r['user_id'])?.toString() ?? '')
+              .where((id) => id.isNotEmpty),
+        );
+      notify();
+    } catch (error) {
+      debugPrint('Follow graph refresh error: $error');
+    }
   }
 
   bool isFollowingSync(String id) => followed.contains(id); // Restored Method
@@ -2458,7 +2471,8 @@ class AppState extends ChangeNotifier {
     final localDb = LocalDbService();
     final cached = await localDb.getProfile(id);
     // Cache hit: only use if we have at least a username or display_name
-    if (cached != null && (cached['display_name'] != null || cached['username'] != null)) {
+    if (cached != null &&
+        (cached['display_name'] != null || cached['username'] != null)) {
       _backgroundSyncProfile(id); // background refresh
       return Profile.fromMap({
         'id': id,
@@ -2512,17 +2526,20 @@ class AppState extends ChangeNotifier {
       if (res == null) {
         // Fallback for current logged-in user if profile row is pending creation
         if (id == user?.id) {
-          final authName = myProfile?['full_name'] ??
+          final authName =
+              myProfile?['full_name'] ??
               user?.userMetadata?['full_name'] ??
               user?.userMetadata?['display_name'] ??
               user?.userMetadata?['name'] ??
               user?.email?.split('@').first ??
               'Necxa Member';
-          final authUsername = myProfile?['username'] ??
+          final authUsername =
+              myProfile?['username'] ??
               user?.userMetadata?['username'] ??
               user?.email?.split('@').first ??
               'member';
-          final authAvatar = myProfile?['avatar_url'] ??
+          final authAvatar =
+              myProfile?['avatar_url'] ??
               user?.userMetadata?['avatar_url'] ??
               user?.userMetadata?['picture'];
           final authBio = myProfile?['bio']?.toString() ?? '';
@@ -2552,21 +2569,27 @@ class AppState extends ChangeNotifier {
 
       // If viewing self or if full_name is empty, populate from auth metadata
       if (realId == user?.id) {
-        final authName = myProfile?['full_name'] ??
+        final authName =
+            myProfile?['full_name'] ??
             user?.userMetadata?['full_name'] ??
             user?.userMetadata?['display_name'] ??
             user?.userMetadata?['name'] ??
             user?.email?.split('@').first;
-        if (enriched['full_name'] == null || enriched['full_name'].toString().trim().isEmpty) {
+        if (enriched['full_name'] == null ||
+            enriched['full_name'].toString().trim().isEmpty) {
           enriched['full_name'] = authName;
         }
-        if (enriched['username'] == null || enriched['username'].toString().trim().isEmpty) {
-          enriched['username'] = myProfile?['username'] ??
+        if (enriched['username'] == null ||
+            enriched['username'].toString().trim().isEmpty) {
+          enriched['username'] =
+              myProfile?['username'] ??
               user?.userMetadata?['username'] ??
               user?.email?.split('@').first;
         }
-        if (enriched['avatar_url'] == null || enriched['avatar_url'].toString().trim().isEmpty) {
-          enriched['avatar_url'] = myProfile?['avatar_url'] ??
+        if (enriched['avatar_url'] == null ||
+            enriched['avatar_url'].toString().trim().isEmpty) {
+          enriched['avatar_url'] =
+              myProfile?['avatar_url'] ??
               user?.userMetadata?['avatar_url'] ??
               user?.userMetadata?['picture'];
         }
@@ -2588,14 +2611,22 @@ class AppState extends ChangeNotifier {
       } catch (_) {}
 
       // ── Real trust score & reputation calculation ─────────────────
-      int trustScore = (enriched['trust_score'] is num) ? (enriched['trust_score'] as num).toInt() : 0;
+      int trustScore = (enriched['trust_score'] is num)
+          ? (enriched['trust_score'] as num).toInt()
+          : 0;
       if (trustScore == 0) {
         int computed = 45; // baseline
-        if (enriched['is_verified'] == true || enriched['verified'] == true) computed += 25;
+        if (enriched['is_verified'] == true || enriched['verified'] == true)
+          computed += 25;
         if (enriched['ai_verified'] == true) computed += 15;
-        if (enriched['avatar_url'] != null && enriched['avatar_url'].toString().isNotEmpty) computed += 5;
-        if (enriched['bio'] != null && enriched['bio'].toString().isNotEmpty) computed += 5;
-        if (enriched['posts_count'] != null && (enriched['posts_count'] as int) > 0) computed += 5;
+        if (enriched['avatar_url'] != null &&
+            enriched['avatar_url'].toString().isNotEmpty)
+          computed += 5;
+        if (enriched['bio'] != null && enriched['bio'].toString().isNotEmpty)
+          computed += 5;
+        if (enriched['posts_count'] != null &&
+            (enriched['posts_count'] as int) > 0)
+          computed += 5;
         trustScore = computed.clamp(10, 100);
         enriched['trust_score'] = trustScore;
       }
@@ -2608,25 +2639,27 @@ class AppState extends ChangeNotifier {
 
       // ── Persist enriched data to local cache ──────────────────────
       final localDb = LocalDbService();
-      await localDb.database.then(
-        (db) => db.insert('social_profiles', {
-          'id': realId,
-          'username': profile.username,
-          'display_name': profile.fullName,
-          'photo_url': profile.avatarUrl,
-          'bio': profile.bio,
-          'trust_score': profile.trustScore,
-          'trust_score_tier': profile.trustScoreTier,
-          'is_verified': profile.verified ? 1 : 0,
-          'ai_verified': profile.aiVerified ? 1 : 0,
-          'district': profile.district,
-          'followers_count': profile.followersCount,
-          'following_count': profile.followingCount,
-          'likes_count': profile.likesCount,
-          'posts_count': profile.postsCount,
-          'created_at': profile.createdAt.toIso8601String(),
-        }, conflictAlgorithm: ConflictAlgorithm.replace),
-      ).catchError((_) => 0);
+      await localDb.database
+          .then(
+            (db) => db.insert('social_profiles', {
+              'id': realId,
+              'username': profile.username,
+              'display_name': profile.fullName,
+              'photo_url': profile.avatarUrl,
+              'bio': profile.bio,
+              'trust_score': profile.trustScore,
+              'trust_score_tier': profile.trustScoreTier,
+              'is_verified': profile.verified ? 1 : 0,
+              'ai_verified': profile.aiVerified ? 1 : 0,
+              'district': profile.district,
+              'followers_count': profile.followersCount,
+              'following_count': profile.followingCount,
+              'likes_count': profile.likesCount,
+              'posts_count': profile.postsCount,
+              'created_at': profile.createdAt.toIso8601String(),
+            }, conflictAlgorithm: ConflictAlgorithm.replace),
+          )
+          .catchError((_) => 0);
 
       targetProfileId = realId;
       return profile;
@@ -2635,7 +2668,6 @@ class AppState extends ChangeNotifier {
       return null;
     }
   }
-
 
   void _backgroundSyncProfile(String id) async {
     await syncProfile(id);
@@ -3820,6 +3852,3 @@ class IPResult {
   final String sessionId;
   IPResult({required this.verified, required this.sessionId});
 }
-
-
-

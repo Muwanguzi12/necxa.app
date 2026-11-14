@@ -21,7 +21,32 @@ class LocalDbService {
   static const int _feedMaxRows = 500;
   static const int _shopMaxRows = 300;
   static const int _notifMaxRows = 50;
-  static const int _dbVersion = 19;
+  static const Set<String> _propertyCategories = {
+    'APARTMENT',
+    'HOUSE',
+    'VILLA',
+    'COMMERCIAL',
+    'LAND',
+    'RESIDENTIAL',
+    'REAL_ESTATE',
+    'PROPERTY',
+  };
+
+  static bool _isPropertyListing(Map<String, dynamic> listing) {
+    final flag = listing['is_property_listing'];
+    final isProperty =
+        flag == true ||
+        flag == 1 ||
+        flag == '1' ||
+        (flag is String && flag.toLowerCase() == 'true');
+    final category = (listing['category'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase();
+    return isProperty || _propertyCategories.contains(category);
+  }
+
+  static const int _dbVersion = 20;
 
   static String? _extractUrl(dynamic value) {
     if (value == null) return null;
@@ -194,6 +219,24 @@ class LocalDbService {
             );
           } catch (_) {}
         }
+        if (oldVersion < 20) {
+          try {
+            await db.execute(
+              'ALTER TABLE shop_listings ADD COLUMN is_property_listing INTEGER NOT NULL DEFAULT 0',
+            );
+          } catch (_) {}
+          // Purge legacy property rows accidentally stored in the shop cache.
+          await db.delete(
+            'shop_listings',
+            where:
+                "UPPER(COALESCE(category, '')) IN ('APARTMENT','HOUSE','VILLA','COMMERCIAL','LAND','RESIDENTIAL','REAL_ESTATE','PROPERTY')",
+          );
+          try {
+            await db.execute(
+              'CREATE INDEX IF NOT EXISTS idx_shop_product_time ON shop_listings(is_property_listing, created_at DESC)',
+            );
+          } catch (_) {}
+        }
         if (oldVersion < 19) {
           try {
             await db.execute(
@@ -345,9 +388,13 @@ class LocalDbService {
         pickup_address TEXT,
         latitude REAL,
         longitude REAL,
-        created_at TEXT
+        created_at TEXT,
+        is_property_listing INTEGER NOT NULL DEFAULT 0
       )
     ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_shop_product_time ON shop_listings(is_property_listing, created_at DESC)',
+    );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_shop_time ON shop_listings(created_at DESC)',
     );
@@ -801,6 +848,8 @@ class LocalDbService {
     final db = await database;
     final batch = db.batch();
     for (final l in listings) {
+      // The offline shop cache is product-only by design.
+      if (_isPropertyListing(l)) continue;
       final rawProf = l['profiles'] ?? l['lister'];
       Map<String, dynamic>? profile;
       if (rawProf is List && rawProf.isNotEmpty) {
@@ -861,6 +910,7 @@ class LocalDbService {
         'latitude': l['latitude'],
         'longitude': l['longitude'],
         'created_at': l['created_at'],
+        'is_property_listing': 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
@@ -874,7 +924,8 @@ class LocalDbService {
     final db = await database;
     final rows = await db.query(
       'shop_listings',
-      where: category != null ? 'category = ?' : null,
+      where:
+          "COALESCE(is_property_listing, 0) = 0 AND UPPER(COALESCE(category, '')) NOT IN ('APARTMENT','HOUSE','VILLA','COMMERCIAL','LAND','RESIDENTIAL','REAL_ESTATE','PROPERTY')${category != null ? ' AND category = ?' : ''}",
       whereArgs: category != null ? [category] : null,
       orderBy: 'created_at DESC',
       limit: limit,
@@ -1690,7 +1741,8 @@ class LocalDbService {
           'channel_id': channelId,
           'user_id': comment['userId']?.toString(),
           'user_name':
-              (comment['userName'] ?? comment['user'])?.toString() ?? 'Necxa User',
+              (comment['userName'] ?? comment['user'])?.toString() ??
+              'Necxa User',
           'user_avatar':
               (comment['avatar'] ?? comment['userAvatar'])?.toString() ?? '',
           'text': comment['text']?.toString() ?? '',

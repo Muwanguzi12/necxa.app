@@ -27,16 +27,20 @@ class MainApplication : Application() {
     }
     
     private fun initializeFaceDetector() {
-        val options = FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-            .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
-            .setMinFaceSize(0.15f)
-            .enableTracking()
-            .build()
-        
-        // Pre-warm the face detector
-        FaceDetection.getClient(options)
+        Thread {
+            try {
+                val options = FaceDetectorOptions.Builder()
+                    .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                    .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+                    .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+                    .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
+                    .setMinFaceSize(0.15f)
+                    .enableTracking()
+                    .build()
+                FaceDetection.getClient(options)
+            } catch (t: Throwable) {
+                // Fail-safe: do not block app startup if ML Kit native libraries fail to load
+            }
+        }.start()
     }
 }
