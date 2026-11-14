@@ -61,6 +61,10 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
             
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+            
             <!-- Deep linking for payment and Supabase callbacks -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>

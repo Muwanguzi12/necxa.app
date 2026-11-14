@@ -44,13 +44,6 @@ void main() async {
     databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
 
-  if (!kIsWeb) {
-    try {
-      cameras = await availableCameras();
-    } catch (e) {
-      debugPrint('Camera error: $e');
-    }
-  }
   await Supabase.initialize(
     url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
     anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
@@ -83,28 +76,46 @@ void main() async {
   };
   // --------------------------------------------------------------------------
 
-  if (!kIsWeb) {
-    final notifService = NotificationService();
-    await notifService.init();
-    await notifService.requestPermissions();
-  }
-
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
     ),
   );
+
+  // Mount Flutter first so the native launch screen is immediately dismissed.
   runApp(const NecxaApp());
+
+  if (!kIsWeb) {
+    // Non-blocking background initialization of optional device plugins
+    () async {
+      try {
+        cameras = await availableCameras();
+        debugPrint('Available cameras: ${cameras.length}');
+      } catch (e) {
+        debugPrint('Camera error: $e');
+      }
+    }();
+
+    () async {
+      try {
+        final notifService = NotificationService();
+        await notifService.init();
+        await notifService.requestPermissions();
+      } catch (e) {
+        debugPrint('Notification init error: $e');
+      }
+    }();
+  }
 }
 
 class AppScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-      };
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+  };
 }
 
 class NecxaApp extends StatefulWidget {
@@ -358,5 +369,3 @@ class _RootShellState extends State<RootShell> {
     }
   }
 }
-
-
