@@ -60,6 +60,21 @@ class Profile {
   final String? fullName, avatarUrl, bio;
   final bool verified, aiVerified;
   final DateTime createdAt;
+  final int followersCount;
+  final int followingCount;
+  final int likesCount;
+  final int postsCount;
+  final int trustScore;
+  final String? trustScoreTier;
+  final String? district;
+
+  final double reputation;
+
+  // ── Artist fields ──
+  final bool isArtist;
+  final String? artistName;
+  final String? artistGenre;
+  final String? artistDistributorLink;
 
   Profile({
     required this.id,
@@ -70,29 +85,106 @@ class Profile {
     required this.verified,
     required this.aiVerified,
     required this.createdAt,
+    this.followersCount = 0,
+    this.followingCount = 0,
+    this.likesCount = 0,
+    this.postsCount = 0,
+    this.trustScore = 50,
+    this.trustScoreTier,
+    this.district,
+    this.reputation = 5.0,
+    this.isArtist = false,
+    this.artistName,
+    this.artistGenre,
+    this.artistDistributorLink,
   });
 
-  factory Profile.fromMap(Map<String, dynamic> m) => Profile(
-    id: m['id'],
-    username: m['username'] ?? m['full_name']?.toLowerCase().replaceAll(' ', '_') ?? 'user_${m['id'].toString().substring(0, 4)}',
-    fullName: m['full_name'] ?? 'Necxa User',
-    avatarUrl: m['avatar_url'],
-    bio: m['bio'],
-    verified: m['verified'] ?? false,
-    aiVerified: m['ai_verified'] ?? false,
-    createdAt: m['created_at'] != null ? DateTime.parse(m['created_at']) : DateTime.now(),
-  );
+  factory Profile.fromMap(Map<String, dynamic> m) {
+    final rawName = m['full_name'] ?? m['display_name'] ?? m['name'];
+    final rawUsername = m['username'];
+    final rawEmail = m['email']?.toString();
+
+    String resolvedFullName = '';
+    if (rawName != null && rawName.toString().trim().isNotEmpty && rawName.toString().trim() != 'NECXA NODE') {
+      resolvedFullName = rawName.toString().trim();
+    } else if (rawUsername != null && rawUsername.toString().trim().isNotEmpty && rawUsername.toString().trim() != 'node') {
+      resolvedFullName = rawUsername.toString().trim();
+    } else if (rawEmail != null && rawEmail.contains('@')) {
+      resolvedFullName = rawEmail.split('@').first;
+    } else {
+      resolvedFullName = 'Necxa Member';
+    }
+
+    String resolvedUsername = '';
+    if (rawUsername != null && rawUsername.toString().trim().isNotEmpty && rawUsername.toString().trim() != 'node') {
+      resolvedUsername = rawUsername.toString().trim().replaceAll('@', '');
+    } else if (rawName != null && rawName.toString().trim().isNotEmpty && rawName.toString().trim() != 'NECXA NODE') {
+      resolvedUsername = rawName.toString().trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    } else if (rawEmail != null && rawEmail.contains('@')) {
+      resolvedUsername = rawEmail.split('@').first;
+    } else {
+      resolvedUsername = 'member';
+    }
+
+    final rawTrust = m['trust_score'];
+    final int trust = (rawTrust is num ? rawTrust.toInt() : 50).clamp(0, 100);
+    final rawRep = m['reputation'];
+    final double rep = (rawRep is num
+        ? rawRep.toDouble()
+        : (trust > 0 ? (trust / 10.0) : 5.0)).clamp(1.0, 10.0);
+
+    final rawAvatar = (m['avatar_url'] ?? m['photo_url'])?.toString().trim();
+    final validAvatar = (rawAvatar != null &&
+            rawAvatar.isNotEmpty &&
+            (rawAvatar.startsWith('http://') || rawAvatar.startsWith('https://')))
+        ? rawAvatar
+        : null;
+
+    final rawFollowers = m['followers_count'] ?? m['total_followers'] ?? 0;
+    final rawFollowing = m['following_count'] ?? 0;
+    final rawLikes = m['likes_count'] ?? 0;
+    final rawPosts = m['posts_count'] ?? 0;
+
+    return Profile(
+      id: m['id']?.toString() ?? '',
+      username: resolvedUsername,
+      fullName: resolvedFullName,
+      avatarUrl: validAvatar,
+      bio: m['bio']?.toString().trim(),
+      verified: m['verified'] == true || m['is_verified'] == true || m['is_verified'] == 1,
+      aiVerified: m['ai_verified'] == true || m['ai_verified'] == 1,
+      createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
+      followersCount: rawFollowers is num ? rawFollowers.toInt().clamp(0, 999999999) : 0,
+      followingCount: rawFollowing is num ? rawFollowing.toInt().clamp(0, 999999999) : 0,
+      likesCount: rawLikes is num ? rawLikes.toInt().clamp(0, 999999999) : 0,
+      postsCount: rawPosts is num ? rawPosts.toInt().clamp(0, 999999999) : 0,
+      trustScore: trust,
+      trustScoreTier: m['trust_score_tier'] as String?,
+      district: m['district'] as String?,
+      reputation: rep,
+      isArtist: m['is_artist'] == true || m['is_artist'] == 1,
+      artistName: m['artist_name']?.toString(),
+      artistGenre: m['artist_genre']?.toString(),
+      artistDistributorLink: m['artist_distributor_link']?.toString(),
+    );
+  }
 }
 
 class Gift {
   final String id, emoji, name;
   final int price, fee;
+  final String? imageUrl;
+  /// Kept separate from [imageUrl] so the lightweight picker can use PNGs
+  /// while a received-gift notification can load its JPEG only when opened.
+  final String? notificationImageUrl;
   const Gift({
     required this.id,
     required this.emoji,
     required this.name,
     required this.price,
     required this.fee,
+    this.imageUrl,
+    this.notificationImageUrl,
   });
 }
 
@@ -138,15 +230,91 @@ class PaymentMethod {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-const List<Gift> gifts = [
-  Gift(id: 'g1', emoji: '🌹', name: 'Rose', price: 2000, fee: 400),
-  Gift(id: 'g2', emoji: '🎵', name: 'Note', price: 5000, fee: 1000),
-  Gift(id: 'g3', emoji: '🏆', name: 'Trophy', price: 10000, fee: 2000),
-  Gift(id: 'g4', emoji: '💎', name: 'Diamond', price: 50000, fee: 10000),
-  Gift(id: 'g5', emoji: '🚗', name: 'Benz', price: 100000, fee: 20000),
-  Gift(id: 'g6', emoji: '✈️', name: 'Jet', price: 500000, fee: 100000),
-  Gift(id: 'g7', emoji: '🏠', name: 'House', price: 1000000, fee: 200000),
-  Gift(id: 'g8', emoji: '🌍', name: 'Universe', price: 5000000, fee: 1000000),
+const String _giftCdn = 'https://anregykcgolpgxecfxej.supabase.co/storage/v1/object/public/gift-icons';
+
+/// Picker artwork is bundled with the app.  A failed CDN request must never
+/// decide whether a financial gift can be sent or change the picker into emoji
+/// fallbacks. The source gift ID remains the only value sent to Finance.
+const Map<String, String> giftPickerImageUrls = {
+  'rose': 'assets/gifts/rose.png',
+  'clap': 'assets/gifts/clap.png',
+  'heart': 'assets/gifts/heart.png',
+  'coffee': 'assets/gifts/coffee.png',
+  'star': 'assets/gifts/star.png',
+  'fire': 'assets/gifts/fire.png',
+  'rocket': 'assets/gifts/rocket.png',
+  'crown': 'assets/gifts/crown.png',
+  'diamond': 'assets/gifts/diamond.png',
+  'trophy': 'assets/gifts/trophy.png',
+  'money_bag': 'assets/gifts/moneybag.png',
+  'sports_car': 'assets/gifts/sportscar.png',
+  'yacht': 'assets/gifts/yacht.png',
+  'mansion': 'assets/gifts/villa.png',
+  'villa': 'assets/gifts/villa.png',
+  'jet': 'assets/gifts/jet.png',
+  'dragon': 'assets/gifts/dragon.png',
+  'globe': 'assets/gifts/diamond.png',
+  'stadium': 'assets/gifts/diamond.png',
+  'ressort': 'assets/gifts/dragon.png',
+
+  // Compatibility aliases for catalogues cached by older app versions.
+  'moneybag': 'assets/gifts/moneybag.png',
+  'sportscar': 'assets/gifts/sportscar.png',
+  'palace': 'assets/gifts/villa.png',
+  'galaxy': 'assets/gifts/diamond.png',
+};
+
+const Set<String> _builtInGiftIds = {
+  'rose',
+  'clap',
+  'heart',
+  'coffee',
+  'star',
+  'fire',
+  'rocket',
+  'crown',
+  'trophy',
+  'diamond',
+  'money_bag',
+  'sports_car',
+  'yacht',
+  'mansion',
+  'villa',
+  'jet',
+  'dragon',
+  'globe',
+  'stadium',
+  'ressort',
+};
+
+/// Resolve a notification image only at display time. This prevents media URLs
+/// from being stored in the gift ledger or sent with every payment request.
+String? giftNotificationImageUrlFor(String giftId) {
+  if (!_builtInGiftIds.contains(giftId)) return null;
+  return '$_giftCdn/$giftId.jpeg';
+}
+
+String? giftPickerImageUrlFor(String giftId) => giftPickerImageUrls[giftId];
+
+final List<Gift> gifts = [
+  Gift(id: 'rose',       emoji: '🌹', name: 'Rose',        price: 1,     fee: 0,    imageUrl: giftPickerImageUrls['rose'], notificationImageUrl: '$_giftCdn/rose.jpeg'),
+  Gift(id: 'clap',       emoji: '👏', name: 'Clap',        price: 2,     fee: 0,    imageUrl: giftPickerImageUrls['clap'], notificationImageUrl: '$_giftCdn/clap.jpeg'),
+  Gift(id: 'heart',      emoji: '❤️', name: 'Heart',       price: 3,     fee: 0,    imageUrl: giftPickerImageUrls['heart']),
+  Gift(id: 'coffee',     emoji: '☕', name: 'Coffee',      price: 5,     fee: 1,    imageUrl: giftPickerImageUrls['coffee'], notificationImageUrl: '$_giftCdn/coffee.jpeg'),
+  Gift(id: 'star',       emoji: '⭐', name: 'Star',        price: 5,     fee: 1,    imageUrl: giftPickerImageUrls['star'], notificationImageUrl: '$_giftCdn/star.jpeg'),
+  Gift(id: 'fire',       emoji: '🔥', name: 'Fire',        price: 10,    fee: 1,    imageUrl: giftPickerImageUrls['fire'], notificationImageUrl: '$_giftCdn/fire.jpeg'),
+  Gift(id: 'rocket',     emoji: '🚀', name: 'Rocket',      price: 20,    fee: 2,    imageUrl: giftPickerImageUrls['rocket'], notificationImageUrl: '$_giftCdn/rocket.jpeg'),
+  Gift(id: 'crown',      emoji: '👑', name: 'Crown',       price: 25,    fee: 3,    imageUrl: giftPickerImageUrls['crown']),
+  Gift(id: 'trophy',     emoji: '🏆', name: 'Trophy',      price: 50,    fee: 6,    imageUrl: giftPickerImageUrls['trophy'], notificationImageUrl: '$_giftCdn/trophy.jpeg'),
+  Gift(id: 'diamond',    emoji: '💎', name: 'Diamond',     price: 50,    fee: 6,    imageUrl: giftPickerImageUrls['diamond'], notificationImageUrl: '$_giftCdn/diamond.jpeg'),
+  Gift(id: 'money_bag',   emoji: '💰', name: 'Money Bag',   price: 100,   fee: 11,   imageUrl: giftPickerImageUrls['money_bag'], notificationImageUrl: '$_giftCdn/money_bag.jpeg'),
+  Gift(id: 'sports_car',  emoji: '🏎️', name: 'Sports Car',  price: 200,   fee: 22,   imageUrl: giftPickerImageUrls['sports_car'], notificationImageUrl: '$_giftCdn/sports_car.jpeg'),
+  Gift(id: 'yacht',      emoji: '🛥️', name: 'Yacht',       price: 500,   fee: 55,   imageUrl: giftPickerImageUrls['yacht'], notificationImageUrl: '$_giftCdn/yacht.jpeg'),
+  Gift(id: 'mansion',    emoji: '🏰', name: 'Mansion',     price: 1000,  fee: 110,  imageUrl: giftPickerImageUrls['mansion']),
+  Gift(id: 'jet',        emoji: '✈️', name: 'Private Jet', price: 1500,  fee: 165,  imageUrl: giftPickerImageUrls['jet'], notificationImageUrl: '$_giftCdn/jet.jpeg'),
+  Gift(id: 'globe',      emoji: '🌍', name: 'Globe',       price: 5000,  fee: 550,  imageUrl: giftPickerImageUrls['globe']),
+  Gift(id: 'stadium',    emoji: '🏟️', name: 'Stadium',     price: 10000, fee: 1100, imageUrl: giftPickerImageUrls['stadium']),
+  Gift(id: 'ressort',    emoji: '🎢', name: 'Ressort',     price: 50000, fee: 5500, imageUrl: giftPickerImageUrls['ressort']),
 ];
 
 const List<Post> posts = [

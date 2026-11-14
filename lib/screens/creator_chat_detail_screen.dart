@@ -4,13 +4,15 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models/chat_models.dart';
+import '../widgets/follow_sync_button.dart';
 
 class CreatorChatDetailScreen extends StatefulWidget {
   final AppState state;
   const CreatorChatDetailScreen({super.key, required this.state});
 
   @override
-  State<CreatorChatDetailScreen> createState() => _CreatorChatDetailScreenState();
+  State<CreatorChatDetailScreen> createState() =>
+      _CreatorChatDetailScreenState();
 }
 
 class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
@@ -25,7 +27,11 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
 
   void _scrollToBottom() {
     if (_scroll.hasClients) {
-      _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -39,22 +45,34 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: C.text),
           onPressed: () => s.goBack(),
         ),
         actions: [
+          if ((room?.otherPartyId ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: FollowSyncButton(
+                state: s,
+                targetUserId: room!.otherPartyId!,
+                compact: true,
+              ),
+            ),
           if (room?.metadata?['interaction_context'] == 'vendor')
             IconButton(
-              icon: const Icon(Icons.shopping_bag_outlined, color: Color(0xFF00E5FF)),
+              icon: const Icon(
+                Icons.shopping_bag_outlined,
+                color: Color(0xFF00E5FF),
+              ),
               onPressed: () {
                 // Navigate back to Shop Feed or open Product Overlay
-                s.go('community'); 
+                s.go('community');
               },
               tooltip: 'View Shop Item',
             ),
           if (room?.metadata?['interaction_context'] == 'social')
             IconButton(
-              icon: const Icon(Icons.explore_outlined, color: Colors.white70),
+              icon: Icon(Icons.explore_outlined, color: C.sub),
               onPressed: () => s.go('community'),
               tooltip: 'View Social Post',
             ),
@@ -63,30 +81,35 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
           children: [
             CircleAvatar(
               radius: 16,
-              // CachedNetworkImageProvider — AppBar rebuilds on every message;
+              // CachedNetworkImageProvider � AppBar rebuilds on every message;
               // caching here prevents re-downloading the avatar per message received.
               backgroundImage: room?.otherAvatar != null
                   ? CachedNetworkImageProvider(room!.otherAvatar!)
                   : null,
-              child: room?.otherAvatar == null ? const Icon(Icons.person, size: 20) : null,
+              child: room?.otherAvatar == null
+                  ? const Icon(Icons.person, size: 20)
+                  : null,
             ),
             const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(room?.otherName ?? 'Creator', style: syne(sz: 14, w: FontWeight.bold)),
                 Text(
-                  room?.metadata?['interaction_context'] == 'vendor' 
-                    ? 'VENDOR / SHOP INTERACTION' 
-                    : 'SOCIAL / CREATOR INTERACTION', 
+                  room?.otherName ?? 'Creator',
+                  style: syne(sz: 14, w: FontWeight.bold),
+                ),
+                Text(
+                  room?.metadata?['interaction_context'] == 'vendor'
+                      ? 'VENDOR / SHOP INTERACTION'
+                      : 'SOCIAL / CREATOR INTERACTION',
                   style: syne(
-                    sz: 9, 
-                    c: room?.metadata?['interaction_context'] == 'vendor' 
-                        ? Colors.amberAccent 
-                        : const Color(0xFF00E5FF), 
-                    ls: 1
-                  )
+                    sz: 9,
+                    c: room?.metadata?['interaction_context'] == 'vendor'
+                        ? Colors.amberAccent
+                        : const Color(0xFF00E5FF),
+                    ls: 1,
+                  ),
                 ),
               ],
             ),
@@ -121,10 +144,15 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
 
   Widget _buildInput() {
     return Container(
-      padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(context).padding.bottom + 12),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        MediaQuery.of(context).padding.bottom + 12,
+      ),
       decoration: BoxDecoration(
         color: const Color(0xFF0A0F2C),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+        border: Border(top: BorderSide(color: C.text.withOpacity(0.05))),
       ),
       child: Row(
         children: [
@@ -132,17 +160,22 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: C.text.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(24),
               ),
               child: TextField(
                 controller: _ctrl,
-                style: dm(c: Colors.white),
+                style: dm(c: C.text),
                 decoration: InputDecoration(
-                  hintText: widget.state.activeConversation?.metadata?['interaction_context'] == 'vendor' 
-                      ? 'Message the vendor...' 
+                  hintText:
+                      widget
+                              .state
+                              .activeConversation
+                              ?.metadata?['interaction_context'] ==
+                          'vendor'
+                      ? 'Message the vendor...'
                       : 'Message the creator...',
-                  hintStyle: dm(c: Colors.white24),
+                  hintStyle: dm(c: C.dim),
                   border: InputBorder.none,
                 ),
               ),
@@ -159,8 +192,15 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
             },
             child: Container(
               padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(color: Color(0xFF00E5FF), shape: BoxShape.circle),
-              child: const Icon(Icons.send_rounded, color: Colors.black, size: 20),
+              decoration: const BoxDecoration(
+                color: Color(0xFF00E5FF),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.send_rounded,
+                color: Colors.black,
+                size: 20,
+              ),
             ),
           ),
         ],
@@ -181,18 +221,29 @@ class _CreatorMessageBubble extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.7,
+        ),
         decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF00E5FF).withOpacity(0.1) : Colors.white.withOpacity(0.05),
+          color: isMe
+              ? Color(0xFF00E5FF).withOpacity(0.1)
+              : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(20),
             topRight: const Radius.circular(20),
             bottomLeft: Radius.circular(isMe ? 20 : 0),
             bottomRight: Radius.circular(isMe ? 0 : 20),
           ),
-          border: Border.all(color: isMe ? const Color(0xFF00E5FF).withOpacity(0.2) : Colors.white.withOpacity(0.05)),
+          border: Border.all(
+            color: isMe
+                ? Color(0xFF00E5FF).withOpacity(0.2)
+                : C.text.withOpacity(0.05),
+          ),
         ),
-        child: Text(msg.content ?? '', style: dm(sz: 14, c: isMe ? const Color(0xFF00E5FF) : Colors.white)),
+        child: Text(
+          msg.content ?? '',
+          style: dm(sz: 14, c: isMe ? Color(0xFF00E5FF) : C.text),
+        ),
       ),
     );
   }

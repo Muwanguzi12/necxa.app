@@ -22,6 +22,8 @@ class EditorSubscriptionService {
       'AI Background Removal',
       'AI Auto Captions',
       'AI Voice Enhancement',
+      'AI Face Engine Pro Presets',
+      'Cloud Face Enhancement',
       'Motion Tracking',
       'Advanced Color Grading',
       'Higher export quality',

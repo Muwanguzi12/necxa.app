@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:flutter/material.dart';
+import '../theme.dart';
 import '../services/video_enhancement_service.dart';
 
 /// Base class for any non-destructive edit operation.
@@ -45,7 +46,7 @@ class TextOverlay extends EditOperation {
     this.rotation = 0.0,
     this.style = const TextStyle(
       fontSize: 24,
-      color: Colors.white,
+      color: Color(0xFFF0F4FF),
       fontWeight: FontWeight.bold,
     ),
   }) : super('text');
@@ -67,10 +68,16 @@ class TextOverlay extends EditOperation {
 /// Represents a color filter operation.
 class FilterOperation extends EditOperation {
   final String filterName; // e.g., 'sepia', 'grayscale', 'vignette'
-  FilterOperation({required this.filterName}) : super('filter');
+  final double intensity;
+  FilterOperation({required this.filterName, this.intensity = 1.0})
+      : super('filter');
 
   @override
-  Map<String, dynamic> toJson() => {'type': type, 'name': filterName};
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'name': filterName,
+    'intensity': intensity,
+  };
 }
 
 /// Non-destructive visual transform shared by every editor surface and renderer.
@@ -127,7 +134,7 @@ class OverlayOperation extends EditOperation {
     this.rotation = 0,
     this.opacity = 1,
     this.fontSize = 28,
-    this.color = Colors.white,
+    this.color = const Color(0xFFF0F4FF),
     this.background = Colors.transparent,
     this.backgroundOpacity = 0,
     this.shadow = true,
@@ -150,7 +157,7 @@ class OverlayOperation extends EditOperation {
       rotation: (values['rotation'] as num?)?.toDouble() ?? 0,
       opacity: (values['opacity'] as num?)?.toDouble() ?? 1,
       fontSize: (values['fontSize'] as num?)?.toDouble() ?? 28,
-      color: values['color'] as Color? ?? Colors.white,
+      color: values['color'] as Color? ?? C.text,
       background: values['background'] as Color? ?? Colors.transparent,
       backgroundOpacity: (values['backgroundOpacity'] as num?)?.toDouble() ?? 0,
       shadow: values['shadow'] as bool? ?? true,
@@ -392,6 +399,11 @@ class EffectPreset {
   final double vignette;
   final double blur;
   final double grain;
+  // Visual style key: drives CustomPainter overlays (glitch, vhs, scanlines, bloom, duotone, etc.)
+  final String visualStyle;
+  // Duotone shadow/highlight tint colours (as 0xAARRGGBB int)
+  final int? duotoneShadow;
+  final int? duotoneHighlight;
 
   const EffectPreset({
     required this.id,
@@ -414,127 +426,324 @@ class EffectPreset {
     this.vignette = 0.0,
     this.blur = 0.0,
     this.grain = 0.0,
+    this.visualStyle = 'none',
+    this.duotoneShadow,
+    this.duotoneHighlight,
   });
 
   static const List<EffectPreset> presets = <EffectPreset>[
+    // ── Cinematic ──────────────────────────────────────────────
     EffectPreset(
       id: 'cinematic',
       name: 'Cinematic',
       category: 'Cinematic',
       icon: '🎬',
-      description: 'Dramatic contrast and warm depth.',
+      description: 'Dramatic contrast with warm letterbox depth.',
       tags: <String>['featured', 'cinematic'],
       featured: true,
       trending: true,
       recommended: true,
-      defaultIntensity: 0.65,
-      defaultOpacity: 1.0,
-      brightness: -0.03,
-      contrast: 1.16,
-      saturation: 0.92,
-      vignette: 0.22,
-      blur: 0.03,
+      defaultIntensity: 0.75,
+      brightness: -0.04,
+      contrast: 1.18,
+      saturation: 0.90,
+      vignette: 0.28,
+      blur: 0.02,
+      visualStyle: 'letterbox',
     ),
     EffectPreset(
-      id: 'glitch',
-      name: 'Glitch',
-      category: 'Glitch',
-      icon: '📡',
-      description: 'Synthetic chromatic noise and edge disruption.',
-      tags: <String>['trending', 'glitch'],
-      trending: true,
-      defaultIntensity: 0.45,
-      defaultOpacity: 0.9,
+      id: 'teal_orange',
+      name: 'Teal & Orange',
+      category: 'Cinematic',
+      icon: '🎞️',
+      description: 'Hollywood blockbuster colour grade.',
+      tags: <String>['featured', 'cinematic'],
+      featured: true,
+      defaultIntensity: 0.65,
+      brightness: -0.02,
       contrast: 1.14,
-      saturation: 1.06,
-      hue: 0.06,
-      grain: 0.16,
-      blur: 0.04,
+      saturation: 1.08,
+      hue: 0.04,
+      vignette: 0.18,
+      visualStyle: 'teal_orange',
     ),
+    EffectPreset(
+      id: 'matte',
+      name: 'Matte Film',
+      category: 'Cinematic',
+      icon: '🌁',
+      description: 'Faded matte with lifted shadows.',
+      tags: <String>['cinematic', 'film'],
+      defaultIntensity: 0.68,
+      brightness: 0.06,
+      contrast: 0.92,
+      saturation: 0.82,
+      vignette: 0.14,
+      visualStyle: 'matte',
+    ),
+    // ── Retro ──────────────────────────────────────────────────
     EffectPreset(
       id: 'vhs',
       name: 'VHS',
-      category: 'VHS',
+      category: 'Retro',
       icon: '📼',
-      description: 'Analog tape texture with soft saturation loss.',
+      description: 'Analog tape noise with horizontal tracking lines.',
       tags: <String>['new', 'retro'],
       isNew: true,
-      defaultIntensity: 0.55,
+      trending: true,
+      defaultIntensity: 0.6,
       defaultOpacity: 0.95,
       brightness: 0.02,
       contrast: 1.08,
-      saturation: 0.8,
-      grain: 0.2,
-      vignette: 0.12,
-    ),
-    EffectPreset(
-      id: 'neon',
-      name: 'Neon',
-      category: 'Neon',
-      icon: '💡',
-      description: 'Electric color pop with crisp highlights.',
-      tags: <String>['recommended', 'color'],
-      recommended: true,
-      defaultIntensity: 0.58,
-      defaultOpacity: 0.92,
-      brightness: 0.04,
-      contrast: 1.1,
-      saturation: 1.25,
-      hue: 0.12,
-      blur: 0.02,
-    ),
-    EffectPreset(
-      id: 'blur',
-      name: 'Soft Blur',
-      category: 'Blur',
-      icon: '🌫️',
-      description: 'Dreamy motion and depth.',
-      tags: <String>['cinematic'],
-      defaultIntensity: 0.35,
-      defaultOpacity: 0.95,
-      blur: 1.6,
-    ),
-    EffectPreset(
-      id: 'film',
-      name: 'Film Grain',
-      category: 'Film',
-      icon: '🎞️',
-      description: 'Vintage film texture for editorial storytelling.',
-      tags: <String>['featured', 'film'],
-      featured: true,
-      defaultIntensity: 0.7,
-      defaultOpacity: 0.95,
+      saturation: 0.78,
       grain: 0.22,
-      saturation: 0.9,
-      vignette: 0.16,
+      vignette: 0.14,
+      visualStyle: 'vhs',
     ),
     EffectPreset(
       id: 'noir',
       name: 'Noir',
       category: 'Retro',
       icon: '🖤',
-      description: 'Moody monochrome styling for dramatic scenes.',
+      description: 'Moody monochrome with deep shadows.',
       tags: <String>['retro'],
-      defaultIntensity: 0.82,
-      defaultOpacity: 1.0,
-      saturation: 0.55,
-      contrast: 1.18,
-      vignette: 0.28,
-      blur: 0.02,
+      defaultIntensity: 0.85,
+      saturation: 0.0,
+      contrast: 1.22,
+      vignette: 0.32,
+      blur: 0.015,
+      grain: 0.08,
+      visualStyle: 'none',
+    ),
+    EffectPreset(
+      id: 'super8',
+      name: 'Super 8',
+      category: 'Retro',
+      icon: '🎥',
+      description: 'Warm 1970s home-movie look with gate weave.',
+      tags: <String>['retro', 'film'],
+      isNew: true,
+      defaultIntensity: 0.72,
+      brightness: 0.05,
+      contrast: 1.06,
+      saturation: 0.86,
+      hue: 0.03,
+      grain: 0.28,
+      vignette: 0.22,
+      visualStyle: 'super8',
+    ),
+    // ── Glitch ─────────────────────────────────────────────────
+    EffectPreset(
+      id: 'glitch',
+      name: 'Glitch',
+      category: 'Glitch',
+      icon: '📡',
+      description: 'RGB channel split and digital scan corruption.',
+      tags: <String>['trending', 'glitch'],
+      trending: true,
+      defaultIntensity: 0.55,
+      contrast: 1.14,
+      saturation: 1.08,
+      hue: 0.06,
+      grain: 0.14,
+      visualStyle: 'glitch',
+    ),
+    EffectPreset(
+      id: 'datamosh',
+      name: 'Datamosh',
+      category: 'Glitch',
+      icon: '💾',
+      description: 'Pixel bleed and macro block corruption.',
+      tags: <String>['glitch', 'trending'],
+      trending: true,
+      isNew: true,
+      defaultIntensity: 0.5,
+      contrast: 1.1,
+      saturation: 1.12,
+      grain: 0.18,
+      visualStyle: 'datamosh',
+    ),
+    // ── Neon & Light ───────────────────────────────────────────
+    EffectPreset(
+      id: 'neon',
+      name: 'Neon',
+      category: 'Neon',
+      icon: '💡',
+      description: 'Electric colour pop with highlight bloom.',
+      tags: <String>['recommended', 'color'],
+      recommended: true,
+      defaultIntensity: 0.62,
+      brightness: 0.05,
+      contrast: 1.12,
+      saturation: 1.28,
+      hue: 0.1,
+      visualStyle: 'bloom',
     ),
     EffectPreset(
       id: 'lightning',
       name: 'Lightning',
-      category: 'Light',
+      category: 'Neon',
       icon: '⚡',
-      description: 'High-contrast flash and energy.',
+      description: 'High-energy contrast flash.',
       tags: <String>['light'],
-      defaultIntensity: 0.6,
-      defaultOpacity: 0.9,
+      defaultIntensity: 0.65,
       brightness: 0.08,
-      contrast: 1.22,
-      saturation: 1.08,
-      hue: 0.07,
+      contrast: 1.24,
+      saturation: 1.1,
+      hue: 0.08,
+      visualStyle: 'scanlines',
+    ),
+    EffectPreset(
+      id: 'hologram',
+      name: 'Hologram',
+      category: 'Neon',
+      icon: '🔮',
+      description: 'Cyan phosphor scanlines with spectral shimmer.',
+      tags: <String>['neon', 'new'],
+      isNew: true,
+      defaultIntensity: 0.58,
+      brightness: 0.03,
+      contrast: 1.08,
+      saturation: 1.18,
+      hue: 0.14,
+      vignette: 0.1,
+      visualStyle: 'hologram',
+    ),
+    // ── Duotone ────────────────────────────────────────────────
+    EffectPreset(
+      id: 'duotone_midnight',
+      name: 'Midnight',
+      category: 'Duotone',
+      icon: '🌙',
+      description: 'Deep navy-to-gold duotone.',
+      tags: <String>['featured', 'duotone'],
+      featured: true,
+      defaultIntensity: 0.72,
+      saturation: 0.0,
+      contrast: 1.08,
+      visualStyle: 'duotone',
+      duotoneShadow: 0xFF0D1B2A,
+      duotoneHighlight: 0xFFFFB347,
+    ),
+    EffectPreset(
+      id: 'duotone_rose',
+      name: 'Rose Gold',
+      category: 'Duotone',
+      icon: '🌸',
+      description: 'Warm rose-to-champagne duotone.',
+      tags: <String>['duotone', 'new'],
+      isNew: true,
+      defaultIntensity: 0.68,
+      saturation: 0.0,
+      contrast: 1.05,
+      visualStyle: 'duotone',
+      duotoneShadow: 0xFF6B1F3A,
+      duotoneHighlight: 0xFFF5D6C0,
+    ),
+    // ── Film ───────────────────────────────────────────────────
+    EffectPreset(
+      id: 'film',
+      name: 'Film Grain',
+      category: 'Film',
+      icon: '🎞️',
+      description: 'Organic film texture with sprocket overlay.',
+      tags: <String>['featured', 'film'],
+      featured: true,
+      defaultIntensity: 0.7,
+      grain: 0.24,
+      saturation: 0.88,
+      vignette: 0.18,
+      contrast: 1.06,
+      visualStyle: 'film',
+    ),
+    EffectPreset(
+      id: 'faded',
+      name: 'Faded',
+      category: 'Film',
+      icon: '☁️',
+      description: 'Bleached desaturated look with lifted blacks.',
+      tags: <String>['film'],
+      defaultIntensity: 0.65,
+      brightness: 0.08,
+      contrast: 0.9,
+      saturation: 0.72,
+      vignette: 0.1,
+      grain: 0.1,
+      visualStyle: 'matte',
+    ),
+    // ── Blur & Soft ────────────────────────────────────────────
+    EffectPreset(
+      id: 'blur',
+      name: 'Soft Blur',
+      category: 'Blur',
+      icon: '🌫️',
+      description: 'Dreamy motion and depth of field.',
+      tags: <String>['cinematic'],
+      defaultIntensity: 0.45,
+      blur: 2.0,
+      visualStyle: 'none',
+    ),
+    EffectPreset(
+      id: 'dream',
+      name: 'Dream',
+      category: 'Blur',
+      icon: '✨',
+      description: 'Soft glow with highlight bloom.',
+      tags: <String>['blur', 'new'],
+      isNew: true,
+      defaultIntensity: 0.5,
+      brightness: 0.06,
+      contrast: 0.95,
+      saturation: 1.06,
+      blur: 0.8,
+      vignette: 0.08,
+      visualStyle: 'bloom',
+    ),
+    // ── Colour Pop ─────────────────────────────────────────────
+    EffectPreset(
+      id: 'vivid',
+      name: 'Vivid',
+      category: 'Colour',
+      icon: '🎨',
+      description: 'Punchy saturated colours.',
+      tags: <String>['recommended', 'color'],
+      recommended: true,
+      defaultIntensity: 0.7,
+      brightness: 0.03,
+      contrast: 1.14,
+      saturation: 1.42,
+      visualStyle: 'none',
+    ),
+    EffectPreset(
+      id: 'cold',
+      name: 'Arctic',
+      category: 'Colour',
+      icon: '🧊',
+      description: 'Icy blue-tinted cool grade.',
+      tags: <String>['color'],
+      defaultIntensity: 0.65,
+      brightness: 0.02,
+      contrast: 1.08,
+      saturation: 0.9,
+      hue: -0.08,
+      vignette: 0.1,
+      visualStyle: 'none',
+    ),
+    EffectPreset(
+      id: 'golden',
+      name: 'Golden Hour',
+      category: 'Colour',
+      icon: '🌅',
+      description: 'Warm amber sunset tones.',
+      tags: <String>['recommended', 'color'],
+      recommended: true,
+      defaultIntensity: 0.68,
+      brightness: 0.04,
+      contrast: 1.06,
+      saturation: 1.16,
+      hue: 0.06,
+      vignette: 0.12,
+      visualStyle: 'none',
     ),
   ];
 
@@ -559,6 +768,8 @@ class EffectPreset {
     );
   }
 }
+
+
 
 /// Shared effect operation stored on the timeline and reused across edit surfaces.
 class EffectOperation extends EditOperation {
@@ -615,6 +826,8 @@ class AudioClipOperation extends EditOperation {
   double volume;
   double speed;
   bool reverse;
+  double fadeIn;
+  double fadeOut;
   final double? startOffset;
   final double? endOffset;
 
@@ -625,6 +838,8 @@ class AudioClipOperation extends EditOperation {
     this.volume = 1.0,
     this.speed = 1.0,
     this.reverse = false,
+    this.fadeIn = 0.0,
+    this.fadeOut = 0.0,
     this.startOffset,
     this.endOffset,
   }) : super('audio');
@@ -638,6 +853,8 @@ class AudioClipOperation extends EditOperation {
     'volume': volume,
     'speed': speed,
     'reverse': reverse,
+    'fadeIn': fadeIn,
+    'fadeOut': fadeOut,
     'startOffset': startOffset,
     'endOffset': endOffset,
   };
@@ -724,7 +941,27 @@ class TimelineClip {
   bool isReversed;
   TransformOperation transform;
   FilterOperation? filter;
-  bool isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  TransitionOperation? transitionIn;
+  bool
+  isHidden; // when true, clip is not rendered in preview (used for advanced trim hide semantics)
+  File? proxyFile;
+  bool isProxyReady;
+  double faceSymmetry;
+  bool symmetryMirrorLeft;
+  double skinSmoothing;
+  int smoothingMode;
+  double skinBrightening;
+  int skinToneMode;
+  int makeupGender;
+  int makeupStyle;
+  double makeupIntensity;
+  double brightness;
+  double contrast;
+  double saturation;
+  double hue;
+  double vignette;
+  double grain;
+  double blur;
 
   TimelineClip({
     required this.id,
@@ -732,6 +969,24 @@ class TimelineClip {
     required this.duration,
     required this.operation,
     this.file,
+    this.proxyFile,
+    this.isProxyReady = false,
+    this.faceSymmetry = 0.0,
+    this.symmetryMirrorLeft = true,
+    this.skinSmoothing = 0.0,
+    this.smoothingMode = 0,
+    this.skinBrightening = 0.0,
+    this.skinToneMode = 0,
+    this.makeupGender = 0,
+    this.makeupStyle = 0,
+    this.makeupIntensity = 0.7,
+    this.brightness = 0.0,
+    this.contrast = 1.0,
+    this.saturation = 1.0,
+    this.hue = 0.0,
+    this.vignette = 0.0,
+    this.grain = 0.0,
+    this.blur = 0.0,
     this.sourceStart = Duration.zero,
     this.sourceEnd,
     this.speed = 1.0,
@@ -740,6 +995,7 @@ class TimelineClip {
     this.isReversed = false,
     TransformOperation? transform,
     this.filter,
+    this.transitionIn,
     this.isHidden = false,
   }) : transform = transform ?? TransformOperation();
 
@@ -749,6 +1005,24 @@ class TimelineClip {
     Duration? duration,
     EditOperation? operation,
     File? file,
+    File? proxyFile,
+    bool? isProxyReady,
+    double? faceSymmetry,
+    bool? symmetryMirrorLeft,
+    double? skinSmoothing,
+    int? smoothingMode,
+    double? skinBrightening,
+    int? skinToneMode,
+    int? makeupGender,
+    int? makeupStyle,
+    double? makeupIntensity,
+    double? brightness,
+    double? contrast,
+    double? saturation,
+    double? hue,
+    double? vignette,
+    double? grain,
+    double? blur,
     Duration? sourceStart,
     Duration? sourceEnd,
     double? speed,
@@ -757,6 +1031,7 @@ class TimelineClip {
     bool? isReversed,
     TransformOperation? transform,
     FilterOperation? filter,
+    TransitionOperation? transitionIn,
     bool? isHidden,
   }) {
     return TimelineClip(
@@ -765,6 +1040,24 @@ class TimelineClip {
       duration: duration ?? this.duration,
       operation: operation ?? this.operation,
       file: file ?? this.file,
+      proxyFile: proxyFile ?? this.proxyFile,
+      isProxyReady: isProxyReady ?? this.isProxyReady,
+      faceSymmetry: faceSymmetry ?? this.faceSymmetry,
+      symmetryMirrorLeft: symmetryMirrorLeft ?? this.symmetryMirrorLeft,
+      skinSmoothing: skinSmoothing ?? this.skinSmoothing,
+      smoothingMode: smoothingMode ?? this.smoothingMode,
+      skinBrightening: skinBrightening ?? this.skinBrightening,
+      skinToneMode: skinToneMode ?? this.skinToneMode,
+      makeupGender: makeupGender ?? this.makeupGender,
+      makeupStyle: makeupStyle ?? this.makeupStyle,
+      makeupIntensity: makeupIntensity ?? this.makeupIntensity,
+      brightness: brightness ?? this.brightness,
+      contrast: contrast ?? this.contrast,
+      saturation: saturation ?? this.saturation,
+      hue: hue ?? this.hue,
+      vignette: vignette ?? this.vignette,
+      grain: grain ?? this.grain,
+      blur: blur ?? this.blur,
       sourceStart: sourceStart ?? this.sourceStart,
       sourceEnd: sourceEnd ?? this.sourceEnd,
       speed: speed ?? this.speed,
@@ -773,6 +1066,7 @@ class TimelineClip {
       isReversed: isReversed ?? this.isReversed,
       transform: transform ?? this.transform,
       filter: filter ?? this.filter,
+      transitionIn: transitionIn ?? this.transitionIn,
       isHidden: isHidden ?? this.isHidden,
     );
   }
@@ -928,7 +1222,7 @@ class TimelineModelUtils {
             style ??
             const TextStyle(
               fontSize: 28,
-              color: Colors.white,
+              color: Color(0xFFF0F4FF),
               fontWeight: FontWeight.bold,
             ),
       ),
@@ -953,3 +1247,4 @@ class TimelineModelUtils {
         .toList();
   }
 }
+

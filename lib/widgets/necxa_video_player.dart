@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../theme.dart';
@@ -11,8 +12,18 @@ class NecxaVideoPlayer extends StatefulWidget {
   final bool adaptive;
   final bool lowDataMode;
   final Function(bool)? onToggle;
+  final Function(VideoPlayerController)? onControllerReady;
   final AppState? state;
-  const NecxaVideoPlayer({super.key, required this.url, this.audioUrl, this.adaptive = false, this.lowDataMode = false, this.onToggle, this.state});
+  const NecxaVideoPlayer({
+    super.key,
+    required this.url,
+    this.audioUrl,
+    this.adaptive = false,
+    this.lowDataMode = false,
+    this.onToggle,
+    this.onControllerReady,
+    this.state,
+  });
 
   @override
   State<NecxaVideoPlayer> createState() => NecxaVideoPlayerState();
@@ -20,6 +31,8 @@ class NecxaVideoPlayer extends StatefulWidget {
 
 class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
   late VideoPlayerController _controller;
+  VideoPlayerController? get controller => _initialized ? _controller : null;
+  bool get isInitialized => _initialized;
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _initialized = false;
   bool _error = false;
@@ -28,7 +41,9 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
   void initState() {
     super.initState();
     _initController();
-    if (widget.audioUrl != null) {
+    // audioplayers has limited web support; secondary audio tracks are only
+    // used on native platforms. On web the video element carries audio.
+    if (!kIsWeb && widget.audioUrl != null) {
       _initAudio();
     }
     widget.state?.addListener(_onGlobalStateChange);
@@ -43,9 +58,9 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
     final bool muted = widget.state?.isGlobalMuted ?? false;
     if (muted) {
       await _controller.setVolume(0.0);
-      await _audioPlayer.setVolume(0.0);
+      if (!kIsWeb) await _audioPlayer.setVolume(0.0);
     } else {
-      if (widget.audioUrl != null) {
+      if (!kIsWeb && widget.audioUrl != null) {
         await _controller.setVolume(0.0); // Keep video muted if separate audio track
         await _audioPlayer.setVolume(1.0);
       } else {
@@ -67,7 +82,7 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
   }
 
   Future<void> _initController() async {
-    debugPrint('🎬 NecxaVideoPlayer: Initializing for URL: ${widget.url}');
+    debugPrint('?? NecxaVideoPlayer: Initializing for URL: ${widget.url}');
     try {
       _controller = await VideoPreloadManager.getController(widget.url);
     } catch (e) {
@@ -90,9 +105,14 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
         }
       }
       
-      if (mounted) setState(() => _initialized = true);
+      if (mounted) {
+        setState(() => _initialized = true);
+        if (widget.onControllerReady != null) {
+          widget.onControllerReady!(_controller);
+        }
+      }
     } catch (e) {
-      debugPrint('❌ NecxaVideoPlayer Error (${widget.url}): $e');
+      debugPrint('? NecxaVideoPlayer Error (${widget.url}): $e');
       if (mounted) setState(() => _error = true);
     }
   }
@@ -102,10 +122,10 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
     if (!_initialized) return;
     if (_controller.value.isPlaying) {
       await _controller.pause();
-      if (widget.audioUrl != null) await _audioPlayer.pause();
+      if (!kIsWeb && widget.audioUrl != null) await _audioPlayer.pause();
     } else {
       await _controller.play();
-      if (widget.audioUrl != null) await _audioPlayer.resume();
+      if (!kIsWeb && widget.audioUrl != null) await _audioPlayer.resume();
     }
     if (widget.onToggle != null) widget.onToggle!(_controller.value.isPlaying);
     if (mounted) setState(() {});
@@ -124,14 +144,14 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
     if (_error) {
       return Container(
         color: C.cardDk,
-        child: const Center(child: Icon(Icons.error_outline, color: Colors.white24, size: 48)),
+        child: Center(child: Icon(Icons.error_outline, color: C.dim, size: 48)),
       );
     }
 
     if (!_initialized) {
       return Container(
         color: Colors.black,
-        child: const Center(child: CircularProgressIndicator(color: C.brand, strokeWidth: 2)),
+        child: Center(child: CircularProgressIndicator(color: C.brand, strokeWidth: 2)),
       );
     }
 
@@ -162,7 +182,7 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.white.withOpacity(0.1),
+                        color: C.text.withOpacity(0.1),
                         blurRadius: 20,
                         spreadRadius: 5,
                       )
@@ -170,7 +190,7 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
                   ),
                   child: Icon(
                     _controller.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, 
-                    color: Colors.white, 
+                    color: C.text, 
                     size: 50
                   ),
                 ),
@@ -182,3 +202,5 @@ class NecxaVideoPlayerState extends State<NecxaVideoPlayer> {
     );
   }
 }
+
+

@@ -1,13 +1,14 @@
+import '../theme.dart';
 import 'dart:convert';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Colors;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'ai_service.dart';
 import 'media_compression_service.dart';
 import '../models/edit_models.dart';
 import 'video_enhancement_service.dart';
+import 'filter_catalogue_service.dart';
 
 class EditorExportResult {
   final bool success;
@@ -213,7 +214,7 @@ class EditorExportService {
             scale: operation.scale,
             rotation: operation.rotation,
             fontSize: operation.style.fontSize ?? 28,
-            color: operation.style.color ?? Colors.white,
+            color: operation.style.color ?? C.text,
           ),
         );
       } else if (operation is TransitionOperation) {
@@ -247,6 +248,9 @@ class EditorExportService {
               volume: clip.volume,
               speed: clip.speed,
               reverse: clip.isReversed || operation.reverse,
+              timelineDuration: clip.duration.inMilliseconds / 1000,
+              fadeIn: operation.fadeIn,
+              fadeOut: operation.fadeOut,
             ),
           );
         }
@@ -261,7 +265,13 @@ class EditorExportService {
         break;
       }
     }
-    if (filter != null) effects = _effectsForFilter(filter.filterName, effects);
+    if (filter != null) {
+      effects = _effectsForFilter(
+        filter.filterName,
+        effects,
+        intensity: filter.intensity,
+      );
+    }
     return VideoEnhancementService().combineSequence(
       clips: clips,
       aspectRatio: aspectRatio,
@@ -272,14 +282,39 @@ class EditorExportService {
     );
   }
 
-  static RenderEffects _effectsForFilter(String name, RenderEffects base) {
+  static RenderEffects _effectsForFilter(
+    String name,
+    RenderEffects base, {
+    double intensity = 1.0,
+  }) {
+    final t = intensity.clamp(0.0, 1.0);
+    final meta = FilterCatalogueService.findByName(name);
+    if (meta != null && !meta.isNone) {
+      final hueDeg = meta.hue * 180.0 / 3.141592653589793;
+      final isNoirOrGrayscale = meta.colorMatrixPreset == 'grayscale' ||
+          meta.displayName.toLowerCase() == 'noir';
+      return RenderEffects(
+        brightness: base.brightness + (meta.brightness * t),
+        contrast: base.contrast * (1.0 + (meta.contrast - 1.0) * t),
+        saturation: isNoirOrGrayscale
+            ? 0
+            : (base.saturation * (1.0 + (meta.saturation - 1.0) * t)),
+        hue: base.hue + (hueDeg * t),
+        vignette: (meta.displayName.toLowerCase() == 'cinema' || isNoirOrGrayscale)
+            ? (0.25 * t)
+            : base.vignette,
+        blur: base.blur,
+        grain: base.grain,
+      );
+    }
+
     switch (name.toLowerCase()) {
       case 'warm':
         return RenderEffects(
-          brightness: base.brightness + 0.03,
+          brightness: base.brightness + (0.03 * t),
           contrast: base.contrast,
-          saturation: base.saturation + 0.12,
-          hue: base.hue + 8,
+          saturation: base.saturation + (0.12 * t),
+          hue: base.hue + (8 * t),
           vignette: base.vignette,
           blur: base.blur,
           grain: base.grain,
@@ -288,16 +323,16 @@ class EditorExportService {
         return RenderEffects(
           brightness: base.brightness,
           contrast: base.contrast,
-          saturation: base.saturation - 0.05,
-          hue: base.hue - 8,
+          saturation: base.saturation - (0.05 * t),
+          hue: base.hue - (8 * t),
           vignette: base.vignette,
           blur: base.blur,
           grain: base.grain,
         );
       case 'vivid':
         return RenderEffects(
-          contrast: base.contrast + 0.16,
-          saturation: base.saturation + 0.3,
+          contrast: base.contrast + (0.16 * t),
+          saturation: base.saturation + (0.3 * t),
           brightness: base.brightness,
           hue: base.hue,
           vignette: base.vignette,
@@ -307,11 +342,11 @@ class EditorExportService {
       case 'blackandwhite':
       case 'noir':
         return RenderEffects(
-          contrast: base.contrast + 0.15,
+          contrast: base.contrast + (0.15 * t),
           saturation: 0,
           brightness: base.brightness,
           hue: base.hue,
-          vignette: name.toLowerCase() == 'noir' ? 0.3 : base.vignette,
+          vignette: name.toLowerCase() == 'noir' ? (0.3 * t) : base.vignette,
           blur: base.blur,
           grain: base.grain,
         );
@@ -320,3 +355,5 @@ class EditorExportService {
     }
   }
 }
+
+

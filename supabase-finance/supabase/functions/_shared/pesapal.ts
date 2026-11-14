@@ -1,4 +1,7 @@
-const baseUrl = Deno.env.get("PESAPAL_BASE_URL") ?? "https://pay.pesapal.com/v3";
+const environment = Deno.env.get("PESAPAL_ENVIRONMENT")?.trim().toLowerCase() ?? "sandbox";
+const baseUrl = Deno.env.get("PESAPAL_BASE_URL") ?? (environment === "production"
+  ? "https://pay.pesapal.com/v3"
+  : "https://cybqa.pesapal.com/pesapalv3");
 
 export async function pesapalToken(): Promise<string> {
   const consumerKey = Deno.env.get("PESAPAL_CONSUMER_KEY");

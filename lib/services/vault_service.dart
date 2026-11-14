@@ -3,7 +3,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:io';
+import 'package:universal_io/io.dart';
 
 class VaultService {
   SupabaseClient get client => Supabase.instance.client;
@@ -71,7 +71,7 @@ class VaultService {
         localizedReason: 'AUTHENTICATE TO ACCESS VAULT EXTRACTION',
         options: const AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: true,
+          biometricOnly: false,
         ),
       );
     } catch (e) {

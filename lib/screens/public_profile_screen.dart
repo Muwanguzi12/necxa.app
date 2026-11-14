@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../data.dart';
+import '../models/music_models.dart';
+import 'community/gift_container.dart';
 import 'dart:ui';
+import 'dart:math' as math;
 
 class PublicProfileScreen extends StatefulWidget {
   final AppState state;
@@ -12,9 +17,59 @@ class PublicProfileScreen extends StatefulWidget {
   State<PublicProfileScreen> createState() => _PublicProfileScreenState();
 }
 
-class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTickerProviderStateMixin {
+String resolvePublicProfileName(Profile profile, AppState state) {
+  final isMe = state.user?.id == profile.id;
+  final fn = profile.fullName?.trim();
+  if (fn != null &&
+      fn.isNotEmpty &&
+      fn != 'NECXA NODE' &&
+      fn != 'Necxa User' &&
+      fn != 'Necxa Member') {
+    return fn;
+  }
+  if (isMe) {
+    final myFn = state.myProfile?['full_name']?.toString().trim();
+    if (myFn != null && myFn.isNotEmpty && myFn != 'NECXA NODE') return myFn;
+    final metaFn =
+        state.user?.userMetadata?['full_name']?.toString().trim() ??
+        state.user?.userMetadata?['display_name']?.toString().trim() ??
+        state.user?.userMetadata?['name']?.toString().trim();
+    if (metaFn != null && metaFn.isNotEmpty) return metaFn;
+  }
+  final un = profile.username.trim();
+  if (un.isNotEmpty && un != 'node' && un != 'user' && un != 'member') {
+    return un;
+  }
+  if (isMe && state.user?.email != null) {
+    return state.user!.email!.split('@').first;
+  }
+  return 'Member';
+}
+
+String _formatTier(String? tier) {
+  if (tier == null || tier.isEmpty || tier.toLowerCase().contains('standard')) {
+    return 'MEMBER';
+  }
+  return tier.toUpperCase().replaceAll('_', ' ');
+}
+
+class _PublicProfileScreenState extends State<PublicProfileScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  bool _hasListings = false;
+  bool _isViewedArtist = false;
+  int? _localFollowerDelta;
+  bool? _isLocallyFollowing;
+  bool _isTogglingFollow = false;
+
+  String get _effectiveTargetId {
+    final tid = widget.state.targetProfileId?.trim();
+    if (tid != null && tid.isNotEmpty && tid != 'c1') {
+      return tid;
+    }
+    return widget.state.user?.id ?? '';
+  }
+
+  int get _tabCount => _isViewedArtist ? 3 : 2;
 
   @override
   void initState() {
@@ -24,10 +79,36 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
   }
 
   void _checkVendorStatus() async {
-    final targetId = widget.state.targetProfileId ?? 'c1';
-    final listings = await widget.state.social.fetchUserListings(targetId);
-    if (mounted && listings.isNotEmpty) {
-      setState(() => _hasListings = true);
+    final targetId = _effectiveTargetId;
+    if (targetId.isEmpty) return;
+
+    // Check if viewed profile is an artist (own profile matches local state, profile row says so, or has tracks on Goobox)
+    final bool viewingOwnProfile = targetId == widget.state.user?.id;
+    bool artistFlag = viewingOwnProfile && widget.state.isArtist;
+    if (!artistFlag) {
+      // Try fetching from profile row
+      try {
+        final profile = await widget.state.getProfile(targetId);
+        if (profile != null) artistFlag = profile.isArtist;
+      } catch (_) {}
+    }
+    if (!artistFlag) {
+      // Try checking if artist has tracks in Goobox Supabase
+      try {
+        final gooboxTracks = await widget.state.artistMusic.fetchArtistTracks(
+          targetId,
+        );
+        if (gooboxTracks.isNotEmpty) artistFlag = true;
+      } catch (_) {}
+    }
+
+    if (mounted && artistFlag != _isViewedArtist) {
+      setState(() {
+        _isViewedArtist = artistFlag;
+        // Rebuild tab controller with correct length
+        _tabController.dispose();
+        _tabController = TabController(length: _tabCount, vsync: this);
+      });
     }
   }
 
@@ -37,74 +118,512 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
     super.dispose();
   }
 
-  
-  
-  
-  
+  Future<void> _handleFollowToggle(
+    Profile profile,
+    bool currentlyFollowing,
+  ) async {
+    if (_isTogglingFollow) return;
+    _isTogglingFollow = true;
+    final willFollow = !currentlyFollowing;
+    setState(() {
+      _isLocallyFollowing = willFollow;
+      _localFollowerDelta = (_localFollowerDelta ?? 0) + (willFollow ? 1 : -1);
+    });
+    try {
+      final success = await widget.state.toggleFollow(profile.id);
+      if (!success && mounted) {
+        setState(() {
+          _isLocallyFollowing = currentlyFollowing;
+          _localFollowerDelta =
+              (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLocallyFollowing = currentlyFollowing;
+          _localFollowerDelta =
+              (_localFollowerDelta ?? 0) + (willFollow ? -1 : 1);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Could not update follow status. Please check your connection.',
+              style: dm(c: Colors.redAccent),
+            ),
+          ),
+        );
+      }
+    } finally {
+      _isTogglingFollow = false;
+    }
+  }
+
+  void _openGiftSheet(Profile profile) {
+    final senderId = widget.state.user?.id;
+    if (senderId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: C.card,
+          content: Text('Please sign in to send a gift.', style: dm(c: C.text)),
+        ),
+      );
+      return;
+    }
+    if (senderId == profile.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: C.card,
+          content: Text(
+            'You cannot send a gift to yourself.',
+            style: dm(c: C.text),
+          ),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: GiftContainer(
+          state: widget.state,
+          receiverId: profile.id,
+          contextType: 'public_profile',
+          onDismiss: () => Navigator.pop(ctx),
+        ),
+      ),
+    );
+  }
+
+  void _showProfileActions(BuildContext context, Profile profile) {
+    final isMe = widget.state.user?.id == profile.id;
+    final displayName = resolvePublicProfileName(profile, widget.state);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => _PublicProfileOptionsSheet(
+        profile: profile,
+        displayName: displayName,
+        isMe: isMe,
+        state: widget.state,
+        onFollowToggle: () => _handleFollowToggle(
+          profile,
+          _isLocallyFollowing ?? widget.state.followed.contains(profile.id),
+        ),
+        onGift: () => _openGiftSheet(profile),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final targetId = widget.state.targetProfileId ?? 'c1';
-
+    final targetId = _effectiveTargetId;
+    if (targetId.isEmpty) {
+      return Scaffold(
+        backgroundColor: C.bg,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+            onPressed: () => widget.state.goBack(),
+          ),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.person_off_outlined, color: C.dim, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'PROFILE NOT FOUND',
+                style: syne(c: C.brand, sz: 14, w: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Please sign in or select a member profile.',
+                style: dm(c: C.dim, sz: 12),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return FutureBuilder<Profile?>(
       future: widget.state.getProfile(targetId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(backgroundColor: C.bg, body: const Center(child: CircularProgressIndicator(color: C.brand)));
+          return Scaffold(
+            backgroundColor: C.bg,
+            body: Center(child: CircularProgressIndicator(color: C.brand)),
+          );
         }
-        
         final profile = snapshot.data;
         if (profile == null) {
-          return Scaffold(backgroundColor: C.bg, body: Center(child: Text('PROFILE NOT FOUND', style: syne(c: C.brand))));
-        }
-
-        final isFollowing = widget.state.followed.contains(profile.id);
-
-        return Scaffold(
-          backgroundColor: C.bg,
-          body: Stack(
-            children: [
-              _buildAmbientGlow(),
-              CustomScrollView(
-                physics: const BouncingScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(child: _buildIdentityHeader(profile, isFollowing)),
-                  SliverToBoxAdapter(child: _buildPublicStats()),
-                  SliverToBoxAdapter(child: _buildBioSection(profile)),
-                  
-                  // Hybrid Tab Bar
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _SliverAppBarDelegate(
-                      child: Container(
-                        color: C.bg,
-                        child: TabBar(
-                          controller: _tabController,
-                          indicatorColor: C.brand,
-                          labelStyle: syne(sz: 12, w: FontWeight.w900, ls: 2),
-                          unselectedLabelStyle: syne(sz: 12, w: FontWeight.w700, ls: 2),
-                          tabs: [
-                            Tab(text: _hasListings ? 'SHOWCASE' : 'CONTENT'),
-                            const Tab(text: 'FEED'),
-                          ],
-                        ),
-                      ),
-                    ),
+          return Scaffold(
+            backgroundColor: C.bg,
+            appBar: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+                onPressed: () => widget.state.goBack(),
+              ),
+            ),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.person_off_outlined, color: C.dim, size: 48),
+                  const SizedBox(height: 12),
+                  Text(
+                    'PROFILE NOT FOUND',
+                    style: syne(c: C.brand, sz: 14, w: FontWeight.bold),
                   ),
-
-                  // The Grid
-                  SliverFillRemaining(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildShowcaseGrid(), // Showcase (Products)
-                        _buildContentGrid(),  // Standard Feed
-                      ],
+                  const SizedBox(height: 8),
+                  Text(
+                    'The requested profile could not be loaded.',
+                    style: dm(c: C.dim, sz: 12),
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await widget.state.syncProfile(targetId);
+                      if (mounted) setState(() {});
+                    },
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Retry'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: C.brand,
+                      side: BorderSide(color: C.brand.withValues(alpha: .5)),
                     ),
                   ),
                 ],
               ),
-              _buildTopHUD(),
+            ),
+          );
+        }
+
+        final isFollowing =
+            _isLocallyFollowing ?? widget.state.followed.contains(profile.id);
+        final isFriend = widget.state.isFriendSync(profile.id);
+        final isMe = widget.state.user?.id == profile.id;
+        final effectiveFollowers =
+            (profile.followersCount + (_localFollowerDelta ?? 0)).clamp(
+              0,
+              999999999,
+            );
+
+        return Scaffold(
+          backgroundColor: C.bg,
+          body: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              SliverToBoxAdapter(
+                child: _ProfileHeader(
+                  profile: profile,
+                  state: widget.state,
+                  isFollowing: isFollowing,
+                  isFriend: isFriend,
+                  isMe: isMe,
+                  effectiveFollowers: effectiveFollowers,
+                  onBack: () => widget.state.goBack(),
+                  onOptions: () => _showProfileActions(context, profile),
+                  onFollow: () => _handleFollowToggle(profile, isFollowing),
+                  onMessage: () => widget.state.openCreatorChat(
+                    profile.id,
+                    resolvePublicProfileName(profile, widget.state),
+                    profile.avatarUrl,
+                  ),
+                  onGift: () => _openGiftSheet(profile),
+                  onEdit: () => widget.state.go('profile'),
+                ),
+              ),
+            ],
+            body: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
+                  color: C.bg,
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF070E22),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: const Color(0xFF00E5FF).withOpacity(0.25),
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(4),
+                    child: TabBar(
+                      controller: _tabController,
+                      indicator: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF00E5FF), Color(0xFFD946EF)],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00E5FF).withOpacity(0.35),
+                            blurRadius: 10,
+                          ),
+                        ],
+                      ),
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      dividerColor: Colors.transparent,
+                      labelStyle: syne(sz: 12, w: FontWeight.w900, ls: 0.8),
+                      unselectedLabelStyle: syne(
+                        sz: 12,
+                        w: FontWeight.w700,
+                        ls: 0.8,
+                      ),
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white70,
+                      tabs: [
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.play_arrow_rounded, size: 18),
+                              SizedBox(width: 4),
+                              Text('CONTENT'),
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.grid_view_rounded, size: 15),
+                              SizedBox(width: 4),
+                              Text('FEED'),
+                            ],
+                          ),
+                        ),
+                        if (_isViewedArtist)
+                          Tab(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                Icon(Icons.music_note_rounded, size: 16),
+                                SizedBox(width: 4),
+                                Text('MUSIC'),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildShowcaseGrid(),
+                      _buildContentGrid(),
+                      if (_isViewedArtist) _buildArtistMusicTab(),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildShowcaseGrid() {
+    final targetId = _effectiveTargetId;
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: widget.state.social.fetchUserListings(targetId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: C.brand));
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.cloud_off_rounded, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text(
+                  'COULD NOT LOAD PRODUCTS',
+                  style: syne(sz: 11, c: C.dim, ls: 1.5),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => setState(() {}),
+                  icon: const Icon(Icons.refresh, size: 14, color: C.brand),
+                  label: Text(
+                    'Retry',
+                    style: dm(sz: 12, c: C.brand, w: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final list = snapshot.data ?? [];
+        if (list.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.inventory_2_outlined, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text(
+                  'NO PRODUCTS LISTED',
+                  style: syne(sz: 11, c: C.dim, ls: 2),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final inventoryProducts = list
+            .where((item) => !_isVideoListing(item))
+            .toList();
+        final videoListings = list
+            .where((item) => _isVideoListing(item))
+            .toList();
+
+        return RefreshIndicator(
+          color: C.brand,
+          backgroundColor: C.card,
+          onRefresh: () async {
+            await widget.state.social.fetchUserListings(
+              targetId,
+              forceRefresh: true,
+            );
+            await widget.state.syncProfile(targetId);
+            if (mounted) setState(() {});
+          },
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              // ── 1. Store Inventory Showcase Panel (if vendor has direct inventory) ──
+              if (inventoryProducts.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _VendorStoreShowcasePanel(
+                    products: inventoryProducts,
+                    state: widget.state,
+                    hasVideoContent: videoListings.isNotEmpty,
+                    onOpenProduct: (product) =>
+                        _showProductDetailModal(context, product, widget.state),
+                  ),
+                ),
+
+              // ── 2. Video Clips Header (if both inventory and video listings exist) ──
+              if (inventoryProducts.isNotEmpty && videoListings.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.play_circle_outline_rounded,
+                            size: 16,
+                            color: Color(0xFF00E5FF),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'VIDEO SHOWCASE & CLIPS',
+                          style: syne(
+                            sz: 11,
+                            w: FontWeight.w900,
+                            c: C.dim,
+                            ls: 1.5,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${videoListings.length}',
+                            style: dm(
+                              sz: 10,
+                              w: FontWeight.bold,
+                              c: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // ── 3. Grid: If video listings exist, show them here. If only inventory products exist, show full inventory grid ──
+              if (videoListings.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio: 0.75,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _ProductGridItem(
+                        listing: videoListings[index],
+                        state: widget.state,
+                      ),
+                      childCount: videoListings.length,
+                    ),
+                  ),
+                )
+              else if (inventoryProducts.length > 2)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                          childAspectRatio: 0.72,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _InventoryProductCard(
+                        product: inventoryProducts[index],
+                        state: widget.state,
+                        onTap: () => _showProductDetailModal(
+                          context,
+                          inventoryProducts[index],
+                          widget.state,
+                        ),
+                      ),
+                      childCount: inventoryProducts.length,
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -112,239 +631,2826 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> with SingleTi
     );
   }
 
-  Widget _buildAmbientGlow() {
-    return Positioned(
-      top: -50, left: -50,
-      child: Container(
-        width: 300, height: 300,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: C.brand.withOpacity(.05)),
-        child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80), child: const SizedBox()),
-      ),
-    );
-  }
-
-  Widget _buildTopHUD() {
-    return Positioned(
-      top: 0, left: 0, right: 0,
-      child: ClipRRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + 10, 20, 15),
-            decoration: BoxDecoration(
-              color: C.bg.withOpacity(.6),
-              border: const Border(bottom: BorderSide(color: Colors.white10)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _HUDButton(icon: Icons.arrow_back_ios_new, onTap: () => widget.state.goBack()),
-                Text('PUBLIC NODE', style: syne(sz: 14, w: FontWeight.w800, ls: 4, c: C.brand)),
-                _HUDButton(icon: Icons.more_horiz, onTap: () {}),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-
-  Widget _buildIdentityHeader(Profile profile, bool isFollowing) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(24, MediaQuery.of(context).padding.top + 80, 24, 0),
-      child: Column(
-        children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                _AvatarContainer(url: profile.avatarUrl),
-                const Spacer(),
-                GestureDetector(
-                  onTap: () {
-                    widget.state.openCreatorChat(
-                      profile.id,
-                      profile.fullName ?? 'Creator',
-                      profile.avatarUrl
-                    );
-                                    },
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.05),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    child: const Icon(Icons.chat_bubble_outline_rounded, color: C.brand, size: 20),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                GestureDetector(
-                  onTap: () => setState(() => widget.state.toggleFollow(profile.id)),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isFollowing ? Colors.transparent : C.brand,
-                      borderRadius: BorderRadius.circular(16),
-                      border: isFollowing ? Border.all(color: C.brand.withOpacity(.4)) : null,
-                      boxShadow: isFollowing ? null : [BoxShadow(color: C.brand.withOpacity(.2), blurRadius: 10)],
-                    ),
-                    child: Text(
-                      isFollowing ? 'FOLLOWING' : 'FOLLOW',
-                      style: syne(sz: 12, w: FontWeight.w900, ls: 1, c: isFollowing ? C.brand : Colors.white),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(profile.fullName ?? 'NECXA USER', style: syne(sz: 28, w: FontWeight.w900, ls: -1, fs: FontStyle.italic)),
-                        if (profile.verified) ...[
-                          const SizedBox(width: 8),
-                          const Icon(Icons.verified, color: C.brand, size: 24),
-                        ],
-                      ],
-                    ),
-                    Text('@${profile.username}', style: dm(sz: 14, w: FontWeight.w700, c: C.brand.withOpacity(.6))),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-    );
-  }
-
-  Widget _buildPublicStats() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.03),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(.05)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            const _StatItem(label: 'FOLLOWERS', value: '2.4M', color: Colors.white),
-            _StatSeparator(),
-            const _StatItem(label: 'LIKES', value: '18.2M', color: C.purple),
-            _StatSeparator(),
-            const _StatItem(label: 'EARNINGS', value: '24.5M', color: C.brand),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBioSection(Profile profile) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('CORE SYSTEMS & BIO', style: dm(sz: 9, w: FontWeight.w900, ls: 2, c: Colors.white38)),
-          const SizedBox(height: 12),
-          Text(profile.bio ?? 'No status transmission available.', style: dm(sz: 14, c: Colors.white.withOpacity(.7), h: 1.6)),
-          const SizedBox(height: 24),
-          const Row(
-            children: [
-              _MetricTag(label: 'POSTS', value: '1,240'),
-              SizedBox(width: 12),
-              _MetricTag(label: 'REPUTATION', value: '9.8', icon: Icons.star, color: C.brand),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
-      child: Row(
-        children: [
-          const Icon(Icons.grid_view_sharp, color: C.brand, size: 14),
-          const SizedBox(width: 10),
-          Text(title, style: syne(sz: 11, w: FontWeight.w800, ls: 2, c: C.brand)),
-          const Spacer(),
-          const Icon(Icons.tune, color: Colors.white24, size: 16),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildShowcaseGrid() {
-    final targetId = widget.state.targetProfileId ?? 'c1';
-    
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: widget.state.social.fetchUserListings(targetId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-           return const Center(child: CircularProgressIndicator(color: C.brand));
-        }
-        
-        final list = snapshot.data ?? [];
-        if (list.isEmpty) {
-           return Center(child: Text('NO PRODUCTS SYNCED', style: syne(sz: 11, c: Colors.white24, ls: 2)));
-        }
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(24),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.75,
-          ),
-          itemCount: list.length,
-          itemBuilder: (context, index) => _ProductGridItem(listing: list[index], state: widget.state),
-        );
-      }
-    );
-  }
-
   Widget _buildContentGrid() {
-    final targetId = widget.state.targetProfileId ?? 'c1';
-    
+    final targetId = _effectiveTargetId;
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: widget.state.social.fetchUserPosts(targetId),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-           return const Center(child: CircularProgressIndicator(color: C.brand));
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: C.brand));
         }
-        
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.cloud_off_rounded, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text(
+                  'COULD NOT LOAD POSTS',
+                  style: syne(sz: 11, c: C.dim, ls: 1.5),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => setState(() {}),
+                  icon: const Icon(Icons.refresh, size: 14, color: C.brand),
+                  label: Text(
+                    'Retry',
+                    style: dm(sz: 12, c: C.brand, w: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-           return Center(child: Text('NO CONTENT TRANSMISSIONS', style: syne(sz: 11, c: Colors.white24, ls: 2)));
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.dynamic_feed_outlined, color: C.dim, size: 36),
+                const SizedBox(height: 10),
+                Text('NO POSTS YET', style: syne(sz: 11, c: C.dim, ls: 2)),
+              ],
+            ),
+          );
         }
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(24),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.8,
+        return RefreshIndicator(
+          color: C.brand,
+          backgroundColor: C.card,
+          onRefresh: () async {
+            await widget.state.social.fetchUserPosts(
+              targetId,
+              forceRefresh: true,
+            );
+            await widget.state.syncProfile(targetId);
+            if (mounted) setState(() {});
+          },
+          child: GridView.builder(
+            padding: const EdgeInsets.all(20),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 0.8,
+            ),
+            itemCount: list.length,
+            itemBuilder: (context, index) =>
+                _GridItem(data: list[index], state: widget.state),
           ),
-          itemCount: list.length,
-          itemBuilder: (context, index) => _GridItem(data: list[index], state: widget.state),
         );
-      }
+      },
+    );
+  }
+
+  // ── Artist Music Showcase Tab ──────────────────────────────────────────────
+  Widget _buildArtistMusicTab() {
+    final targetId = _effectiveTargetId;
+    final bool isOwnProfile = targetId == widget.state.user?.id;
+    final String displayName = isOwnProfile
+        ? (widget.state.artistName.isNotEmpty
+              ? widget.state.artistName
+              : 'Artist')
+        : 'Artist';
+    final String genre = isOwnProfile
+        ? (widget.state.artistGenre.isNotEmpty ? widget.state.artistGenre : '')
+        : '';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Artist identity banner
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF7B2FFF), Color(0xFFA855F7)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF7B2FFF).withOpacity(0.4),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.mic_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              displayName,
+                              style: syne(sz: 17, w: FontWeight.w900),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.verified_rounded,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                      if (genre.isNotEmpty)
+                        Text(genre, style: dm(sz: 12, c: Colors.white70)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'VERIFIED ARTIST',
+                    style: syne(sz: 9, w: FontWeight.w900, ls: 1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          Text(
+            'RELEASES & TRACKS',
+            style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 2),
+          ),
+          const SizedBox(height: 14),
+
+          // Music tracks — fetched directly from Goobox Supabase storage
+          FutureBuilder<List<MusicTrack>>(
+            future: widget.state.artistMusic.fetchArtistTracks(targetId),
+            builder: (context, snapshot) {
+              final tracks = snapshot.data ?? [];
+
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  tracks.isEmpty) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: CircularProgressIndicator(color: Color(0xFF7B2FFF)),
+                  ),
+                );
+              }
+
+              if (tracks.isEmpty) {
+                return _ArtistEmptyMusic(
+                  isOwnProfile: isOwnProfile,
+                  onUpload: () {
+                    widget.state.go('upload');
+                  },
+                );
+              }
+
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: tracks.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) => _GooboxMusicTrackTile(
+                  track: tracks[i],
+                  state: widget.state,
+                ),
+              );
+            },
+          ),
+
+          if (isOwnProfile) ...[
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              icon: const Icon(
+                Icons.add_circle_outline_rounded,
+                size: 18,
+                color: Color(0xFFA855F7),
+              ),
+              label: Text(
+                'Upload New Track',
+                style: dm(
+                  sz: 14,
+                  c: const Color(0xFFA855F7),
+                  w: FontWeight.w700,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFA855F7)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onPressed: () => widget.state.go('upload'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
 
-// ── Showcase Product Tile (Product as Cover, Content as Engine) ──
+// ── Profile Header (all top content above tabs) ───────────────────────────────
+
+class _ProfileHeader extends StatelessWidget {
+  final Profile profile;
+  final AppState state;
+  final bool isFollowing;
+  final bool isFriend;
+  final bool isMe;
+  final int effectiveFollowers;
+  final VoidCallback onBack;
+  final VoidCallback onOptions;
+  final VoidCallback onFollow;
+  final VoidCallback onMessage;
+  final VoidCallback onGift;
+  final VoidCallback onEdit;
+
+  const _ProfileHeader({
+    required this.profile,
+    required this.state,
+    required this.isFollowing,
+    required this.isFriend,
+    required this.isMe,
+    required this.effectiveFollowers,
+    required this.onBack,
+    required this.onOptions,
+    required this.onFollow,
+    required this.onMessage,
+    required this.onGift,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName = resolvePublicProfileName(profile, state);
+    final hasBio = profile.bio != null && profile.bio!.trim().isNotEmpty;
+    final bioText = hasBio
+        ? profile.bio!
+        : 'Welcome to my profile! Feel free to connect, message, and explore my listings and posts.';
+    final reputationScore = (profile.reputation > 0)
+        ? profile.reputation.toStringAsFixed(1)
+        : (profile.trustScore > 0
+              ? (profile.trustScore / 10).toStringAsFixed(1)
+              : '5.0');
+    final topPad = MediaQuery.of(context).padding.top;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Banner with HUD and Earth/Network Globe ─────────────────
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            _ProfileBanner(topPad: topPad),
+            Positioned(
+              top: topPad + 10,
+              left: 16,
+              right: 16,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _HUDButton(icon: Icons.arrow_back_ios_new, onTap: onBack),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)],
+                          ),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: const Icon(
+                          Icons.person_pin_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'PUBLIC PROFILE',
+                        style: syne(
+                          sz: 13,
+                          w: FontWeight.w900,
+                          ls: 2,
+                          c: C.brand,
+                        ),
+                      ),
+                    ],
+                  ),
+                  _HUDButton(icon: Icons.more_horiz, onTap: onOptions),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        // ── Overlapping Avatar + Adjacent Name & Username Row ───────
+        Transform.translate(
+          offset: const Offset(0, -36),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Avatar on the LEFT with glowing ring and verified badge
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _AvatarContainer(url: profile.avatarUrl, size: 84),
+                        if (profile.verified ||
+                            profile.trustScoreTier == 'titan_trust' ||
+                            profile.aiVerified)
+                          Positioned(
+                            bottom: -2,
+                            right: -2,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF030712),
+                                shape: BoxShape.circle,
+                              ),
+                              padding: const EdgeInsets.all(2),
+                              child: const Icon(
+                                Icons.verified,
+                                color: Color(0xFF00E5FF),
+                                size: 22,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(width: 16),
+
+                    // Adjacent Name + @username + Tier Badge on the RIGHT
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            displayName.toUpperCase(),
+                            style: syne(
+                              sz: 21,
+                              w: FontWeight.w900,
+                              fs: FontStyle.italic,
+                              ls: -0.5,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Text(
+                                '@',
+                                style: dm(sz: 13, c: const Color(0xFF00E5FF)),
+                              ),
+                              Flexible(
+                                child: Text(
+                                  profile.username,
+                                  style: dm(
+                                    sz: 13,
+                                    w: FontWeight.w700,
+                                    c: const Color(0xFF00E5FF),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFF00E5FF,
+                                  ).withValues(alpha: .08),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: const Color(
+                                      0xFF00E5FF,
+                                    ).withValues(alpha: .3),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.verified_user_outlined,
+                                      size: 10,
+                                      color: Color(0xFF00E5FF),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _formatTier(profile.trustScoreTier),
+                                      style: dm(
+                                        sz: 9,
+                                        w: FontWeight.w800,
+                                        ls: 0.5,
+                                        c: const Color(0xFF00E5FF),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // ── Bio text (Full width, italic) ──────────────────────
+                Text(
+                  bioText,
+                  style: dm(
+                    sz: 12.5,
+                    fs: FontStyle.italic,
+                    c: C.text.withValues(alpha: .75),
+                    h: 1.45,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // ── Action Buttons ─────────────────────────────────────
+                if (!isMe)
+                  Row(
+                    children: [
+                      // Message button
+                      Expanded(
+                        flex: 5,
+                        child: GestureDetector(
+                          onTap: onMessage,
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)],
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFF00E5FF,
+                                  ).withValues(alpha: .25),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.chat_bubble_outline_rounded,
+                                  color: Colors.white,
+                                  size: 17,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'MESSAGE',
+                                  style: syne(
+                                    sz: 13,
+                                    w: FontWeight.w900,
+                                    ls: 1,
+                                    c: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // Following/Follow button
+                      Expanded(
+                        flex: 5,
+                        child: GestureDetector(
+                          onTap: onFollow,
+                          child: Container(
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: isFollowing
+                                  ? Colors.transparent
+                                  : const Color(
+                                      0xFF00E5FF,
+                                    ).withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isFollowing
+                                    ? const Color(0xFF00E5FF)
+                                    : const Color(
+                                        0xFF00E5FF,
+                                      ).withValues(alpha: .4),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  isFollowing
+                                      ? Icons.how_to_reg_rounded
+                                      : Icons.person_add_outlined,
+                                  color: const Color(0xFF00E5FF),
+                                  size: 17,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  isFriend
+                                      ? 'FRIENDS'
+                                      : isFollowing
+                                      ? 'FOLLOWING'
+                                      : 'FOLLOW',
+                                  style: syne(
+                                    sz: 13,
+                                    w: FontWeight.w900,
+                                    ls: 1,
+                                    c: const Color(0xFF00E5FF),
+                                  ),
+                                ),
+                                if (isFollowing) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: Color(0xFF00E5FF),
+                                    size: 16,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // Live Stream Gifting button
+                      GestureDetector(
+                        onTap: onGift,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFFA000), Color(0xFFFF5252)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(
+                                  0xFFFFA000,
+                                ).withValues(alpha: .3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.card_giftcard_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  GestureDetector(
+                    onTap: onEdit,
+                    child: Container(
+                      width: double.infinity,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: C.brand.withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: C.brand.withValues(alpha: .4),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.edit_outlined, size: 16, color: C.brand),
+                          const SizedBox(width: 8),
+                          Text(
+                            'EDIT PROFILE',
+                            style: syne(
+                              sz: 13,
+                              w: FontWeight.w900,
+                              ls: 1,
+                              c: C.brand,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                const SizedBox(height: 14),
+
+                // ── Stats Row ──────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: C.text.withValues(alpha: .03),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: C.text.withValues(alpha: .06)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _StatItem(
+                        icon: Icons.people_alt_rounded,
+                        label: 'FOLLOWERS',
+                        value: kNum(effectiveFollowers),
+                        color: const Color(0xFF00E5FF),
+                      ),
+                      _StatDivider(),
+                      _StatItem(
+                        icon: Icons.favorite_rounded,
+                        label: 'LIKES',
+                        value: kNum(profile.likesCount),
+                        color: const Color(0xFFA855F7),
+                      ),
+                      _StatDivider(),
+                      _StatItem(
+                        icon: Icons.play_circle_outline_rounded,
+                        label: 'POSTS',
+                        value: profile.postsCount.toString(),
+                        color: const Color(0xFF10B981),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                // ── Node Overview Card ─────────────────────────────────
+                Container(
+                  decoration: BoxDecoration(
+                    color: C.text.withValues(alpha: .03),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: C.text.withValues(alpha: .06)),
+                  ),
+                  child: Column(
+                    children: [
+                      // Header row
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFF00E5FF,
+                                ).withValues(alpha: .12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.info_outline_rounded,
+                                color: Color(0xFF00E5FF),
+                                size: 16,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'ABOUT PROFILE',
+                              style: syne(sz: 13, w: FontWeight.w900, ls: 1),
+                            ),
+                            const Spacer(),
+                            GestureDetector(
+                              onTap: () => _showProfileDetailsSheet(
+                                context,
+                                profile,
+                                bioText,
+                                reputationScore,
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: C.text.withValues(alpha: .04),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: C.text.withValues(alpha: .08),
+                                  ),
+                                ),
+                                child: Text(
+                                  'VIEW MORE ›',
+                                  style: dm(
+                                    sz: 9,
+                                    w: FontWeight.w800,
+                                    ls: 1,
+                                    c: const Color(0xFF00E5FF),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // Polyhedron + Bio Body
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 58,
+                              height: 58,
+                              child: CustomPaint(
+                                painter: _GeodesicSpherePainter(),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Text(
+                                bioText,
+                                style: dm(
+                                  sz: 12.5,
+                                  c: C.text.withValues(alpha: .75),
+                                  h: 1.45,
+                                ),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // Reputation + Trust score progress bars
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _MetricProgressBar(
+                                label: 'REPUTATION',
+                                value: '$reputationScore / 10',
+                                progress:
+                                    ((double.tryParse(reputationScore) ?? 5.0) /
+                                            10.0)
+                                        .clamp(0.0, 1.0),
+                                color: const Color(0xFF00E5FF),
+                                icon: Icons.star_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _MetricProgressBar(
+                                label: 'TRUST SCORE',
+                                value: '${profile.trustScore}%',
+                                progress: (profile.trustScore / 100.0).clamp(
+                                  0.0,
+                                  1.0,
+                                ),
+                                color: const Color(0xFFA855F7),
+                                icon: Icons.verified_user_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // Badges row
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            _SysBadge(
+                              icon: Icons.location_on_outlined,
+                              label:
+                                  (profile.district != null &&
+                                      profile.district!.isNotEmpty)
+                                  ? profile.district!.toUpperCase()
+                                  : 'EAST AFRICA',
+                            ),
+                            _VertDivider(),
+                            _SysBadge(
+                              icon: Icons.calendar_today_rounded,
+                              label: '${profile.createdAt.year}',
+                            ),
+                            _VertDivider(),
+                            _SysBadge(
+                              icon: Icons.workspace_premium_rounded,
+                              label: _formatTier(profile.trustScoreTier),
+                              color: const Color(0xFFA855F7),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showProfileDetailsSheet(
+    BuildContext context,
+    Profile profile,
+    String bioText,
+    String reputationScore,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            decoration: BoxDecoration(
+              color: C.bg.withValues(alpha: .94),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              border: Border.all(color: C.text.withValues(alpha: .1)),
+            ),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              16,
+              20,
+              MediaQuery.of(ctx).padding.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: C.dim.withValues(alpha: .5),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: C.brand.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        Icons.badge_outlined,
+                        color: C.brand,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'PROFILE DETAILS',
+                          style: syne(sz: 15, w: FontWeight.w900),
+                        ),
+                        Text(
+                          'Member overview and account status',
+                          style: dm(sz: 11, c: C.dim),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(color: C.text.withValues(alpha: .06)),
+                const SizedBox(height: 12),
+                Text(
+                  'ABOUT',
+                  style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: C.text.withValues(alpha: .03),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: C.text.withValues(alpha: .06)),
+                  ),
+                  child: Text(
+                    bioText,
+                    style: dm(sz: 13, c: C.text.withValues(alpha: .85), h: 1.5),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'ACCOUNT METRICS',
+                  style: dm(sz: 10, w: FontWeight.w800, ls: 1, c: C.dim),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'REPUTATION',
+                        value: '$reputationScore / 10',
+                        color: Colors.amber,
+                        icon: Icons.star_rounded,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'TRUST SCORE',
+                        value: '${profile.trustScore}%',
+                        color: C.purple,
+                        icon: Icons.verified_user_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'ACCOUNT LEVEL',
+                        value: _formatTier(profile.trustScoreTier),
+                        color: C.brand,
+                        icon: Icons.shield_outlined,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MetricDetailBox(
+                        title: 'VERIFICATION',
+                        value: profile.aiVerified ? 'VERIFIED' : 'STANDARD',
+                        color: profile.aiVerified ? C.purple : C.dim,
+                        icon: Icons.lock_outline_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Profile Banner (hero background) ──────────────────────────────────────────
+
+class _ProfileBanner extends StatelessWidget {
+  final double topPad;
+  const _ProfileBanner({required this.topPad});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: topPad + 130,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Cyber deep space gradient
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF030712),
+                  Color(0xFF081229),
+                  Color(0xFF0D1B3E),
+                ],
+              ),
+            ),
+          ),
+          // Glow orbs
+          Positioned(
+            right: -20,
+            top: -20,
+            child: Container(
+              width: 220,
+              height: 220,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF00E5FF).withValues(alpha: .18),
+                    const Color(0xFF1E3A8A).withValues(alpha: .12),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // Earth/Tech globe CustomPaint
+          Positioned.fill(child: CustomPaint(painter: _EarthGlobePainter())),
+          // Bottom fade to bg
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: 50,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, C.bg],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 3D Earth / Tech Globe Banner Painter ─────────────────────────────────────
+
+class _EarthGlobePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width * 0.78;
+    final cy = size.height * 0.45;
+    final r = size.height * 0.55;
+
+    final globeGlow = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFF00E5FF).withValues(alpha: .25),
+          const Color(0xFF1E3A8A).withValues(alpha: .15),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r * 1.3));
+    canvas.drawCircle(Offset(cx, cy), r * 1.25, globeGlow);
+
+    final arcPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .18)
+      ..strokeWidth = 0.9
+      ..style = PaintingStyle.stroke;
+
+    final dotPaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .4)
+      ..style = PaintingStyle.fill;
+
+    // Draw latitude ellipses
+    for (double i = -0.7; i <= 0.7; i += 0.35) {
+      final yOffset = cy + i * r;
+      final radAtY = math.sqrt(
+        math.max(0.0, r * r - (yOffset - cy) * (yOffset - cy)),
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(cx, yOffset),
+          width: radAtY * 2,
+          height: radAtY * 0.6,
+        ),
+        arcPaint,
+      );
+    }
+
+    // Draw longitude ellipses
+    for (double i = 0.2; i <= 1.0; i += 0.35) {
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(cx, cy),
+          width: r * 2 * i,
+          height: r * 2,
+        ),
+        arcPaint,
+      );
+    }
+
+    // Network node dots & connecting arcs
+    final pts = [
+      Offset(cx - r * 0.4, cy - r * 0.2),
+      Offset(cx - r * 0.1, cy - r * 0.5),
+      Offset(cx + r * 0.3, cy - r * 0.3),
+      Offset(cx + r * 0.5, cy + r * 0.1),
+      Offset(cx + r * 0.2, cy + r * 0.4),
+      Offset(cx - r * 0.2, cy + r * 0.3),
+    ];
+    final linePaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .22)
+      ..strokeWidth = 0.8;
+    for (int i = 0; i < pts.length; i++) {
+      canvas.drawLine(pts[i], pts[(i + 1) % pts.length], linePaint);
+      canvas.drawCircle(pts[i], 2.2, dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ── 3D Geodesic Polyhedron Sphere Painter ─────────────────────────────────────
+
+class _GeodesicSpherePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = size.width * 0.42;
+
+    // Outer glow
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFF00E5FF).withValues(alpha: .25),
+          const Color(0xFF9D00FF).withValues(alpha: .12),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: r * 1.2));
+    canvas.drawCircle(Offset(cx, cy), r * 1.15, glowPaint);
+
+    final linePaint = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: .65)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    final innerLinePaint = Paint()
+      ..color = const Color(0xFF9D00FF).withValues(alpha: .45)
+      ..strokeWidth = 0.8
+      ..style = PaintingStyle.stroke;
+
+    final nodePaint = Paint()
+      ..color = const Color(0xFF00E5FF)
+      ..style = PaintingStyle.fill;
+
+    // 3D vertices of an icosahedron
+    final phi = (1.0 + math.sqrt(5.0)) / 2.0;
+    final rawVertices = [
+      [-1.0, phi, 0.0],
+      [1.0, phi, 0.0],
+      [-1.0, -phi, 0.0],
+      [1.0, -phi, 0.0],
+      [0.0, -1.0, phi],
+      [0.0, 1.0, phi],
+      [0.0, -1.0, -phi],
+      [0.0, 1.0, -phi],
+      [phi, 0.0, -1.0],
+      [phi, 0.0, 1.0],
+      [-phi, 0.0, -1.0],
+      [-phi, 0.0, 1.0],
+    ];
+
+    // Isometric rotation
+    const angleX = 0.45;
+    const angleY = 0.65;
+    final cosX = math.cos(angleX);
+    final sinX = math.sin(angleX);
+    final cosY = math.cos(angleY);
+    final sinY = math.sin(angleY);
+
+    final pts2d = <Offset>[];
+    final zVals = <double>[];
+
+    for (final v in rawVertices) {
+      final len = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+      final x = v[0] / len;
+      final y = v[1] / len;
+      final z = v[2] / len;
+
+      final x1 = x * cosY + z * sinY;
+      final z1 = -x * sinY + z * cosY;
+
+      final y2 = y * cosX - z1 * sinX;
+      final z2 = y * sinX + z1 * cosX;
+
+      pts2d.add(Offset(cx + x1 * r, cy + y2 * r));
+      zVals.add(z2);
+    }
+
+    // Connect vertices
+    for (int i = 0; i < rawVertices.length; i++) {
+      for (int j = i + 1; j < rawVertices.length; j++) {
+        final dx = rawVertices[i][0] - rawVertices[j][0];
+        final dy = rawVertices[i][1] - rawVertices[j][1];
+        final dz = rawVertices[i][2] - rawVertices[j][2];
+        final dist = math.sqrt(dx * dx + dy * dy + dz * dz);
+        if ((dist - 2.0).abs() < 0.2) {
+          final isFront = (zVals[i] + zVals[j]) > -0.2;
+          canvas.drawLine(
+            pts2d[i],
+            pts2d[j],
+            isFront ? linePaint : innerLinePaint,
+          );
+        }
+      }
+    }
+
+    // Draw glowing nodes on front vertices
+    for (int i = 0; i < pts2d.length; i++) {
+      if (zVals[i] > -0.2) {
+        canvas.drawCircle(pts2d[i], 2.2, nodePaint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ── Metric Progress Bar ───────────────────────────────────────────────────────
+
+class _MetricProgressBar extends StatelessWidget {
+  final String label;
+  final String value;
+  final double progress;
+  final Color color;
+  final IconData icon;
+
+  const _MetricProgressBar({
+    required this.label,
+    required this.value,
+    required this.progress,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: C.text.withValues(alpha: .04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: C.text.withValues(alpha: .06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: dm(sz: 9, w: FontWeight.w800, ls: 0.5, c: C.dim),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                value,
+                style: syne(sz: 11, w: FontWeight.w800, c: color),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: C.text.withValues(alpha: .08),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              minHeight: 5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricDetailBox extends StatelessWidget {
+  final String title;
+  final String value;
+  final Color color;
+  final IconData icon;
+
+  const _MetricDetailBox({
+    required this.title,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: C.text.withValues(alpha: .03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: C.text.withValues(alpha: .06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: dm(sz: 9, w: FontWeight.w800, c: C.dim),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: syne(sz: 13, w: FontWeight.w900, c: color),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── System badge (location / date / tier) ─────────────────────────────────────
+
+class _SysBadge extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+
+  const _SysBadge({required this.icon, required this.label, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? C.dim;
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 11, color: c),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              style: dm(sz: 9, w: FontWeight.w700, c: c),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VertDivider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 24, color: C.text.withValues(alpha: .06));
+}
+
+// ── Three-Dots Actions Bottom Sheet ──────────────────────────────────────────
+
+class _PublicProfileOptionsSheet extends StatelessWidget {
+  final Profile profile;
+  final String displayName;
+  final bool isMe;
+  final AppState state;
+  final VoidCallback onFollowToggle;
+  final VoidCallback onGift;
+
+  const _PublicProfileOptionsSheet({
+    required this.profile,
+    required this.displayName,
+    required this.isMe,
+    required this.state,
+    required this.onFollowToggle,
+    required this.onGift,
+  });
+
+  void _shareProfile(BuildContext context) {
+    Navigator.pop(context);
+    SharePlus.instance.share(
+      ShareParams(
+        text:
+            'Check out @${profile.username} on Necxa: https://goobox.necxa.uk/@${profile.username}',
+        subject: '$displayName on Necxa',
+      ),
+    );
+  }
+
+  Future<void> _copyLink(BuildContext context) async {
+    final link = 'https://goobox.necxa.uk/@${profile.username}';
+    await Clipboard.setData(ClipboardData(text: link));
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: C.card,
+          behavior: SnackBarBehavior.floating,
+          content: Row(
+            children: [
+              Icon(Icons.link, color: C.brand, size: 18),
+              const SizedBox(width: 8),
+              Text('Profile link copied!', style: dm(c: C.text)),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  void _openMessage(BuildContext context) {
+    Navigator.pop(context);
+    state.openCreatorChat(profile.id, displayName, profile.avatarUrl);
+  }
+
+  void _sendGift(BuildContext context) {
+    Navigator.pop(context);
+    onGift();
+  }
+
+  void _muteUser(BuildContext context) async {
+    Navigator.pop(context);
+    try {
+      await state.social.hideContent(profile.id, 'profile');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Posts from @${profile.username} muted.',
+              style: dm(c: C.text),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Could not mute account. Please try again.',
+              style: dm(c: Colors.redAccent),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _confirmBlockUser(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dlgCtx) => AlertDialog(
+        backgroundColor: C.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: C.dim.withValues(alpha: .2)),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.block_rounded, color: Colors.redAccent, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              'Block @${profile.username}?',
+              style: syne(sz: 16, w: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Text(
+          'They will not be able to message you or see your listings, and you will no longer see their posts or content.',
+          style: dm(sz: 13, c: C.sub),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dlgCtx),
+            child: Text(
+              'Cancel',
+              style: dm(c: C.dim, w: FontWeight.w600),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () {
+              Navigator.pop(dlgCtx);
+              _blockUser(context);
+            },
+            child: Text(
+              'Block',
+              style: syne(w: FontWeight.bold, c: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _blockUser(BuildContext context) async {
+    Navigator.pop(context);
+    try {
+      await state.blockUser(profile.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              '@${profile.username} blocked. You will no longer see their content.',
+              style: dm(c: Colors.redAccent),
+            ),
+          ),
+        );
+        state.goBack();
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Failed to block account: $e',
+              style: dm(c: Colors.redAccent),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _unblockUser(BuildContext context) async {
+    try {
+      await state.unblockUser(profile.id);
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              '@${profile.username} unblocked.',
+              style: dm(c: C.brand),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: C.card,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Failed to unblock account: $e',
+              style: dm(c: Colors.redAccent),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showReportDialog(BuildContext context) {
+    Navigator.pop(context);
+    final reasons = [
+      'Spam or Scam',
+      'Inappropriate Content',
+      'Fake Account or Impersonation',
+      'Harassment or Offensive Behavior',
+      'Other Violation',
+    ];
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: C.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: C.dim),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.flag_outlined, color: Colors.redAccent, size: 20),
+            const SizedBox(width: 8),
+            Text('Report Account', style: syne(sz: 16, w: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Select a reason for reporting @${profile.username}:',
+              style: dm(sz: 12, c: C.dim),
+            ),
+            const SizedBox(height: 12),
+            ...reasons.map(
+              (r) => ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(r, style: dm(sz: 13, c: C.text)),
+                onTap: () async {
+                  Navigator.pop(dialogCtx);
+                  try {
+                    await state.social.reportContent(profile.id, 'profile', r);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: C.card,
+                          behavior: SnackBarBehavior.floating,
+                          content: Text(
+                            'Report submitted. Our team is reviewing this account.',
+                            style: dm(c: C.brand),
+                          ),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: C.card,
+                          behavior: SnackBarBehavior.floating,
+                          content: Text(
+                            'Could not submit report. Please try again.',
+                            style: dm(c: Colors.redAccent),
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: C.bg.withValues(alpha: .92),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: C.text.withValues(alpha: .1)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            MediaQuery.of(context).padding.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle pill
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: C.dim.withValues(alpha: .5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Header summary
+              Row(
+                children: [
+                  _AvatarContainer(url: profile.avatarUrl, size: 48),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          style: syne(sz: 16, w: FontWeight.w800),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '@${profile.username}',
+                          style: dm(sz: 13, w: FontWeight.w600, c: C.brand),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${profile.trustScore}% Trust • ${profile.followersCount} Followers',
+                          style: dm(sz: 11, c: C.dim),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Divider(color: C.text.withValues(alpha: .06)),
+              const SizedBox(height: 8),
+
+              // Options
+              _OptionTile(
+                icon: Icons.share_outlined,
+                label: 'Share Profile',
+                color: C.brand,
+                onTap: () => _shareProfile(context),
+              ),
+              _OptionTile(
+                icon: Icons.link_rounded,
+                label: 'Copy Profile Link',
+                color: C.purple,
+                onTap: () => _copyLink(context),
+              ),
+
+              if (!isMe) ...[
+                _OptionTile(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: 'Send Message',
+                  color: C.brand,
+                  onTap: () => _openMessage(context),
+                ),
+                _OptionTile(
+                  icon: Icons.card_giftcard_rounded,
+                  label: 'Send Gift',
+                  color: Colors.amberAccent,
+                  onTap: () => _sendGift(context),
+                ),
+                _OptionTile(
+                  icon: Icons.volume_off_outlined,
+                  label: 'Mute Posts',
+                  color: C.dim,
+                  onTap: () => _muteUser(context),
+                ),
+                if (state.isBlocked(profile.id))
+                  _OptionTile(
+                    icon: Icons.lock_open_rounded,
+                    label: 'Unblock User',
+                    color: Colors.orangeAccent,
+                    onTap: () => _unblockUser(context),
+                  )
+                else
+                  _OptionTile(
+                    icon: Icons.block_rounded,
+                    label: 'Block User',
+                    color: Colors.redAccent,
+                    onTap: () => _confirmBlockUser(context),
+                  ),
+                _OptionTile(
+                  icon: Icons.flag_outlined,
+                  label: 'Report Account',
+                  color: Colors.redAccent,
+                  onTap: () => _showReportDialog(context),
+                ),
+              ] else ...[
+                _OptionTile(
+                  icon: Icons.edit_note_rounded,
+                  label: 'Edit Profile Settings',
+                  color: C.brand,
+                  onTap: () {
+                    Navigator.pop(context);
+                    state.go('profile');
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Option Tile ───────────────────────────────────────────────────────────────
+
+class _OptionTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _OptionTile({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: syne(sz: 13, w: FontWeight.w600, c: C.text),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: C.dim, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Showcase Product & Direct Inventory Widgets ──────────────────────────────
+
+bool _isVideoListing(Map<String, dynamic> item) {
+  final mediaType = item['media_type']?.toString().toLowerCase();
+  if (mediaType == 'video') return true;
+  final url = (item['media_url'] ?? '').toString().toLowerCase().trim();
+  if (url.isEmpty) return false;
+  return url.contains('.mp4') ||
+      url.contains('.mov') ||
+      url.contains('.webm') ||
+      url.contains('.m3u8') ||
+      url.contains('/videos/') ||
+      url.contains('video');
+}
+
+void _showProductDetailModal(
+  BuildContext context,
+  Map<String, dynamic> product,
+  AppState state,
+) {
+  final title = (product['title'] ?? product['name'] ?? 'Product').toString();
+  final price = (product['price'] is num)
+      ? (product['price'] as num).toDouble()
+      : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0;
+  final sku = product['sku']?.toString();
+  final stock = (product['stock_count'] is num)
+      ? (product['stock_count'] as num).toInt()
+      : int.tryParse(product['stock_count']?.toString() ?? '1') ?? 1;
+  final description = product['description']?.toString() ?? '';
+  final category = product['category']?.toString() ?? 'General';
+  final photos = product['photos'] as List? ?? [];
+  final rawUrl = (photos.isNotEmpty ? photos[0] : product['media_url'])
+      ?.toString()
+      .trim();
+  final url =
+      (rawUrl != null &&
+          rawUrl.isNotEmpty &&
+          (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+      ? rawUrl
+      : null;
+
+  final isOutOfStock = stock <= 0;
+  final isLowStock = stock > 0 && stock <= 4;
+
+  final sellerId =
+      (product['user_id'] ?? product['lister_id'])?.toString() ?? '';
+  final sellerProfile = product['profiles'] as Map<String, dynamic>?;
+  final sellerName =
+      (sellerProfile?['display_name'] ??
+              sellerProfile?['full_name'] ??
+              'Vendor')
+          .toString();
+  final sellerAvatar =
+      (sellerProfile?['photo_url'] ?? sellerProfile?['avatar_url'])?.toString();
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (ctx) => Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: const BoxDecoration(
+        color: Color(0xFF091122),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    height: 220,
+                    width: double.infinity,
+                    color: const Color(0xFF132035),
+                    child: url != null
+                        ? Image.network(
+                            url,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Icon(
+                                Icons.shopping_bag_outlined,
+                                color: C.dim,
+                                size: 48,
+                              ),
+                            ),
+                          )
+                        : Center(
+                            child: Icon(
+                              Icons.shopping_bag_outlined,
+                              color: C.dim,
+                              size: 48,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        category.toUpperCase(),
+                        style: syne(
+                          sz: 10,
+                          w: FontWeight.bold,
+                          c: Colors.white70,
+                          ls: 1,
+                        ),
+                      ),
+                    ),
+                    if (sku != null && sku.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF00E5FF).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFF00E5FF).withOpacity(0.3),
+                          ),
+                        ),
+                        child: Text(
+                          'SKU: $sku',
+                          style: dm(
+                            sz: 10,
+                            w: FontWeight.bold,
+                            c: const Color(0xFF00E5FF),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isOutOfStock
+                            ? Colors.redAccent.withOpacity(0.2)
+                            : isLowStock
+                            ? Colors.amber.withOpacity(0.2)
+                            : Colors.greenAccent.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isOutOfStock
+                                ? Icons.cancel_outlined
+                                : isLowStock
+                                ? Icons.warning_amber_rounded
+                                : Icons.check_circle_outline_rounded,
+                            size: 12,
+                            color: isOutOfStock
+                                ? Colors.redAccent
+                                : isLowStock
+                                ? Colors.amberAccent
+                                : Colors.greenAccent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isOutOfStock
+                                ? 'Out of Stock'
+                                : isLowStock
+                                ? 'Only $stock left'
+                                : 'In Stock ($stock)',
+                            style: syne(
+                              sz: 10,
+                              w: FontWeight.w900,
+                              c: isOutOfStock
+                                  ? Colors.redAccent
+                                  : isLowStock
+                                  ? Colors.amberAccent
+                                  : Colors.greenAccent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: syne(sz: 20, w: FontWeight.w900, c: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  ugx(price),
+                  style: syne(sz: 24, w: FontWeight.w900, c: C.brand),
+                ),
+                const SizedBox(height: 16),
+                if (description.isNotEmpty) ...[
+                  Text(
+                    'DESCRIPTION',
+                    style: syne(sz: 11, w: FontWeight.w900, c: C.dim, ls: 1.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    description,
+                    style: dm(sz: 13, c: Colors.white70, h: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.verified_user_outlined,
+                        color: Color(0xFF00E5FF),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Necxa Escrow Protection • Instant Mobile Money & Card Checkout',
+                          style: dm(sz: 11, c: Colors.white70),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            decoration: BoxDecoration(
+              color: const Color(0xFF070D1A),
+              border: Border(
+                top: BorderSide(color: Colors.white.withOpacity(0.08)),
+              ),
+            ),
+            child: Row(
+              children: [
+                if (sellerId.isNotEmpty && sellerId != state.user?.id) ...[
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      state.openCreatorChat(sellerId, sellerName, sellerAvatar);
+                    },
+                    icon: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 16,
+                    ),
+                    label: const Text('Chat'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(color: Colors.white.withOpacity(0.2)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: isOutOfStock
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            state.selectedListing = product;
+                            state.showCheckoutOverlay = true;
+                            state.notify();
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isOutOfStock
+                          ? Colors.white12
+                          : const Color(0xFF00E5FF),
+                      foregroundColor: isOutOfStock
+                          ? Colors.white38
+                          : Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.bolt_rounded,
+                          size: 18,
+                          color: isOutOfStock ? Colors.white38 : Colors.black,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isOutOfStock
+                              ? 'OUT OF STOCK'
+                              : 'BUY NOW • ${ugx(price)}',
+                          style: syne(
+                            sz: 13,
+                            w: FontWeight.w900,
+                            c: isOutOfStock ? Colors.white38 : Colors.black,
+                            ls: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// ── Vendor Store Showcase Panel ──────────────────────────────────────────────
+
+class _VendorStoreShowcasePanel extends StatelessWidget {
+  final List<Map<String, dynamic>> products;
+  final AppState state;
+  final bool hasVideoContent;
+  final ValueChanged<Map<String, dynamic>> onOpenProduct;
+
+  const _VendorStoreShowcasePanel({
+    required this.products,
+    required this.state,
+    required this.hasVideoContent,
+    required this.onOpenProduct,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B1528),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFF00E5FF).withOpacity(0.25),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E5FF).withOpacity(0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00E5FF), Color(0xFFD946EF)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00E5FF).withOpacity(0.35),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.storefront_rounded,
+                  color: Colors.black,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'VENDOR STORE',
+                          style: syne(
+                            sz: 13,
+                            w: FontWeight.w900,
+                            c: Colors.white,
+                            ls: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFF00E5FF).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            'DIRECT',
+                            style: syne(
+                              sz: 8,
+                              w: FontWeight.w900,
+                              c: const Color(0xFF00E5FF),
+                              ls: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${products.length} direct inventory ${products.length == 1 ? "product" : "products"} • Instant Buy',
+                      style: dm(sz: 11, c: C.dim),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 216,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              clipBehavior: Clip.none,
+              itemCount: products.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final product = products[index];
+                return _StoreShowcaseCard(
+                  product: product,
+                  state: state,
+                  onTap: () => onOpenProduct(product),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Store Showcase Card (Carousel Item) ──────────────────────────────────────
+
+class _StoreShowcaseCard extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final AppState state;
+  final VoidCallback onTap;
+
+  const _StoreShowcaseCard({
+    required this.product,
+    required this.state,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (product['title'] ?? product['name'] ?? 'Product').toString();
+    final price = (product['price'] is num)
+        ? (product['price'] as num).toDouble()
+        : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0;
+    final sku = product['sku']?.toString();
+    final stock = (product['stock_count'] is num)
+        ? (product['stock_count'] as num).toInt()
+        : int.tryParse(product['stock_count']?.toString() ?? '1') ?? 1;
+    final photos = product['photos'] as List? ?? [];
+    final rawUrl = (photos.isNotEmpty ? photos[0] : product['media_url'])
+        ?.toString()
+        .trim();
+    final url =
+        (rawUrl != null &&
+            rawUrl.isNotEmpty &&
+            (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+        ? rawUrl
+        : null;
+
+    final isOutOfStock = stock <= 0;
+    final isLowStock = stock > 0 && stock <= 4;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 160,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F1B2E),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
+                  ),
+                  child: Container(
+                    height: 100,
+                    width: double.infinity,
+                    color: const Color(0xFF14243B),
+                    child: url != null
+                        ? Image.network(
+                            url,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Icon(
+                                Icons.shopping_bag_outlined,
+                                color: C.dim,
+                                size: 32,
+                              ),
+                            ),
+                          )
+                        : Center(
+                            child: Icon(
+                              Icons.shopping_bag_outlined,
+                              color: C.dim,
+                              size: 32,
+                            ),
+                          ),
+                  ),
+                ),
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isOutOfStock
+                          ? Colors.redAccent.withOpacity(0.85)
+                          : isLowStock
+                          ? Colors.amber.withOpacity(0.85)
+                          : const Color(0xFF00E5FF).withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      isOutOfStock ? 'OUT' : 'STOCK: $stock',
+                      style: syne(
+                        sz: 8,
+                        w: FontWeight.w900,
+                        c: isOutOfStock ? Colors.white : Colors.black,
+                      ),
+                    ),
+                  ),
+                ),
+                if (sku != null && sku.isNotEmpty)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.65),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '#$sku',
+                        style: dm(sz: 8, w: FontWeight.bold, c: Colors.white70),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: syne(sz: 11, w: FontWeight.w800, c: Colors.white),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    ugx(price),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: syne(sz: 11, w: FontWeight.w900, c: C.brand),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 28,
+                    child: ElevatedButton(
+                      onPressed: isOutOfStock
+                          ? null
+                          : () {
+                              state.selectedListing = product;
+                              state.showCheckoutOverlay = true;
+                              state.notify();
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isOutOfStock
+                            ? Colors.white12
+                            : const Color(0xFF00E5FF),
+                        foregroundColor: isOutOfStock
+                            ? Colors.white38
+                            : Colors.black,
+                        padding: EdgeInsets.zero,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.bolt_rounded,
+                            size: 13,
+                            color: isOutOfStock ? Colors.white38 : Colors.black,
+                          ),
+                          const SizedBox(width: 2),
+                          Text(
+                            isOutOfStock ? 'Sold Out' : 'Buy Now',
+                            style: syne(
+                              sz: 10,
+                              w: FontWeight.w900,
+                              c: isOutOfStock ? Colors.white38 : Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Inventory Product Card (Grid Item) ───────────────────────────────────────
+
+class _InventoryProductCard extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final AppState state;
+  final VoidCallback onTap;
+
+  const _InventoryProductCard({
+    required this.product,
+    required this.state,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (product['title'] ?? product['name'] ?? 'Product').toString();
+    final price = (product['price'] is num)
+        ? (product['price'] as num).toDouble()
+        : double.tryParse(product['price']?.toString() ?? '0') ?? 0.0;
+    final sku = product['sku']?.toString();
+    final stock = (product['stock_count'] is num)
+        ? (product['stock_count'] as num).toInt()
+        : int.tryParse(product['stock_count']?.toString() ?? '1') ?? 1;
+    final photos = product['photos'] as List? ?? [];
+    final rawUrl = (photos.isNotEmpty ? photos[0] : product['media_url'])
+        ?.toString()
+        .trim();
+    final url =
+        (rawUrl != null &&
+            rawUrl.isNotEmpty &&
+            (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+        ? rawUrl
+        : null;
+
+    final isOutOfStock = stock <= 0;
+    final isLowStock = stock > 0 && stock <= 4;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F1B2E),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: url != null
+                          ? Image.network(
+                              url,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: const Color(0xFF14243B),
+                                child: Center(
+                                  child: Icon(
+                                    Icons.shopping_bag_outlined,
+                                    color: C.dim,
+                                    size: 36,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Container(
+                              color: const Color(0xFF14243B),
+                              child: Center(
+                                child: Icon(
+                                  Icons.shopping_bag_outlined,
+                                  color: C.dim,
+                                  size: 36,
+                                ),
+                              ),
+                            ),
+                    ),
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isOutOfStock
+                              ? Colors.redAccent.withOpacity(0.9)
+                              : isLowStock
+                              ? Colors.amber.withOpacity(0.9)
+                              : const Color(0xFF00E5FF).withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isOutOfStock ? 'OUT' : 'STOCK: $stock',
+                          style: syne(
+                            sz: 9,
+                            w: FontWeight.w900,
+                            c: isOutOfStock ? Colors.white : Colors.black,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (sku != null && sku.isNotEmpty)
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '#$sku',
+                            style: dm(
+                              sz: 9,
+                              w: FontWeight.bold,
+                              c: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: syne(sz: 13, w: FontWeight.w800, c: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            ugx(price),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: syne(sz: 13, w: FontWeight.w900, c: C.brand),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: isOutOfStock
+                              ? null
+                              : () {
+                                  state.selectedListing = product;
+                                  state.showCheckoutOverlay = true;
+                                  state.notify();
+                                },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isOutOfStock
+                                  ? Colors.white12
+                                  : const Color(0xFF00E5FF),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.bolt,
+                                  size: 12,
+                                  color: isOutOfStock
+                                      ? Colors.white38
+                                      : Colors.black,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  'Buy',
+                                  style: syne(
+                                    sz: 10,
+                                    w: FontWeight.w900,
+                                    c: isOutOfStock
+                                        ? Colors.white38
+                                        : Colors.black,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Showcase Product Tile ─────────────────────────────────────────────────────
+
 class _ProductGridItem extends StatelessWidget {
   final Map<String, dynamic> listing;
   final AppState state;
@@ -352,75 +3458,154 @@ class _ProductGridItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isVideo = _isVideoListing(listing);
     final photos = listing['photos'] as List? ?? [];
-    final url = photos.isNotEmpty ? photos[0] : listing['media_url'];
-    final price = listing['price'] ?? 0;
+    final rawUrl = (photos.isNotEmpty ? photos[0] : listing['media_url'])
+        ?.toString()
+        .trim();
+    final url =
+        (rawUrl != null &&
+            rawUrl.isNotEmpty &&
+            (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')))
+        ? rawUrl
+        : null;
+    final price = (listing['price'] is num)
+        ? (listing['price'] as num).toDouble()
+        : 0.0;
 
     return GestureDetector(
       onTap: () {
-        state.pendingCheckoutListing = listing;
-        state.go('community'); // Triggers handoff logic in CommunityScreen
+        if (!isVideo) {
+          _showProductDetailModal(context, listing, state);
+          return;
+        }
+        final targetId =
+            listing['id']?.toString() ?? listing['listing_id']?.toString();
+        state.creatorTab = 'shop';
+        state.pendingDestinationTab = 'shop';
+        state.selectedListing = listing;
+        if (targetId != null && targetId.isNotEmpty) {
+          final exists = state.social.shopListings.any(
+            (it) =>
+                it['id']?.toString() == targetId ||
+                it['listing_id']?.toString() == targetId,
+          );
+          if (!exists) {
+            state.social.shopListings.insert(0, listing);
+          }
+        }
+        state.go('community', extra: targetId);
       },
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.05),
+          color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(.1)),
+          border: Border.all(color: C.text.withValues(alpha: .1)),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
           child: Stack(
             children: [
-              // Product Cover Image
               Positioned.fill(
-                child: url != null 
-                  ? Image.network(url, fit: BoxFit.cover) 
-                  : Container(color: Colors.white10, child: const Icon(Icons.shopping_bag, color: Colors.white24)),
+                child: url != null
+                    ? Image.network(
+                        url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (c, e, s) => Container(
+                          color: C.card,
+                          child: Icon(Icons.broken_image, color: C.dim),
+                        ),
+                      )
+                    : Container(
+                        color: C.dim,
+                        child: Icon(Icons.shopping_bag, color: C.dim),
+                      ),
               ),
-              
-              // Bottom Price Badge
               Positioned(
-                bottom: 12, left: 12, right: 12,
+                bottom: 12,
+                left: 12,
+                right: 12,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                      color: Colors.black26,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 12,
+                      ),
+                      color: Colors.black45,
                       child: Row(
                         children: [
                           Expanded(
                             child: Text(
-                              ugx(price.toDouble()), 
-                              style: syne(sz: 14, w: FontWeight.w900, c: C.brand),
-                              maxLines: 1, overflow: TextOverflow.ellipsis,
+                              ugx(price),
+                              style: syne(
+                                sz: 14,
+                                w: FontWeight.w900,
+                                c: C.brand,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          const Icon(Icons.bolt, color: C.brand, size: 14),
+                          GestureDetector(
+                            onTap: !isVideo
+                                ? () {
+                                    state.selectedListing = listing;
+                                    state.showCheckoutOverlay = true;
+                                    state.notify();
+                                  }
+                                : null,
+                            child: Icon(Icons.bolt, color: C.brand, size: 14),
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
-              
-              // Live/Video Indicator
-              if (listing['media_url'] != null)
-                Positioned(
-                  top: 12, right: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.play_circle_fill, color: Colors.white, size: 12),
-                        const SizedBox(width: 4),
-                        Text('STORY', style: syne(sz: 8, w: FontWeight.w900, c: Colors.white)),
-                      ],
-                    ),
+              Positioned(
+                top: 12,
+                right: 12,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isVideo
+                        ? Colors.black54
+                        : const Color(0xFF00E5FF).withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(8),
+                    border: isVideo
+                        ? null
+                        : Border.all(
+                            color: const Color(0xFF00E5FF).withOpacity(0.4),
+                          ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isVideo
+                            ? Icons.play_circle_fill
+                            : Icons.shopping_bag_rounded,
+                        color: isVideo ? C.text : const Color(0xFF00E5FF),
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isVideo ? 'VIDEO' : 'STORE',
+                        style: syne(
+                          sz: 8,
+                          w: FontWeight.w900,
+                          c: isVideo ? C.text : const Color(0xFF00E5FF),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
             ],
           ),
         ),
@@ -429,125 +3614,172 @@ class _ProductGridItem extends StatelessWidget {
   }
 }
 
-class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
-  final Widget child;
-  _SliverAppBarDelegate({required this.child});
-  @override
-  double get minExtent => 50;
-  @override
-  double get maxExtent => 50;
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => child;
-  @override
-  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) => false;
-}
+// ── Avatar ────────────────────────────────────────────────────────────────────
 
 class _AvatarContainer extends StatelessWidget {
   final String? url;
-  const _AvatarContainer({this.url});
+  final double size;
+  const _AvatarContainer({this.url, this.size = 84});
+
+  bool get _hasValidUrl {
+    final u = url?.trim();
+    return u != null &&
+        u.isNotEmpty &&
+        (u.startsWith('http://') || u.startsWith('https://'));
+  }
+
   @override
-  Widget build(BuildContext context) => Container(
-    width: 100, height: 100,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(40),
-      gradient: const LinearGradient(colors: [C.brand, Color(0xFFa855f7)]),
-      boxShadow: [BoxShadow(color: C.brand.withOpacity(.3), blurRadius: 20)],
-    ),
-    padding: const EdgeInsets.all(3),
-    child: Container(
-      decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(38)),
-      padding: const EdgeInsets.all(4),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(34),
-        child: url != null 
-          ? Image.network(url!, fit: BoxFit.cover, errorBuilder: (c, e, s) => const Center(child: Icon(Icons.person, color: C.brand, size: 40))) 
-          : const Center(child: Icon(Icons.person, color: Colors.white24, size: 40)),
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF00E5FF), Color(0xFF9D00FF)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E5FF).withValues(alpha: .4),
+            blurRadius: 18,
+            spreadRadius: 1,
+          ),
+        ],
       ),
-    ),
-  );
+      padding: const EdgeInsets.all(3),
+      child: Container(
+        decoration: BoxDecoration(color: C.bg, shape: BoxShape.circle),
+        padding: const EdgeInsets.all(3),
+        child: ClipOval(
+          child: _hasValidUrl
+              ? Image.network(
+                  url!.trim(),
+                  fit: BoxFit.cover,
+                  errorBuilder: (c, e, s) => Center(
+                    child: Icon(Icons.person, color: C.brand, size: size * .45),
+                  ),
+                )
+              : Center(
+                  child: Icon(Icons.person, color: C.dim, size: size * .45),
+                ),
+        ),
+      ),
+    );
+  }
 }
 
+// ── Stat Item ─────────────────────────────────────────────────────────────────
+
 class _StatItem extends StatelessWidget {
+  final IconData icon;
   final String label, value;
   final Color color;
-  const _StatItem({required this.label, required this.value, required this.color});
+  const _StatItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      Text(value, style: syne(sz: 18, w: FontWeight.w900, fs: FontStyle.italic, c: color)),
+      Icon(icon, color: color, size: 18),
       const SizedBox(height: 6),
-      Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: Colors.white30)),
+      Text(
+        value,
+        style: syne(sz: 17, w: FontWeight.w900, fs: FontStyle.italic, c: color),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        label,
+        style: dm(sz: 9, w: FontWeight.w800, ls: 1, c: C.dim),
+      ),
     ],
   );
 }
 
-class _StatSeparator extends StatelessWidget {
+class _StatDivider extends StatelessWidget {
   @override
-  Widget build(BuildContext context) => Container(width: 1, height: 30, color: Colors.white10);
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 36, color: C.dim.withValues(alpha: .2));
 }
 
-class _MetricTag extends StatelessWidget {
-  final String label, value;
-  final IconData? icon;
-  final Color color;
-  const _MetricTag({required this.label, required this.value, this.icon, this.color = Colors.white});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(.03),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Colors.white.withOpacity(.05)),
-    ),
-    child: Row(
-      children: [
-        if (icon != null) ...[Icon(icon, color: color, size: 12), const SizedBox(width: 6)],
-        Text(label, style: dm(sz: 8, w: FontWeight.w800, ls: 1, c: Colors.white30)),
-        const SizedBox(width: 8),
-        Text(value, style: syne(sz: 12, w: FontWeight.w900, c: color)),
-      ],
-    ),
-  );
-}
+// ── Grid item ─────────────────────────────────────────────────────────────────
 
 class _GridItem extends StatelessWidget {
   final Map<String, dynamic> data;
   final AppState state;
   const _GridItem({required this.data, required this.state});
+
   @override
   Widget build(BuildContext context) {
     final isVideo = data['media_type'] == 'video';
-    final mediaUrl = data['media_url'] as String?;
-    final thumbUrl = data['thumbnail_url'] as String?;
+    final rawMedia = data['media_url']?.toString().trim();
+    final rawThumb = data['thumbnail_url']?.toString().trim();
+    final thumbUrl =
+        (rawThumb != null &&
+            rawThumb.isNotEmpty &&
+            (rawThumb.startsWith('http://') || rawThumb.startsWith('https://')))
+        ? rawThumb
+        : null;
+    final mediaUrl =
+        (rawMedia != null &&
+            rawMedia.isNotEmpty &&
+            (rawMedia.startsWith('http://') || rawMedia.startsWith('https://')))
+        ? rawMedia
+        : null;
+    final displayImage = thumbUrl ?? mediaUrl;
     final likes = data['likes_count'] ?? 0;
 
     return GestureDetector(
       onTap: () => state.go('community', extra: data['id']),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(.05),
+          color: C.text.withValues(alpha: .05),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(.1)),
-          image: (thumbUrl != null || mediaUrl != null) 
-            ? DecorationImage(
-                image: NetworkImage(thumbUrl ?? mediaUrl!), 
-                fit: BoxFit.cover,
-                colorFilter: isVideo ? ColorFilter.mode(Colors.black.withOpacity(0.3), BlendMode.darken) : null,
-              )
-            : null,
+          border: Border.all(color: C.text.withValues(alpha: .1)),
+          image: displayImage != null
+              ? DecorationImage(
+                  image: NetworkImage(displayImage),
+                  fit: BoxFit.cover,
+                  onError: (_, __) {},
+                  colorFilter: isVideo
+                      ? ColorFilter.mode(
+                          Colors.black.withValues(alpha: 0.3),
+                          BlendMode.darken,
+                        )
+                      : null,
+                )
+              : null,
         ),
         child: Stack(
           children: [
-            if (isVideo)
-              const Center(child: Icon(Icons.play_arrow_rounded, color: Colors.white70, size: 40)),
-            
+            if (displayImage == null)
+              Center(
+                child: Icon(
+                  isVideo ? Icons.videocam_outlined : Icons.image_outlined,
+                  color: C.dim,
+                  size: 28,
+                ),
+              ),
+            if (isVideo && displayImage != null)
+              Center(
+                child: Icon(Icons.play_arrow_rounded, color: C.sub, size: 40),
+              ),
             Positioned(
-              bottom: 12, left: 12,
+              bottom: 12,
+              left: 12,
               child: Row(
                 children: [
-                  const Icon(Icons.favorite, color: Colors.white, size: 12),
+                  Icon(Icons.favorite, color: C.text, size: 12),
                   const SizedBox(width: 4),
-                  Text(kNum(likes), style: dm(sz: 10, w: FontWeight.w800, c: Colors.white)),
+                  Text(
+                    kNum(likes is num ? likes.toInt() : 0),
+                    style: dm(sz: 10, w: FontWeight.w800, c: C.text),
+                  ),
                 ],
               ),
             ),
@@ -558,21 +3790,272 @@ class _GridItem extends StatelessWidget {
   }
 }
 
+// ── HUD Button ───────────────────────────────────────────────────────────────
+
 class _HUDButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   const _HUDButton({required this.icon, required this.onTap});
+
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(.05),
+        color: Colors.black.withValues(alpha: .35),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(.1)),
+        border: Border.all(color: Colors.white.withValues(alpha: .12)),
       ),
       child: Icon(icon, color: Colors.white, size: 18),
     ),
   );
+}
+
+// ── Artist Music Tab Helpers ──────────────────────────────────────────────────
+
+class _ArtistEmptyMusic extends StatelessWidget {
+  final bool isOwnProfile;
+  final VoidCallback onUpload;
+  const _ArtistEmptyMusic({required this.isOwnProfile, required this.onUpload});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.music_off_rounded, color: C.dim, size: 40),
+          const SizedBox(height: 12),
+          Text('No music released yet', style: syne(sz: 13, c: C.dim, ls: 1)),
+          if (isOwnProfile) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Upload your first track to show it here',
+              style: dm(sz: 12, c: C.sub),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.cloud_upload_rounded, size: 18),
+              label: const Text('Upload Music'),
+              onPressed: onUpload,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7B2FFF),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GooboxMusicTrackTile extends StatelessWidget {
+  final MusicTrack track;
+  final AppState state;
+  const _GooboxMusicTrackTile({required this.track, required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final title = track.title.isNotEmpty ? track.title : 'Untitled Release';
+    final genre = track.genre ?? 'Music';
+    final coverUrl = track.albumArtUrl;
+    final plays = track.usageCount;
+    final duration = track.formattedDuration;
+
+    return ValueListenableBuilder<String?>(
+      valueListenable: state.artistMusic.playingTrackId,
+      builder: (context, playingId, _) {
+        final isThisTrack = playingId == track.id;
+
+        return ValueListenableBuilder<bool>(
+          valueListenable: state.artistMusic.isPlaying,
+          builder: (context, isPlaying, _) {
+            final activePlay = isThisTrack && isPlaying;
+
+            return Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: activePlay
+                    ? const Color(0xFF7B2FFF).withOpacity(0.18)
+                    : const Color(0xFF7B2FFF).withOpacity(0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: activePlay
+                      ? const Color(0xFF00E5FF)
+                      : const Color(0xFF7B2FFF).withOpacity(0.2),
+                  width: activePlay ? 1.5 : 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  // Album art / placeholder with tap to play
+                  GestureDetector(
+                    onTap: () => state.artistMusic.togglePlay(track),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: const Color(0xFF7B2FFF).withOpacity(0.2),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: coverUrl != null && coverUrl.isNotEmpty
+                              ? Image.network(
+                                  coverUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.music_note_rounded,
+                                    color: Color(0xFFA855F7),
+                                    size: 26,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.music_note_rounded,
+                                  color: Color(0xFFA855F7),
+                                  size: 26,
+                                ),
+                        ),
+                        if (activePlay)
+                          Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: Colors.black.withOpacity(0.4),
+                            ),
+                            child: const Icon(
+                              Icons.equalizer_rounded,
+                              color: Color(0xFF00E5FF),
+                              size: 24,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  // Track metadata
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: syne(
+                            sz: 14,
+                            w: FontWeight.w700,
+                            c: activePlay
+                                ? const Color(0xFF00E5FF)
+                                : Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            if (genre.isNotEmpty) ...[
+                              Text(genre, style: dm(sz: 12, c: C.dim)),
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 3,
+                                height: 3,
+                                decoration: BoxDecoration(
+                                  color: C.dim,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Text(duration, style: dm(sz: 12, c: C.dim)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.headphones_rounded,
+                              size: 12,
+                              color: C.dim,
+                            ),
+                            const SizedBox(width: 4),
+                            Text('$plays plays', style: dm(sz: 11, c: C.dim)),
+                            const SizedBox(width: 12),
+                            // Quick "Use Sound" badge
+                            GestureDetector(
+                              onTap: () {
+                                state.initialMusicTrack = track;
+                                state.go('upload');
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFF7B2FFF,
+                                  ).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.auto_awesome_rounded,
+                                      size: 10,
+                                      color: Color(0xFFA855F7),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Use Sound',
+                                      style: syne(
+                                        sz: 9,
+                                        w: FontWeight.w800,
+                                        c: const Color(0xFFA855F7),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Play/Pause Action Button
+                  IconButton(
+                    icon: Icon(
+                      activePlay
+                          ? Icons.pause_circle_filled_rounded
+                          : Icons.play_circle_fill_rounded,
+                      color: activePlay
+                          ? const Color(0xFF00E5FF)
+                          : const Color(0xFF7B2FFF),
+                      size: 36,
+                    ),
+                    onPressed: () => state.artistMusic.togglePlay(track),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }

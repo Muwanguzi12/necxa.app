@@ -5,9 +5,9 @@ void main() {
   group('Buy Coins routing', () {
     test('maps recharge amounts to Supabase 2 pack IDs', () {
       expect(FinanceCoinPurchaseService.packIdForUgx(5000), 'starter');
-      expect(FinanceCoinPurchaseService.packIdForUgx(50000), 'pro');
-      expect(FinanceCoinPurchaseService.packIdForUgx(100000), 'elite');
-      expect(FinanceCoinPurchaseService.packIdForUgx(500000), 'whale');
+      expect(FinanceCoinPurchaseService.packIdForUgx(15000), 'pro');
+      expect(FinanceCoinPurchaseService.packIdForUgx(50000), 'elite');
+      expect(FinanceCoinPurchaseService.packIdForUgx(100000), 'whale');
     });
 
     test('accepts only implemented payment methods', () {

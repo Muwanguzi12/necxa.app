@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:universal_io/io.dart';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
@@ -27,14 +27,38 @@ class EditorAudioService {
   Set<String> get favorites => Set.unmodifiable(_favorites);
 
   Future<List<EditorAudioAsset>> importDeviceAudio() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.audio, allowMultiple: true, withData: false);
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.audio,
+      allowMultiple: true,
+      withData: false,
+    );
     if (result == null) return [];
     final assets = <EditorAudioAsset>[];
     for (final file in result.files) {
       if (file.path == null) continue;
       final local = File(file.path!);
       final size = await local.exists() ? await local.length() : 0;
-      final asset = EditorAudioAsset(id: 'audio-${DateTime.now().microsecondsSinceEpoch}-${assets.length}', name: file.name, source: local.path, kind: EditorAudioKind.deviceFile, sizeBytes: size);
+
+      // Probe actual audio duration from the file
+      Duration probedDuration = Duration.zero;
+      try {
+        final probe = AudioPlayer();
+        await probe.setSourceDeviceFile(file.path!);
+        // getDuration() returns null if unavailable; wait briefly for it
+        probedDuration = await probe.getDuration() ?? Duration.zero;
+        await probe.dispose();
+      } catch (_) {
+        probedDuration = Duration.zero;
+      }
+
+      final asset = EditorAudioAsset(
+        id: 'audio-${DateTime.now().microsecondsSinceEpoch}-${assets.length}',
+        name: file.name,
+        source: local.path,
+        kind: EditorAudioKind.deviceFile,
+        sizeBytes: size,
+        duration: probedDuration,
+      );
       register(asset);
       assets.add(asset);
     }
