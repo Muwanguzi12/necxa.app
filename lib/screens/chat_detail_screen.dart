@@ -11,6 +11,7 @@ import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
+import '../widgets/follow_sync_button.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final AppState state;
@@ -29,6 +30,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   int _prevMsgCount = 0;
   bool _isRecording = false;
   String? _recordPath;
+  Timer? _supportPollTimer;
 
   @override
   void initState() {
@@ -40,6 +42,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final conv = widget.state.activeConversation;
     if (conv != null) {
       widget.state.markRoomAsRead(conv.id);
+      if (conv.isSupport) {
+        // Poll for Goobox support replies while screen is active
+        _supportPollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+          if (mounted && widget.state.activeConversation?.id == conv.id) {
+            widget.state.syncSupportMessages(conv.id);
+          }
+        });
+      }
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -49,6 +59,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    _supportPollTimer?.cancel();
     widget.state.removeListener(_onStateChange);
     widget.state.unsubscribeFromMessages();
     _msg.dispose();
@@ -171,6 +182,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             onPressed: () => s.goBack(),
           ),
           actions: [
+            if (!conv.isSupport && (conv.otherPartyId ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: FollowSyncButton(
+                  state: s,
+                  targetUserId: conv.otherPartyId!,
+                  compact: true,
+                ),
+              ),
             IconButton(
               icon: Icon(Icons.settings, color: C.sub),
               onPressed: () => _showChatSettings(s),
@@ -561,9 +581,7 @@ class _MsgBubble extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 gradient: bubbleGrad,
-                color: (isMe && !isSystem)
-                    ? null
-                    : C.text.withOpacity(.05),
+                color: (isMe && !isSystem) ? null : C.text.withOpacity(.05),
                 border: (isMe && !isSystem)
                     ? null
                     : Border.all(color: C.text.withOpacity(.1)),
@@ -727,7 +745,7 @@ class _MsgBubble extends StatelessWidget {
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: ['??', '??', '??', '??', '??', '??']
+          children: ['📎', '📎', '📎', '📎', '📎', '📎']
               .map(
                 (emoji) => GestureDetector(
                   onTap: () {
@@ -1094,5 +1112,3 @@ class _MsgInput extends StatelessWidget {
     );
   }
 }
-
-

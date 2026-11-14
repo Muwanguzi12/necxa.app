@@ -6,6 +6,7 @@ import '../app_state.dart';
 import '../data.dart' show giftNotificationImageUrlFor;
 import '../models/chat_models.dart';
 import '../models/notification_model.dart';
+import '../widgets/follow_sync_button.dart';
 
 class CreatorChatListScreen extends StatefulWidget {
   final AppState state;
@@ -14,6 +15,7 @@ class CreatorChatListScreen extends StatefulWidget {
   @override
   State<CreatorChatListScreen> createState() => _CreatorChatListScreenState();
 }
+
 class _CreatorChatListScreenState extends State<CreatorChatListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -120,11 +122,7 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.forum_outlined,
-                  size: 60,
-                  color: C.dim,
-                ),
+                Icon(Icons.forum_outlined, size: 60, color: C.dim),
                 const SizedBox(height: 16),
                 Text(
                   'NO CREATOR INTERACTIONS YET',
@@ -166,10 +164,10 @@ class _CreatorChatListScreenState extends State<CreatorChatListScreen>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.notifications_none_rounded,
-                          size: 54,
-                          color: C.dim,
+                        Image.asset(
+                          'assets/images/notification_icon.png',
+                          width: 54,
+                          height: 54,
                         ),
                         const SizedBox(height: 14),
                         Text(
@@ -317,9 +315,23 @@ class _NotificationTile extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(notif.body, style: dm(sz: 13, c: C.sub)),
                   const SizedBox(height: 8),
-                  Text(
-                    _relativeTime(notif.createdAt),
-                    style: dm(sz: 11, c: C.dim),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _relativeTime(notif.createdAt),
+                          style: dm(sz: 11, c: C.dim),
+                        ),
+                      ),
+                      if (notif.type == 'follow' &&
+                          (notif.actorId ?? '').isNotEmpty)
+                        FollowSyncButton(
+                          state: state,
+                          targetUserId: notif.actorId!,
+                          compact: true,
+                          isFollowBackContext: true,
+                        ),
+                    ],
                   ),
                 ],
               ),

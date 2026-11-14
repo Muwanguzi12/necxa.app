@@ -25,6 +25,8 @@ import '../services/media_compression_service.dart';
 import '../services/editor_export_service.dart';
 import '../services/ai_service.dart';
 import '../utils/error_handler.dart';
+import '../models/camera_studio_result.dart';
+import '../services/filter_catalogue_service.dart';
 
 // --------------------------------------------------------------
 // CREATOR TYPE ENUM
@@ -134,6 +136,8 @@ class _UploadScreenState extends State<UploadScreen>
   Map<String, dynamic>? _uploadedMediaCache;
   final Map<String, Map<String, dynamic>> _uploadedFileCache =
       <String, Map<String, dynamic>>{};
+  NecxaFilterMeta? _cameraFilter;
+  double _cameraFilterIntensity = 1.0;
 
   // -- Audio / Recording --
   final AudioRecorder _recorder = AudioRecorder();
@@ -408,6 +412,8 @@ class _UploadScreenState extends State<UploadScreen>
           initialTrack: _bakedTrack,
           multiFiles: _multiFiles,
           isFastSync: isFastSync,
+          initialFilter: _cameraFilter,
+          initialFilterIntensity: _cameraFilterIntensity,
         ),
       ),
     );
@@ -562,6 +568,17 @@ class _UploadScreenState extends State<UploadScreen>
       if (!mounted) return;
       if (result == 'OPEN_GALLERY') {
         await _pickUnifiedMedia();
+      } else if (result is CameraStudioResult) {
+        setState(() {
+          _multiFiles = [..._multiFiles, ...result.clips];
+          _visualFile = _multiFiles.isNotEmpty ? _multiFiles.first : null;
+          _isVideo = true;
+          _cameraFilter = result.filter;
+          _cameraFilterIntensity = result.filterIntensity;
+        });
+        if (_multiFiles.isNotEmpty) {
+          await _processResult(XFile(_multiFiles.first.path), true);
+        }
       } else if (result is File) {
         await _processResult(XFile(result.path), true);
       } else if (result is List<File>) {
@@ -1192,12 +1209,18 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await _uploadRequired(
-        _audioFile!,
-        bucket: 'community-media',
-        assetType: 'audio',
+      final track = await widget.state.artistMusic.uploadTrack(
+        artistId: userId,
+        artistName: widget.state.artistName.isNotEmpty
+            ? widget.state.artistName
+            : (widget.state.user?.email?.split('@').first ?? 'Verified Artist'),
+        audioFile: _audioFile!,
+        coverFile: _artistArtFile,
+        title: _title.isNotEmpty ? _title : 'New Artist Release',
+        genre: widget.state.artistGenre.isNotEmpty ? widget.state.artistGenre : 'Music',
       );
-      audioUrl = res['url'] as String;
+      audioUrl = track.audioUrl;
+      _bakedTrack = track;
     }
 
     // Register Media Asset
@@ -1275,12 +1298,26 @@ class _UploadScreenState extends State<UploadScreen>
 
     String? audioUrl = _bakedTrack?.audioUrl;
     if (_audioFile != null) {
-      final res = await _uploadRequired(
-        _audioFile!,
-        bucket: 'community-media',
-        assetType: 'audio',
-      );
-      audioUrl = res['url'] as String;
+      if (widget.state.isArtist) {
+        final track = await widget.state.artistMusic.uploadTrack(
+          artistId: userId,
+          artistName: widget.state.artistName.isNotEmpty
+              ? widget.state.artistName
+              : (widget.state.user?.email?.split('@').first ?? 'Artist'),
+          audioFile: _audioFile!,
+          title: _title.isNotEmpty ? _title : 'Audio Track',
+          genre: widget.state.artistGenre.isNotEmpty ? widget.state.artistGenre : 'Sound',
+        );
+        audioUrl = track.audioUrl;
+        _bakedTrack = track;
+      } else {
+        final res = await _uploadRequired(
+          _audioFile!,
+          bucket: 'community-media',
+          assetType: 'audio',
+        );
+        audioUrl = res['url'] as String;
+      }
     }
 
     String? mediaAssetId;

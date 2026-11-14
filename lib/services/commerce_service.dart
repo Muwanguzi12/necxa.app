@@ -17,24 +17,50 @@ class CommerceDashboardData {
     this.syncCursor,
   });
 
-  factory CommerceDashboardData.fromJson(Map<String, dynamic> json) =>
-      CommerceDashboardData(
-        activeListings: _integer(json['activeListings']),
-        lowStockListings: _integer(json['lowStockListings']),
-        totalOrders: _integer(json['totalOrders']),
-        openOrders: _integer(json['openOrders']),
-        grossSalesUgx: _integer(json['grossSalesUgx']),
-        releasedEarningsUgx: _integer(json['releasedEarningsUgx']),
-        heldEarningsUgx: _integer(json['heldEarningsUgx']),
-        ratingAverage: _number(json['ratingAverage']),
-        ratingCount: _integer(json['ratingCount']),
-        listings: _maps(json['listings']),
-        recentOrders: _maps(
-          json['recentOrders'],
-        ).map(CommerceOrder.fromJson).toList(),
-        isDelta: json['isDelta'] == true,
-        syncCursor: json['syncCursor']?.toString(),
-      );
+  static bool isProductListing(Map<String, dynamic> listing) {
+    if (listing['is_property_listing'] == true) return false;
+    final cat = listing['category']?.toString().toUpperCase() ?? '';
+    const propertyCategories = {
+      'APARTMENT',
+      'HOUSE',
+      'VILLA',
+      'COMMERCIAL',
+      'LAND',
+      'RESIDENTIAL',
+      'REAL_ESTATE',
+      'PROPERTY',
+    };
+    if (propertyCategories.contains(cat)) return false;
+    return true;
+  }
+
+  factory CommerceDashboardData.fromJson(Map<String, dynamic> json) {
+    final rawListings = _maps(json['listings']);
+    final productListings = rawListings.where(isProductListing).toList();
+
+    return CommerceDashboardData(
+      activeListings: productListings
+          .where((l) => l['status'] == 'active')
+          .length,
+      lowStockListings: productListings.where((l) {
+        final stock = (l['stock_count'] as num?)?.round() ?? 0;
+        return stock <= 5;
+      }).length,
+      totalOrders: _integer(json['totalOrders']),
+      openOrders: _integer(json['openOrders']),
+      grossSalesUgx: _integer(json['grossSalesUgx']),
+      releasedEarningsUgx: _integer(json['releasedEarningsUgx']),
+      heldEarningsUgx: _integer(json['heldEarningsUgx']),
+      ratingAverage: _number(json['ratingAverage']),
+      ratingCount: _integer(json['ratingCount']),
+      listings: productListings,
+      recentOrders: _maps(
+        json['recentOrders'],
+      ).map(CommerceOrder.fromJson).toList(),
+      isDelta: json['isDelta'] == true,
+      syncCursor: json['syncCursor']?.toString(),
+    );
+  }
 
   final int activeListings;
   final int lowStockListings;
@@ -54,12 +80,16 @@ class CommerceDashboardData {
     if (!update.isDelta) return update;
     final listingsById = <String, Map<String, dynamic>>{
       for (final listing in listings)
-        if (listing['id'] != null) listing['id'].toString(): listing,
+        if (listing['id'] != null && isProductListing(listing))
+          listing['id'].toString(): listing,
     };
     for (final listing in update.listings) {
       final id = listing['id']?.toString();
-      if (id != null && id.isNotEmpty) listingsById[id] = listing;
+      if (id != null && id.isNotEmpty && isProductListing(listing)) {
+        listingsById[id] = listing;
+      }
     }
+    final mergedListings = listingsById.values.toList();
     final ordersById = {for (final order in recentOrders) order.id: order};
     for (final order in update.recentOrders) {
       ordersById[order.id] = order;
@@ -67,8 +97,17 @@ class CommerceDashboardData {
     final mergedOrders = ordersById.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return CommerceDashboardData(
-      activeListings: update.activeListings,
-      lowStockListings: update.lowStockListings,
+      activeListings: update.activeListings > 0
+          ? update.activeListings
+          : mergedListings
+                .where((l) => l['status'] == null || l['status'] == 'active')
+                .length,
+      lowStockListings: update.lowStockListings > 0
+          ? update.lowStockListings
+          : mergedListings.where((l) {
+              final stock = (l['stock_count'] as num?)?.round() ?? 0;
+              return stock <= 5;
+            }).length,
       totalOrders: update.totalOrders,
       openOrders: update.openOrders,
       grossSalesUgx: update.grossSalesUgx,
@@ -76,7 +115,7 @@ class CommerceDashboardData {
       heldEarningsUgx: update.heldEarningsUgx,
       ratingAverage: update.ratingAverage,
       ratingCount: update.ratingCount,
-      listings: listingsById.values.toList(),
+      listings: mergedListings,
       recentOrders: mergedOrders.take(10).toList(),
       syncCursor: update.syncCursor,
     );
@@ -307,14 +346,18 @@ class CommerceService {
 
   Future<Map<String, dynamic>> updateInventory({
     required String listingId,
-    required int stockCount,
+    int? stockCount,
+    String? title,
+    double? priceUgx,
     String? status,
   }) async {
     final response = await _backend.invoke(
       'update_commerce_inventory',
       body: {
         'listingId': listingId,
-        'stockCount': stockCount,
+        if (stockCount != null) 'stockCount': stockCount,
+        if (title != null) 'title': title,
+        if (priceUgx != null) 'priceUgx': priceUgx,
         if (status != null) 'status': status,
       },
     );
@@ -368,6 +411,62 @@ class CommerceService {
       'limit': limit,
     },
   );
+
+  /// Permanently deletes a product listing owned by the current vendor.
+  Future<void> deleteListing(String listingId) => _backend.invoke(
+    'delete_commerce_listing',
+    body: {'listingId': listingId},
+  );
+
+  /// Creates a new physical or digital product listing for this vendor.
+  Future<Map<String, dynamic>> addProduct({
+    required String title,
+    required int priceUgx,
+    required int stockCount,
+    String? sku,
+    String? category,
+    String? description,
+    String? mediaUrl,
+  }) async {
+    final response = await _backend.invoke(
+      'add_commerce_listing',
+      body: {
+        'title': title,
+        'priceUgx': priceUgx,
+        'stockCount': stockCount,
+        if (sku != null && sku.isNotEmpty) 'sku': sku,
+        if (category != null && category.isNotEmpty) 'category': category,
+        if (description != null && description.isNotEmpty)
+          'description': description,
+        if (mediaUrl != null && mediaUrl.isNotEmpty) 'mediaUrl': mediaUrl,
+      },
+    );
+    return _map(response['listing']) ?? {};
+  }
+
+  /// Bulk updates multiple listings' stock counts in a single batch.
+  Future<List<dynamic>> bulkUpdateInventory(Map<String, int> updates) async {
+    final response = await _backend.invoke(
+      'bulk_update_inventory',
+      body: {
+        'updates': updates.entries
+            .map((e) => {'listingId': e.key, 'stockCount': e.value})
+            .toList(),
+      },
+    );
+    return response['results'] as List<dynamic>? ?? const [];
+  }
+
+  /// Retrieves recent stock adjustments and history for the vendor's products.
+  Future<List<Map<String, dynamic>>> fetchStockHistory({
+    String? listingId,
+  }) async {
+    final response = await _backend.invoke(
+      'stock_history',
+      body: {if (listingId != null) 'listingId': listingId},
+    );
+    return _maps(response['events']);
+  }
 }
 
 int _integer(dynamic value) =>

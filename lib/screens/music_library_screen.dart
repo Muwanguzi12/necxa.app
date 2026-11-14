@@ -22,6 +22,7 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
   List<MusicGenre> _genres = [];
   List<MusicTrack> _platformTracks = [];
   List<MusicTrack> _artistTracks = [];
+  List<MusicTrack> _trendingTracks = [];
   List<MusicTrack> _filteredPlatform = [];
   List<MusicTrack> _filteredArtist = [];
   bool _isLoading = true;
@@ -44,7 +45,8 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
       
       if (mounted) {
         setState(() {
-          _genres = discovery['genres'];
+          _genres = discovery['genres'] ?? [];
+          _trendingTracks = discovery['trending'] ?? [];
           _platformTracks = platform;
           _artistTracks = artist;
           _filteredPlatform = platform;
@@ -78,16 +80,6 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
     }
   }
 
-  void _onTrackTap(MusicTrack track) async {
-    HapticFeedback.lightImpact();
-    if (_playingTrackId == track.id) {
-      await _musicService.stopPreview();
-      setState(() => _playingTrackId = null);
-    } else {
-      setState(() => _playingTrackId = track.id);
-      await _musicService.previewMusic(track.audioUrl);
-    }
-  }
 
   void _showDetail(MusicTrack track) async {
     HapticFeedback.mediumImpact();
@@ -234,11 +226,28 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
         const SizedBox(height: 16),
         
         // Small preview list
-        ..._platformTracks.take(3).map((t) => MusicTrackTile(
+        ...(_trendingTracks.isNotEmpty ? _trendingTracks : _platformTracks).take(4).map((t) => MusicTrackTile(
           track: t, 
           isPlaying: _playingTrackId == t.id,
           onTap: () => _showDetail(t),
         )),
+
+        if (_artistTracks.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          Row(
+            children: [
+              const Icon(Icons.mic_external_on_rounded, color: Color(0xFF00E5FF), size: 18),
+              const SizedBox(width: 8),
+              Text('ARTIST RELEASES', style: syne(sz: 14, w: FontWeight.bold, c: C.text, ls: 1)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ..._artistTracks.take(4).map((t) => MusicTrackTile(
+            track: t,
+            isPlaying: _playingTrackId == t.id,
+            onTap: () => _showDetail(t),
+          )),
+        ],
 
         const SizedBox(height: 32),
 

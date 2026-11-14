@@ -149,7 +149,7 @@ class ShieldCaptureOverlay extends StatelessWidget {
                     BoxShadow(color: C.brand.withOpacity(.3), blurRadius: 20, spreadRadius: 0, offset: Offset(0, 10)),
                   ],
                 ),
-                child: Center(child: Text('Continue ?', style: syne(sz: 15, w: FontWeight.bold, c: C.bg))),
+                child: Center(child: Text('Continue 🚀', style: syne(sz: 15, w: FontWeight.bold, c: C.bg))),
               ),
             ),
         ],

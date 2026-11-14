@@ -22,6 +22,7 @@ import 'widgets/gift_float.dart';
 import 'screens/artist_auth_screen.dart';
 import 'screens/creator_chat_list_screen.dart';
 import 'screens/creator_chat_detail_screen.dart';
+import 'screens/live_hub_screen.dart';
 import 'screens/admin/music_management_admin.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:ui';
@@ -43,13 +44,6 @@ void main() async {
     databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
 
-  if (!kIsWeb) {
-    try {
-      cameras = await availableCameras();
-    } catch (e) {
-      debugPrint('Camera error: $e');
-    }
-  }
   await Supabase.initialize(
     url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
     anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
@@ -82,19 +76,46 @@ void main() async {
   };
   // --------------------------------------------------------------------------
 
-  if (!kIsWeb) {
-    final notifService = NotificationService();
-    await notifService.init();
-    await notifService.requestPermissions();
-  }
-
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
     ),
   );
+
+  // Mount Flutter first so the native launch screen is immediately dismissed.
   runApp(const NecxaApp());
+
+  if (!kIsWeb) {
+    // Non-blocking background initialization of optional device plugins
+    () async {
+      try {
+        cameras = await availableCameras();
+        debugPrint('Available cameras: ${cameras.length}');
+      } catch (e) {
+        debugPrint('Camera error: $e');
+      }
+    }();
+
+    () async {
+      try {
+        final notifService = NotificationService();
+        await notifService.init();
+        await notifService.requestPermissions();
+      } catch (e) {
+        debugPrint('Notification init error: $e');
+      }
+    }();
+  }
+}
+
+class AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+  };
 }
 
 class NecxaApp extends StatefulWidget {
@@ -159,6 +180,7 @@ class _NecxaAppState extends State<NecxaApp> with WidgetsBindingObserver {
     C.themeMode = _state.themeMode;
     return MaterialApp(
       navigatorKey: navigatorKey,
+      scrollBehavior: AppScrollBehavior(),
       title: 'NECXA',
       themeMode: _state.themeMode,
       theme: buildLightTheme(),
@@ -236,7 +258,7 @@ class _RootShellState extends State<RootShell> {
 
   Widget _buildLockScreen() {
     return Container(
-      color: Colors.black.withOpacity(.95),
+      color: Colors.black.withValues(alpha: .95),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -291,7 +313,13 @@ class _RootShellState extends State<RootShell> {
       return LoginScreen(state: _state);
     }
 
+    if (kIsWeb && (_state.screen == 'community' || _state.screen == 'upload')) {
+      return HomeScreen(state: _state);
+    }
+
     switch (_state.screen) {
+      case 'live':
+        return LiveHubScreen(state: _state);
       case 'detail':
         return DetailScreen(state: _state);
       case 'community':
@@ -341,5 +369,3 @@ class _RootShellState extends State<RootShell> {
     }
   }
 }
-
-

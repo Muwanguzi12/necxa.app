@@ -227,7 +227,7 @@ async function handleAI(_userId: string, payload: any) {
   const message = payload.message || [...messages].reverse().find((item: any) => item.role === "user")?.content
   if (!message) return err("Missing message for AI")
 
-  const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev'
+  const NECXA_AI_URL = 'https://necxa-ai-engine.knestars.workers.dev'
 
   // Try Cloudflare Workers AI (Llama 3.1 — real multilingual AI)
   try {

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -36,7 +36,7 @@ class _LiveGiftingOverlayState extends State<LiveGiftingOverlay> with TickerProv
 
     final anim = _GiftAnimation(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      emoji: giftData['emoji'] ?? '??',
+      emoji: giftData['emoji'] ?? '✂️',
       imageUrl: giftData['imageUrl'],
       userName: giftData['userName'] ?? 'User',
       controller: controller,
