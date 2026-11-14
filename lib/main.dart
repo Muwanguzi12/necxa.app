@@ -36,6 +36,11 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 List<CameraDescription> cameras = [];
 
+/// Global future that completes once Supabase is initialized.
+/// Kicked off immediately after [runApp] so the LaunchTheme is dismissed
+/// without waiting for the network round-trip.
+late final Future<void> supabaseReady;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -43,19 +48,6 @@ void main() async {
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
-
-  await Supabase.initialize(
-    url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
-    anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
-    authOptions: const FlutterAuthClientOptions(
-      // Email clients frequently open web magic links in a fresh tab or
-      // browser context where a PKCE verifier is unavailable. The implicit
-      // web callback carries the one-time session in the URL fragment, while
-      // native apps retain PKCE and the custom deep link.
-      authFlowType: kIsWeb ? AuthFlowType.implicit : AuthFlowType.pkce,
-      detectSessionInUri: true,
-    ),
-  );
 
   // -- CUSTOM ERROR TELEMETRY ------------------------------------------------
   // Catch UI / Framework errors
@@ -83,8 +75,25 @@ void main() async {
     ),
   );
 
-  // Mount Flutter first so the native launch screen is immediately dismissed.
+  // Mount Flutter FIRST — this dismisses the native LaunchTheme window
+  // immediately without waiting for Supabase or any other async init.
   runApp(const NecxaApp());
+
+  // Initialize Supabase in the background AFTER the first Flutter frame.
+  // RootShell listens to [supabaseReady] and shows a branded loading screen
+  // until this completes.
+  supabaseReady = Supabase.initialize(
+    url: 'https://lzdtrmjcwzalckszdzpt.supabase.co',
+    anonKey: 'sb_publishable_lLcn4V9uIIgs3B59cHVXWg_1-PNsUfR',
+    authOptions: const FlutterAuthClientOptions(
+      // Email clients frequently open web magic links in a fresh tab or
+      // browser context where a PKCE verifier is unavailable. The implicit
+      // web callback carries the one-time session in the URL fragment, while
+      // native apps retain PKCE and the custom deep link.
+      authFlowType: kIsWeb ? AuthFlowType.implicit : AuthFlowType.pkce,
+      detectSessionInUri: true,
+    ),
+  );
 
   if (!kIsWeb) {
     // Non-blocking background initialization of optional device plugins
@@ -201,15 +210,6 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   late AppState _state;
 
-  bool get _isSupabaseReady {
-    try {
-      Supabase.instance.client;
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -217,7 +217,9 @@ class _RootShellState extends State<RootShell> {
     // Listen to ALL state changes so _buildScreen() rebuilds when screen changes
     _state.addListener(_onStateChanged);
 
-    if (_isSupabaseReady) {
+    // Subscribe to Supabase auth state AFTER Supabase is initialized.
+    supabaseReady.then((_) {
+      if (!mounted) return;
       Supabase.instance.client.auth.onAuthStateChange.listen((e) {
         _state.onAuthStateChange(e);
         if (e.session != null) {
@@ -229,7 +231,10 @@ class _RootShellState extends State<RootShell> {
       if (_state.isAuthenticated) {
         _state.startSyncEngine();
       }
-    }
+
+      // Trigger a rebuild now that Supabase is ready
+      if (mounted) setState(() {});
+    });
   }
 
   void _onStateChanged() {
@@ -242,8 +247,25 @@ class _RootShellState extends State<RootShell> {
     super.dispose();
   }
 
+  /// Whether Supabase has finished initializing.
+  bool get _isSupabaseReady {
+    try {
+      Supabase.instance.client;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Show branded loading screen until Supabase is ready.
+    // This is the Flutter equivalent of the native LaunchTheme — displayed
+    // immediately after the native window is dismissed, giving seamless UX.
+    if (!_isSupabaseReady) {
+      return _buildSplash();
+    }
+
     return Scaffold(
       backgroundColor: C.bg,
       body: Stack(
@@ -256,6 +278,39 @@ class _RootShellState extends State<RootShell> {
     );
   }
 
+  /// Branded loading splash shown while Supabase initialises in the background.
+  Widget _buildSplash() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset(
+              'assets/images/app_icon.png',
+              width: 96,
+              height: 96,
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.play_circle_fill_rounded,
+                color: Color(0xFF7C3AED),
+                size: 96,
+              ),
+            ),
+            const SizedBox(height: 32),
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                color: Color(0xFF7C3AED),
+                strokeWidth: 2.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildLockScreen() {
     return Container(
       color: Colors.black.withValues(alpha: .95),
@@ -263,7 +318,7 @@ class _RootShellState extends State<RootShell> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.lock_person_outlined, color: C.brand, size: 80),
+            const Icon(Icons.lock_person_outlined, color: C.brand, size: 80),
             const SizedBox(height: 32),
             Text(
               'Necxa Vault Locked',
