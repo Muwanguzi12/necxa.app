@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../theme.dart';
 import '../app_state.dart';
 
@@ -161,7 +161,7 @@ class ListScreen extends StatelessWidget {
                 : () => state.doIdScan('Uganda', 'National ID'),
           )
         else
-          _SuccessBtn(label: 'Next: Face ID ?', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Face ID 👤', onTap: state.nextStep),
       ],
     );
   }
@@ -182,7 +182,7 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _SpinningEmoji('??', size: 40),
+          const _SpinningEmoji('🤖', size: 40),
           const SizedBox(height: 8),
           Text('AI verifying identity...', style: dm(sz: 13, c: C.gold)),
         ],
@@ -191,7 +191,7 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('?', style: TextStyle(fontSize: 40)),
+          const Text('🔍', style: TextStyle(fontSize: 40)),
           const SizedBox(height: 8),
           Text('Cross-checking NIRA database...', style: dm(sz: 13, c: C.gold)),
         ],
@@ -200,7 +200,7 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _PulsingText('??', size: 40),
+          const _PulsingText('🪪', size: 40),
           const SizedBox(height: 8),
           Text('Scanning ID document...', style: dm(sz: 13, c: C.gold)),
         ],
@@ -209,7 +209,7 @@ class ListScreen extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('??', style: TextStyle(fontSize: 44)),
+          const Text('🪪', style: TextStyle(fontSize: 44)),
           const SizedBox(height: 8),
           Text(
             'Position your Uganda National ID here',
@@ -256,9 +256,9 @@ class ListScreen extends StatelessWidget {
                       ? Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('??', style: TextStyle(fontSize: 64)),
+                            const Text('😊', style: TextStyle(fontSize: 64)),
                             Text(
-                              '? Face Matched!',
+                              '✅ Face Matched!',
                               style: dm(sz: 12, c: C.green, w: FontWeight.w700),
                             ),
                           ],
@@ -267,7 +267,7 @@ class ListScreen extends StatelessWidget {
                       ? Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const _PulsingText('??', size: 64),
+                            const _PulsingText('👤', size: 64),
                             Text(
                               'Scanning face...',
                               style: dm(sz: 10, c: C.gold),
@@ -277,7 +277,7 @@ class ListScreen extends StatelessWidget {
                       : Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('??', style: TextStyle(fontSize: 64)),
+                            const Text('😊', style: TextStyle(fontSize: 64)),
                             Text(
                               'Position your face',
                               style: dm(sz: 10, c: C.dim),
@@ -292,13 +292,13 @@ class ListScreen extends StatelessWidget {
         const SizedBox(height: 20),
         if (!state.faceDone)
           _PrimaryBtn(
-            label: state.faceScanning ? null : '?? Take Selfie',
+            label: state.faceScanning ? null : '📷 Take Selfie',
             loading: state.faceScanning,
             loadingLabel: 'Scanning face...',
             onTap: state.faceScanning ? null : () => state.doFaceScan(),
           )
         else
-          _SuccessBtn(label: 'Next: Property Details ?', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Property Details 🏠', onTap: state.nextStep),
       ],
     );
   }
@@ -398,7 +398,7 @@ class ListScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        _PrimaryBtn(label: 'Next: Photos & Docs ?', onTap: state.nextStep),
+        _PrimaryBtn(label: 'Next: Photos & Docs 📸', onTap: state.nextStep),
       ],
     );
   }
@@ -406,10 +406,10 @@ class ListScreen extends StatelessWidget {
   // -- Step 3: Photos -------------------------------------------
   Widget _buildPhotosStep() {
     final docs = [
-      ('??', 'Exterior Photos (min 3)', 'Required'),
-      ('???', 'Interior Photos (min 4)', 'Required'),
-      ('??', 'Title Deed / Land Certificate', 'Required'),
-      ('??', 'Other Ownership Documents', 'Optional'),
+      ('🏠', 'Exterior Photos (min 3)', 'Required'),
+      ('🛋️', 'Interior Photos (min 4)', 'Required'),
+      ('📜', 'Title Deed / Land Certificate', 'Required'),
+      ('📁', 'Other Ownership Documents', 'Optional'),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -449,7 +449,7 @@ class ListScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                Text('??', style: TextStyle(fontSize: 22, color: C.dim)),
+                Text('⬆️', style: TextStyle(fontSize: 22, color: C.dim)),
               ],
             ),
           ),
@@ -473,7 +473,7 @@ class ListScreen extends StatelessWidget {
           onTap: state.pickMedia,
         ),
         const SizedBox(height: 6),
-        _PrimaryBtn(label: 'Next: GPS Location ?', onTap: state.nextStep),
+        _PrimaryBtn(label: 'Next: GPS Location 📍', onTap: state.nextStep),
       ],
     );
   }
@@ -505,7 +505,7 @@ class ListScreen extends StatelessWidget {
                 ? Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('??', style: TextStyle(fontSize: 50)),
+                      const Text('✅', style: TextStyle(fontSize: 50)),
                       const SizedBox(height: 8),
                       Text('GPS Captured!', style: syne(sz: 14, c: C.green)),
                       const SizedBox(height: 4),
@@ -518,7 +518,7 @@ class ListScreen extends StatelessWidget {
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const _PulsingText('??', size: 50),
+                      const _PulsingText('📍', size: 50),
                       const SizedBox(height: 8),
                       Text(
                         'Stand at the property, then tap capture',
@@ -532,7 +532,7 @@ class ListScreen extends StatelessWidget {
         if (!state.gpsDone)
           _PrimaryBtn(label: '?? Capture GPS Now', onTap: state.captureGps)
         else
-          _SuccessBtn(label: 'Next: Review & Submit ?', onTap: state.nextStep),
+          _SuccessBtn(label: 'Next: Review & Submit 🚀', onTap: state.nextStep),
       ],
     );
   }
@@ -638,7 +638,7 @@ class ListScreen extends StatelessWidget {
           ),
           child: Column(
             children: [
-              const Text('??', style: TextStyle(fontSize: 52)),
+              const Text('✅', style: TextStyle(fontSize: 52)),
               const SizedBox(height: 10),
               Text('Listing Submitted!', style: syne(sz: 20, c: C.green)),
               const SizedBox(height: 6),
@@ -659,7 +659,7 @@ class ListScreen extends StatelessWidget {
                     color: C.gold,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text('? Back to Home', style: syne(sz: 14, c: C.bg)),
+                  child: Text('🏠 Back to Home', style: syne(sz: 14, c: C.bg)),
                 ),
               ),
             ],

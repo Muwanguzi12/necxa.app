@@ -38,7 +38,7 @@ class _LiveGiftingOverlayState extends State<LiveGiftingOverlay> with TickerProv
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       emoji: giftData['emoji'] ?? '🎁',
       imageUrl: giftData['imageUrl'],
-      userName: giftData['userName'] ?? 'User',
+      userName: giftData['userName'] ?? 'Necxa User',
       controller: controller,
       x: 0.2 + math.Random().nextDouble() * 0.6, // Random horizontal position
     );

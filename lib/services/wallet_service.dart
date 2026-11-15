@@ -1,5 +1,7 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'finance_backend.dart';
 import 'finance_initializer.dart';
+import 'finance_gifting_service.dart';
 
 class WalletService {
   WalletService();
@@ -56,31 +58,26 @@ class WalletService {
     String? contextNote,
     bool isAnonymous = false,
   }) async {
-    try {
-      final result = await _invoke(
-        'send_gift',
-        body: {
-          'receiverId': receiverId,
-          'contextId': postId,
-          'contextType': 'creator_post',
-          'giftItemId': giftItemId,
-          'ncxAmount': ncxAmount,
-          'contextNote': contextNote,
-          'isAnonymous': isAnonymous,
-          'idempotencyKey': _idempotencyKey('gift'),
-        },
-      );
-      return GiftResult.success(
-        result['message']?.toString() ?? 'Gift sent successfully.',
-      );
-    } on FinanceBackendException catch (error) {
-      if (error.code == 'insufficient_funds') {
-        return GiftResult.insufficientFunds(error.message);
-      }
-      return GiftResult.failure(error.message);
-    } catch (error) {
-      return GiftResult.failure(error.toString());
+    final senderId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final giftingService = FinanceGiftingService();
+    final result = await giftingService.sendGift(
+      senderId: senderId,
+      receiverId: receiverId,
+      giftItemId: giftItemId,
+      ncxAmount: ncxAmount,
+      contextType: 'creator_post',
+      contextId: postId,
+      contextNote: contextNote,
+      isAnonymous: isAnonymous,
+    );
+    if (result.success) {
+      return GiftResult.success(result.message);
     }
+    if (result.failureCode == 'INSUFFICIENT_FUNDS' ||
+        result.message.toLowerCase().contains('insufficient')) {
+      return GiftResult.insufficientFunds(result.message);
+    }
+    return GiftResult.failure(result.message);
   }
 
   Future<LiquidationResult> liquidateCoins({

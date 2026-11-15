@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models/chat_models.dart';
+import '../widgets/follow_sync_button.dart';
 
 class CreatorChatDetailScreen extends StatefulWidget {
   final AppState state;
@@ -43,6 +44,15 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
           onPressed: () => s.goBack(),
         ),
         actions: [
+          if ((room?.otherPartyId ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: FollowSyncButton(
+                state: s,
+                targetUserId: room!.otherPartyId!,
+                compact: true,
+              ),
+            ),
           if (room?.metadata?['interaction_context'] == 'vendor')
             IconButton(
               icon: const Icon(Icons.shopping_bag_outlined, color: Color(0xFF00E5FF)),

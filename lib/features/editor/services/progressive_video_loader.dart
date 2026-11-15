@@ -104,7 +104,7 @@ class ProgressiveVideoLoader {
       int height = 0;
       
       if (ReturnCode.isSuccess(returnCode)) {
-        final log = await session.getAllLogsAsString();
+        final log = await session.getAllLogsAsString() ?? '';
         // Parse duration from FFmpeg output
         final durationMatch = RegExp(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})').firstMatch(log);
         if (durationMatch != null) {

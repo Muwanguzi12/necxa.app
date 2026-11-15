@@ -5,6 +5,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:universal_io/io.dart';
 import 'dart:async';
 import '../theme.dart';
+import '../services/filter_catalogue_service.dart';
+import '../effects_engine/necxa_effects_engine.dart';
+import '../models/camera_studio_result.dart';
 
 class NecxaCameraCaptureScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -39,7 +42,12 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
 
   // Settings
   double _speed = 1.0;
-  String _activeFilter = 'Normal';
+  NecxaFilterMeta? _activeFilter;
+  double _filterIntensity = 1.0;
+  bool _previewDisabled = false;
+  bool _loadingCatalogue = false;
+  String _activeCategoryTab = 'All';
+  List<NecxaFilterMeta> _catalogueFilters = [];
   bool _isFrontCamera = false;
 
   // Multi-Segment State
@@ -48,7 +56,6 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
   double _totalRecordedSeconds = 0;
   double maxSeconds = 60.0;
 
-  final List<String> _filters = ['Normal', 'Cinema', 'Neon', 'Noir', 'Vivid'];
   final List<double> _speeds = [0.5, 1.0, 2.0];
 
   @override
@@ -59,6 +66,23 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
       orElse: () => widget.cameras.first,
     );
     _initCamera(initialCamera);
+    unawaited(_loadCatalogue());
+  }
+
+  Future<void> _loadCatalogue() async {
+    if (mounted) setState(() => _loadingCatalogue = true);
+    try {
+      final filters = await FilterCatalogueService.loadCatalogue();
+      if (mounted) {
+        setState(() {
+          _catalogueFilters = filters;
+        });
+      }
+    } catch (e) {
+      debugPrint('[CameraStudio] Filter load error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingCatalogue = false);
+    }
   }
 
   Future<bool> _initCamera(CameraDescription description) async {
@@ -287,7 +311,14 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
 
   void _finishRecording() {
     if (_capturedClips.isEmpty) return;
-    Navigator.pop(context, _capturedClips);
+    Navigator.pop(
+      context,
+      CameraStudioResult(
+        clips: List<File>.from(_capturedClips),
+        filter: _activeFilter,
+        filterIntensity: _filterIntensity,
+      ),
+    );
   }
 
   void _removeLastClip() {
@@ -343,11 +374,66 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Camera Preview
-          Center(child: CameraPreview(_controller!)),
+          // 1. Camera Preview with real GPU ColorFilter matrix
+          Center(
+            child: (_activeFilter != null &&
+                    !_activeFilter!.isNone &&
+                    !_previewDisabled)
+                ? ColorFiltered(
+                    colorFilter: NecxaEffectsEngine.colorFilterForMeta(
+                      _activeFilter,
+                      intensity: _filterIntensity,
+                    )!,
+                    child: CameraPreview(_controller!),
+                  )
+                : CameraPreview(_controller!),
+          ),
 
-          // 2. Filter Layer (Visual Only Simulation)
-          if (_activeFilter != 'Normal') _buildFilterOverlay(),
+          // 2. Before / After preview indicator & active filter badge
+          if (_activeFilter != null && !_activeFilter!.isNone)
+            Positioned(
+              top: 70,
+              right: 16,
+              child: GestureDetector(
+                onLongPressStart: (_) => setState(() => _previewDisabled = true),
+                onLongPressEnd: (_) => setState(() => _previewDisabled = false),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: _previewDisabled ? Colors.white38 : C.brand,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _previewDisabled
+                            ? Icons.visibility_off_outlined
+                            : Icons.auto_awesome,
+                        color: _previewDisabled ? Colors.white70 : C.brand,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _previewDisabled
+                            ? 'Original'
+                            : '${_activeFilter!.displayName} ${(_filterIntensity * 100).round()}%',
+                        style: syne(
+                          sz: 11,
+                          w: FontWeight.bold,
+                          c: _previewDisabled ? Colors.white70 : C.brand,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
           if (_countdownRemaining != null)
             Positioned.fill(
@@ -428,45 +514,6 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
     );
   }
 
-  Widget _buildFilterOverlay() {
-    Color filterColor = Colors.transparent;
-
-    if (_activeFilter == 'Cinema') {
-      filterColor = Colors.orange.withValues(alpha: 0.1);
-    }
-    if (_activeFilter == 'Neon') {
-      filterColor = Colors.purple.withValues(alpha: 0.2);
-    }
-    if (_activeFilter == 'Noir') {
-      return ColorFiltered(
-        colorFilter: ColorFilter.matrix([
-          0.2126,
-          0.7152,
-          0.0722,
-          0,
-          0,
-          0.2126,
-          0.7152,
-          0.0722,
-          0,
-          0,
-          0.2126,
-          0.7152,
-          0.0722,
-          0,
-          0,
-          0,
-          0,
-          0,
-          1,
-          0,
-        ]),
-        child: CameraPreview(_controller!),
-      );
-    }
-
-    return Container(color: filterColor);
-  }
 
   Widget _topBar() {
     return Padding(
@@ -531,7 +578,9 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
             SizedBox(height: 20),
             _controlBtn(
               Icons.filter_vintage,
-              'Filters',
+              _activeFilter != null && !_activeFilter!.isNone
+                  ? _activeFilter!.displayName
+                  : 'Filters',
               () => _showFilterDialog(),
             ),
             SizedBox(height: 20),
@@ -706,46 +755,288 @@ class _NecxaCameraCaptureScreenState extends State<NecxaCameraCaptureScreen> {
   }
 
   void _showFilterDialog() {
-    showModalBottomSheet(
+    const categories = [
+      'All',
+      'beauty',
+      'glow',
+      'color',
+      'creative',
+      'super_face',
+    ];
+
+    showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.black87,
-      builder: (context) => SizedBox(
-        height: 150,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.all(20),
-          children: _filters
-              .map(
-                (f) => GestureDetector(
-                  onTap: () {
-                    setState(() => _activeFilter = f);
-                    Navigator.pop(context);
-                  },
-                  child: Container(
-                    margin: EdgeInsets.only(right: 16),
-                    width: 80,
-                    decoration: BoxDecoration(
-                      color: _activeFilter == f ? C.brand : C.dim,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _activeFilter == f ? C.brand : C.dim,
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        f,
-                        style: syne(
-                          sz: 12,
-                          w: FontWeight.bold,
-                          c: _activeFilter == f ? Colors.black : C.text,
+      backgroundColor: Colors.black.withValues(alpha: 0.92),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final pool = _catalogueFilters.isNotEmpty
+              ? _catalogueFilters
+              : FilterCatalogueService.fallbackFilters;
+
+          final filtered = _activeCategoryTab == 'All'
+              ? pool
+              : pool
+                  .where(
+                    (f) =>
+                        f.isNone ||
+                        f.category.toLowerCase() ==
+                            _activeCategoryTab.toLowerCase(),
+                  )
+                  .toList();
+
+          return SafeArea(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              height: 290,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header: title + reset
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'SMART FILTERS',
+                          style: syne(
+                            sz: 12,
+                            w: FontWeight.w800,
+                            ls: 1.2,
+                            c: C.brand,
+                          ),
                         ),
-                      ),
+                        if (_activeFilter != null && !_activeFilter!.isNone)
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _activeFilter = null;
+                                _filterIntensity = 1.0;
+                              });
+                              setSheetState(() {});
+                            },
+                            child: Text(
+                              'Reset',
+                              style: dm(
+                                sz: 12,
+                                w: FontWeight.bold,
+                                c: Colors.white70,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
-              )
-              .toList(),
-        ),
+                  const SizedBox(height: 12),
+
+                  // Category tabs
+                  SizedBox(
+                    height: 34,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: categories.length,
+                      itemBuilder: (_, i) {
+                        final cat = categories[i];
+                        final isActive = _activeCategoryTab == cat;
+                        final label = cat == 'super_face'
+                            ? 'Super Face'
+                            : (cat == 'All'
+                                ? 'All'
+                                : '${cat[0].toUpperCase()}${cat.substring(1)}');
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() => _activeCategoryTab = cat);
+                            setSheetState(() {});
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isActive
+                                  ? C.brand
+                                  : Colors.white.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: isActive
+                                    ? C.brand
+                                    : Colors.white.withValues(alpha: 0.12),
+                              ),
+                            ),
+                            child: Text(
+                              label,
+                              style: syne(
+                                sz: 11,
+                                w: FontWeight.bold,
+                                c: isActive ? Colors.black : C.text,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Filter Carousel
+                  Expanded(
+                    child: _loadingCatalogue && pool.isEmpty
+                        ? Center(
+                            child: CircularProgressIndicator(
+                              color: C.brand,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            itemCount: filtered.length,
+                            itemBuilder: (_, i) {
+                              final f = filtered[i];
+                              final isSelected = (_activeFilter == null &&
+                                      f.isNone) ||
+                                  (_activeFilter != null &&
+                                      _activeFilter!.id == f.id);
+
+                              return GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _activeFilter = f.isNone ? null : f;
+                                  });
+                                  setSheetState(() {});
+                                },
+                                child: Container(
+                                  width: 84,
+                                  margin: const EdgeInsets.only(right: 12),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? C.brand.withValues(alpha: 0.15)
+                                        : Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? C.brand
+                                          : Colors.white.withValues(alpha: 0.15),
+                                      width: isSelected ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          gradient: LinearGradient(
+                                            colors: f.isNone
+                                                ? [
+                                                    Colors.white24,
+                                                    Colors.white10,
+                                                  ]
+                                                : [
+                                                    C.brand.withValues(
+                                                      alpha: 0.7,
+                                                    ),
+                                                    C.brandDk.withValues(
+                                                      alpha: 0.4,
+                                                    ),
+                                                  ],
+                                          ),
+                                        ),
+                                        child: Icon(
+                                          f.isNone
+                                              ? Icons.block
+                                              : (f.category == 'beauty'
+                                                  ? Icons.face_retouching_natural
+                                                  : (f.category == 'glow'
+                                                      ? Icons.light_mode_outlined
+                                                      : Icons.auto_awesome)),
+                                          color: isSelected
+                                              ? C.brand
+                                              : Colors.white,
+                                          size: 22,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        f.displayName,
+                                        style: syne(
+                                          sz: 11,
+                                          w: isSelected
+                                              ? FontWeight.bold
+                                              : FontWeight.w500,
+                                          c: isSelected ? C.brand : C.text,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+
+                  // Intensity Slider (when a filter is active)
+                  if (_activeFilter != null && !_activeFilter!.isNone) ...[
+                    const Divider(color: Colors.white12, height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Intensity',
+                            style: dm(sz: 11, c: Colors.white70),
+                          ),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderThemeData(
+                                trackHeight: 3,
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 6,
+                                ),
+                                activeTrackColor: C.brand,
+                                inactiveTrackColor: Colors.white24,
+                                thumbColor: C.brand,
+                              ),
+                              child: Slider(
+                                value: _filterIntensity,
+                                min: 0.0,
+                                max: 1.0,
+                                onChanged: (v) {
+                                  setState(() => _filterIntensity = v);
+                                  setSheetState(() {});
+                                },
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${(_filterIntensity * 100).round()}%',
+                            style: syne(
+                              sz: 11,
+                              w: FontWeight.bold,
+                              c: C.brand,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

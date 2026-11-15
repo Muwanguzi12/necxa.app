@@ -269,7 +269,10 @@ class LiveStreamingService {
       roomOptions: const RoomOptions(
         adaptiveStream: true,
         dynacast: true,
-        defaultCameraCaptureOptions: CameraCaptureOptions(maxFrameRate: 30),
+        defaultCameraCaptureOptions: CameraCaptureOptions(
+          maxFrameRate: 30,
+          params: VideoParametersPresets.h1080_169,
+        ),
       ),
     );
     _room = nextRoom;

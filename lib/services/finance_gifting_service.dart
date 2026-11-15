@@ -1,5 +1,7 @@
 import 'finance_backend.dart';
 import 'finance_initializer.dart';
+import 'crypto_pow_service.dart';
+import 'gifting_fraud_prevention_service.dart';
 import '../data.dart' show giftPickerImageUrlFor, gifts;
 
 class GiftItem {
@@ -46,10 +48,18 @@ class GiftResult {
     required this.ugxEquivalent,
     required this.isHighlighted,
     required this.message,
+    this.powProof,
+    this.provenanceHash,
+    this.chainId = 'necxa-mainnet-ugx',
+    this.failureCode,
   });
   final bool success, isHighlighted;
   final String giftId, giftEmoji, giftName, message;
   final int ncxAmount, receiverNcx, platformFeeNcx, ugxEquivalent;
+  final PowProof? powProof;
+  final String? provenanceHash;
+  final String chainId;
+  final String? failureCode;
 }
 
 class FinanceGiftingService {
@@ -114,10 +124,25 @@ class FinanceGiftingService {
     String? senderAvatar,
     bool isAnonymous = false,
     String? idempotencyKey,
+    double currentBalance = double.infinity,
+    String targetChain = 'necxa-mainnet-ugx',
   }) async {
-    if (senderId.trim().isEmpty ||
-        receiverId.trim().isEmpty ||
-        senderId.trim().toLowerCase() == receiverId.trim().toLowerCase()) {
+    final effectiveIdempotencyKey =
+        idempotencyKey ?? 'gift-${DateTime.now().microsecondsSinceEpoch}';
+
+    // ── Pre-flight Security & Fraud Verification ───────────────────────────
+    final preflight = await GiftingFraudPreventionService.instance
+        .verifyAndPrepareGift(
+          senderId: senderId,
+          receiverId: receiverId,
+          giftItemId: giftItemId,
+          ncxAmount: ncxAmount,
+          currentBalance: currentBalance,
+          idempotencyKey: effectiveIdempotencyKey,
+          targetChain: targetChain,
+        );
+
+    if (!preflight.isAllowed) {
       return GiftResult(
         success: false,
         giftId: '',
@@ -128,7 +153,9 @@ class FinanceGiftingService {
         platformFeeNcx: 0,
         ugxEquivalent: 0,
         isHighlighted: false,
-        message: 'You cannot send a gift to yourself.',
+        message: preflight.reason,
+        failureCode: preflight.failureCode,
+        chainId: targetChain,
       );
     }
 
@@ -137,9 +164,6 @@ class FinanceGiftingService {
       final result = await FinanceBackend.instance.invoke(
         'send_gift',
         body: {
-          // The finance server derives identity from the bearer token. Keep
-          // this field for compatibility with an already-deployed processor
-          // that still expects it; it must never be trusted by the server.
           'senderId': senderId,
           'receiverId': receiverId,
           'giftItemId': giftItemId,
@@ -152,9 +176,11 @@ class FinanceGiftingService {
             'context_note': contextNote,
             'sender_name': senderName,
             'sender_avatar': senderAvatar,
+            'pow_proof': preflight.powProof?.toJson(),
+            'coin_provenance': preflight.provenanceMetadata,
+            'chain_audit': preflight.chainAudit,
           },
-          'idempotencyKey':
-              idempotencyKey ?? 'gift-${DateTime.now().microsecondsSinceEpoch}',
+          'idempotencyKey': effectiveIdempotencyKey,
         },
       );
       return GiftResult(
@@ -168,6 +194,9 @@ class FinanceGiftingService {
         ugxEquivalent: (result['ugxEquivalent'] as num?)?.toInt() ?? 0,
         isHighlighted: result['isHighlighted'] == true,
         message: result['message']?.toString() ?? 'Gift sent.',
+        powProof: preflight.powProof,
+        provenanceHash: preflight.provenanceMetadata['provenance_hash']?.toString(),
+        chainId: targetChain,
       );
     } catch (error) {
       return GiftResult(
@@ -181,6 +210,10 @@ class FinanceGiftingService {
         ugxEquivalent: 0,
         isHighlighted: false,
         message: error.toString(),
+        powProof: preflight.powProof,
+        provenanceHash: preflight.provenanceMetadata['provenance_hash']?.toString(),
+        chainId: targetChain,
+        failureCode: 'BACKEND_TRANSFER_ERROR',
       );
     }
   }

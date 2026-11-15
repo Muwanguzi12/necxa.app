@@ -363,7 +363,7 @@ Return STRICT JSON ONLY (no markdown):
           status: 400, headers: corsHeaders
         })
       }
-      const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev';
+      const NECXA_AI_URL = 'https://necxa-ai-engine.knestars.workers.dev';
       
       const base64Data = mediaBase64.replace(/^data:\w+\/\w+;base64,/, "");
       const mediaBytes = decode(base64Data);
@@ -432,7 +432,7 @@ Return STRICT JSON ONLY (no markdown):
     }
 
     // ─── AI ENGINE CONTENT VERIFICATION ───────────────────────────────────────
-    const NECXA_AI_URL = Deno.env.get('NECXA_AI_URL') || 'https://necxa-ai-engine.knestars.workers.dev';
+    const NECXA_AI_URL = 'https://necxa-ai-engine.knestars.workers.dev';
     const formData = new FormData();
     let endpoint = '';
     

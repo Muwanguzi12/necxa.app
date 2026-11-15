@@ -60,6 +60,21 @@ class Profile {
   final String? fullName, avatarUrl, bio;
   final bool verified, aiVerified;
   final DateTime createdAt;
+  final int followersCount;
+  final int followingCount;
+  final int likesCount;
+  final int postsCount;
+  final int trustScore;
+  final String? trustScoreTier;
+  final String? district;
+
+  final double reputation;
+
+  // ── Artist fields ──
+  final bool isArtist;
+  final String? artistName;
+  final String? artistGenre;
+  final String? artistDistributorLink;
 
   Profile({
     required this.id,
@@ -70,18 +85,89 @@ class Profile {
     required this.verified,
     required this.aiVerified,
     required this.createdAt,
+    this.followersCount = 0,
+    this.followingCount = 0,
+    this.likesCount = 0,
+    this.postsCount = 0,
+    this.trustScore = 50,
+    this.trustScoreTier,
+    this.district,
+    this.reputation = 5.0,
+    this.isArtist = false,
+    this.artistName,
+    this.artistGenre,
+    this.artistDistributorLink,
   });
 
-  factory Profile.fromMap(Map<String, dynamic> m) => Profile(
-    id: m['id'],
-    username: m['username'] ?? m['full_name']?.toLowerCase().replaceAll(' ', '_') ?? 'user_${m['id'].toString().substring(0, 4)}',
-    fullName: m['full_name'] ?? 'Necxa User',
-    avatarUrl: m['avatar_url'],
-    bio: m['bio'],
-    verified: m['verified'] ?? false,
-    aiVerified: m['ai_verified'] ?? false,
-    createdAt: m['created_at'] != null ? DateTime.parse(m['created_at']) : DateTime.now(),
-  );
+  factory Profile.fromMap(Map<String, dynamic> m) {
+    final rawName = m['full_name'] ?? m['display_name'] ?? m['name'];
+    final rawUsername = m['username'];
+    final rawEmail = m['email']?.toString();
+
+    String resolvedFullName = '';
+    if (rawName != null && rawName.toString().trim().isNotEmpty && rawName.toString().trim() != 'NECXA NODE') {
+      resolvedFullName = rawName.toString().trim();
+    } else if (rawUsername != null && rawUsername.toString().trim().isNotEmpty && rawUsername.toString().trim() != 'node') {
+      resolvedFullName = rawUsername.toString().trim();
+    } else if (rawEmail != null && rawEmail.contains('@')) {
+      resolvedFullName = rawEmail.split('@').first;
+    } else {
+      resolvedFullName = 'Necxa Member';
+    }
+
+    String resolvedUsername = '';
+    if (rawUsername != null && rawUsername.toString().trim().isNotEmpty && rawUsername.toString().trim() != 'node') {
+      resolvedUsername = rawUsername.toString().trim().replaceAll('@', '');
+    } else if (rawName != null && rawName.toString().trim().isNotEmpty && rawName.toString().trim() != 'NECXA NODE') {
+      resolvedUsername = rawName.toString().trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    } else if (rawEmail != null && rawEmail.contains('@')) {
+      resolvedUsername = rawEmail.split('@').first;
+    } else {
+      resolvedUsername = 'member';
+    }
+
+    final rawTrust = m['trust_score'];
+    final int trust = (rawTrust is num ? rawTrust.toInt() : 50).clamp(0, 100);
+    final rawRep = m['reputation'];
+    final double rep = (rawRep is num
+        ? rawRep.toDouble()
+        : (trust > 0 ? (trust / 10.0) : 5.0)).clamp(1.0, 10.0);
+
+    final rawAvatar = (m['avatar_url'] ?? m['photo_url'])?.toString().trim();
+    final validAvatar = (rawAvatar != null &&
+            rawAvatar.isNotEmpty &&
+            (rawAvatar.startsWith('http://') || rawAvatar.startsWith('https://')))
+        ? rawAvatar
+        : null;
+
+    final rawFollowers = m['followers_count'] ?? m['total_followers'] ?? 0;
+    final rawFollowing = m['following_count'] ?? 0;
+    final rawLikes = m['likes_count'] ?? 0;
+    final rawPosts = m['posts_count'] ?? 0;
+
+    return Profile(
+      id: m['id']?.toString() ?? '',
+      username: resolvedUsername,
+      fullName: resolvedFullName,
+      avatarUrl: validAvatar,
+      bio: m['bio']?.toString().trim(),
+      verified: m['verified'] == true || m['is_verified'] == true || m['is_verified'] == 1,
+      aiVerified: m['ai_verified'] == true || m['ai_verified'] == 1,
+      createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
+      followersCount: rawFollowers is num ? rawFollowers.toInt().clamp(0, 999999999) : 0,
+      followingCount: rawFollowing is num ? rawFollowing.toInt().clamp(0, 999999999) : 0,
+      likesCount: rawLikes is num ? rawLikes.toInt().clamp(0, 999999999) : 0,
+      postsCount: rawPosts is num ? rawPosts.toInt().clamp(0, 999999999) : 0,
+      trustScore: trust,
+      trustScoreTier: m['trust_score_tier'] as String?,
+      district: m['district'] as String?,
+      reputation: rep,
+      isArtist: m['is_artist'] == true || m['is_artist'] == 1,
+      artistName: m['artist_name']?.toString(),
+      artistGenre: m['artist_genre']?.toString(),
+      artistDistributorLink: m['artist_distributor_link']?.toString(),
+    );
+  }
 }
 
 class Gift {
