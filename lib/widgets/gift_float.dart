@@ -38,8 +38,11 @@ class _GiftFloatState extends State<GiftFloat> with SingleTickerProviderStateMix
     if (_dismissing) return;
     _dismissing = true;
     await _ctrl.reverse();
-    widget.state.targetProfileId = null;
+    if (widget.state.giftContextType != 'public_profile') {
+      widget.state.targetProfileId = null;
+    }
     widget.state.listingId = null;
+    widget.state.giftContextType = null;
     widget.state.showGiftFloat = false;
     widget.state.notify();
   }
@@ -71,11 +74,15 @@ class _GiftFloatState extends State<GiftFloat> with SingleTickerProviderStateMix
               alignment: Alignment.bottomCenter,
               child: SlideTransition(
                 position: _slide,
-                child: GiftContainer(
-                  state: widget.state,
-                  receiverId: widget.state.targetProfileId ?? '',
-                  postId: widget.state.listingId,
-                  onDismiss: _dismiss,
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.85,
+                  child: GiftContainer(
+                    state: widget.state,
+                    receiverId: widget.state.targetProfileId ?? '',
+                    postId: widget.state.listingId,
+                    contextType: widget.state.giftContextType ?? (widget.state.listingId != null ? 'listing' : 'creator_post'),
+                    onDismiss: _dismiss,
+                  ),
                 ),
               ),
             ),

@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models/chat_models.dart';
+import '../widgets/follow_sync_button.dart';
 
 class CreatorChatDetailScreen extends StatefulWidget {
   final AppState state;
@@ -39,10 +40,19 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios, color: C.text),
           onPressed: () => s.goBack(),
         ),
         actions: [
+          if ((room?.otherPartyId ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: FollowSyncButton(
+                state: s,
+                targetUserId: room!.otherPartyId!,
+                compact: true,
+              ),
+            ),
           if (room?.metadata?['interaction_context'] == 'vendor')
             IconButton(
               icon: const Icon(Icons.shopping_bag_outlined, color: Color(0xFF00E5FF)),
@@ -54,7 +64,7 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
             ),
           if (room?.metadata?['interaction_context'] == 'social')
             IconButton(
-              icon: const Icon(Icons.explore_outlined, color: Colors.white70),
+              icon: Icon(Icons.explore_outlined, color: C.sub),
               onPressed: () => s.go('community'),
               tooltip: 'View Social Post',
             ),
@@ -63,7 +73,7 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
           children: [
             CircleAvatar(
               radius: 16,
-              // CachedNetworkImageProvider — AppBar rebuilds on every message;
+              // CachedNetworkImageProvider � AppBar rebuilds on every message;
               // caching here prevents re-downloading the avatar per message received.
               backgroundImage: room?.otherAvatar != null
                   ? CachedNetworkImageProvider(room!.otherAvatar!)
@@ -124,7 +134,7 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
       padding: EdgeInsets.fromLTRB(20, 12, 20, MediaQuery.of(context).padding.bottom + 12),
       decoration: BoxDecoration(
         color: const Color(0xFF0A0F2C),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+        border: Border(top: BorderSide(color: C.text.withOpacity(0.05))),
       ),
       child: Row(
         children: [
@@ -132,17 +142,17 @@ class _CreatorChatDetailScreenState extends State<CreatorChatDetailScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: C.text.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(24),
               ),
               child: TextField(
                 controller: _ctrl,
-                style: dm(c: Colors.white),
+                style: dm(c: C.text),
                 decoration: InputDecoration(
                   hintText: widget.state.activeConversation?.metadata?['interaction_context'] == 'vendor' 
                       ? 'Message the vendor...' 
                       : 'Message the creator...',
-                  hintStyle: dm(c: Colors.white24),
+                  hintStyle: dm(c: C.dim),
                   border: InputBorder.none,
                 ),
               ),
@@ -183,17 +193,19 @@ class _CreatorMessageBubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
         decoration: BoxDecoration(
-          color: isMe ? const Color(0xFF00E5FF).withOpacity(0.1) : Colors.white.withOpacity(0.05),
+          color: isMe ? Color(0xFF00E5FF).withOpacity(0.1) : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(20),
             topRight: const Radius.circular(20),
             bottomLeft: Radius.circular(isMe ? 20 : 0),
             bottomRight: Radius.circular(isMe ? 0 : 20),
           ),
-          border: Border.all(color: isMe ? const Color(0xFF00E5FF).withOpacity(0.2) : Colors.white.withOpacity(0.05)),
+          border: Border.all(color: isMe ? Color(0xFF00E5FF).withOpacity(0.2) : C.text.withOpacity(0.05)),
         ),
-        child: Text(msg.content ?? '', style: dm(sz: 14, c: isMe ? const Color(0xFF00E5FF) : Colors.white)),
+        child: Text(msg.content ?? '', style: dm(sz: 14, c: isMe ? Color(0xFF00E5FF) : C.text)),
       ),
     );
   }
 }
+
+

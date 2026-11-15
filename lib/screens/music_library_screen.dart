@@ -22,6 +22,7 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
   List<MusicGenre> _genres = [];
   List<MusicTrack> _platformTracks = [];
   List<MusicTrack> _artistTracks = [];
+  List<MusicTrack> _trendingTracks = [];
   List<MusicTrack> _filteredPlatform = [];
   List<MusicTrack> _filteredArtist = [];
   bool _isLoading = true;
@@ -44,7 +45,8 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
       
       if (mounted) {
         setState(() {
-          _genres = discovery['genres'];
+          _genres = discovery['genres'] ?? [];
+          _trendingTracks = discovery['trending'] ?? [];
           _platformTracks = platform;
           _artistTracks = artist;
           _filteredPlatform = platform;
@@ -78,16 +80,6 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
     }
   }
 
-  void _onTrackTap(MusicTrack track) async {
-    HapticFeedback.lightImpact();
-    if (_playingTrackId == track.id) {
-      await _musicService.stopPreview();
-      setState(() => _playingTrackId = null);
-    } else {
-      setState(() => _playingTrackId = track.id);
-      await _musicService.previewMusic(track.audioUrl);
-    }
-  }
 
   void _showDetail(MusicTrack track) async {
     HapticFeedback.mediumImpact();
@@ -142,7 +134,7 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
                 _buildTabs(),
                 Expanded(
                   child: _isLoading 
-                    ? const Center(child: CircularProgressIndicator(color: C.brand))
+                    ? Center(child: CircularProgressIndicator(color: C.brand))
                     : TabBarView(
                         controller: _tabController,
                         children: [
@@ -165,11 +157,11 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
       padding: const EdgeInsets.all(20),
       child: Row(
         children: [
-          GestureDetector(onTap: () => Navigator.pop(context), child: const Icon(Icons.arrow_back_ios, color: Colors.white)),
+          GestureDetector(onTap: () => Navigator.pop(context), child: Icon(Icons.arrow_back_ios, color: C.text)),
           const SizedBox(width: 16),
-          Text('MUSIC LIBRARY', style: syne(sz: 20, w: FontWeight.w900, c: Colors.white, ls: 1)),
+          Text('MUSIC LIBRARY', style: syne(sz: 20, w: FontWeight.w900, c: C.text, ls: 1)),
           const Spacer(),
-          const Icon(Icons.history, color: Colors.white60),
+          Icon(Icons.history, color: C.sub),
         ],
       ),
     );
@@ -180,22 +172,22 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
+        color: C.text.withOpacity(0.08),
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: C.dim),
       ),
       child: TextField(
         controller: _searchCtrl,
         onChanged: _filterMusic,
-        style: dm(c: Colors.white),
+        style: dm(c: C.text),
         decoration: InputDecoration(
           hintText: 'Search songs, artists...',
-          hintStyle: dm(c: Colors.white30),
-          prefixIcon: const Icon(Icons.search, color: Colors.white30, size: 20),
+          hintStyle: dm(c: C.dim),
+          prefixIcon: Icon(Icons.search, color: C.dim, size: 20),
           border: InputBorder.none,
           suffixIcon: _searchCtrl.text.isNotEmpty 
             ? IconButton(
-                icon: const Icon(Icons.clear, color: Colors.white30, size: 18), 
+                icon: Icon(Icons.clear, color: C.dim, size: 18), 
                 onPressed: () { _searchCtrl.clear(); _filterMusic(''); }
               )
             : null,
@@ -212,7 +204,7 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
         dividerColor: Colors.transparent,
         indicatorColor: C.brand,
         labelColor: C.brand,
-        unselectedLabelColor: Colors.white38,
+        unselectedLabelColor: C.dim,
         labelStyle: syne(sz: 14, w: FontWeight.bold),
         tabs: const [Tab(text: 'Discovery'), Tab(text: 'Platform'), Tab(text: 'Artists')],
       ),
@@ -228,33 +220,50 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
           children: [
             const Icon(Icons.bolt, color: Colors.amber, size: 18),
             const SizedBox(width: 8),
-            Text('TRENDING NOW', style: syne(sz: 14, w: FontWeight.bold, c: Colors.white, ls: 1)),
+            Text('TRENDING NOW', style: syne(sz: 14, w: FontWeight.bold, c: C.text, ls: 1)),
           ],
         ),
         const SizedBox(height: 16),
         
         // Small preview list
-        ..._platformTracks.take(3).map((t) => MusicTrackTile(
+        ...(_trendingTracks.isNotEmpty ? _trendingTracks : _platformTracks).take(4).map((t) => MusicTrackTile(
           track: t, 
           isPlaying: _playingTrackId == t.id,
           onTap: () => _showDetail(t),
         )),
 
+        if (_artistTracks.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          Row(
+            children: [
+              const Icon(Icons.mic_external_on_rounded, color: Color(0xFF00E5FF), size: 18),
+              const SizedBox(width: 8),
+              Text('ARTIST RELEASES', style: syne(sz: 14, w: FontWeight.bold, c: C.text, ls: 1)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ..._artistTracks.take(4).map((t) => MusicTrackTile(
+            track: t,
+            isPlaying: _playingTrackId == t.id,
+            onTap: () => _showDetail(t),
+          )),
+        ],
+
         const SizedBox(height: 32),
 
         // Genres
-        Text('GENRES', style: syne(sz: 14, w: FontWeight.bold, c: Colors.white, ls: 1)),
+        Text('GENRES', style: syne(sz: 14, w: FontWeight.bold, c: C.text, ls: 1)),
         const SizedBox(height: 16),
         Wrap(
           spacing: 10, runSpacing: 10,
           children: _genres.map((g) => Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: C.text.withOpacity(0.05),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: C.dim),
             ),
-            child: Text(g.name, style: dm(sz: 12, c: Colors.white70)),
+            child: Text(g.name, style: dm(sz: 12, c: C.sub)),
           )).toList(),
         ),
       ],
@@ -262,7 +271,7 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
   }
 
   Widget _buildListTab(List<MusicTrack> tracks) {
-    if (tracks.isEmpty) return const Center(child: Text('Empty Library', style: TextStyle(color: Colors.white24)));
+    if (tracks.isEmpty) return Center(child: Text('Empty Library', style: TextStyle(color: C.dim)));
     return ListView.builder(
       padding: const EdgeInsets.all(20),
       itemCount: tracks.length,
@@ -274,3 +283,6 @@ class _MusicLibraryScreenState extends State<MusicLibraryScreen> with SingleTick
     );
   }
 }
+
+
+

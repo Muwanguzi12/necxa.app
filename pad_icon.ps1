@@ -1,18 +1,38 @@
 Add-Type -AssemblyName System.Drawing
-$basePath = "C:\Users\KNEST\.gemini\antigravity\scratch\necxa_flutter\assets\images"
-$img = [System.Drawing.Image]::FromFile("$basePath\app_icon.png")
-$w = $img.Width
-$h = $img.Height
-# If 35% space is left, logo takes 65% of the total size.
-$newSize = [Math]::Ceiling([Math]::Max($w, $h) / 0.65)
-$newImg = New-Object System.Drawing.Bitmap([int]$newSize, [int]$newSize)
-$g = [System.Drawing.Graphics]::FromImage($newImg)
-$g.Clear([System.Drawing.Color]::Transparent)
-$x = ($newSize - $w) / 2
-$y = ($newSize - $h) / 2
-$g.DrawImage($img, [int]$x, [int]$y, $w, $h)
-$newImg.Save("$basePath\app_icon_padded.png", [System.Drawing.Imaging.ImageFormat]::Png)
-$g.Dispose()
-$newImg.Dispose()
+
+$sourcePath = 'C:\Users\KNEST\.gemini\antigravity\brain\37e25620-3e58-45f9-92aa-262cf7f4d90b\.user_uploaded\media_1791491399610.png'
+$destPath = 'c:\Users\KNEST\necxa app\necxa.app\assets\images\app_icon_padded.png'
+
+$img = [System.Drawing.Image]::FromFile($sourcePath)
+$newWidth = $img.Width
+$newHeight = $img.Height
+
+# We want the icon to be reduced by 5%, which means it occupies 95% of the space.
+# So the padded image size is same, but we draw the original image scaled down by 0.95 in the center.
+
+$bitmap = New-Object System.Drawing.Bitmap($newWidth, $newHeight)
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+
+# Set high quality
+$graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+$graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+# Clear with transparent background
+$graphics.Clear([System.Drawing.Color]::Transparent)
+
+$scale = 0.90  # Reduced to 90% to give a 5% border on each side (total 10% reduction gives 5% bezel)
+$drawWidth = [int]($newWidth * $scale)
+$drawHeight = [int]($newHeight * $scale)
+$x = [int](($newWidth - $drawWidth) / 2)
+$y = [int](($newHeight - $drawHeight) / 2)
+
+$graphics.DrawImage($img, $x, $y, $drawWidth, $drawHeight)
+
+$bitmap.Save($destPath, [System.Drawing.Imaging.ImageFormat]::Png)
+
+$graphics.Dispose()
+$bitmap.Dispose()
 $img.Dispose()
-Write-Host "Image padded successfully."
+
+Write-Host "Padded image saved to $destPath"

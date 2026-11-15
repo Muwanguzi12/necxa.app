@@ -1,9 +1,10 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4"
 
-const REDIS_URL = Deno.env.get("UPSTASH_REDIS_REST_URL") ?? "https://careful-weevil-95137.upstash.io"
-const REDIS_TOKEN = Deno.env.get("UPSTASH_REDIS_REST_TOKEN") ?? "gQAAAAAAAXOhAAIgcDFiOTRkNmNlODkyNTE0YzQ4OTNhZGQ1NmU2ODhlMWRkZA"
+const REDIS_URL = Deno.env.get("UPSTASH_REDIS_REST_URL")?.trim() || ""
+const REDIS_TOKEN = Deno.env.get("UPSTASH_REDIS_REST_TOKEN")?.trim() || ""
 
 export async function redisCall(command: string, ...args: any[]) {
+  if (!REDIS_URL || !REDIS_TOKEN) return null
   try {
     const res = await fetch(REDIS_URL, {
       method: "POST",
@@ -20,20 +21,27 @@ export async function redisCall(command: string, ...args: any[]) {
 export async function syncMessageToRedis(message: any) {
   const roomId = message.room_id
   const redisMsg = JSON.stringify(toLightweight(message))
-  
+
   // 1. Push to room messages
   await redisCall("LPUSH", `chat:room:${roomId}:messages`, redisMsg)
   await redisCall("LTRIM", `chat:room:${roomId}:messages`, 0, 99)
 }
 
 
-export async function triggerChatNotification(recipientId: string, senderId: string, roomId: string, content: string) {
+export async function triggerChatNotification(
+  recipientId: string,
+  senderId: string,
+  roomId: string,
+  content: string,
+  context?: Record<string, unknown>,
+) {
   const notification = {
     type: 'new_message',
     sender_id: senderId,
     room_id: roomId,
     content: content ? content.substring(0, 50) : "Sent a media file",
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    ...(context ?? {}),
   }
   await redisCall("LPUSH", `notifications:${recipientId}`, JSON.stringify(notification))
   await redisCall("LTRIM", `notifications:${recipientId}`, 0, 49)
@@ -72,14 +80,20 @@ export function normalizeMessages(messages: any[]) {
 export function toLightweight(message: any) {
   return {
     ...message,
-    metadata: message.metadata ? { 
-      type: message.metadata.type, 
+    metadata: message.metadata ? {
+      type: message.metadata.type,
       id: message.metadata.id,
-      thumbnail: message.metadata.thumbnail 
+      thumbnail: message.metadata.thumbnail,
+      interaction_context: message.metadata.interaction_context,
+      conversation_label: message.metadata.conversation_label,
+      initiated_via: message.metadata.initiated_via,
+      source: message.metadata.source,
+      ticket_id: message.metadata.ticket_id,
+      source_reply_id: message.metadata.source_reply_id,
     } : {},
     // Truncate extremely long texts for the quick-preview cache
-    content: message.content && message.content.length > 500 
-      ? message.content.substring(0, 500) + "..." 
+    content: message.content && message.content.length > 500
+      ? message.content.substring(0, 500) + "..."
       : message.content
   }
 }

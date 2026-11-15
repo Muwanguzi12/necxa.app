@@ -14,7 +14,7 @@ class SmoothAction {
     Map<String, dynamic>? payload,
   }) async {
     final res = await _client.functions.invoke(
-      'quick-processor',
+      'smooth-action',
       body: {
         'name': name,
         'action': action,
@@ -54,6 +54,22 @@ class SmoothAction {
   static Future<List<dynamic>> myListings() async {
     final res = await _call(name: 'property', action: 'mylistings');
     return res['data'] as List<dynamic>;
+  }
+
+  static Future<void> updatePropertyPrice(String propertyId, double newPrice) async {
+    await _call(
+      name: 'property',
+      action: 'update_property',
+      payload: {'property_id': propertyId, 'price': newPrice},
+    );
+  }
+
+  static Future<void> delistProperty(String propertyId) async {
+    await _call(
+      name: 'property',
+      action: 'delist_property',
+      payload: {'property_id': propertyId},
+    );
   }
 
   // ── UNLOCK ───────────────────────────────────
@@ -208,3 +224,4 @@ class SmoothAction {
     return res['data'] as List<dynamic>;
   }
 }
+

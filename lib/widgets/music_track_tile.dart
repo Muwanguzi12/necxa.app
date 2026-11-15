@@ -26,10 +26,10 @@ class MusicTrackTile extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isPlaying ? C.brand.withOpacity(0.1) : Colors.white.withOpacity(0.05),
+          color: isPlaying ? C.brand.withOpacity(0.1) : C.text.withOpacity(0.05),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isPlaying ? C.brand.withOpacity(0.3) : Colors.white10,
+            color: isPlaying ? C.brand.withOpacity(0.3) : C.dim,
           ),
         ),
         child: Row(
@@ -44,18 +44,18 @@ class MusicTrackTile extends StatelessWidget {
                       ? Image.network(track.albumArtUrl!, width: 56, height: 56, fit: BoxFit.cover)
                       : Container(
                           width: 56, height: 56,
-                          color: Colors.white12,
-                          child: const Icon(Icons.music_note, color: Colors.white38),
+                          color: C.dim,
+                          child: Icon(Icons.music_note, color: C.dim),
                         ),
                 ),
                 if (isPlaying)
                   Container(
                     width: 56, height: 56,
                     decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
-                    child: const Center(child: Icon(Icons.pause, color: C.brand)),
+                    child: Center(child: Icon(Icons.pause, color: C.brand)),
                   )
                 else
-                  const Center(child: Icon(Icons.play_arrow, color: Colors.white54, size: 20)),
+                  Center(child: Icon(Icons.play_arrow, color: C.dim, size: 20)),
               ],
             ),
             const SizedBox(width: 16),
@@ -67,13 +67,13 @@ class MusicTrackTile extends StatelessWidget {
                 children: [
                   Text(
                     track.title,
-                    style: syne(sz: 15, w: FontWeight.bold, c: isPlaying ? C.brand : Colors.white),
+                    style: syne(sz: 15, w: FontWeight.bold, c: isPlaying ? C.brand : C.text),
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
                   Text(
                     track.artistName,
-                    style: dm(sz: 13, c: Colors.white60),
+                    style: dm(sz: 13, c: C.sub),
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                   ),
                 ],
@@ -84,13 +84,13 @@ class MusicTrackTile extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(track.formattedDuration, style: dm(sz: 12, c: Colors.white38)),
+                Text(track.formattedDuration, style: dm(sz: 12, c: C.dim)),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(Icons.trending_up, size: 10, color: Colors.white24),
+                    Icon(Icons.trending_up, size: 10, color: C.dim),
                     const SizedBox(width: 4),
-                    Text('${track.usageCount}k', style: dm(sz: 10, c: Colors.white24)),
+                    Text('${track.usageCount}k', style: dm(sz: 10, c: C.dim)),
                   ],
                 ),
               ],
@@ -101,3 +101,5 @@ class MusicTrackTile extends StatelessWidget {
     );
   }
 }
+
+

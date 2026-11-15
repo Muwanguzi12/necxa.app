@@ -1,20 +1,15 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 
-class PaymentService {
-  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
-  FirebaseFunctions get _functions => FirebaseFunctions.instance;
+import 'finance_backend.dart';
 
-  /// Normalizes phone numbers to 256 format for 256 format for East African network gateways
+class PaymentService {
   String normalizePhone(String phone) {
-    String clean = phone.replaceAll(RegExp(r'\D'), '');
+    final clean = phone.replaceAll(RegExp(r'\D'), '');
     if (clean.startsWith('256')) return clean;
     if (clean.startsWith('0')) return '256${clean.substring(1)}';
     return '256$clean';
   }
 
-  /// Initiates the payment/unlock process via Firebase Cloud Functions
   Future<Map<String, dynamic>> initiateUnlock({
     required String listingId,
     required String method,
@@ -23,118 +18,133 @@ class PaymentService {
     required String buyerEmail,
     String? phone,
   }) async {
-    // Route to Pesapal for cash/mobile money payments
-    if (method != 'NCX_COINS') {
-      final pesapalRes = await initiatePesapalUnlock(
-        listingId: listingId,
-        amount: amount,
-        buyerId: buyerId,
-        buyerEmail: buyerEmail,
-        phone: phone,
-      );
-      if (pesapalRes['success'] == true) {
-        return {
-          'success': true,
-          'payment_id': pesapalRes['order_id'],
-          'redirect_url': pesapalRes['redirect_url'],
-          'status': 'PROCESSING',
-        };
-      } else {
-        throw Exception(pesapalRes['message'] ?? 'Failed to initiate Pesapal payment');
-      }
+    final result = await FinanceBackend.instance.invoke(
+      'initiate_property_unlock',
+      body: {
+        'listingId': listingId,
+        'method': method.toLowerCase(),
+        'amountUgx': amount.round(),
+        'buyerEmail': buyerEmail,
+        'buyerPhone': phone == null ? null : normalizePhone(phone),
+      },
+    );
+    if (result['success'] != true) {
+      throw Exception(result['message'] ?? 'Payment initiation failed.');
     }
-
-    final body = {
-      'listing_id': listingId,
-      'method': method,
-      'amount': amount,
-      'buyer_id': buyerId,
-      'buyer_email': buyerEmail,
-      'buyer_phone': phone != null ? normalizePhone(phone) : null,
-    };
-
-    try {
-      final callable = _functions.httpsCallable('necxaPaymentGateway');
-      final res = await callable.call(body);
-      return Map<String, dynamic>.from(res.data);
-    } catch (e) {
-      throw Exception('Payment initiation failed: $e');
-    }
+    return result;
   }
 
-  /// Initiates a Pesapal checkout session for unlocking listings
   Future<Map<String, dynamic>> initiatePesapalUnlock({
     required String listingId,
     required double amount,
     required String buyerId,
     required String buyerEmail,
     String? phone,
-  }) async {
-    try {
-      final callable = _functions.httpsCallable('initiatePesapalPayment');
-      final res = await callable.call({
-        'amount': amount,
-        'currency': 'UGX',
-        'description': 'Unlock contact for listing $listingId',
-        'type': 'unlock_listing',
-        'listingId': listingId,
-        'email': buyerEmail,
-        'phone': phone != null ? normalizePhone(phone) : null,
-      });
-      return Map<String, dynamic>.from(res.data);
-    } catch (e) {
-      throw Exception('Pesapal unlock initiation failed: $e');
-    }
-  }
+  }) => initiateUnlock(
+    listingId: listingId,
+    method: 'pesapal',
+    amount: amount,
+    buyerId: buyerId,
+    buyerEmail: buyerEmail,
+    phone: phone,
+  );
 
-  /// Polls the listing_unlocks collection for payment status updates
   Future<bool> pollForPaymentCompletion(String paymentId) async {
-    int attempts = 0;
-    const maxAttempts = 20; // 60 seconds total
-
-    while (attempts < maxAttempts) {
-      await Future.delayed(const Duration(seconds: 3));
-      attempts++;
-
+    for (var attempt = 0; attempt < 20; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 3));
       try {
-        final doc = await _firestore.collection('listing_unlocks').doc(paymentId).get();
-        if (doc.exists) {
-          final status = doc.data()?['payment_status'];
-
-          if (status == 'COMPLETED') {
-            return true;
-          }
-          if (status == 'FAILED') {
-            throw Exception('Payment was declined. Please check your balance and try again.');
-          }
+        final result = await FinanceBackend.instance.invoke(
+          'property_unlock_status',
+          body: {'paymentId': paymentId},
+        );
+        final status = result['status']?.toString().toUpperCase();
+        if (status == 'COMPLETED') return true;
+        if (status == 'FAILED' || status == 'CANCELLED') {
+          throw Exception(
+            'Payment was declined. Please check your balance and try again.',
+          );
         }
       } catch (e) {
-        // Continue polling on transient errors unless it's a known decline
+        // If it throws an exception that isn't the final fail, maybe log it and keep polling
         if (e.toString().contains('declined')) rethrow;
       }
     }
-
-    // Standard behavior from React Native snippet: 
-    // Return true after timeout for demo purposes or fallback
-    return true; 
+    return false;
   }
 
-  /// Deducts coins for artist music distribution
   Future<void> chargeArtistDistributionFee(String userId, int amount) async {
-    final docRef = _firestore.collection('wallets').doc(userId);
-    
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(docRef);
-      if (!snapshot.exists) {
-        throw Exception('Wallet not found.');
+    final result = await FinanceBackend.instance.invoke(
+      'charge_artist_distribution',
+      body: {
+        'amountNcx': amount,
+        'idempotencyKey':
+            'distribution-$userId-${DateTime.now().millisecondsSinceEpoch}',
+      },
+    );
+    if (result['success'] != true) {
+      throw Exception(result['message'] ?? 'Distribution fee failed.');
+    }
+  }
+
+  /// Initiates the FCFS escrow deposit payment via the Finance Engine.
+  /// Returns the Pesapal redirectUrl and a paymentId for polling.
+  Future<Map<String, dynamic>> initiateEscrowPayment({
+    required String listingId,
+    required String escrowReservationId,
+    required double depositAmount,
+    required String buyerId,
+    required String buyerEmail,
+  }) async {
+    final idempotencyKey =
+        'escrow-$listingId-$buyerId-${DateTime.now().millisecondsSinceEpoch}';
+    final result = await FinanceBackend.instance.invoke(
+      'initiate_escrow_payment',
+      body: {
+        'listingId': listingId,
+        'escrowReservationId': escrowReservationId,
+        'depositAmount': depositAmount.round(),
+        'buyerEmail': buyerEmail,
+        'idempotencyKey': idempotencyKey,
+      },
+    );
+    if (result['already_sold'] == true) {
+      throw Exception(
+        'This property was just secured by another buyer. You were this close!',
+      );
+    }
+    if (result['success'] != true) {
+      throw Exception(result['message'] ?? 'Escrow initiation failed.');
+    }
+    return result;
+  }
+
+  /// Polls Finance Engine for escrow payment completion.
+  /// Returns true if this buyer WON the FCFS race.
+  /// Throws if the payment failed or the buyer was outbid.
+  Future<bool> pollForEscrowCompletion(String paymentId) async {
+    for (var attempt = 0; attempt < 20; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 3));
+      try {
+        final result = await FinanceBackend.instance.invoke(
+          'escrow_payment_status',
+          body: {'paymentId': paymentId},
+        );
+        final status = result['status']?.toString().toUpperCase();
+        if (status == 'COMPLETED') return true;
+        if (result['refunded'] == true) {
+          throw Exception(
+            'Another buyer completed their payment first. Your funds will be refunded.',
+          );
+        }
+        if (status == 'FAILED' || status == 'CANCELLED') {
+          throw Exception('Payment was declined. Please try again.');
+        }
+      } catch (e) {
+        if (e.toString().contains('faster') || e.toString().contains('declined')) {
+          rethrow;
+        }
       }
-      
-      int currentCoins = (snapshot.data()?['coin_balance'] ?? 0).toInt();
-      if (currentCoins < amount) {
-        throw Exception('Insufficient Necxa Coins for distribution.');
-      }
-      
-      transaction.update(docRef, {'coin_balance': currentCoins - amount});
-    });
+    }
+    return false;
   }
 }

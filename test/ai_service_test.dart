@@ -14,6 +14,18 @@ void main() {
       expect(payload['payload']['userId'], 'user-1');
     });
 
+    test('adds explicit country and document hints for National ID OCR', () {
+      final payload = NecxaAI.buildIdentityShardPayload(
+        action: 'verify-id-front',
+        primaryBase64: 'abc',
+        userId: 'user-1',
+        countryCode: 'UG',
+        documentType: 'national_id',
+      );
+      expect(payload['payload']['countryCode'], 'UG');
+      expect(payload['payload']['documentType'], 'national_id');
+    });
+
     test('builds a selfie verification payload', () {
       final payload = NecxaAI.buildIdentityShardPayload(
         action: 'verify-selfie',

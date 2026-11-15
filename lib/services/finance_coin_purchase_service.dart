@@ -7,9 +7,9 @@ class FinanceCoinPurchaseService {
   static const supportedMethods = {'fiat_balance', 'pesapal', 'card', 'mtn', 'airtel'};
 
   static String packIdForUgx(num ugx) {
-    if (ugx >= 500000) return 'whale';
-    if (ugx >= 100000) return 'elite';
-    if (ugx >= 50000) return 'pro';
+    if (ugx >= 100000) return 'whale';
+    if (ugx >= 50000) return 'elite';
+    if (ugx >= 15000) return 'pro';
     return 'starter';
   }
 

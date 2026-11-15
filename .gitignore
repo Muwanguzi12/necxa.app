@@ -81,3 +81,13 @@ node_modules/
 .env.production
 supabase/.env
 supabase/functions/**/.env
+
+# Local agent & build outputs
+.tool-home/
+.codex-tmp/
+outputs/
+*.tgz
+goobox/supabase/.temp/
+supabase/.temp/
+
+

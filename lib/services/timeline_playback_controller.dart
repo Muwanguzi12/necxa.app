@@ -73,6 +73,7 @@ class TimelinePlaybackController extends ChangeNotifier {
     for (final track in tracks) {
       if (!track.isVisible) continue;
       for (final clip in track.clips) {
+        if (clip.isHidden) continue;
         if (time >= clip.start && time < clip.start + clip.duration) {
           grouped.putIfAbsent(track.type, () => <TimelineClip>[]).add(clip);
         }
@@ -237,6 +238,17 @@ class TimelineHistoryController {
         ? null
         : FilterOperation(filterName: clip.filter!.filterName),
     isHidden: clip.isHidden,
+    proxyFile: clip.proxyFile,
+    isProxyReady: clip.isProxyReady,
+    faceSymmetry: clip.faceSymmetry,
+    symmetryMirrorLeft: clip.symmetryMirrorLeft,
+    skinSmoothing: clip.skinSmoothing,
+    smoothingMode: clip.smoothingMode,
+    skinBrightening: clip.skinBrightening,
+    skinToneMode: clip.skinToneMode,
+    makeupGender: clip.makeupGender,
+    makeupStyle: clip.makeupStyle,
+    makeupIntensity: clip.makeupIntensity,
   );
 
   static EditOperation _cloneOperation(EditOperation operation) {
@@ -278,6 +290,8 @@ class TimelineHistoryController {
         volume: operation.volume,
         speed: operation.speed,
         reverse: operation.reverse,
+        fadeIn: operation.fadeIn,
+        fadeOut: operation.fadeOut,
         startOffset: operation.startOffset,
         endOffset: operation.endOffset,
       );
