@@ -39,11 +39,15 @@ class CommerceDashboardData {
     final productListings = rawListings.where(isProductListing).toList();
 
     return CommerceDashboardData(
-      activeListings: productListings.where((l) => l['status'] == 'active').length,
-      lowStockListings: productListings.where((l) {
-        final stock = (l['stock_count'] as num?)?.round() ?? 0;
-        return stock <= 5;
-      }).length,
+      activeListings: json.containsKey('activeListings')
+          ? _integer(json['activeListings'])
+          : productListings.where((l) => l['status'] == 'active').length,
+      lowStockListings: json.containsKey('lowStockListings')
+          ? _integer(json['lowStockListings'])
+          : productListings.where((l) {
+              final stock = (l['stock_count'] as num?)?.round() ?? 0;
+              return stock <= 5;
+            }).length,
       totalOrders: _integer(json['totalOrders']),
       openOrders: _integer(json['openOrders']),
       grossSalesUgx: _integer(json['grossSalesUgx']),
@@ -95,11 +99,11 @@ class CommerceDashboardData {
     final mergedOrders = ordersById.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return CommerceDashboardData(
-      activeListings: mergedListings.where((l) => l['status'] == 'active').length,
-      lowStockListings: mergedListings.where((l) {
-        final stock = (l['stock_count'] as num?)?.round() ?? 0;
-        return stock <= 5;
-      }).length,
+      // Compact deltas carry authoritative aggregate metrics separately
+      // from the partial listing records. Recomputing from those records can
+      // incorrectly reset dashboard counts when status/stock fields are absent.
+      activeListings: update.activeListings,
+      lowStockListings: update.lowStockListings,
       totalOrders: update.totalOrders,
       openOrders: update.openOrders,
       grossSalesUgx: update.grossSalesUgx,
