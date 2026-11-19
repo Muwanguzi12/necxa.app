@@ -34,9 +34,20 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
   bool _autoLoyaltyVoucherEnabled = true;
   final String _activeLoyaltyCode = 'VIPREPEAT10';
 
+  // ── Inventory Filters & Search State ──
+  final TextEditingController _inventorySearchController = TextEditingController();
+  String _inventorySearchQuery = '';
+  String _selectedInventoryCategory = 'All';
+
   @override
   void initState() {
     super.initState();
+    _inventorySearchController.addListener(() {
+      final q = _inventorySearchController.text.trim().toLowerCase();
+      if (q != _inventorySearchQuery) {
+        setState(() => _inventorySearchQuery = q);
+      }
+    });
     _tabs = TabController(length: 6, vsync: this);
     _tabs.addListener(_onTabChanged);
     _hydrateThenRefresh();
@@ -44,6 +55,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
 
   @override
   void dispose() {
+    _inventorySearchController.dispose();
     _tabs.removeListener(_onTabChanged);
     _tabs.dispose();
     super.dispose();
@@ -467,255 +479,690 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
   }
 
   Widget _inventory() {
-    final listings = _dashboard!.listings
+    final allListings = _dashboard!.listings
         .where(CommerceDashboardData.isProductListing)
         .toList();
-    if (listings.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(height: 140),
-          _InlineEmpty(
-            icon: Icons.storefront_outlined,
-            label: 'No product listings yet',
-          ),
-        ],
-      );
-    }
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
-      itemCount: listings.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, index) {
-        final listing = listings[index];
-        final id = listing['id']?.toString() ?? '';
-        final stock = (listing['stock_count'] as num?)?.round() ?? 0;
-        final status = listing['status']?.toString() ?? 'active';
-        final isActive = status == 'active';
-        final working = _workingId == id;
-        final mediaUrl = listing['media_url']?.toString();
-        final price = (listing['price_ugx'] as num?)?.round() ?? 0;
 
-        return Container(
-          decoration: BoxDecoration(
-            color: C.card,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: !isActive
-                  ? C.sub.withValues(alpha: .3)
-                  : stock == 0
-                      ? Colors.red.withValues(alpha: .4)
-                      : stock <= 5
-                          ? C.gold2.withValues(alpha: .6)
-                          : C.border,
+    // ── Metric calculations ───────────────────────────────────────────────
+    final totalProducts = allListings.length;
+    final totalStock = allListings.fold<int>(
+      0,
+      (sum, l) => sum + ((l['stock_count'] as num?)?.round() ?? 0),
+    );
+    final lowStock = allListings.where((l) {
+      final s = (l['stock_count'] as num?)?.round() ?? 0;
+      return s > 0 && s <= 5 && l['status'] == 'active';
+    }).length;
+    final outOfStock = allListings.where((l) {
+      final s = (l['stock_count'] as num?)?.round() ?? 0;
+      return s == 0 || l['status'] != 'active';
+    }).length;
+
+    final totalStockValue = allListings.fold<int>(
+      0,
+      (sum, l) {
+        final p = (l['price_ugx'] as num?)?.round() ??
+            (l['price'] as num?)?.round() ??
+            0;
+        final s = (l['stock_count'] as num?)?.round() ?? 0;
+        return sum + (p * s);
+      },
+    );
+
+    // ── Search & Category Filtering ───────────────────────────────────────
+    final filtered = allListings.where((l) {
+      final title = (l['title'] ?? '').toString().toLowerCase();
+      final sku = (l['sku'] ?? 'SKU-${l['id']?.toString().substring(0, 4) ?? '001'}')
+          .toString()
+          .toLowerCase();
+      final cat = (l['category'] ?? '').toString().toLowerCase();
+
+      final matchesSearch = _inventorySearchQuery.isEmpty ||
+          title.contains(_inventorySearchQuery) ||
+          sku.contains(_inventorySearchQuery);
+
+      final matchesCategory = _selectedInventoryCategory == 'All' ||
+          cat.contains(_selectedInventoryCategory.toLowerCase());
+
+      return matchesSearch && matchesCategory;
+    }).toList();
+
+    final categories = ['All', 'Electronics', 'Fashion', 'Home & Living', 'Beauty'];
+
+    return Stack(
+      children: [
+        ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+          children: [
+            // ── 1. Inventory Overview Card ────────────────────────────────
+            _buildInventoryOverviewCard(
+              totalProducts: totalProducts,
+              totalStock: totalStock,
+              lowStock: lowStock,
+              outOfStock: outOfStock,
             ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Thumbnail ──────────────────────────────────────────────
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
-                child: AspectRatio(
-                  aspectRatio: 16 / 7,
-                   child: mediaUrl != null && mediaUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: mediaUrl,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => Container(
-                            color: C.surface,
-                            child: Center(
-                              child: Icon(Icons.image_outlined, color: C.sub, size: 32),
-                            ),
-                          ),
-                          errorWidget: (_, __, ___) => Container(
-                            color: C.surface,
-                            child: Center(
-                              child: Icon(Icons.broken_image_outlined, color: C.sub, size: 32),
-                            ),
-                          ),
-                        )
-                      : Container(
-                          color: C.surface,
-                          child: Center(
-                            child: Icon(Icons.storefront_outlined, color: C.sub, size: 36),
-                          ),
-                        ),
+            const SizedBox(height: 16),
+
+            // ── 2. Search & Category Chips ────────────────────────────────
+            _buildSearchAndCategoryBar(categories, totalProducts),
+            const SizedBox(height: 16),
+
+            // ── 3. Product List / Empty State ─────────────────────────────
+            if (filtered.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.inventory_2_outlined, color: C.dim, size: 48),
+                      const SizedBox(height: 12),
+                      Text('No matching products found', style: syne(sz: 14, c: C.dim)),
+                    ],
+                  ),
                 ),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (_, index) => _buildProductInventoryCard(filtered[index]),
               ),
 
-              // ── Info Row ───────────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            const SizedBox(height: 16),
+
+            // ── 4. Stock Value Footer ─────────────────────────────────────
+            _buildStockValueFooter(totalStockValue),
+          ],
+        ),
+
+        // ── 5. Bottom Sticky Bar: Sole "+ Add Product" Button ───────────
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 16,
+          child: _buildBottomActionBar(),
+        ),
+      ],
+    );
+  }
+
+  // ── Overview Card ──────────────────────────────────────────────────────────
+  Widget _buildInventoryOverviewCard({
+    required int totalProducts,
+    required int totalStock,
+    required int lowStock,
+    required int outOfStock,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D182E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF1E3A6E), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0077FE).withOpacity(0.12),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00E5FF), Color(0xFF0066FF)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.inventory_2, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                listing['title']?.toString() ?? 'Listing',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: syne(sz: 14, w: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'UGX ${_money(price)}',
-                                style: dm(sz: 12, c: C.sub, w: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Delete button
-                        working
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.red,
-                                ),
-                              )
-                            : IconButton(
-                                tooltip: 'Delete product',
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(),
-                                onPressed: () => _confirmDelete(id, listing['title']?.toString() ?? 'this product'),
-                                icon: const Icon(
-                                  Icons.delete_outline_rounded,
-                                  color: Colors.red,
-                                  size: 22,
-                                ),
-                              ),
-                      ],
+                    Text(
+                      'Inventory Overview',
+                      style: syne(sz: 15, w: FontWeight.w800, c: Colors.white),
                     ),
-                    const SizedBox(height: 10),
-
-                    // ── Controls Row ───────────────────────────────────────
-                    Row(
-                      children: [
-                        // In-stock / Out-of-stock toggle
-                        GestureDetector(
-                          onTap: working ? null : () => _toggleStatus(id, isActive),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: isActive
-                                  ? C.green.withValues(alpha: .15)
-                                  : Colors.red.withValues(alpha: .12),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: isActive ? C.green : Colors.red,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  isActive ? Icons.check_circle_outline : Icons.remove_circle_outline,
-                                  size: 13,
-                                  color: isActive ? C.green : Colors.red,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  isActive ? 'In Stock' : 'Out of Stock',
-                                  style: dm(
-                                    sz: 11,
-                                    c: isActive ? C.green : Colors.red,
-                                    w: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                        const Spacer(),
-
-                        // Stock counter
-                        Row(
-                          children: [
-                            IconButton(
-                              tooltip: 'Reduce stock',
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                              onPressed: working || stock == 0
-                                  ? null
-                                  : () => _setStock(id, stock - 1),
-                              icon: Icon(
-                                Icons.remove_circle_outline_rounded,
-                                size: 22,
-                                color: (working || stock == 0) ? C.sub : C.brandDk,
-                              ),
-                            ),
-                            SizedBox(
-                              width: 36,
-                              child: Text(
-                                '$stock',
-                                textAlign: TextAlign.center,
-                                style: syne(sz: 15, w: FontWeight.w800),
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Add stock',
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                              onPressed: working ? null : () => _setStock(id, stock + 1),
-                              icon: Icon(
-                                Icons.add_circle_outline_rounded,
-                                size: 22,
-                                color: working ? C.sub : C.brandDk,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    Text(
+                      'Your stock at a glance',
+                      style: dm(sz: 11, c: Colors.white60),
                     ),
-
-                    // Low-stock warning
-                    if (isActive && stock > 0 && stock <= 5) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.warning_amber_rounded, size: 13, color: C.gold2),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Low stock — only $stock left',
-                            style: dm(sz: 11, c: C.gold2, w: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ],
-                    if (isActive && stock == 0) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.error_outline_rounded, size: 13, color: Colors.red),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Zero stock — mark out of stock or restock',
-                            style: dm(sz: 11, c: Colors.red, w: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ],
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.12)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Today', style: dm(sz: 11, c: Colors.white70)),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.keyboard_arrow_down, size: 14, color: Colors.white70),
                   ],
                 ),
               ),
             ],
           ),
-        );
-      },
+          const SizedBox(height: 14),
+
+          // 4 Metric Tiles Row
+          Row(
+            children: [
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.inventory_2_outlined,
+                  value: '$totalProducts',
+                  label: 'Total Products',
+                  color: const Color(0xFF00E5FF),
+                  bgColor: const Color(0xFF0A2B4C),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.all_inbox_rounded,
+                  value: _money(totalStock),
+                  label: 'Total Stock',
+                  color: const Color(0xFF00E676),
+                  bgColor: const Color(0xFF0A3A2C),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.warning_amber_rounded,
+                  value: '$lowStock',
+                  label: 'Low Stock',
+                  color: const Color(0xFFFFB300),
+                  bgColor: const Color(0xFF3B2E0A),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _metricTile(
+                  icon: Icons.block_rounded,
+                  value: '$outOfStock',
+                  label: 'Out of Stock',
+                  color: const Color(0xFFFF5252),
+                  bgColor: const Color(0xFF3B0F14),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
+
+  Widget _metricTile({
+    required IconData icon,
+    required String value,
+    required String label,
+    required Color color,
+    required Color bgColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      decoration: BoxDecoration(
+        color: bgColor.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: syne(sz: 14, w: FontWeight.w900, c: Colors.white),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: dm(sz: 9, c: Colors.white70),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Search & Category Filter ───────────────────────────────────────────────
+  Widget _buildSearchAndCategoryBar(List<String> categories, int total) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Search Bar
+        Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0E1424),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF1E283F)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.search_rounded, color: Colors.white38, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _inventorySearchController,
+                  style: dm(sz: 13, c: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Search products...',
+                    hintStyle: dm(sz: 13, c: Colors.white38),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+              if (_inventorySearchQuery.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    _inventorySearchController.clear();
+                    setState(() => _inventorySearchQuery = '');
+                  },
+                  child: const Icon(Icons.close_rounded, color: Colors.white54, size: 18),
+                )
+              else
+                const Icon(Icons.tune_rounded, color: Colors.white38, size: 18),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Horizontal Category Chips
+        SizedBox(
+          height: 32,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: categories.length + 1,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              if (i == categories.length) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0E1424),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFF1E283F)),
+                  ),
+                  child: Row(
+                    children: [
+                      Text('More', style: dm(sz: 11, c: Colors.white70)),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.keyboard_arrow_down, size: 14, color: Colors.white70),
+                    ],
+                  ),
+                );
+              }
+
+              final cat = categories[i];
+              final isSelected = _selectedInventoryCategory == cat;
+              final label = cat == 'All' ? 'All ($total)' : cat;
+
+              return GestureDetector(
+                onTap: () => setState(() => _selectedInventoryCategory = cat),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isSelected ? const Color(0xFF00E5FF) : const Color(0xFF0E1424),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected ? const Color(0xFF00E5FF) : const Color(0xFF1E283F),
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    style: dm(
+                      sz: 11,
+                      c: isSelected ? Colors.black : Colors.white70,
+                      w: isSelected ? FontWeight.w800 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Product Inventory Card (Matching Screenshot) ───────────────────────────
+  Widget _buildProductInventoryCard(Map<String, dynamic> listing) {
+    final id = listing['id']?.toString() ?? '';
+    final title = listing['title']?.toString() ?? 'Product';
+    final sku = listing['sku']?.toString() ??
+        'SKU: ${id.length >= 6 ? id.substring(0, 6).toUpperCase() : 'PRD-001'}';
+    final price = (listing['price_ugx'] ?? listing['price'] as num?)?.round() ?? 0;
+    final stock = (listing['stock_count'] as num?)?.round() ?? 0;
+    final status = listing['status']?.toString() ?? 'active';
+    final isActive = status == 'active';
+    final mediaUrl = listing['media_url']?.toString();
+    final working = _workingId == id;
+
+    final isOut = stock == 0 || !isActive;
+    final isLow = !isOut && stock <= 5;
+
+    final statusBg = isOut
+        ? const Color(0xFF3B0F14)
+        : isLow
+            ? const Color(0xFF3B2E0A)
+            : const Color(0xFF0A3A2C);
+    final statusColor = isOut
+        ? const Color(0xFFFF5252)
+        : isLow
+            ? const Color(0xFFFFB300)
+            : const Color(0xFF00E676);
+    final statusIcon = isOut
+        ? Icons.cancel_outlined
+        : isLow
+            ? Icons.warning_amber_rounded
+            : Icons.check_circle_outline_rounded;
+    final statusText = isOut
+        ? 'Out of Stock'
+        : isLow
+            ? 'Low Stock'
+            : 'In Stock';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B101D),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF172238)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // ── Square Thumbnail ──
+          Container(
+            width: 72,
+            height: 72,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: const Color(0xFF070B14),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withOpacity(0.06)),
+            ),
+            child: mediaUrl != null && mediaUrl.isNotEmpty
+                ? CachedNetworkImage(
+                    imageUrl: mediaUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => const Center(
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00E5FF)),
+                      ),
+                    ),
+                    errorWidget: (_, __, ___) => const Icon(
+                      Icons.shopping_bag_outlined,
+                      color: Colors.white24,
+                      size: 28,
+                    ),
+                  )
+                : const Icon(
+                    Icons.shopping_bag_outlined,
+                    color: Colors.white24,
+                    size: 28,
+                  ),
+          ),
+          const SizedBox(width: 12),
+
+          // ── Details (Title, SKU, Price, Status Badge) ──
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: syne(sz: 14, w: FontWeight.w800, c: Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  sku,
+                  style: dm(sz: 10, c: Colors.white38),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'UGX ${_money(price)}',
+                  style: syne(sz: 13, w: FontWeight.w900, c: Colors.white),
+                ),
+                const SizedBox(height: 6),
+
+                // In Stock / Low Stock badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: statusBg,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: statusColor.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(statusIcon, color: statusColor, size: 10),
+                      const SizedBox(width: 4),
+                      Text(
+                        statusText,
+                        style: dm(sz: 9, c: statusColor, w: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // ── Quantity & Stepper + Options Menu ──
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 3-dots Menu
+              PopupMenuButton<String>(
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                icon: const Icon(Icons.more_vert, color: Colors.white38),
+                color: const Color(0xFF131A2D),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                onSelected: (action) {
+                  if (action == 'delete') {
+                    _confirmDelete(id, title);
+                  } else if (action == 'toggle') {
+                    _toggleStatus(id, isActive);
+                  }
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'toggle',
+                    child: Text(
+                      isActive ? 'Mark Inactive' : 'Mark Active',
+                      style: dm(sz: 12, c: Colors.white),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text(
+                      'Delete Product',
+                      style: dm(sz: 12, c: Colors.redAccent),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+
+              Text('Quantity', style: dm(sz: 9, c: Colors.white38)),
+              const SizedBox(height: 2),
+              Text(
+                '$stock',
+                style: syne(sz: 15, w: FontWeight.w900, c: Colors.white),
+              ),
+              const SizedBox(height: 6),
+
+              // Stepper: [-]  [+]
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    onTap: (working || stock == 0) ? null : () => _setStock(id, stock - 1),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF131A2D),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Icon(
+                        Icons.remove,
+                        size: 14,
+                        color: (working || stock == 0) ? Colors.white24 : Colors.white70,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: working ? null : () => _setStock(id, stock + 1),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E5FF),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.add,
+                        size: 14,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Stock Value Footer ─────────────────────────────────────────────────────
+  Widget _buildStockValueFooter(int totalStockValue) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0D1426),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF1E283F)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E5FF).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.bar_chart_rounded, color: Color(0xFF00E5FF), size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Stock Value', style: dm(sz: 10, c: Colors.white54)),
+                const SizedBox(height: 2),
+                Text(
+                  'UGX ${_money(totalStockValue)}',
+                  style: syne(sz: 14, w: FontWeight.w900, c: const Color(0xFF00E5FF)),
+                ),
+              ],
+            ),
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('View Report', style: dm(sz: 11, c: const Color(0xFF00E5FF), w: FontWeight.bold)),
+              const SizedBox(width: 2),
+              const Icon(Icons.chevron_right, size: 16, color: Color(0xFF00E5FF)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Sole Bottom Action Bar: + Add Product ──────────────────────────────────
+  Widget _buildBottomActionBar() {
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00E5FF).withOpacity(0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton.icon(
+        icon: const Icon(Icons.add_circle_outline_rounded, color: Colors.black, size: 20),
+        label: Text(
+          'Add Product',
+          style: syne(sz: 14, w: FontWeight.w900, ls: 0.5, c: Colors.black),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF00E5FF),
+          foregroundColor: Colors.black,
+          minimumSize: const Size(double.infinity, 52),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(26),
+          ),
+          elevation: 0,
+        ),
+        onPressed: () {
+          // Links directly to the Sales objective in the upload screen
+          widget.state.go('upload', extra: 'sales');
+        },
+      ),
+    );
+  }
+
 
   Widget _earnings() {
     final dashboard = _dashboard!;

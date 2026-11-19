@@ -18,9 +18,31 @@ class CommerceDashboardData {
   });
 
   static bool isProductListing(Map<String, dynamic> listing) {
-    if (listing['is_property_listing'] == true) return false;
-    final cat = listing['category']?.toString().toUpperCase() ?? '';
-    const propertyCategories = {
+    // 1. Explicit property flags
+    if (listing['is_property_listing'] == true ||
+        listing['is_property'] == true ||
+        listing['property_id'] != null) {
+      return false;
+    }
+
+    // 2. Property specific metadata fields
+    if (listing['property_type'] != null ||
+        listing['bedrooms'] != null ||
+        listing['bathrooms'] != null ||
+        listing['sqft'] != null ||
+        listing['amenities'] != null ||
+        listing['price_period'] != null ||
+        listing['gps_node_id'] != null) {
+      return false;
+    }
+
+    // 3. Category inspection
+    final cat = (listing['category'] ?? listing['listing_type'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase();
+
+    const propertyKeywords = {
       'APARTMENT',
       'HOUSE',
       'VILLA',
@@ -29,8 +51,16 @@ class CommerceDashboardData {
       'RESIDENTIAL',
       'REAL_ESTATE',
       'PROPERTY',
+      'RENTAL',
+      'CONDO',
+      'PLOT',
     };
-    if (propertyCategories.contains(cat)) return false;
+
+    if (propertyKeywords.contains(cat) ||
+        propertyKeywords.any((keyword) => cat.contains(keyword))) {
+      return false;
+    }
+
     return true;
   }
 

@@ -440,6 +440,7 @@ class AppState extends ChangeNotifier {
 
   // Viral Sound State
   MusicTrack? initialMusicTrack;
+  String? initialUploadObjective;
   final DraftService drafts = DraftService();
   final MusicLibraryService music = MusicLibraryService();
   final GooboxArtistMusicService artistMusic = GooboxArtistMusicService.instance;
@@ -1758,8 +1759,13 @@ class AppState extends ChangeNotifier {
       _resetUpload();
       if (extra is MusicTrack) {
         initialMusicTrack = extra;
+        initialUploadObjective = null;
+      } else if (extra is String) {
+        initialMusicTrack = null;
+        initialUploadObjective = extra;
       } else {
         initialMusicTrack = null;
+        initialUploadObjective = null;
       }
     }
 

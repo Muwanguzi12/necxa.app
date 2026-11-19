@@ -320,6 +320,7 @@ class _RootShellState extends State<RootShell> {
         return UploadScreen(
           state: _state,
           initialTrack: _state.initialMusicTrack,
+          initialObjective: _state.initialUploadObjective,
         );
       case 'chat':
       case 'chat-list':

@@ -106,7 +106,13 @@ extension CreatorTypeX on CreatorType {
 class UploadScreen extends StatefulWidget {
   final AppState state;
   final MusicTrack? initialTrack;
-  const UploadScreen({super.key, required this.state, this.initialTrack});
+  final String? initialObjective;
+  const UploadScreen({
+    super.key,
+    required this.state,
+    this.initialTrack,
+    this.initialObjective,
+  });
 
   @override
   State<UploadScreen> createState() => _UploadScreenState();
@@ -192,6 +198,10 @@ class _UploadScreenState extends State<UploadScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.initialObjective != null && widget.initialObjective!.isNotEmpty) {
+      _objectiveId = widget.initialObjective;
+      _step = 1; // Jump straight into Campaign Details / Sales Product setup
+    }
     _bakedTrack = widget.initialTrack;
     if (_bakedTrack != null) {
       _title = _bakedTrack!.title;
