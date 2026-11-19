@@ -3,6 +3,7 @@ import '../theme.dart';
 import '../app_state.dart';
 import '../models/music_models.dart';
 import '../utils/error_handler.dart';
+import 'music_library_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ArtistAuthScreen — Entry point
@@ -12,7 +13,8 @@ import '../utils/error_handler.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 class ArtistAuthScreen extends StatelessWidget {
   final AppState state;
-  const ArtistAuthScreen({super.key, required this.state});
+  final String? fallbackRoute;
+  const ArtistAuthScreen({super.key, required this.state, this.fallbackRoute});
 
   @override
   Widget build(BuildContext context) {
@@ -20,9 +22,9 @@ class ArtistAuthScreen extends StatelessWidget {
       listenable: state,
       builder: (context, _) {
         if (state.isArtist) {
-          return _ArtistDashboard(state: state);
+          return _ArtistDashboard(state: state, fallbackRoute: fallbackRoute);
         }
-        return _ArtistGateway(state: state);
+        return _ArtistGateway(state: state, fallbackRoute: fallbackRoute);
       },
     );
   }
@@ -33,7 +35,8 @@ class ArtistAuthScreen extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _ArtistGateway extends StatefulWidget {
   final AppState state;
-  const _ArtistGateway({required this.state});
+  final String? fallbackRoute;
+  const _ArtistGateway({required this.state, this.fallbackRoute});
 
   @override
   State<_ArtistGateway> createState() => _ArtistGatewayState();
@@ -41,6 +44,18 @@ class _ArtistGateway extends StatefulWidget {
 
 class _ArtistGatewayState extends State<_ArtistGateway> {
   bool _showLogin = false;
+
+  void _handleBack() {
+    if (_showLogin) {
+      setState(() => _showLogin = false);
+    } else if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else if (widget.fallbackRoute != null) {
+      widget.state.go(widget.fallbackRoute!);
+    } else {
+      widget.state.goBack();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,15 +66,7 @@ class _ArtistGatewayState extends State<_ArtistGateway> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70),
-          onPressed: () {
-            if (_showLogin) {
-              setState(() => _showLogin = false);
-            } else if (Navigator.canPop(context)) {
-              Navigator.pop(context);
-            } else {
-              widget.state.goBack();
-            }
-          },
+          onPressed: _handleBack,
         ),
         title: Text(
           _showLogin ? 'Artist Login' : 'Artist Programme',
@@ -84,11 +91,13 @@ class _ArtistGatewayState extends State<_ArtistGateway> {
               ? _LoginForm(
                   key: const ValueKey('login'),
                   state: widget.state,
+                  fallbackRoute: widget.fallbackRoute,
                   onSwitchToEnroll: () => setState(() => _showLogin = false),
                 )
               : _EnrollForm(
                   key: const ValueKey('enroll'),
                   state: widget.state,
+                  fallbackRoute: widget.fallbackRoute,
                   onSwitchToLogin: () => setState(() => _showLogin = true),
                 ),
         ),
@@ -102,8 +111,14 @@ class _ArtistGatewayState extends State<_ArtistGateway> {
 // ─────────────────────────────────────────────────────────────────────────────
 class _EnrollForm extends StatefulWidget {
   final AppState state;
+  final String? fallbackRoute;
   final VoidCallback onSwitchToLogin;
-  const _EnrollForm({super.key, required this.state, required this.onSwitchToLogin});
+  const _EnrollForm({
+    super.key,
+    required this.state,
+    this.fallbackRoute,
+    required this.onSwitchToLogin,
+  });
 
   @override
   State<_EnrollForm> createState() => _EnrollFormState();
@@ -142,9 +157,12 @@ class _EnrollFormState extends State<_EnrollForm> {
           content: const Text('🎉 You joined the Artist Programme!'),
           backgroundColor: C.green,
         ));
-        // Navigate back and open upload
-        Navigator.pop(context);
-        widget.state.go('upload');
+        // Landing / fallback point
+        if (Navigator.canPop(context)) {
+          Navigator.pop(context);
+        }
+        final target = widget.fallbackRoute ?? 'upload';
+        widget.state.go(target);
       }
     } catch (e) {
       if (mounted) {
@@ -264,8 +282,14 @@ class _EnrollFormState extends State<_EnrollForm> {
 // ─────────────────────────────────────────────────────────────────────────────
 class _LoginForm extends StatefulWidget {
   final AppState state;
+  final String? fallbackRoute;
   final VoidCallback onSwitchToEnroll;
-  const _LoginForm({super.key, required this.state, required this.onSwitchToEnroll});
+  const _LoginForm({
+    super.key,
+    required this.state,
+    this.fallbackRoute,
+    required this.onSwitchToEnroll,
+  });
 
   @override
   State<_LoginForm> createState() => _LoginFormState();
@@ -299,7 +323,12 @@ class _LoginFormState extends State<_LoginForm> {
           content: Text('Welcome back, Artist! 🎵'),
           backgroundColor: Color(0xFF22C55E),
         ));
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) {
+          Navigator.pop(context);
+        }
+        if (widget.fallbackRoute != null) {
+          widget.state.go(widget.fallbackRoute!);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -408,7 +437,8 @@ class _LoginFormState extends State<_LoginForm> {
 // ─────────────────────────────────────────────────────────────────────────────
 class _ArtistDashboard extends StatelessWidget {
   final AppState state;
-  const _ArtistDashboard({required this.state});
+  final String? fallbackRoute;
+  const _ArtistDashboard({super.key, required this.state, this.fallbackRoute});
 
   @override
   Widget build(BuildContext context) {
@@ -426,6 +456,8 @@ class _ArtistDashboard extends StatelessWidget {
           onPressed: () {
             if (Navigator.canPop(context)) {
               Navigator.pop(context);
+            } else if (fallbackRoute != null) {
+              state.go(fallbackRoute!);
             } else {
               state.goBack();
             }
@@ -601,6 +633,21 @@ class _ArtistDashboard extends StatelessWidget {
 
               // ── Action tiles ─────────────────────────────────────────────
               _ArtistActionTile(
+                icon: Icons.library_music_rounded,
+                color: const Color(0xFF00E5FF),
+                title: 'Audio Studio & Releases',
+                subtitle: 'Link Spotify, Apple, DistroKid releases or view library',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MusicLibraryScreen(state: state),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              _ArtistActionTile(
                 icon: Icons.cloud_upload_rounded,
                 color: const Color(0xFF7B2FFF),
                 title: 'Upload Your Music',
@@ -613,7 +660,7 @@ class _ArtistDashboard extends StatelessWidget {
               const SizedBox(height: 10),
               _ArtistActionTile(
                 icon: Icons.explore_rounded,
-                color: const Color(0xFF00E5FF),
+                color: const Color(0xFFA855F7),
                 title: 'Music Discovery',
                 subtitle: 'See how your tracks appear in the feed',
                 onTap: () {
