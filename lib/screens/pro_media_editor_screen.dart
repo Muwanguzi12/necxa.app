@@ -273,8 +273,16 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
     if (widget.initialTrack != null) {
       _selectedTrack = widget.initialTrack;
-      _musicPlayer.setReleaseMode(ReleaseMode.loop);
-      _musicPlayer.play(UrlSource(_selectedTrack!.audioUrl));
+      if (_selectedTrack!.isDistributorLinked) {
+        _originalVolume = 0.0;
+      }
+      final streamUrl = (_selectedTrack!.previewUrl?.isNotEmpty == true)
+          ? _selectedTrack!.previewUrl!
+          : _selectedTrack!.audioUrl;
+      if (streamUrl.isNotEmpty) {
+        _musicPlayer.setReleaseMode(ReleaseMode.loop);
+        _musicPlayer.play(UrlSource(streamUrl));
+      }
     }
 
     _loadClip(_activeClipIndex);
@@ -1396,6 +1404,36 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
                 Icons.save_alt_outlined,
                 _formatBytes(_estimateSizeBytes()),
               ),
+              if (_selectedTrack != null)
+                GestureDetector(
+                  onTap: _showSoundPicker,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: C.brand.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: C.brand.withOpacity(0.5)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.music_note, size: 13, color: C.brand),
+                        const SizedBox(width: 5),
+                        Text(
+                          _selectedTrack!.title,
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: C.text),
+                        ),
+                        if (_selectedTrack!.isDistributorLinked) ...[
+                          const SizedBox(width: 5),
+                          Text(
+                            '(${_selectedTrack!.distributorLabel})',
+                            style: TextStyle(fontSize: 10, color: C.brand, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
             ],
           );
 

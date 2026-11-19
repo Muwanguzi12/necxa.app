@@ -2343,6 +2343,12 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                 // Hashtag / nametag / mentions chips
                                 _buildHashtagRow(description),
 
+                                // Music / Sound marquee pill
+                                if (_track != null || widget.post['music_track_id'] != null) ...[
+                                  const SizedBox(height: 8),
+                                  _buildSoundMarqueeRow(),
+                                ],
+
                                 // Shop Reel inline buy card if linked to a listing
                                 if (widget.post['listings'] != null) ...[
                                   const SizedBox(height: 8),
@@ -3353,6 +3359,62 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSoundMarqueeRow() {
+    final title = _track?.title ?? 'Official Sound';
+    final artist = _track?.artistName ?? '';
+    final platform = _track?.distributorLabel;
+
+    return GestureDetector(
+      onTap: _goToSoundHub,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.55),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.12)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.music_note_rounded, size: 13, color: Color(0xFF00E5FF)),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                artist.isNotEmpty ? '$title • $artist' : title,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (platform != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E5FF).withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  platform,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    color: Color(0xFF00E5FF),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
