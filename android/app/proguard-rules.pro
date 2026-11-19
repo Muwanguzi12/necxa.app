@@ -50,8 +50,10 @@
     public static final *** CREATOR;
 }
 
-# Application Class
+# Application and Activity Classes
 -keep class com.necxa.MainApplication { *; }
+-keep class com.necxa.MainActivity { *; }
+-keep class com.necxa.** { *; }
 
 # Play Core (Required for split-abi/app bundles)
 -keep class com.google.android.play.core.** { *; }
@@ -64,9 +66,7 @@
 -keep class io.agora.** { *; }
 -dontwarn io.agora.**
 
-# Advanced Hardening & Obfuscation
--repackageclasses 'com.necxa.obfuscated'
--allowaccessmodification
+# Optimization flags
 -dontusemixedcaseclassnames
 -dontskipnonpubliclibraryclasses
 -dontskipnonpubliclibraryclassmembers
@@ -76,4 +76,10 @@
 -dontwarn com.google.android.gms.maps.**
 -keep class com.google.android.gms.common.** { *; }
 -dontwarn com.google.android.gms.common.**
+
+# WebRTC (Required for live beauty & video calls)
+-keep class com.cloudwebrtc.webrtc.** { *; }
+-dontwarn com.cloudwebrtc.webrtc.**
+-keep class org.webrtc.** { *; }
+-dontwarn org.webrtc.**
 
