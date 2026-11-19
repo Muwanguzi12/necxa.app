@@ -38,6 +38,8 @@ class TextOverlay extends EditOperation {
   double scale;
   double rotation;
   TextStyle style;
+  String timerMode;
+  double timerDuration;
 
   TextOverlay({
     this.text = 'Enter Text',
@@ -49,6 +51,8 @@ class TextOverlay extends EditOperation {
       color: Color(0xFFF0F4FF),
       fontWeight: FontWeight.bold,
     ),
+    this.timerMode = 'none',
+    this.timerDuration = 0,
   }) : super('text');
 
   @override
@@ -60,6 +64,8 @@ class TextOverlay extends EditOperation {
     'rotation': rotation,
     'font': style.fontFamily,
     'fontSize': style.fontSize,
+    'timerMode': timerMode,
+    'timerDuration': timerDuration,
     // ignore: deprecated_member_use
     'color': '#${style.color?.value.toRadixString(16)}',
   };
@@ -70,7 +76,7 @@ class FilterOperation extends EditOperation {
   final String filterName; // e.g., 'sepia', 'grayscale', 'vignette'
   final double intensity;
   FilterOperation({required this.filterName, this.intensity = 1.0})
-      : super('filter');
+    : super('filter');
 
   @override
   Map<String, dynamic> toJson() => {
@@ -129,6 +135,8 @@ class OverlayOperation extends EditOperation {
   String depthLayer;
   List<Map<String, dynamic>> wordTimings;
   String? fontFilePath;
+  String timerMode;
+  double timerDuration;
 
   OverlayOperation({
     required this.kind,
@@ -154,6 +162,8 @@ class OverlayOperation extends EditOperation {
     this.depthLayer = 'foreground',
     this.wordTimings = const <Map<String, dynamic>>[],
     this.fontFilePath,
+    this.timerMode = 'none',
+    this.timerDuration = 0,
   }) : super('overlay');
 
   factory OverlayOperation.fromLegacy(Map<String, dynamic> values) {
@@ -182,11 +192,14 @@ class OverlayOperation extends EditOperation {
       animationOut: values['animationOut'] as String? ?? 'none',
       themeId: values['themeId'] as String? ?? 'cinematic',
       depthLayer: values['depthLayer'] as String? ?? 'foreground',
-      wordTimings: (values['wordTimings'] as List<dynamic>? ?? const <dynamic>[])
-          .whereType<Map>()
-          .map((word) => Map<String, dynamic>.from(word))
-          .toList(),
+      wordTimings:
+          (values['wordTimings'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<Map>()
+              .map((word) => Map<String, dynamic>.from(word))
+              .toList(),
       fontFilePath: values['fontFilePath'] as String?,
+      timerMode: values['timerMode'] as String? ?? 'none',
+      timerDuration: (values['timerDuration'] as num?)?.toDouble() ?? 0,
     );
   }
 
@@ -212,8 +225,12 @@ class OverlayOperation extends EditOperation {
     animationOut: animationOut,
     themeId: themeId,
     depthLayer: depthLayer,
-    wordTimings: wordTimings.map((word) => Map<String, dynamic>.from(word)).toList(),
+    wordTimings: wordTimings
+        .map((word) => Map<String, dynamic>.from(word))
+        .toList(),
     fontFilePath: fontFilePath,
+    timerMode: timerMode,
+    timerDuration: timerDuration,
   );
 
   @override
@@ -243,6 +260,8 @@ class OverlayOperation extends EditOperation {
     'depthLayer': depthLayer,
     'wordTimings': wordTimings,
     'fontFilePath': fontFilePath,
+    'timerMode': timerMode,
+    'timerDuration': timerDuration,
   };
 }
 
@@ -807,8 +826,6 @@ class EffectPreset {
   }
 }
 
-
-
 /// Shared effect operation stored on the timeline and reused across edit surfaces.
 class EffectOperation extends EditOperation {
   String presetId;
@@ -1246,6 +1263,8 @@ class TimelineModelUtils {
     double? scale,
     double? rotation,
     String? id,
+    String timerMode = 'none',
+    double timerDuration = 0,
   }) {
     final clip = TimelineClip(
       id: id ?? 'text-${DateTime.now().millisecondsSinceEpoch}',
@@ -1256,6 +1275,8 @@ class TimelineModelUtils {
         position: position ?? const Offset(0.5, 0.5),
         scale: scale ?? 1.0,
         rotation: rotation ?? 0.0,
+        timerMode: timerMode,
+        timerDuration: timerDuration,
         style:
             style ??
             const TextStyle(
@@ -1285,4 +1306,3 @@ class TimelineModelUtils {
         .toList();
   }
 }
-

@@ -1876,7 +1876,7 @@ serve(async (req) => {
       const listingOwnerFilter = `user_id.eq.${user.id},lister_id.eq.${user.id}`;
       let listingsQuery = userSupabase
         .from("listings")
-        .select("id, title, media_url, price, stock_count, status, created_at, updated_at, is_property_listing, category")
+        .select("id, title, media_url, price, stock_count, status, sku, created_at, updated_at, is_property_listing, category")
         .or(listingOwnerFilter)
         .or("is_property_listing.is.null,is_property_listing.eq.false")
         .order(updatedSince ? "updated_at" : "created_at", { ascending: false })
@@ -2274,6 +2274,88 @@ serve(async (req) => {
         .eq("id", listingId);
       if (deleteError) throw new Error(deleteError.message);
       return json({ success: true, message: "Listing deleted successfully." });
+    }
+
+    if (action === "add_commerce_listing") {
+      const title = String(body.title ?? "").trim();
+      const sku = body.sku ? String(body.sku).trim() : null;
+      const priceUgx = Number(body.priceUgx ?? body.price ?? 0);
+      const stockCount = Number(body.stockCount ?? body.stock_count ?? 0);
+      const category = String(body.category ?? "General").trim();
+      const description = body.description ? String(body.description).trim() : null;
+      const mediaUrl = body.mediaUrl ? String(body.mediaUrl).trim() : null;
+
+      if (!title || priceUgx < 0 || stockCount < 0) {
+        return json({ success: false, message: "Title, price and valid stock count are required." }, 400);
+      }
+
+      const insertData: Record<string, unknown> = {
+        title,
+        price: priceUgx,
+        stock_count: stockCount,
+        category,
+        status: stockCount > 0 ? "active" : "draft",
+        user_id: user.id,
+        lister_id: user.id,
+        is_property_listing: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      if (sku) insertData.sku = sku;
+      if (description) insertData.description = description;
+      if (mediaUrl) insertData.media_url = mediaUrl;
+
+      const { data: listing, error: insertError } = await userSupabase
+        .from("listings")
+        .insert(insertData)
+        .select("id, title, price, stock_count, status, sku, category, media_url")
+        .single();
+      if (insertError) throw new Error(insertError.message);
+      return json({ success: true, listing });
+    }
+
+    if (action === "bulk_update_inventory") {
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (updates.length === 0) {
+        return json({ success: false, message: "No updates provided." }, 400);
+      }
+      const results: { listingId: string; success: boolean; error?: string }[] = [];
+      for (const upd of updates) {
+        const listingId = String(upd.listingId ?? "");
+        const stockCount = Number(upd.stockCount);
+        if (!listingId || !Number.isInteger(stockCount) || stockCount < 0) {
+          results.push({ listingId, success: false, error: "Invalid listingId or stock count." });
+          continue;
+        }
+        const { error: updError } = await userSupabase
+          .from("listings")
+          .update({
+            stock_count: stockCount,
+            updated_at: new Date().toISOString(),
+            status: stockCount === 0 ? "paused" : "active",
+          })
+          .eq("id", listingId)
+          .or(`user_id.eq.${user.id},lister_id.eq.${user.id}`);
+        results.push({ listingId, success: !updError, error: updError?.message });
+      }
+      return json({ success: true, results });
+    }
+
+    if (action === "stock_history") {
+      const listingId = body.listingId ? String(body.listingId) : null;
+      let query = supabase
+        .from("listing_stock_events")
+        .select("id, listing_id, old_stock, new_stock, actor_id, created_at")
+        .eq("vendor_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (listingId) query = query.eq("listing_id", listingId);
+      const { data, error: histError } = await query;
+      if (histError) {
+        // Table may not exist in all environments; return empty list gracefully
+        return json({ success: true, events: [] });
+      }
+      return json({ success: true, events: data ?? [] });
     }
 
     if (action === "review_eligibility") {

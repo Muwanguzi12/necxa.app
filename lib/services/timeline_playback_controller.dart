@@ -294,6 +294,8 @@ class TimelineHistoryController {
         scale: operation.scale,
         rotation: operation.rotation,
         style: operation.style,
+        timerMode: operation.timerMode,
+        timerDuration: operation.timerDuration,
       );
     }
     if (operation is FilterOperation) {
@@ -408,7 +410,11 @@ class EditorProjectController {
     _commit();
   }
 
-  void upsertClip(TrackType type, TimelineClip clip, {bool recordHistory = true}) {
+  void upsertClip(
+    TrackType type,
+    TimelineClip clip, {
+    bool recordHistory = true,
+  }) {
     transact((items) {
       TimelineTrack? track;
       for (final candidate in items) {

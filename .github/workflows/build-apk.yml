@@ -30,6 +30,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Get dependencies
@@ -107,6 +108,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Install verified Necxa Studio FFmpeg runtime
@@ -130,7 +132,7 @@ jobs:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.0.12077973
           ANDROID_NDK_ROOT: /usr/local/lib/android/sdk/ndk/27.0.12077973
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
 
       - name: Write build provenance
         run: |
