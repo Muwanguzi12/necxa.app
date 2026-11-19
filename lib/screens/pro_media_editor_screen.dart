@@ -3007,24 +3007,40 @@ class _ProMediaEditorScreenState extends State<ProMediaEditorScreen> {
 
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => MusicLibraryScreen()),
+      MaterialPageRoute(
+        builder: (_) => MusicLibraryScreen(state: widget.state),
+      ),
     );
 
     if (result is MusicTrack) {
       setState(() {
         _selectedTrack = result;
+        // Auto-mute the original camera audio when a music track is linked
+        // so the studio master from the distributor plays clean.
+        if (result.isDistributorLinked) {
+          _originalVolume = 0.0;
+        }
       });
 
       _syncAudioToVideo();
 
-      _musicPlayer.setReleaseMode(ReleaseMode.loop);
-      await _musicPlayer.play(UrlSource(result.audioUrl));
+      // Use previewUrl if available (distributor-linked tracks stream from CDN),
+      // fall back to audioUrl (Goobox-hosted tracks).
+      final streamUrl = (result.previewUrl?.isNotEmpty == true)
+          ? result.previewUrl!
+          : result.audioUrl;
+
+      if (streamUrl.isNotEmpty) {
+        _musicPlayer.setReleaseMode(ReleaseMode.loop);
+        await _musicPlayer.play(UrlSource(streamUrl));
+      }
       _videoController?.play();
       _feedback("Sound synced: ${result.title}");
     } else {
       _videoController?.play();
     }
   }
+
 
   void _showTransformEditor() {
     if (_sequence.isEmpty) return;

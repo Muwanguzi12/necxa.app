@@ -2021,7 +2021,14 @@ class _UploadScreenState extends State<UploadScreen>
             children: [
               _reviewRow('Objective', _objectiveId?.toUpperCase() ?? 'NONE'),
               _reviewRow('Tracks', '${_multiFiles.length} Layers'),
-              _reviewRow('Sound', _bakedTrack?.title ?? 'Original'),
+              _reviewRow(
+                'Sound',
+                _bakedTrack != null
+                    ? (_bakedTrack!.isDistributorLinked
+                        ? '${_bakedTrack!.title} (${_bakedTrack!.distributorLabel})'
+                        : _bakedTrack!.title)
+                    : 'Original',
+              ),
               Divider(color: C.dim, height: 32),
               Row(
                 children: [

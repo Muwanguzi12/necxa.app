@@ -126,6 +126,14 @@ class MusicLibraryService {
     return discovery['genres'] as List<MusicGenre>;
   }
 
+  /// Fetches the current artist's own releases from their Goobox catalog.
+  /// Returns both directly uploaded tracks and distributor-linked tracks.
+  Future<List<MusicTrack>> getMyReleases(String artistId) async {
+    if (artistId.isEmpty) return [];
+    return GooboxArtistMusicService.instance
+        .fetchArtistTracks(artistId, forceRefresh: true);
+  }
+
   // 2. SAVED MUSIC
   Future<void> toggleSaveMusic(String trackId, bool save) async {
     final user = _supabase.auth.currentUser;

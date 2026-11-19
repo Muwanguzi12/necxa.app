@@ -16,6 +16,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'sound_hub_screen.dart';
 import 'live_studio_screen.dart';
+import '../models/music_models.dart';
 import '../widgets/checkout_overlay.dart';
 import '../widgets/necxa_experience_sheet.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -1888,6 +1889,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     }
   }
 
+  MusicTrack? _track;
+
   Future<void> _hydrateData() async {
     // 1. Fetch Profile if not already in the stream (which it typically isn't for Supabase streams)
     final profileId = widget.post['author_id'];
@@ -1896,6 +1899,16 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       if (mounted) {
         setState(() {
           _profile = p;
+        });
+      }
+    }
+
+    final trackId = widget.post['music_track_id'];
+    if (trackId != null) {
+      final t = await widget.state.music.getTrackById(trackId);
+      if (mounted && t != null) {
+        setState(() {
+          _track = t;
         });
       }
     }
@@ -3347,25 +3360,40 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   }
 
   Widget _buildRotatingDisc() {
+    final artUrl = _track?.albumArtUrl;
     return RotationTransition(
       turns: _discController,
       child: Container(
-        width: 40,
-        height: 40,
-        padding: const EdgeInsets.all(10),
+        width: 42,
+        height: 42,
+        padding: const EdgeInsets.all(5),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: const SweepGradient(
             colors: [Colors.black, Colors.grey, Colors.black],
           ),
           border: Border.all(color: C.dim, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Container(
-          decoration: BoxDecoration(
+          clipBehavior: Clip.antiAlias,
+          decoration: const BoxDecoration(
             color: Colors.black,
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.music_note, color: C.text, size: 12),
+          child: artUrl != null && artUrl.isNotEmpty
+              ? Image.network(
+                  artUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Icon(Icons.music_note, color: C.text, size: 14),
+                )
+              : Icon(Icons.music_note, color: C.text, size: 14),
         ),
       ),
     );

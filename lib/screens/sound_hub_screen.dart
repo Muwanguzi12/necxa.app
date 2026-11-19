@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme.dart';
 import '../app_state.dart';
 import '../models/music_models.dart';
@@ -130,17 +131,107 @@ class _SoundHubScreenState extends State<SoundHubScreen> {
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _actionBtn(Icons.play_arrow_rounded, 'Play Preview', () {}),
-            const SizedBox(width: 12),
-            _actionBtn(Icons.bookmark_border, 'Save Sound', () {}),
-            const SizedBox(width: 12),
-            _actionBtn(Icons.share_outlined, 'Share', () {}),
+            Row(
+              children: [
+                _actionBtn(Icons.play_arrow_rounded, 'Play Preview', () {}),
+                const SizedBox(width: 12),
+                _actionBtn(Icons.bookmark_border, 'Save Sound', () {}),
+                const SizedBox(width: 12),
+                _actionBtn(Icons.share_outlined, 'Share', () {}),
+              ],
+            ),
+
+            // ── Distributor outbound button (only for linked releases) ──────
+            if (widget.track.isDistributorLinked &&
+                widget.track.distributorUrl != null) ...[
+              const SizedBox(height: 14),
+              GestureDetector(
+                onTap: () async {
+                  final uri = Uri.tryParse(widget.track.distributorUrl!);
+                  if (uri != null) {
+                    await launchUrl(uri,
+                        mode: LaunchMode.externalApplication);
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 20, vertical: 13),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        _platformColor(widget.track.distributorPlatform)
+                            .withOpacity(0.15),
+                        Colors.transparent,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _platformColor(widget.track.distributorPlatform)
+                          .withOpacity(0.5),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.open_in_new_rounded,
+                          color: _platformColor(
+                              widget.track.distributorPlatform),
+                          size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Listen Full Song on ${widget.track.distributorLabel}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: _platformColor(
+                                    widget.track.distributorPlatform),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Support the artist — stream the full track',
+                              style: TextStyle(
+                                  fontSize: 10, color: Colors.white38),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.arrow_forward_ios,
+                          size: 12,
+                          color: _platformColor(
+                              widget.track.distributorPlatform)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Color _platformColor(String? platform) {
+    switch (platform) {
+      case 'spotify':
+        return const Color(0xFF1DB954);
+      case 'apple_music':
+        return const Color(0xFFFA233B);
+      case 'audiomack':
+        return const Color(0xFFFF6600);
+      case 'soundcloud':
+        return const Color(0xFFFF5500);
+      case 'distrokid':
+        return const Color(0xFF6C63FF);
+      default:
+        return Colors.white70;
+    }
   }
 
   Widget _actionBtn(IconData icon, String label, VoidCallback onTap) {

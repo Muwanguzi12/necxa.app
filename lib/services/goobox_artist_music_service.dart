@@ -391,8 +391,51 @@ class GooboxArtistMusicService {
       'usage_count': track.usageCount,
       'is_trending': track.isTrending,
       'is_featured': track.isFeatured,
+      'distributor_url': track.distributorUrl,
+      'distributor_platform': track.distributorPlatform,
     };
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 6. DISTRIBUTOR-LINKED TRACK REGISTRATION
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Saves a distributor-linked track (from Spotify, Apple Music, DistroKid
+  /// etc.) into the artist's Goobox catalog without uploading any audio.
+  /// The [payload] must include all fields returned by [DistributorMusicService.resolve].
+  Future<void> registerDistributorTrack({
+    required String artistId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      // Add to artist catalog
+      final existingTracks = await fetchArtistTracks(artistId, forceRefresh: true);
+      final newTrack = MusicTrack.fromJson(payload);
+      final updatedTracks = [newTrack, ...existingTracks];
+      await _saveCatalogToStorage(
+        'music/$artistId/catalog.json',
+        updatedTracks.map(_trackToJson).toList(),
+      );
+      _artistCache[artistId] = updatedTracks;
+
+      // Add to global discovery catalog
+      try {
+        final existingGlobal = await fetchDiscoveryTracks(forceRefresh: true);
+        final updatedGlobal = [newTrack, ...existingGlobal];
+        await _saveCatalogToStorage(
+          'music/global_catalog.json',
+          updatedGlobal.map(_trackToJson).toList(),
+        );
+        _globalDiscoveryCache = updatedGlobal;
+      } catch (e) {
+        debugPrint('[GooboxMusic] Notice updating global catalog: $e');
+      }
+    } catch (e) {
+      debugPrint('[GooboxMusic] registerDistributorTrack error: $e');
+      rethrow;
+    }
+  }
+
 
   bool _isAudioExtension(String name) {
     final lower = name.toLowerCase();
