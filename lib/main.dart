@@ -321,6 +321,7 @@ class _RootShellState extends State<RootShell> {
           state: _state,
           initialTrack: _state.initialMusicTrack,
           initialObjective: _state.initialUploadObjective,
+          initialLinkedListing: _state.initialLinkedListing,
         );
       case 'chat':
       case 'chat-list':

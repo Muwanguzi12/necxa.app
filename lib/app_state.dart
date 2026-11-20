@@ -441,6 +441,7 @@ class AppState extends ChangeNotifier {
   // Viral Sound State
   MusicTrack? initialMusicTrack;
   String? initialUploadObjective;
+  Map<String, dynamic>? initialLinkedListing;
   final DraftService drafts = DraftService();
   final MusicLibraryService music = MusicLibraryService();
   final GooboxArtistMusicService artistMusic = GooboxArtistMusicService.instance;
@@ -1760,12 +1761,19 @@ class AppState extends ChangeNotifier {
       if (extra is MusicTrack) {
         initialMusicTrack = extra;
         initialUploadObjective = null;
+        initialLinkedListing = null;
       } else if (extra is String) {
         initialMusicTrack = null;
         initialUploadObjective = extra;
+        initialLinkedListing = null;
+      } else if (extra is Map<String, dynamic>) {
+        initialMusicTrack = null;
+        initialUploadObjective = extra['objective']?.toString() ?? 'sales';
+        initialLinkedListing = extra['listing'] as Map<String, dynamic>?;
       } else {
         initialMusicTrack = null;
         initialUploadObjective = null;
+        initialLinkedListing = null;
       }
     }
 
@@ -1782,7 +1790,7 @@ class AppState extends ChangeNotifier {
 
   bool get chatAvailable => true;
 
-  bool _isChatRoute(String route) =>
+  bool isChatRoute(String route) =>
       route == 'chat' ||
       route == 'chat-list' ||
       route == 'new-chat' ||

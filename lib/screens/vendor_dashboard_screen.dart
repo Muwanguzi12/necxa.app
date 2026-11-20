@@ -1001,7 +1001,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 color: const Color(0xFF131A2D),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 onSelected: (action) {
-                  if (action == 'delete') {
+                  if (action == 'promote') {
+                    widget.state.go('upload', extra: {
+                      'objective': 'sales',
+                      'listing': listing,
+                    });
+                  } else if (action == 'delete') {
                     _confirmDelete(id, title);
                   } else if (action == 'toggle') {
                     _toggleStatus(id, isActive);
@@ -1009,17 +1014,54 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 },
                 itemBuilder: (_) => [
                   PopupMenuItem(
+                    value: 'promote',
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.campaign_rounded,
+                          size: 16,
+                          color: Color(0xFF00E5FF),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Promote Product',
+                          style: dm(sz: 12, c: const Color(0xFF00E5FF), w: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
                     value: 'toggle',
-                    child: Text(
-                      isActive ? 'Mark Inactive' : 'Mark Active',
-                      style: dm(sz: 12, c: Colors.white),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isActive ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                          size: 16,
+                          color: Colors.white70,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isActive ? 'Mark Inactive' : 'Mark Active',
+                          style: dm(sz: 12, c: Colors.white),
+                        ),
+                      ],
                     ),
                   ),
                   PopupMenuItem(
                     value: 'delete',
-                    child: Text(
-                      'Delete Product',
-                      style: dm(sz: 12, c: Colors.redAccent),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 16,
+                          color: Colors.redAccent,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Delete Product',
+                          style: dm(sz: 12, c: Colors.redAccent),
+                        ),
+                      ],
                     ),
                   ),
                 ],

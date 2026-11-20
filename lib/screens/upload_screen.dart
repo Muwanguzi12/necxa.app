@@ -107,11 +107,13 @@ class UploadScreen extends StatefulWidget {
   final AppState state;
   final MusicTrack? initialTrack;
   final String? initialObjective;
+  final Map<String, dynamic>? initialLinkedListing;
   const UploadScreen({
     super.key,
     required this.state,
     this.initialTrack,
     this.initialObjective,
+    this.initialLinkedListing,
   });
 
   @override
@@ -198,7 +200,39 @@ class _UploadScreenState extends State<UploadScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (widget.initialObjective != null && widget.initialObjective!.isNotEmpty) {
+    if (widget.initialLinkedListing != null) {
+      _linkedListing = widget.initialLinkedListing;
+      _objectiveId = 'sales';
+      _title = _linkedListing!['title']?.toString() ?? '';
+      _titleController.text = _title;
+      _desc = _linkedListing!['description']?.toString() ?? '';
+      _descController.text = _desc;
+      _price = (_linkedListing!['price_ugx'] ?? _linkedListing!['price'] ?? '').toString();
+      _priceController.text = _price;
+      _sku = _linkedListing!['sku']?.toString() ?? '';
+      _skuController.text = _sku;
+      _stock = (_linkedListing!['stock_count'] ?? _linkedListing!['stock'] ?? '').toString();
+      _stockController.text = _stock;
+      if (_linkedListing!['weight_kg'] != null) {
+        _weightController.text = _linkedListing!['weight_kg'].toString();
+      }
+      if (_linkedListing!['length_cm'] != null) {
+        _lengthController.text = _linkedListing!['length_cm'].toString();
+      }
+      if (_linkedListing!['width_cm'] != null) {
+        _widthController.text = _linkedListing!['width_cm'].toString();
+      }
+      if (_linkedListing!['height_cm'] != null) {
+        _heightController.text = _linkedListing!['height_cm'].toString();
+      }
+      if (_linkedListing!['latitude'] != null) {
+        _pickupLatitude = (_linkedListing!['latitude'] as num).toDouble();
+      }
+      if (_linkedListing!['longitude'] != null) {
+        _pickupLongitude = (_linkedListing!['longitude'] as num).toDouble();
+      }
+      _step = 2; // Jump straight to Film Hub to capture or upload promotional reel!
+    } else if (widget.initialObjective != null && widget.initialObjective!.isNotEmpty) {
       _objectiveId = widget.initialObjective;
       _step = 1; // Jump straight into Campaign Details / Sales Product setup
     }
@@ -619,11 +653,12 @@ class _UploadScreenState extends State<UploadScreen>
         _err('Headline is required');
         return;
       }
-      if (_objectiveId == 'sales' && _price.isEmpty) {
+      if (_objectiveId == 'sales' && _linkedListing == null && _price.isEmpty) {
         _err('Price is required for sales');
         return;
       }
       if (_objectiveId == 'sales' &&
+          _linkedListing == null &&
           !RegExp(r'^\d{4}[A-Za-z]{3}$').hasMatch(_sku.trim())) {
         _err(
           'SKU is required and must contain 4 digits followed by 3 letters (example: 1234ABC)',
@@ -631,6 +666,7 @@ class _UploadScreenState extends State<UploadScreen>
         return;
       }
       if (_objectiveId == 'sales' &&
+          _linkedListing == null &&
           (double.tryParse(_weightController.text) == null ||
               double.tryParse(_lengthController.text) == null ||
               double.tryParse(_widthController.text) == null ||
@@ -639,6 +675,7 @@ class _UploadScreenState extends State<UploadScreen>
         return;
       }
       if (_objectiveId == 'sales' &&
+          _linkedListing == null &&
           (_pickupLatitude == null || _pickupLongitude == null)) {
         _err('Pin the product pickup location before continuing');
         return;
@@ -1585,7 +1622,65 @@ class _UploadScreenState extends State<UploadScreen>
           child: Column(
             children: [
               if (_objectiveId == 'sales') ...[
-                const SizedBox(height: 20),
+                if (_linkedListing != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E5FF).withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFF00E5FF).withOpacity(0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withOpacity(0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.campaign_rounded,
+                            color: Color(0xFF00E5FF),
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'PROMOTING PRODUCT',
+                                style: syne(
+                                  sz: 9,
+                                  w: FontWeight.w900,
+                                  c: const Color(0xFF00E5FF),
+                                  ls: 1,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _linkedListing!['title']?.toString() ?? 'Product',
+                                style: syne(
+                                  sz: 13,
+                                  w: FontWeight.bold,
+                                  c: Colors.white,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
                 if (_linkedListing == null) ...[
                   _buildProductPhotoPicker(),
                   const SizedBox(height: 20),
