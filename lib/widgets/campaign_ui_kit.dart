@@ -5,16 +5,18 @@ import '../theme.dart';
 class ObjectiveCard extends StatelessWidget {
   final String title;
   final String subtitle;
-  final IconData icon;
+  final IconData? icon;
+  final String? imageAsset;
   final List<Color> colors;
   final VoidCallback onTap;
   final bool isSelected;
 
-  ObjectiveCard({
+  const ObjectiveCard({
     super.key,
     required this.title,
     required this.subtitle,
-    required this.icon,
+    this.icon,
+    this.imageAsset,
     required this.colors,
     required this.onTap,
     this.isSelected = false,
@@ -25,9 +27,9 @@ class ObjectiveCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: Duration(milliseconds: 300),
+        duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
-        margin: EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 16),
         height: 120,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(24),
@@ -52,19 +54,50 @@ class ObjectiveCard extends StatelessWidget {
             children: [
               Positioned(
                 right: -10, bottom: -10,
-                child: Icon(icon, color: C.text.withAlpha(13), size: 100),
+                child: imageAsset != null
+                    ? Opacity(
+                        opacity: 0.12,
+                        child: Image.asset(
+                          imageAsset!,
+                          width: 100,
+                          height: 100,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => icon != null
+                              ? Icon(icon, color: C.text.withAlpha(13), size: 100)
+                              : const SizedBox(width: 100, height: 100),
+                        ),
+                      )
+                    : (icon != null
+                        ? Icon(icon, color: C.text.withAlpha(13), size: 100)
+                        : const SizedBox()),
               ),
               Padding(
-                padding: EdgeInsets.all(20),
+                padding: const EdgeInsets.all(20),
                 child: Row(
                   children: [
                     Container(
-                      padding: EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(10),
+                      width: 52,
+                      height: 52,
                       decoration: BoxDecoration(
                         color: isSelected ? Colors.black26 : colors[0].withAlpha(51),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(icon, color: isSelected ? C.text : colors[0], size: 28),
+                      child: Center(
+                        child: imageAsset != null
+                            ? Image.asset(
+                                imageAsset!,
+                                width: 30,
+                                height: 30,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => icon != null
+                                    ? Icon(icon, color: isSelected ? C.text : colors[0], size: 28)
+                                    : const SizedBox(),
+                              )
+                            : (icon != null
+                                ? Icon(icon, color: isSelected ? C.text : colors[0], size: 28)
+                                : const SizedBox()),
+                      ),
                     ),
                     SizedBox(width: 20),
                     Expanded(

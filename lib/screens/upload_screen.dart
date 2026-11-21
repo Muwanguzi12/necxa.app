@@ -1582,19 +1582,28 @@ class _UploadScreenState extends State<UploadScreen>
       body: SafeArea(
         child: Column(
           children: [
-            _topBar(_getStepTitle(), () {
-              if (_step > 0) {
-                final previousStep = _step;
-                setState(() => _step--);
-                if (_step == 2) {
-                  unawaited(_startLivePreview());
-                } else if (previousStep == 2) {
-                  unawaited(_stopLivePreview());
+            _topBar(
+              _getStepTitle(),
+              () {
+                if (_step > 0) {
+                  final previousStep = _step;
+                  setState(() => _step--);
+                  if (_step == 2) {
+                    unawaited(_startLivePreview());
+                  } else if (previousStep == 2) {
+                    unawaited(_stopLivePreview());
+                  }
+                } else {
+                  widget.state.go('community');
                 }
-              } else {
-                widget.state.go('community');
-              }
-            }, color: accent),
+              },
+              color: accent,
+              action: _step == 0
+                  ? _buildTopAction('Configure Setup', accent, _next)
+                  : (_step == 1
+                      ? _buildTopAction('Open Film Hub', accent, _next)
+                      : null),
+            ),
 
             PremiumStepper(
               currentStep: _step,
@@ -1617,7 +1626,7 @@ class _UploadScreenState extends State<UploadScreen>
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: _step < 99 ? _buildPrimaryAction(accent) : null,
+      floatingActionButton: (_step >= 2 && _step < 99) ? _buildPrimaryAction(accent) : null,
     );
   }
 
@@ -1665,6 +1674,7 @@ class _UploadScreenState extends State<UploadScreen>
           title: 'Awareness',
           subtitle: 'Community contribution & Social synergy',
           icon: Icons.auto_awesome,
+          imageAsset: 'assets/images/objective_awareness.png',
           colors: const [Color(0xFF00E5FF), Color(0xFF3B82F6)],
           isSelected: _objectiveId == 'awareness',
           onTap: () => setState(() => _objectiveId = 'awareness'),
@@ -1673,6 +1683,7 @@ class _UploadScreenState extends State<UploadScreen>
           title: 'Conversion',
           subtitle: 'Artist Hub. Digital collectibles & Audio visual releases',
           icon: Icons.library_music,
+          imageAsset: 'assets/images/objective_conversion.png',
           colors: const [Color(0xFFA855F7), Color(0xFF7B2FFF)],
           isSelected: _objectiveId == 'conversion',
           onTap: () {
@@ -1687,6 +1698,7 @@ class _UploadScreenState extends State<UploadScreen>
           title: 'Sales',
           subtitle: 'Catalog-based commerce & Product listings',
           icon: Icons.shopping_bag_outlined,
+          imageAsset: 'assets/images/objective_sales.png',
           colors: const [Color(0xFFF4A228), Color(0xFFEF4444)],
           isSelected: _objectiveId == 'sales',
           onTap: () => setState(() => _objectiveId = 'sales'),
@@ -2460,10 +2472,51 @@ class _UploadScreenState extends State<UploadScreen>
   }
 
   // -- SHARED WIDGETS -------------------------------------------
+  Widget _buildTopAction(String label, Color accent, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: accent,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: accent.withAlpha(77),
+              blurRadius: 12,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: syne(
+                sz: 11,
+                w: FontWeight.w900,
+                c: Colors.black,
+                ls: 1,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 11,
+              color: Colors.black,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _topBar(
     String title,
     VoidCallback onBack, {
     Color? color,
+    Widget? action,
   }) {
     final activeColor = color ?? C.text;
     return Padding(
@@ -2471,7 +2524,7 @@ class _UploadScreenState extends State<UploadScreen>
       child: Row(
         children: [
           IconButton(
-            icon: Icon(Icons.arrow_back_ios_new),
+            icon: const Icon(Icons.arrow_back_ios_new),
             onPressed: onBack,
             color: activeColor,
           ),
@@ -2479,6 +2532,8 @@ class _UploadScreenState extends State<UploadScreen>
             title,
             style: syne(sz: 18, w: FontWeight.w900, c: activeColor),
           ),
+          const Spacer(),
+          if (action != null) action,
         ],
       ),
     );
