@@ -2352,6 +2352,29 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                 // Shop Reel inline buy card if linked to a listing
                                 if (widget.post['listings'] != null) ...[
                                   const SizedBox(height: 8),
+                                  if (widget.post['is_promoted'] == true)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF00E5FF).withAlpha(30),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: const Color(0xFF00E5FF).withAlpha(100)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.campaign_rounded, color: Color(0xFF00E5FF), size: 10),
+                                            const SizedBox(width: 4),
+                                            const Text(
+                                              'Sponsored',
+                                              style: TextStyle(fontSize: 10, color: Color(0xFF00E5FF), fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   _buildMiniBuyCard(widget.post['listings']),
                                 ],
                               ],

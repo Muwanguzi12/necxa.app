@@ -983,6 +983,29 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     ],
                   ),
                 ),
+                if (listing['is_promoted'] == true &&
+                    listing['promotion_ends_at'] != null) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E5FF).withAlpha(30),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFF00E5FF).withAlpha(100)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.campaign_rounded, color: Color(0xFF00E5FF), size: 9),
+                        const SizedBox(width: 3),
+                        const Text(
+                          'Promoted',
+                          style: TextStyle(fontSize: 8, color: Color(0xFF00E5FF), fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

@@ -86,6 +86,31 @@ class PaymentService {
     }
   }
 
+  Future<Map<String, dynamic>> chargeProductPromotion({
+    required String userId,
+    required String listingId,
+    required int totalCoins,
+    required int dailyCoins,
+    required int durationDays,
+  }) async {
+    final idempotencyKey =
+        'promote-$listingId-$userId-${DateTime.now().millisecondsSinceEpoch}';
+    final result = await FinanceBackend.instance.invoke(
+      'charge_product_promotion',
+      body: {
+        'listingId': listingId,
+        'amountNcx': totalCoins,
+        'dailySpendNcx': dailyCoins,
+        'durationDays': durationDays,
+        'idempotencyKey': idempotencyKey,
+      },
+    );
+    if (result['success'] != true) {
+      throw Exception(result['message'] ?? 'Product promotion charge failed.');
+    }
+    return result;
+  }
+
   /// Initiates the FCFS escrow deposit payment via the Finance Engine.
   /// Returns the Pesapal redirectUrl and a paymentId for polling.
   Future<Map<String, dynamic>> initiateEscrowPayment({

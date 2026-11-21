@@ -22,6 +22,7 @@ import '../models/music_models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/media_compression_service.dart';
+import '../widgets/vault_buy_shards_overlay.dart';
 import '../services/editor_export_service.dart';
 import '../services/ai_service.dart';
 import '../utils/error_handler.dart';
@@ -185,6 +186,27 @@ class _UploadScreenState extends State<UploadScreen>
   Map<String, dynamic>? _linkedListing;
   double? _pickupLatitude;
   double? _pickupLongitude;
+
+  // -- Product Promotion Campaign Settings (Necxa Coins) --
+  int _promotionDailySpend = 20; // Default 20 Coins / day
+  int _promotionDurationDays = 7; // Default 7 days
+  int get _totalPromotionCoins => _promotionDailySpend * _promotionDurationDays;
+
+  void _openTopUpModal([int? neededCoins]) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => VaultBuyShardsOverlay(
+        state: widget.state,
+        minimumNcx: neededCoins ?? 0,
+        purchaseContextType: 'product_promotion',
+        purchaseContextId: _linkedListing?['id']?.toString(),
+      ),
+    ).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   // -- Sync State ----------------------------------------------
   bool _isOptimizing = false;
@@ -692,6 +714,14 @@ class _UploadScreenState extends State<UploadScreen>
         _err('Please agree to Necxa policies');
         return;
       }
+      if (_linkedListing != null &&
+          widget.state.coinBalance < _totalPromotionCoins) {
+        _err(
+          'Insufficient NCX Coins (${_totalPromotionCoins} needed, '
+          '${widget.state.coinBalance.toInt()} available). Top up to launch.',
+        );
+        return;
+      }
       _publishPost();
       return;
     }
@@ -721,7 +751,9 @@ class _UploadScreenState extends State<UploadScreen>
 
       // ?? NEURAL DESTINATION WARP: Teleport user to where their content lives
       final destinationTab = (_objectiveId == 'sales') ? 'shop' : 'feed';
-      final successMsg = (_objectiveId == 'sales')
+      final successMsg = (_objectiveId == 'sales' && _linkedListing != null)
+          ? '📢 Product promoted for ${_promotionDurationDays} days!'
+          : (_objectiveId == 'sales')
           ? '🛍️ Your product is LIVE in the Shop!'
           : (_objectiveId == 'conversion')
           ? '🎵 Your release is LIVE in the Feed!'
@@ -1217,6 +1249,19 @@ class _UploadScreenState extends State<UploadScreen>
       verification,
       contentId: listing['id']?.toString(),
     );
+
+    // Charge promotion fee if promoting an existing listing
+    if (_linkedListing != null) {
+      setState(() => _optimizingStatus = 'Charging promotion fee (${_totalPromotionCoins} NCX)...');
+      await widget.state.payment.chargeProductPromotion(
+        userId: userId,
+        listingId: _linkedListing!['id'].toString(),
+        totalCoins: _totalPromotionCoins,
+        dailyCoins: _promotionDailySpend,
+        durationDays: _promotionDurationDays,
+      );
+      widget.state.updateCoins(-_totalPromotionCoins);
+    }
   }
 
   Future<void> _dispatchArtistCampaign() async {
@@ -2125,6 +2170,11 @@ class _UploadScreenState extends State<UploadScreen>
           child: Column(
             children: [
               _reviewRow('Objective', _objectiveId?.toUpperCase() ?? 'NONE'),
+              if (_linkedListing != null)
+                _reviewRow(
+                  'Product',
+                  _linkedListing!['title']?.toString() ?? 'Existing Listing',
+                ),
               _reviewRow('Tracks', '${_multiFiles.length} Layers'),
               _reviewRow(
                 'Sound',
@@ -2154,7 +2204,200 @@ class _UploadScreenState extends State<UploadScreen>
             ],
           ),
         ),
+        if (_linkedListing != null) ...[
+          const SizedBox(height: 20),
+          _buildPromotionBudgetCard(),
+        ],
       ],
+    );
+  }
+
+  Widget _buildPromotionBudgetCard() {
+    final balance = widget.state.coinBalance.toInt();
+    final total = _totalPromotionCoins;
+    final sufficient = balance >= total;
+
+    Widget stepperRow({
+      required String label,
+      required int value,
+      required String unit,
+      required VoidCallback onMinus,
+      required VoidCallback onPlus,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Expanded(child: Text(label, style: dm(sz: 12, c: C.dim))),
+            GestureDetector(
+              onTap: onMinus,
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E2A42),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white12),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(Icons.remove, color: Colors.white70, size: 14),
+              ),
+            ),
+            SizedBox(
+              width: 80,
+              child: Text(
+                '${value} ${unit}',
+                textAlign: TextAlign.center,
+                style: syne(sz: 13, w: FontWeight.w700, c: Colors.white),
+              ),
+            ),
+            GestureDetector(
+              onTap: onPlus,
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E2A42),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white12),
+                ),
+                alignment: Alignment.center,
+                child: const Icon(Icons.add, color: Colors.white70, size: 14),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A1628),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF00E5FF).withAlpha(77)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.campaign_rounded, color: Color(0xFF00E5FF), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'PROMOTION BUDGET',
+                style: syne(sz: 12, w: FontWeight.w900, c: const Color(0xFF00E5FF), ls: 1.5),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _linkedListing!['title']?.toString() ?? 'Product',
+            style: dm(sz: 11, c: Colors.white54),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 12),
+          Divider(color: Colors.white10, height: 1),
+          const SizedBox(height: 12),
+          stepperRow(
+            label: 'Daily Spend',
+            value: _promotionDailySpend,
+            unit: 'NCX / day',
+            onMinus: () => setState(() {
+              if (_promotionDailySpend > 10) _promotionDailySpend -= 10;
+            }),
+            onPlus: () => setState(() {
+              if (_promotionDailySpend < 200) _promotionDailySpend += 10;
+            }),
+          ),
+          stepperRow(
+            label: 'Duration',
+            value: _promotionDurationDays,
+            unit: 'days',
+            onMinus: () => setState(() {
+              if (_promotionDurationDays > 1) _promotionDurationDays--;
+            }),
+            onPlus: () => setState(() {
+              if (_promotionDurationDays < 30) _promotionDurationDays++;
+            }),
+          ),
+          const SizedBox(height: 12),
+          Divider(color: Colors.white10, height: 1),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Total Cost', style: dm(sz: 12, c: C.dim)),
+              Text(
+                '${total} NCX',
+                style: syne(sz: 14, w: FontWeight.w900, c: const Color(0xFFFFC107)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Your Balance', style: dm(sz: 12, c: C.dim)),
+              Text(
+                '${balance} NCX',
+                style: dm(sz: 12, w: FontWeight.bold, c: Colors.white70),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (sufficient)
+            Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  'Ready to Launch',
+                  style: dm(sz: 12, w: FontWeight.bold, c: const Color(0xFF4CAF50)),
+                ),
+              ],
+            )
+          else ...[
+            Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFC107), size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Shortfall: ${total - balance} NCX needed',
+                    style: dm(sz: 12, c: const Color(0xFFFFC107)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => _openTopUpModal(total),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00E5FF), Color(0xFF0088FF)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.add_circle_outline, color: Colors.black, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Top Up Coins',
+                      style: syne(sz: 13, w: FontWeight.w700, c: Colors.black),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

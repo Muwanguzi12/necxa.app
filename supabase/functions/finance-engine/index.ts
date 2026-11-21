@@ -1735,9 +1735,14 @@ serve(async (req) => {
       return json(data as Record<string, unknown>);
     }
 
-    if (action === "unlock_feature" || action === "charge_artist_distribution") {
+    if (action === "unlock_feature" || action === "charge_artist_distribution" || action === "charge_product_promotion") {
       const isFeature = action === "unlock_feature";
-      const reference = isFeature ? String(body.featureId ?? "") : String(body.reference ?? "artist_distribution");
+      const isPromotion = action === "charge_product_promotion";
+      const reference = isFeature
+        ? String(body.featureId ?? "")
+        : isPromotion
+          ? String(body.listingId ?? body.reference ?? "")
+          : String(body.reference ?? "artist_distribution");
       const amountNcx = Math.trunc(Number(body.costNcx ?? body.amountNcx));
       const idempotencyKey = String(body.idempotencyKey ?? "");
       if (!reference || !Number.isFinite(amountNcx) || amountNcx <= 0 || !idempotencyKey) {
@@ -1752,14 +1757,51 @@ serve(async (req) => {
           .maybeSingle();
         if (existing) return json({ success: true, alreadyUnlocked: true });
       }
+      const purpose = isFeature
+        ? "feature_unlock"
+        : isPromotion
+          ? "product_promotion"
+          : "distribution_charge";
       const { data, error } = await supabase.rpc("charge_ncx_purpose", {
         p_user_id: user.id,
         p_amount_ncx: amountNcx,
-        p_purpose: isFeature ? "feature_unlock" : "distribution_charge",
+        p_purpose: purpose,
         p_reference: reference,
         p_idempotency_key: idempotencyKey,
       });
       if (error) return json({ success: false, message: error.message }, 409);
+      if (isFeature) {
+        await supabase.from("finance_feature_unlocks").insert({
+          user_id: user.id,
+          feature_id: reference,
+          cost_ncx: amountNcx,
+        });
+      }
+      if (isPromotion) {
+        const durationDays = Math.max(1, Math.min(30, Math.trunc(Number(body.durationDays ?? 7))));
+        const dailySpendNcx = Math.trunc(Number(body.dailySpendNcx ?? (amountNcx / durationDays)));
+        const startsAt = new Date().toISOString();
+        const endsAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
+        await supabase
+          .from("listings")
+          .update({
+            is_promoted: true,
+            promotion_daily_coins: dailySpendNcx,
+            promotion_duration_days: durationDays,
+            promotion_starts_at: startsAt,
+            promotion_ends_at: endsAt,
+          })
+          .eq("id", reference);
+        return json({
+          success: true,
+          amountCharged: amountNcx,
+          durationDays,
+          dailySpendNcx,
+          promotionStartsAt: startsAt,
+          promotionEndsAt: endsAt,
+          ...((data as Record<string, unknown>) ?? {}),
+        });
+      }
       return json(data as Record<string, unknown>);
     }
 
