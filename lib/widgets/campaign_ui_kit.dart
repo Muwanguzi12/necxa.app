@@ -53,15 +53,15 @@ class ObjectiveCard extends StatelessWidget {
           child: Stack(
             children: [
               Positioned(
-                right: -10, bottom: -10,
+                right: -15, bottom: -15,
                 child: imageAsset != null
                     ? Opacity(
-                        opacity: 0.12,
+                        opacity: 0.22,
                         child: Image.asset(
                           imageAsset!,
-                          width: 100,
-                          height: 100,
-                          fit: BoxFit.contain,
+                          width: 120,
+                          height: 120,
+                          fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => icon != null
                               ? Icon(icon, color: C.text.withAlpha(13), size: 100)
                               : const SizedBox(width: 100, height: 100),
@@ -72,27 +72,33 @@ class ObjectiveCard extends StatelessWidget {
                         : const SizedBox()),
               ),
               Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(10),
-                      width: 52,
-                      height: 52,
+                      width: 56,
+                      height: 56,
                       decoration: BoxDecoration(
                         color: isSelected ? Colors.black26 : colors[0].withAlpha(51),
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected ? C.text : colors[0].withAlpha(77),
+                          width: 1.5,
+                        ),
                       ),
+                      clipBehavior: Clip.antiAlias,
                       child: Center(
                         child: imageAsset != null
-                            ? Image.asset(
-                                imageAsset!,
-                                width: 30,
-                                height: 30,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => icon != null
-                                    ? Icon(icon, color: isSelected ? C.text : colors[0], size: 28)
-                                    : const SizedBox(),
+                            ? ClipOval(
+                                child: Image.asset(
+                                  imageAsset!,
+                                  width: 52,
+                                  height: 52,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => icon != null
+                                      ? Icon(icon, color: isSelected ? C.text : colors[0], size: 28)
+                                      : const SizedBox(),
+                                ),
                               )
                             : (icon != null
                                 ? Icon(icon, color: isSelected ? C.text : colors[0], size: 28)
