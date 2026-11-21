@@ -483,8 +483,14 @@ class VideoEnhancementService {
     for (int i = 0; i < overlays.length; i++) {
       final path = overlays[i].imagePath;
       if (path != null && path.isNotEmpty) {
+        final lower = path.toLowerCase();
+        final isStaticImage = lower.endsWith('.png') ||
+            lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.webp');
+        final loopOption = isStaticImage ? '-loop 1' : '-stream_loop -1';
         inputs +=
-            "-stream_loop -1 -t ${_timelineDuration(clips).toStringAsFixed(3)} -i '${_escapePath(path)}' ";
+            "$loopOption -t ${_timelineDuration(clips).toStringAsFixed(3)} -i '${_escapePath(path)}' ";
         imageOverlayIndexes[i] = nextIndex;
         nextIndex++;
       }
@@ -510,9 +516,8 @@ class VideoEnhancementService {
       audioTrackIndexes[i] = nextIndex++;
     }
 
-    int silentIndex = nextIndex;
-    String silentInput =
-        "-f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 ";
+    // Silence is generated per-clip directly in the filtergraph via anullsrc
+    // to avoid input pad reuse conflicts across multiple clips.
 
     String filterComplex = "";
 
@@ -584,19 +589,13 @@ class VideoEnhancementService {
       }
 
       if (clip.isVideo && clip.hasAudio) {
-        // Use [i:a] if available, otherwise use silence
-        // We use amix with silence to ensure an audio stream exists even if input has none
         filterComplex +=
-            "[$i:a]atrim=start=${clip.start}:end=${clip.end},asetpts=PTS-STARTPTS${clip.reverse ? ',areverse' : ''},$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a_orig_$i];";
-        // Mix with a slice of silence for extreme robustness
-        filterComplex +=
-            "[$silentIndex:a]atrim=duration=${duration / clip.speed},asetpts=PTS-STARTPTS[silence$i];";
-        filterComplex +=
-            "[a_orig_$i][silence$i]amix=inputs=2:duration=first[a$i];";
+            "[$i:a]atrim=start=${clip.start}:end=${clip.end},asetpts=PTS-STARTPTS${clip.reverse ? ',areverse' : ''},$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a$i];";
       } else {
-        // Images or audio-less videos get silence
+        // Independent stereo silence generated directly in filtergraph per clip
+        final silentDuration = (duration / clip.speed).toStringAsFixed(3);
         filterComplex +=
-            "[$silentIndex:a]atrim=duration=${duration / clip.speed},asetpts=PTS-STARTPTS,volume=0[a$i];";
+            "anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=$silentDuration,asetpts=PTS-STARTPTS[a$i];";
       }
     }
 
@@ -754,12 +753,30 @@ class VideoEnhancementService {
           },
         };
         final fontPath = overlay.fontFilePath;
-        final fontOption =
-            fontPath != null &&
-                fontPath.isNotEmpty &&
-                File(fontPath).existsSync()
-            ? "fontfile='${_escapeDrawText(fontPath)}'"
-            : "font='$font'";
+        String fontOption;
+        if (fontPath != null &&
+            fontPath.isNotEmpty &&
+            File(fontPath).existsSync()) {
+          fontOption = "fontfile='${_escapeDrawText(fontPath)}'";
+        } else {
+          String? systemFont;
+          for (final candidate in const [
+            '/system/fonts/Roboto-Regular.ttf',
+            '/system/fonts/DroidSans.ttf',
+            '/System/Library/Fonts/Core/Helvetica.ttc',
+            '/System/Library/Fonts/SFNSText.ttf',
+          ]) {
+            if (File(candidate).existsSync()) {
+              systemFont = candidate;
+              break;
+            }
+          }
+          if (systemFont != null) {
+            fontOption = "fontfile='$systemFont'";
+          } else {
+            fontOption = "font='$font'";
+          }
+        }
         final normalizedX = overlay.x.clamp(0.0, 1.0);
         final baseX = overlay.align == 'left'
             ? "w*${normalizedX}"
@@ -947,7 +964,7 @@ class VideoEnhancementService {
     // libx264 -crf 26: The "Economical" compression sweet spot
     // -maxrate 2.5M: Prevents bitrate spikes on mobile data
     String command =
-        "$inputs $silentInput -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
+        "$inputs -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
 
     debugPrint('Executing smarter FFmpeg command: $command');
     final session = await FFmpegKit.execute(command);
