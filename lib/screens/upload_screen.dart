@@ -141,6 +141,8 @@ class _UploadScreenState extends State<UploadScreen>
   File? _preparedThumbnailFile;
   Map<String, dynamic>? _aiVerification;
   bool _visualAlreadyCompressed = false;
+  bool _audioBakedIntoVisual = false;
+  bool _expectedEmbeddedAudio = false;
   List<File>? _preparedVisualFiles;
   Map<String, dynamic>? _uploadedMediaCache;
   final Map<String, Map<String, dynamic>> _uploadedFileCache =
@@ -464,6 +466,12 @@ class _UploadScreenState extends State<UploadScreen>
       return;
     }
     final file = File(f.path);
+    _audioBakedIntoVisual = false;
+    _expectedEmbeddedAudio = false;
+    _visualAlreadyCompressed = false;
+    _preparedVisualFiles = null;
+    _uploadedMediaCache = null;
+    _uploadedFileCache.clear();
     if (!mounted) return;
     final resumeLivePreview = _shouldRunLivePreview;
     if (resumeLivePreview) await _stopLivePreview();
@@ -522,6 +530,8 @@ class _UploadScreenState extends State<UploadScreen>
           'source': 'mobile_editor',
         };
         _visualAlreadyCompressed = true;
+        _audioBakedIntoVisual = true;
+        _expectedEmbeddedAudio = result.audioExpected;
         _preparedVisualFiles = [preparedVideo];
         _uploadedMediaCache = null;
         _uploadedFileCache.clear();
@@ -567,8 +577,10 @@ class _UploadScreenState extends State<UploadScreen>
           _voiceOverFile = result['voice_over'];
           _preparedThumbnailFile = null;
           _aiVerification = null;
-          _visualAlreadyCompressed = false;
-          _preparedVisualFiles = null;
+          _visualAlreadyCompressed = combinedFile != null;
+          _audioBakedIntoVisual = combinedFile != null;
+          _expectedEmbeddedAudio = result['audio_expected'] == true;
+          _preparedVisualFiles = combinedFile == null ? null : [combinedFile];
           _uploadedMediaCache = null;
           _uploadedFileCache.clear();
           if (track != null && (_title.isEmpty || _title == 'Original Sound')) {
@@ -590,6 +602,10 @@ class _UploadScreenState extends State<UploadScreen>
       final res = await ImagePicker().pickMultipleMedia();
       if (res.isNotEmpty) {
         setState(() {
+          _audioBakedIntoVisual = false;
+          _expectedEmbeddedAudio = false;
+          _visualAlreadyCompressed = false;
+          _preparedVisualFiles = null;
           _multiFiles = res.map((x) => File(x.path)).toList();
           _visualFile = _multiFiles.first;
           _isVideo =
@@ -636,6 +652,10 @@ class _UploadScreenState extends State<UploadScreen>
         await _pickUnifiedMedia();
       } else if (result is CameraStudioResult) {
         setState(() {
+          _audioBakedIntoVisual = false;
+          _expectedEmbeddedAudio = false;
+          _visualAlreadyCompressed = false;
+          _preparedVisualFiles = null;
           _multiFiles = [..._multiFiles, ...result.clips];
           _visualFile = _multiFiles.isNotEmpty ? _multiFiles.first : null;
           _isVideo = true;
@@ -649,6 +669,10 @@ class _UploadScreenState extends State<UploadScreen>
         await _processResult(XFile(result.path), true);
       } else if (result is List<File>) {
         setState(() {
+          _audioBakedIntoVisual = false;
+          _expectedEmbeddedAudio = false;
+          _visualAlreadyCompressed = false;
+          _preparedVisualFiles = null;
           _multiFiles = [..._multiFiles, ...result];
           _visualFile = _multiFiles.first;
           _isVideo = true;
@@ -1041,6 +1065,17 @@ class _UploadScreenState extends State<UploadScreen>
         _preparedVisualFiles = [visualToUpload];
       }
 
+      final streamCheck = await EditorExportService.inspectFinalMp4(
+        visualToUpload,
+        requireAudio: _audioBakedIntoVisual && _expectedEmbeddedAudio,
+      );
+      if (streamCheck['valid'] != true) {
+        throw Exception(
+          _expectedEmbeddedAudio
+              ? 'The final MP4 is missing its expected audio or video stream.'
+              : 'The final MP4 is missing its video stream.',
+        );
+      }
       await _ensureVisualVerification([visualToUpload]);
 
       var thumbnail = _preparedThumbnailFile;
@@ -1197,6 +1232,9 @@ class _UploadScreenState extends State<UploadScreen>
                 'media_url': media['visualUrl'],
                 'media_type': mediaType,
                 'thumbnail_url': media['thumbUrl'],
+                'audio_url': _audioBakedIntoVisual
+                    ? null
+                    : _bakedTrack?.audioUrl,
                 'is_verified': true,
                 'ai_verification': verification,
                 'photos': productPhotoUrls.isNotEmpty
@@ -1234,7 +1272,7 @@ class _UploadScreenState extends State<UploadScreen>
           'type': 'COMMERCIAL',
           'stock_count': _stock.isNotEmpty ? int.tryParse(_stock) ?? 999 : 999,
           'music_track_id': _bakedTrack?.id,
-          'audio_url': _bakedTrack?.audioUrl,
+          'audio_url': _audioBakedIntoVisual ? null : _bakedTrack?.audioUrl,
           // Strictly separate: photos should only contain product miniatures
           'photos': productPhotoUrls.isNotEmpty ? productPhotoUrls : [],
           'status': 'active',
@@ -1331,6 +1369,7 @@ class _UploadScreenState extends State<UploadScreen>
       });
     }
 
+    final playbackAudioUrl = _audioBakedIntoVisual ? null : audioUrl;
     final post = await _runPublishingStage(
       stage: 'community_post_creation',
       status: 'Creating Feed post...',
@@ -1344,7 +1383,7 @@ class _UploadScreenState extends State<UploadScreen>
         'thumbnail_url': thumbUrl,
         'media_type': mediaType,
         'media_asset_id': mediaAssetId,
-        'audio_url': audioUrl,
+        'audio_url': playbackAudioUrl,
         'music_track_id': _bakedTrack?.id,
         'creator_mode': 'artist',
         'is_fast_sync': true,
@@ -1357,6 +1396,7 @@ class _UploadScreenState extends State<UploadScreen>
           'objective': 'conversion',
           'layers': _multiFiles.length,
           'has_voice_over': _voiceOverFile != null,
+          'audio_mixed_into_video': _audioBakedIntoVisual,
           'text_layers': _overlays.length,
           'overlays': _overlays,
           'start_offsets': _startOffsets,
@@ -1427,6 +1467,7 @@ class _UploadScreenState extends State<UploadScreen>
       });
     }
 
+    final playbackAudioUrl = _audioBakedIntoVisual ? null : audioUrl;
     final post = await _runPublishingStage(
       stage: 'community_post_creation',
       status: 'Creating Feed post...',
@@ -1440,7 +1481,7 @@ class _UploadScreenState extends State<UploadScreen>
         'thumbnail_url': thumbUrl,
         'media_type': mediaType,
         'media_asset_id': mediaAssetId,
-        'audio_url': audioUrl,
+        'audio_url': playbackAudioUrl,
         'music_track_id': _bakedTrack?.id,
         'creator_mode': 'unified',
         'is_fast_sync': true,
@@ -1449,6 +1490,7 @@ class _UploadScreenState extends State<UploadScreen>
           'objective': 'awareness',
           'layers': _multiFiles.length,
           'has_voice_over': _voiceOverFile != null,
+          'audio_mixed_into_video': _audioBakedIntoVisual,
           'text_layers': _overlays.length,
           'overlays': _overlays,
           'start_offsets': _startOffsets,

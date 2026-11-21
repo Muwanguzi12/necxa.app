@@ -36,6 +36,11 @@ class MainActivity : FlutterFragmentActivity() {
     MethodChannel(engine.dartExecutor.binaryMessenger, faceEffectChannelName).setMethodCallHandler { call, result ->
       val trackId = call.argument<String>("trackId")
       when (call.method) {
+        "getStats" -> {
+          val processor = trackId?.let(processors::get)
+          if (processor == null) result.error("not_attached", "Effect is not attached", null)
+          else result.success(processor.performanceStats())
+        }
         "attach" -> {
           if (trackId == null) {
             result.error("missing_track", "Camera track is unavailable", null)
@@ -54,6 +59,15 @@ class MainActivity : FlutterFragmentActivity() {
           val processor = FaceBeautyFrameProcessor()
           processor.intensity = (call.argument<Double>("intensity") ?: 0.35).toFloat()
           processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
+          processor.smoothing = (call.argument<Double>("smoothing") ?: 0.0).toFloat()
+          processor.brightness = (call.argument<Double>("brightness") ?: 0.0).toFloat()
+          processor.contrast = (call.argument<Double>("contrast") ?: 1.0).toFloat()
+          processor.saturation = (call.argument<Double>("saturation") ?: 1.0).toFloat()
+          processor.hue = (call.argument<Double>("hue") ?: 0.0).toFloat()
+          processor.warmth = (call.argument<Double>("warmth") ?: 0.0).toFloat()
+          processor.makeupGender = (call.argument<Int>("makeupGender") ?: 0)
+          processor.makeupStyle = (call.argument<Int>("makeupStyle") ?: 0)
+          processor.makeupIntensity = (call.argument<Double>("makeupIntensity") ?: 0.0).toFloat()
           processors[trackId] = processor
           track.addProcessor(processor)
           result.success(true)
@@ -63,6 +77,26 @@ class MainActivity : FlutterFragmentActivity() {
           if (processor == null) result.error("not_attached", "Effect is not attached", null)
           else {
             processor.intensity = (call.argument<Double>("intensity") ?: 0.35).toFloat()
+            if (call.hasArgument("mirrorLeft")) {
+              processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
+            }
+            result.success(true)
+          }
+        }
+        "setEffects" -> {
+          val processor = trackId?.let(processors::get)
+          if (processor == null) result.error("not_attached", "Effect is not attached", null)
+          else {
+            processor.intensity = (call.argument<Double>("symmetry") ?: 0.0).toFloat()
+            processor.smoothing = (call.argument<Double>("smoothing") ?: 0.0).toFloat()
+            processor.brightness = (call.argument<Double>("brightness") ?: 0.0).toFloat()
+            processor.contrast = (call.argument<Double>("contrast") ?: 1.0).toFloat()
+            processor.saturation = (call.argument<Double>("saturation") ?: 1.0).toFloat()
+            processor.hue = (call.argument<Double>("hue") ?: 0.0).toFloat()
+            processor.warmth = (call.argument<Double>("warmth") ?: 0.0).toFloat()
+            processor.makeupGender = (call.argument<Int>("makeupGender") ?: 0)
+            processor.makeupStyle = (call.argument<Int>("makeupStyle") ?: 0)
+            processor.makeupIntensity = (call.argument<Double>("makeupIntensity") ?: 0.0).toFloat()
             if (call.hasArgument("mirrorLeft")) {
               processor.mirrorLeft = call.argument<Boolean>("mirrorLeft")
             }

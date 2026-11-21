@@ -19,6 +19,7 @@ import 'live_studio_screen.dart';
 import '../models/music_models.dart';
 import '../widgets/checkout_overlay.dart';
 import '../widgets/necxa_experience_sheet.dart';
+import '../widgets/follow_sync_button.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../services/commerce_service.dart';
@@ -1037,7 +1038,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         );
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [Color(0xFFFF334E), Color(0xFFFF6B35)],
@@ -1045,7 +1049,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           borderRadius: BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFFFF334E).withValues(alpha: 0.4),
+                              color: const Color(
+                                0xFFFF334E,
+                              ).withValues(alpha: 0.4),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -1054,11 +1060,19 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.wifi_tethering_rounded, size: 12, color: Colors.white),
+                            const Icon(
+                              Icons.wifi_tethering_rounded,
+                              size: 12,
+                              color: Colors.white,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               'Go Live',
-                              style: syne(sz: 11, w: FontWeight.w800, c: Colors.white),
+                              style: syne(
+                                sz: 11,
+                                w: FontWeight.w800,
+                                c: Colors.white,
+                              ),
                             ),
                           ],
                         ),
@@ -1700,12 +1714,18 @@ class _VideoScrubberState extends State<_VideoScrubber> {
               onHorizontalDragStart: (details) {
                 setState(() {
                   _isDragging = true;
-                  _dragValue = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                  _dragValue = (details.localPosition.dx / trackWidth).clamp(
+                    0.0,
+                    1.0,
+                  );
                 });
               },
               onHorizontalDragUpdate: (details) {
                 setState(() {
-                  _dragValue = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                  _dragValue = (details.localPosition.dx / trackWidth).clamp(
+                    0.0,
+                    1.0,
+                  );
                 });
               },
               onHorizontalDragEnd: (details) async {
@@ -1716,7 +1736,8 @@ class _VideoScrubberState extends State<_VideoScrubber> {
                 });
               },
               onTapDown: (details) async {
-                final tapProgress = (details.localPosition.dx / trackWidth).clamp(0.0, 1.0);
+                final tapProgress = (details.localPosition.dx / trackWidth)
+                    .clamp(0.0, 1.0);
                 final targetMs = (tapProgress * durationMs).round();
                 await controller.seekTo(Duration(milliseconds: targetMs));
               },
@@ -1741,8 +1762,10 @@ class _VideoScrubberState extends State<_VideoScrubber> {
                     if (value.buffered.isNotEmpty) ...[
                       Builder(
                         builder: (_) {
-                          final bufferedEnd = value.buffered.last.end.inMilliseconds;
-                          final bufferedFraction = (bufferedEnd / durationMs).clamp(0.0, 1.0);
+                          final bufferedEnd =
+                              value.buffered.last.end.inMilliseconds;
+                          final bufferedFraction = (bufferedEnd / durationMs)
+                              .clamp(0.0, 1.0);
                           return Container(
                             height: 2.5,
                             width: trackWidth * bufferedFraction,
@@ -1765,7 +1788,10 @@ class _VideoScrubberState extends State<_VideoScrubber> {
                     ),
                     // Circular thumb indicator
                     Positioned(
-                      left: (trackWidth * progress - 5).clamp(0.0, trackWidth - 10),
+                      left: (trackWidth * progress - 5).clamp(
+                        0.0,
+                        trackWidth - 10,
+                      ),
                       child: Container(
                         width: 10,
                         height: 10,
@@ -1948,10 +1974,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           constraints: BoxConstraints(
             maxWidth: communityModalMaxWidth(MediaQuery.sizeOf(context).width),
           ),
-          child: _CommunitySearchSheet(
-            state: widget.state,
-            initialTab: 0,
-          ),
+          child: _CommunitySearchSheet(state: widget.state, initialTab: 0),
         ),
       ),
     );
@@ -2110,7 +2133,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         (widget.post['dash_url']?.toString().isNotEmpty ?? false)
         ? widget.post['dash_url']
         : null;
-    final String? videoUrl = hlsUrl ?? dashUrl ?? mediaUrl;
+    // media_url is the authoritative published master (the validated MP4).
+    // Prefer it over adaptive derivatives that may be stale or audio-incomplete.
+    final String? videoUrl = mediaUrl ?? hlsUrl ?? dashUrl;
     final username = _profile?['display_name'] ?? 'Necxa User';
     final description = widget.post['content'] ?? widget.post['title'] ?? '';
 
@@ -2283,20 +2308,26 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             animation: _expandController,
                             builder: (context, _) {
                               final double opacity =
-                                  (1.0 - _expandController.value * 2.5)
-                                      .clamp(0.0, 1.0);
-                              if (opacity <= 0.0) return const SizedBox.shrink();
+                                  (1.0 - _expandController.value * 2.5).clamp(
+                                    0.0,
+                                    1.0,
+                                  );
+                              if (opacity <= 0.0)
+                                return const SizedBox.shrink();
                               return Opacity(
                                 opacity: opacity,
                                 child: Padding(
                                   padding: const EdgeInsets.only(left: 10),
                                   child: GestureDetector(
                                     onTap: () {
-                                      final authorId = widget.post['author_id'] ??
+                                      final authorId =
+                                          widget.post['author_id'] ??
                                           widget.post['user_id'] ??
                                           widget.post['lister_id'];
-                                      if (authorId != null && authorId.toString().isNotEmpty) {
-                                        widget.state.targetProfileId = authorId.toString();
+                                      if (authorId != null &&
+                                          authorId.toString().isNotEmpty) {
+                                        widget.state.targetProfileId = authorId
+                                            .toString();
                                         widget.state.go('public_profile');
                                       }
                                     },
@@ -2443,7 +2474,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   const SizedBox(height: 14),
                   _actionButton(
                     icon: Icons.card_giftcard,
-                    label: (widget.post['gifts_count'] != null && (widget.post['gifts_count'] as num) > 0)
+                    label:
+                        (widget.post['gifts_count'] != null &&
+                            (widget.post['gifts_count'] as num) > 0)
                         ? kNum(widget.post['gifts_count'])
                         : 'Gift',
                     iconColor: Colors.amberAccent,
@@ -2562,7 +2595,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                         SnackBar(
                           content: Row(
                             children: [
-                              const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                              const Icon(
+                                Icons.check_circle_outline,
+                                color: C.brand,
+                                size: 18,
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -2574,7 +2611,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           ),
                           backgroundColor: const Color(0xFF131923),
                           behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           duration: const Duration(seconds: 3),
                         ),
                       );
@@ -2646,7 +2685,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
               if (!isOwner && postId != null)
                 ListTile(
-                  leading: Icon(Icons.report_problem_outlined, color: Colors.orangeAccent),
+                  leading: Icon(
+                    Icons.report_problem_outlined,
+                    color: Colors.orangeAccent,
+                  ),
                   title: Text('Report Content', style: dm(sz: 16, c: C.text)),
                   subtitle: Text(
                     'Sent for review by Necxa AI & team at Goobox.',
@@ -2710,16 +2752,26 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       color: Colors.orangeAccent.withOpacity(0.15),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.shield_outlined, color: Colors.orangeAccent, size: 20),
+                    child: const Icon(
+                      Icons.shield_outlined,
+                      color: Colors.orangeAccent,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Report Content', style: syne(sz: 18, w: FontWeight.w700, c: C.text)),
+                        Text(
+                          'Report Content',
+                          style: syne(sz: 18, w: FontWeight.w700, c: C.text),
+                        ),
                         const SizedBox(height: 2),
-                        Text('Reviewed by Necxa AI & team at Goobox', style: dm(sz: 12, c: C.dim)),
+                        Text(
+                          'Reviewed by Necxa AI & team at Goobox',
+                          style: dm(sz: 12, c: C.dim),
+                        ),
                       ],
                     ),
                   ),
@@ -2727,55 +2779,73 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 16),
               const Divider(color: Colors.white10),
-              ...reasons.map((reason) => ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                leading: const Icon(Icons.flag_outlined, color: Colors.orangeAccent, size: 18),
-                title: Text(reason, style: dm(sz: 14, c: C.text)),
-                trailing: Icon(Icons.chevron_right, color: C.dim, size: 18),
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  final messenger = ScaffoldMessenger.of(this.context);
-                  try {
-                    await widget.state.reportContent(
-                      postId,
-                      'post',
-                      reason,
-                      details: 'Reported from community reel via moderation engine',
-                    );
-                    if (mounted) {
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: Row(
-                            children: [
-                              const Icon(Icons.verified_user_outlined, color: C.brand, size: 18),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Report submitted. Necxa AI & Goobox team will review this content.',
-                                  style: dm(sz: 13, c: C.text),
+              ...reasons.map(
+                (reason) => ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
+                  leading: const Icon(
+                    Icons.flag_outlined,
+                    color: Colors.orangeAccent,
+                    size: 18,
+                  ),
+                  title: Text(reason, style: dm(sz: 14, c: C.text)),
+                  trailing: Icon(Icons.chevron_right, color: C.dim, size: 18),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    final messenger = ScaffoldMessenger.of(this.context);
+                    try {
+                      await widget.state.reportContent(
+                        postId,
+                        'post',
+                        reason,
+                        details:
+                            'Reported from community reel via moderation engine',
+                      );
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(
+                                  Icons.verified_user_outlined,
+                                  color: C.brand,
+                                  size: 18,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Report submitted. Necxa AI & Goobox team will review this content.',
+                                    style: dm(sz: 13, c: C.text),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: const Color(0xFF131923),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            duration: const Duration(seconds: 4),
                           ),
-                          backgroundColor: const Color(0xFF131923),
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          duration: const Duration(seconds: 4),
-                        ),
-                      );
+                        );
+                      }
+                    } catch (_) {
+                      if (mounted) {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Could not submit report. Please try again.',
+                            ),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                      }
                     }
-                  } catch (_) {
-                    if (mounted) {
-                      messenger.showSnackBar(
-                        const SnackBar(
-                          content: Text('Could not submit report. Please try again.'),
-                          backgroundColor: Colors.redAccent,
-                        ),
-                      );
-                    }
-                  }
-                },
-              )),
+                  },
+                ),
+              ),
               const SizedBox(height: 12),
             ],
           ),
@@ -2820,8 +2890,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     if (description.isEmpty) return const SizedBox.shrink();
 
     // Strip trailing hashtags from text so they don't duplicate with the chips below
-    String displayDesc =
-        description.replaceAll(RegExp(r'(#[a-zA-Z0-9_]+\s*)+$'), '').trim();
+    String displayDesc = description
+        .replaceAll(RegExp(r'(#[a-zA-Z0-9_]+\s*)+$'), '')
+        .trim();
     if (displayDesc.isEmpty) displayDesc = description;
 
     return GestureDetector(
@@ -2843,8 +2914,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 c: Colors.white.withValues(alpha: 0.95),
               ),
               maxLines: _isDescExpanded ? null : 1,
-              overflow:
-                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+              overflow: _isDescExpanded
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 6),
@@ -2875,8 +2947,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             child: GestureDetector(
               onTap: () => _openTagSearch(tag),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4.5,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
                   borderRadius: BorderRadius.circular(16),
@@ -3017,7 +3091,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             onTap: () {
               if (_isExpanded) {
                 // Navigate to profile
-                final authorId = widget.post['author_id'] ??
+                final authorId =
+                    widget.post['author_id'] ??
                     widget.post['user_id'] ??
                     widget.post['lister_id'];
                 if (authorId != null && authorId.toString().isNotEmpty) {
@@ -3140,14 +3215,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               const SizedBox(width: 12),
 
               // Follow Button
-              _FollowButton(
-                onTap: () {
-                  _startCollapseTimer();
-                  final authorId = widget.post['author_id'];
-                  if (authorId != null) {
-                    widget.state.toggleFollow(authorId);
-                  }
-                },
+              FollowSyncButton(
+                state: widget.state,
+                targetUserId: widget.post['author_id']?.toString() ?? '',
+                compact: true,
+                onToggled: _startCollapseTimer,
               ),
 
               const SizedBox(width: 8),
@@ -3311,7 +3383,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                   SnackBar(
                                     content: Row(
                                       children: [
-                                        const Icon(Icons.check_circle_outline, color: C.brand, size: 18),
+                                        const Icon(
+                                          Icons.check_circle_outline,
+                                          color: C.brand,
+                                          size: 18,
+                                        ),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
@@ -3323,7 +3399,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                     ),
                                     backgroundColor: const Color(0xFF131923),
                                     behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                   ),
                                 );
                               }
@@ -3594,60 +3672,6 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 }
 
 // ── UI HELPERS ─────────────────────────────────────────────────────────────
-
-class _FollowButton extends StatefulWidget {
-  final VoidCallback onTap;
-  const _FollowButton({required this.onTap});
-
-  @override
-  State<_FollowButton> createState() => _FollowButtonState();
-}
-
-class _FollowButtonState extends State<_FollowButton> {
-  bool _following = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        setState(() => _following = !_following);
-        widget.onTap();
-      },
-      child: AnimatedScale(
-        scale: 1.0,
-        duration: const Duration(milliseconds: 100),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: _following
-                ? null
-                : const LinearGradient(
-                    colors: [Color(0xFF00E5FF), Color(0xFF00B2CC)],
-                  ),
-            color: _following ? C.dim : null,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: _following
-                ? null
-                : [
-                    BoxShadow(
-                      color: const Color(0xFF00E5FF).withOpacity(0.3),
-                      blurRadius: 8,
-                    ),
-                  ],
-          ),
-          child: Text(
-            _following ? 'Following' : 'Follow',
-            style: syne(
-              sz: 11,
-              w: FontWeight.w900,
-              c: _following ? C.text : Colors.black,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class PillarVsync extends TickerProvider {
   final TickerProvider tp;
@@ -3965,7 +3989,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                   const SizedBox(height: 16),
                   _shopAction(
                     icon: Icons.card_giftcard,
-                    label: (widget.listing['gifts_count'] != null && (widget.listing['gifts_count'] as num) > 0)
+                    label:
+                        (widget.listing['gifts_count'] != null &&
+                            (widget.listing['gifts_count'] as num) > 0)
                         ? kNum(widget.listing['gifts_count'])
                         : 'Gift',
                     iconColor: Colors.amberAccent,
@@ -4043,7 +4069,10 @@ class _ShopReelItemState extends State<_ShopReelItem>
                         animation: _expandController,
                         builder: (context, _) {
                           final double opacity =
-                              (1.0 - _expandController.value * 2.5).clamp(0.0, 1.0);
+                              (1.0 - _expandController.value * 2.5).clamp(
+                                0.0,
+                                1.0,
+                              );
                           if (opacity <= 0.0) return const SizedBox.shrink();
                           return Opacity(
                             opacity: opacity,
@@ -4116,10 +4145,14 @@ class _ShopReelItemState extends State<_ShopReelItem>
                                 vertical: 2.5,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                                color: const Color(
+                                  0xFF00E5FF,
+                                ).withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                                  color: const Color(
+                                    0xFF00E5FF,
+                                  ).withValues(alpha: 0.4),
                                   width: 0.8,
                                 ),
                               ),
@@ -4157,7 +4190,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                             vertical: 7,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0A1324).withValues(alpha: 0.85),
+                            color: const Color(
+                              0xFF0A1324,
+                            ).withValues(alpha: 0.85),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: const Color(0xFF00E5FF),
@@ -4165,7 +4200,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+                                color: const Color(
+                                  0xFF00E5FF,
+                                ).withValues(alpha: 0.25),
                                 blurRadius: 10,
                                 spreadRadius: 0.5,
                               ),
@@ -4315,8 +4352,9 @@ class _ShopReelItemState extends State<_ShopReelItem>
                 c: Colors.white.withValues(alpha: 0.85),
               ),
               maxLines: _isDescExpanded ? null : 1,
-              overflow:
-                  _isDescExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
+              overflow: _isDescExpanded
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 6),
@@ -4523,13 +4561,11 @@ class _ShopReelItemState extends State<_ShopReelItem>
               const SizedBox(width: 12),
 
               // Follow Button
-              _FollowButton(
-                onTap: () {
-                  _startCollapseTimer();
-                  if (authorId != null) {
-                    widget.state.toggleFollow(authorId!);
-                  }
-                },
+              FollowSyncButton(
+                state: widget.state,
+                targetUserId: authorId ?? '',
+                compact: true,
+                onToggled: _startCollapseTimer,
               ),
 
               const SizedBox(width: 8),
