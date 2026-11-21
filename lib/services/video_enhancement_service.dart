@@ -8,6 +8,9 @@ import 'ffmpeg_stub.dart'
 import 'ffmpeg_stub.dart'
     if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart'
     show ReturnCode;
+import 'ffmpeg_stub.dart'
+    if (dart.library.io) 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart'
+    show FFprobeKit;
 import '../face_engine/models/face_preset.dart';
 import '../effects_engine/necxa_effects_engine.dart';
 import '../services/filter_catalogue_service.dart';
@@ -538,6 +541,8 @@ class VideoEnhancementService {
 
       double duration = (clip.end - clip.start).abs();
       if (duration < 0.1) duration = 1.0; // Fallback for safety
+      final clipStart = clip.start.clamp(0.0, double.infinity).toDouble();
+      final clipEnd = clip.end > clipStart ? clip.end : clipStart + duration;
 
       // 1. VIDEO NORMALIZATION
       // crop and scale logic
@@ -545,14 +550,15 @@ class VideoEnhancementService {
       String cropFilter =
           "crop=min(iw\\,ih*($targetWidth.0/$targetHeight.0)):min(ih\\,iw*($targetHeight.0/$targetWidth.0))";
 
-      // Calculate safe fade duration (max 0.3s or 10% of clip duration)
-      double safeFade = (duration / clip.speed * 0.1).clamp(0.0, 0.3);
+      // Fade is only applied for standalone single-clip edits without timeline transitions
+      final bool shouldEdgeFade = clips.length == 1 && transitions.isEmpty;
+      double safeFade = shouldEdgeFade ? (duration / clip.speed * 0.1).clamp(0.0, 0.3) : 0.0;
       double fadeOutStart = (duration / clip.speed) - safeFade;
       if (fadeOutStart < 0) fadeOutStart = 0;
 
       if (clip.isVideo) {
         filterComplex +=
-            "[$i:v]trim=start=${clip.start}:end=${clip.end},setpts=PTS-STARTPTS${clip.reverse ? ',reverse,setpts=PTS-STARTPTS' : ''},setpts=${1.0 / clip.speed}*PTS,fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
+            "[$i:v]trim=start=$clipStart:end=$clipEnd,setpts=PTS-STARTPTS${clip.reverse ? ',reverse,setpts=PTS-STARTPTS' : ''},setpts=${1.0 / clip.speed}*PTS,fps=30,format=yuv420p,$cropFilter,scale=$targetWidth:$targetHeight,setsar=1";
         filterComplex += _clipTransformFilter(clip, targetWidth, targetHeight);
         if (safeFade > 0.05) {
           filterComplex +=
@@ -590,7 +596,7 @@ class VideoEnhancementService {
 
       if (clip.isVideo && clip.hasAudio) {
         filterComplex +=
-            "[$i:a]atrim=start=${clip.start}:end=${clip.end},asetpts=PTS-STARTPTS${clip.reverse ? ',areverse' : ''},$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a$i];";
+            "[$i:a]atrim=start=$clipStart:end=$clipEnd,asetpts=PTS-STARTPTS${clip.reverse ? ',areverse' : ''},$speedFilter,volume=${clip.volume},aresample=44100,aformat=channel_layouts=stereo[a$i];";
       } else {
         // Independent stereo silence generated directly in filtergraph per clip
         final silentDuration = (duration / clip.speed).toStringAsFixed(3);
@@ -999,13 +1005,19 @@ class VideoEnhancementService {
 
     // -shortest: stop at the shortest stream (usually the video)
     // amix with weights: duck original audio to originalVolume, music to musicVolume
+    final bool hasOriginalAudio = await _fileHasAudio(inputVideo);
+
+    // If input video has audio, mix with amix ducking. If silent, use music directly.
+    final filterComplex = hasOriginalAudio
+        ? "[0:a]volume=$originalVolume[orig];"
+          "[1:a]volume=$musicVolume,aresample=44100,aformat=channel_layouts=stereo[music];"
+          "[orig][music]amix=inputs=2:duration=first:dropout_transition=2[outa]"
+        : "[1:a]volume=$musicVolume,aresample=44100,aformat=channel_layouts=stereo[outa]";
+
     final command =
         "-i '${_escapePath(inputVideo.path)}' "
         "-i '${_escapePath(musicFile.path)}' "
-        "-filter_complex "
-        "\"[0:a]volume=$originalVolume[orig];"
-        "[1:a]volume=$musicVolume,aresample=44100,aformat=channel_layouts=stereo[music];"
-        "[orig][music]amix=inputs=2:duration=first:dropout_transition=2[outa]\" "
+        "-filter_complex \"$filterComplex\" "
         "-map 0:v -map '[outa]' "
         "-c:v copy -c:a aac -b:a 192k "
         "-movflags +faststart -shortest -y \"$outputPath\"";
@@ -1024,6 +1036,16 @@ class VideoEnhancementService {
     }
   }
 
+
+  Future<bool> _fileHasAudio(File file) async {
+    try {
+      final session = await FFprobeKit.getMediaInformation(file.path);
+      final info = session.getMediaInformation();
+      return info?.getStreams().any((s) => s.getType() == 'audio') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   String _escapePath(String path) {
     // Escape single quotes for FFmpeg command line
@@ -1164,6 +1186,7 @@ class VideoEnhancementService {
         .replaceAll("\\", "\\\\")
         .replaceAll(":", "\\:")
         .replaceAll("'", "\\'")
+        .replaceAll('"', '”')
         .replaceAll("%", "\\%")
         .replaceAll("\n", r"\n");
   }
