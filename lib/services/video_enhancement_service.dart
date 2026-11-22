@@ -182,6 +182,10 @@ class RenderAudioTrack {
 }
 
 class VideoEnhancementService {
+  /// Holds the last FFmpeg failure log excerpt so callers can surface it.
+  /// Static so it survives across service instances within the same export call.
+  static String? lastFfmpegError;
+
   /// Media is processed by FFmpeg from file paths, never loaded wholesale into
   /// Dart memory. Keep a hard per-source limit so unsupported imports fail
   /// early instead of exhausting device storage or memory.
@@ -600,8 +604,11 @@ class VideoEnhancementService {
       } else {
         // Independent stereo silence generated directly in filtergraph per clip
         final silentDuration = (duration / clip.speed).toStringAsFixed(3);
+        // aevalsrc generates silent PCM samples inline in the filtergraph.
+        // Unlike anullsrc, it does not require a -f lavfi input declaration
+        // and is reliably supported in all FFmpeg min-gpl builds on Android.
         filterComplex +=
-            "anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=$silentDuration,asetpts=PTS-STARTPTS[a$i];";
+            "aevalsrc=0:c=stereo:s=44100:d=$silentDuration,asetpts=PTS-STARTPTS[a$i];";
       }
     }
 
@@ -988,7 +995,10 @@ class VideoEnhancementService {
       debugPrint('FFmpeg CANCELLED');
       return null;
     } else {
-      final logs = await session.getAllLogsAsString();
+      final logs = await session.getAllLogsAsString() ?? '';
+      // Keep the most useful tail of the log (last 800 chars) for the UI.
+      final excerpt = logs.length > 800 ? logs.substring(logs.length - 800) : logs;
+      lastFfmpegError = 'FFmpeg exited with code $returnCode. Tail:\n$excerpt';
       debugPrint('FFmpeg ERROR (Code: $returnCode): $logs');
       return null;
     }

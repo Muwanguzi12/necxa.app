@@ -63,9 +63,16 @@ class EditorExportService {
           ? null
           : await renderTimeline(tracks: tracks, aspectRatio: aspectRatio);
       if (tracks != null && rendered == null) {
-        return const EditorExportResult(
+        // Pull the FFmpeg error excerpt captured during combineSequence so the
+        // snackbar gives the creator a useful hint instead of a generic message.
+        final ffmpegHint = VideoEnhancementService.lastFfmpegError;
+        final baseMsg = 'The timeline did not produce a final video.';
+        final detail = ffmpegHint != null && ffmpegHint.isNotEmpty
+            ? '$baseMsg\nFFmpeg: ${ffmpegHint.length > 300 ? ffmpegHint.substring(ffmpegHint.length - 300) : ffmpegHint}'
+            : baseMsg;
+        return EditorExportResult(
           success: false,
-          issues: ['The timeline did not produce a final video.'],
+          issues: [detail],
         );
       }
       final renderSource = rendered ?? sourceVideo;
@@ -204,14 +211,32 @@ class EditorExportService {
           path.endsWith('.m4v') ||
           path.endsWith('.mkv') ||
           path.endsWith('.webm');
+      final clipStart = clip.sourceStart.inMilliseconds / 1000;
+      // Resolve end: prefer sourceEnd; fall back to sourceStart + sourceDuration.
+      // If sourceDuration is also zero (clip not yet probed), use the timeline
+      // clip duration, with a 1-second minimum so FFmpeg always gets a valid trim.
+      Duration resolvedEnd =
+          clip.sourceEnd ?? clip.sourceStart + clip.sourceDuration;
+      if (resolvedEnd <= clip.sourceStart) {
+        resolvedEnd = clip.sourceStart +
+            (clip.duration > Duration.zero
+                ? clip.duration
+                : const Duration(seconds: 1));
+      }
+      final clipEnd = resolvedEnd.inMilliseconds / 1000;
+      if (clipEnd <= clipStart + 0.05) {
+        // Clip would produce a 0-frame trim — skip it to prevent FFmpeg failure.
+        debugPrint(
+          'renderTimeline: skipping zero-duration clip ${clip.file!.path} '
+          '(start=$clipStart end=$clipEnd)',
+        );
+        continue;
+      }
       clips.add(
         ClipData(
           path: clip.file!.path,
-          start: clip.sourceStart.inMilliseconds / 1000,
-          end:
-              (clip.sourceEnd ?? clip.sourceStart + clip.sourceDuration)
-                  .inMilliseconds /
-              1000,
+          start: clipStart,
+          end: clipEnd,
           speed: clip.speed,
           volume: clip.volume,
           isVideo: isVideo,
