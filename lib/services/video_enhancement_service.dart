@@ -482,7 +482,8 @@ class VideoEnhancementService {
     // Order of inputs: [0..N-1] clips, then overlay images, BGM (optional), voice (optional), then silent source.
     String inputs = "";
     for (int i = 0; i < clips.length; i++) {
-      inputs += "-i '${_escapePath(clips[i].path)}' ";
+      final loopPrefix = clips[i].isVideo ? "" : "-loop 1 ";
+      inputs += "$loopPrefix-i '${_escapePath(clips[i].path)}' ";
     }
 
     int nextIndex = clips.length;
@@ -980,8 +981,23 @@ class VideoEnhancementService {
         "$inputs -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
 
     debugPrint('Executing smarter FFmpeg command: $command');
-    final session = await FFmpegKit.execute(command);
-    final returnCode = await session.getReturnCode();
+    var session = await FFmpegKit.execute(command);
+    var returnCode = await session.getReturnCode();
+
+    // If libx264 or -crf fails (e.g. standard/min FFmpeg build without external x264),
+    // automatically fallback to universally supported mpeg4 encoding so export NEVER fails.
+    if (!ReturnCode.isSuccess(returnCode) && !ReturnCode.isCancel(returnCode)) {
+      final initialLogs = await session.getAllLogsAsString() ?? '';
+      if (initialLogs.contains("Unrecognized option 'crf'") ||
+          initialLogs.contains("Unknown encoder 'libx264'") ||
+          initialLogs.contains("Encoder not found")) {
+        debugPrint('FFmpeg libx264 unavailable ($returnCode), retrying with universal mpeg4 encoder...');
+        final fallbackCommand =
+            "$inputs -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v mpeg4 -q:v 4 -maxrate 3M -bufsize 6M -c:a aac -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
+        session = await FFmpegKit.execute(fallbackCommand);
+        returnCode = await session.getReturnCode();
+      }
+    }
     for (final temporaryFile in downloadedAudioFiles) {
       try {
         if (temporaryFile.existsSync()) await temporaryFile.delete();

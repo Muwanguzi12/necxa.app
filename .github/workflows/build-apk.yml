@@ -63,6 +63,11 @@ jobs:
     - name: Get fresh dependencies
       run: flutter pub get
 
+    - name: Install verified Necxa Studio FFmpeg runtime
+      env:
+        NECXA_FFMPEG_READ_TOKEN: ${{ secrets.NECXA_FFMPEG_READ_TOKEN }}
+      run: bash scripts/install-necxa-ffmpeg.sh
+
     - name: Build APK Release (split per ABI)
       env:
         GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1024m'"

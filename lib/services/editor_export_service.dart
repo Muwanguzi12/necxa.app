@@ -281,10 +281,15 @@ class EditorExportService {
       for (final clip in track.clips.where((item) => !item.isHidden)) {
         final operation = clip.operation;
         if (operation is OverlayOperation) {
+          final imgPath = operation.imagePath ?? clip.file?.path;
+          final validImg = (imgPath != null && imgPath.isNotEmpty && File(imgPath).existsSync())
+              ? imgPath
+              : null;
           overlays.add(
             RenderOverlay(
               type: operation.kind,
               text: operation.text,
+              imagePath: validImg,
               start: clip.start.inMilliseconds / 1000,
               end: (clip.start + clip.duration).inMilliseconds / 1000,
               x: operation.position.dx,
@@ -315,6 +320,7 @@ class EditorExportService {
             RenderOverlay(
               type: 'text',
               text: operation.text,
+              fontFamily: operation.style.fontFamily ?? 'Roboto',
               start: clip.start.inMilliseconds / 1000,
               end: (clip.start + clip.duration).inMilliseconds / 1000,
               x: operation.position.dx,
