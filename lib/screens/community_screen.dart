@@ -2289,7 +2289,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
 
                 // 🚀 UNIFIED BOTTOM CONTROLS
-                // Avatar, Scrubber, Search Similar Videos + Disc, Dynamic Metadata (Creator + Desc + Tags + Mentions)
+                // Avatar, Scrubber, [Search Similar Videos + Dynamic Metadata] alongside Rotating Disc
                 Positioned(
                   left: 16,
                   right: 16,
@@ -2308,65 +2308,73 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                             _activeVideoController ??
                             _videoKey.currentState?.controller,
                       ),
-                      const SizedBox(height: 10),
+                      // 1.5mm (~6px) gap below playhead
+                      const SizedBox(height: 6),
 
-                      // 3. Similar-Video Search Button + Rotating Sound Disc
+                      // 3. Row: Left column (Search bar + 2mm gap + Metadata) opposite Rotating Sound Disc
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Expanded(
-                            child: _buildSimilarSearchButton(),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Similar-Video Search Button (transparent glassmorphic, chamfered ends, reduced height)
+                                _buildSimilarSearchButton(),
+                                // 2mm (~7.5px) gap below the search linear button
+                                const SizedBox(height: 7.5),
+                                // Content creator identity, description chip, hashtags, mentions
+                                _buildDynamicMetadataRow(
+                                  username: username,
+                                  description: description,
+                                  isVerified: _profile?['is_verified'] == true || widget.post['is_verified'] == true,
+                                ),
+                                // Music / Sound marquee pill
+                                if (_track != null || widget.post['music_track_id'] != null) ...[
+                                  const SizedBox(height: 6),
+                                  _buildSoundMarqueeRow(),
+                                ],
+                                // Shop Reel inline buy card if linked to a listing
+                                if (widget.post['listings'] != null) ...[
+                                  const SizedBox(height: 6),
+                                  if (widget.post['is_promoted'] == true)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF00E5FF).withAlpha(30),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: const Color(0xFF00E5FF).withAlpha(100)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.campaign_rounded, color: Color(0xFF00E5FF), size: 10),
+                                            const SizedBox(width: 4),
+                                            const Text(
+                                              'Sponsored',
+                                              style: TextStyle(fontSize: 10, color: Color(0xFF00E5FF), fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  _buildMiniBuyCard(widget.post['listings']),
+                                ],
+                              ],
+                            ),
                           ),
                           const SizedBox(width: 10),
+
+                          // Rotating Sound Disc (opposite both search linear button and below contents)
                           GestureDetector(
                             onTap: _goToSoundHub,
                             child: _buildRotatingDisc(),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-
-                      // 4. Dynamic Video Metadata Row: Creator Identity + Description Chip + Hashtags + Mentions
-                      _buildDynamicMetadataRow(
-                        username: username,
-                        description: description,
-                        isVerified: _profile?['is_verified'] == true || widget.post['is_verified'] == true,
-                      ),
-
-                      // 5. Music / Sound marquee pill
-                      if (_track != null || widget.post['music_track_id'] != null) ...[
-                        const SizedBox(height: 8),
-                        _buildSoundMarqueeRow(),
-                      ],
-
-                      // 6. Shop Reel inline buy card if linked to a listing
-                      if (widget.post['listings'] != null) ...[
-                        const SizedBox(height: 8),
-                        if (widget.post['is_promoted'] == true)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF00E5FF).withAlpha(30),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: const Color(0xFF00E5FF).withAlpha(100)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.campaign_rounded, color: Color(0xFF00E5FF), size: 10),
-                                  const SizedBox(width: 4),
-                                  const Text(
-                                    'Sponsored',
-                                    style: TextStyle(fontSize: 10, color: Color(0xFF00E5FF), fontWeight: FontWeight.w600),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        _buildMiniBuyCard(widget.post['listings']),
-                      ],
                     ],
                   ),
                 ),
@@ -2851,77 +2859,87 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           ),
         );
       },
-      child: Container(
-        height: 38,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: const LinearGradient(
-            colors: [
-              Color(0xFF00E5FF),
-              Color(0xFF0052D4),
-              Color(0xFF0A0F2C),
-            ],
-            stops: [0.0, 0.45, 1.0],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-          ),
-          border: Border.all(
-            color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
-            width: 1.0,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF00E5FF).withValues(alpha: 0.2),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 4),
-            Container(
-              width: 30,
-              height: 30,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFF00E5FF),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            height: 32,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF00E5FF).withValues(alpha: 0.16),
+                  const Color(0xFF0052D4).withValues(alpha: 0.22),
+                  const Color(0xFF0A0F2C).withValues(alpha: 0.45),
+                ],
+                stops: const [0.0, 0.5, 1.0],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
               ),
-              child: const Icon(
-                Icons.search_rounded,
-                color: Color(0xFF0A0F2C),
-                size: 18,
+              border: Border.all(
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.38),
+                width: 0.9,
               ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              width: 1,
-              height: 16,
-              color: Colors.white.withValues(alpha: 0.25),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Search similar videos',
-                style: dm(
-                  sz: 12.5,
-                  w: FontWeight.w600,
-                  c: Colors.white.withValues(alpha: 0.95),
-                  ls: 0.2,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.08),
+                  blurRadius: 6,
+                  offset: const Offset(0, 1),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Icon(
-                Icons.north_east_rounded,
-                color: const Color(0xFF00E5FF).withValues(alpha: 0.9),
-                size: 16,
-              ),
+            child: Row(
+              children: [
+                const SizedBox(width: 5),
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    color: const Color(0xFF00E5FF).withValues(alpha: 0.22),
+                    border: Border.all(
+                      color: const Color(0xFF00E5FF).withValues(alpha: 0.55),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.search_rounded,
+                    color: Color(0xFF00E5FF),
+                    size: 14,
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Container(
+                  width: 1,
+                  height: 13,
+                  color: Colors.white.withValues(alpha: 0.2),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Search similar videos',
+                    style: dm(
+                      sz: 11.5,
+                      w: FontWeight.w600,
+                      c: Colors.white,
+                      ls: 0.2,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(
+                    Icons.north_east_rounded,
+                    color: const Color(0xFF00E5FF).withValues(alpha: 0.9),
+                    size: 14,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -2940,12 +2958,12 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
         // Subtle separator
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 5),
           child: Text(
             '|',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.25),
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w300,
             ),
           ),
@@ -2988,11 +3006,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
         mainAxisSize: MainAxisSize.min,
         children: [
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 110),
+            constraints: const BoxConstraints(maxWidth: 100),
             child: Text(
               username,
               style: syne(
-                sz: 13.5,
+                sz: 13,
                 w: FontWeight.w700,
                 c: Colors.white,
               ),
@@ -3001,18 +3019,18 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             ),
           ),
           if (isVerified) ...[
-            const SizedBox(width: 4),
+            const SizedBox(width: 3),
             const Icon(
               Icons.verified,
               color: Color(0xFF00E5FF),
-              size: 13,
+              size: 12,
             ),
           ],
           const SizedBox(width: 2),
           const Icon(
             Icons.chevron_right_rounded,
             color: Color(0xFF00E5FF),
-            size: 16,
+            size: 15,
           ),
         ],
       ),
@@ -3032,7 +3050,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     if (cleanDesc.isEmpty) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.only(right: 5),
       child: GestureDetector(
         onTap: () => _showDescriptionSheet(
           context,
@@ -3041,18 +3059,18 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
           isVerified,
         ),
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          constraints: const BoxConstraints(maxWidth: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
           decoration: BoxDecoration(
-            color: const Color(0xFF0A0F2C).withValues(alpha: 0.75),
-            borderRadius: BorderRadius.circular(16),
+            color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: Colors.white.withValues(alpha: 0.16),
               width: 0.8,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
+                color: Colors.black.withValues(alpha: 0.25),
                 blurRadius: 4,
                 offset: const Offset(0, 1),
               ),
@@ -3065,7 +3083,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 child: Text(
                   cleanDesc,
                   style: dm(
-                    sz: 11.5,
+                    sz: 11,
                     w: FontWeight.w500,
                     c: Colors.white.withValues(alpha: 0.95),
                   ),
@@ -3073,11 +3091,11 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 3),
               Icon(
                 Icons.chevron_right_rounded,
                 color: const Color(0xFF00E5FF).withValues(alpha: 0.8),
-                size: 14,
+                size: 13,
               ),
             ],
           ),
@@ -3092,14 +3110,14 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     for (final tag in hashtags) {
       chips.add(
         Padding(
-          padding: const EdgeInsets.only(right: 6),
+          padding: const EdgeInsets.only(right: 5),
           child: GestureDetector(
             onTap: () => _openTagSearch(tag),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
               decoration: BoxDecoration(
-                color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(16),
+                color: const Color(0xFF0A0F2C).withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
                   width: 0.8,
@@ -3108,7 +3126,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               child: Text(
                 tag,
                 style: dm(
-                  sz: 11,
+                  sz: 10.5,
                   w: FontWeight.w600,
                   c: const Color(0xFF00E5FF),
                 ),
@@ -3123,14 +3141,14 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     for (final mention in mentions) {
       chips.add(
         Padding(
-          padding: const EdgeInsets.only(right: 6),
+          padding: const EdgeInsets.only(right: 5),
           child: GestureDetector(
             onTap: () => _openTagSearch(mention),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
               decoration: BoxDecoration(
-                color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(16),
+                color: const Color(0xFF0A0F2C).withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: const Color(0xFF7C4DFF).withValues(alpha: 0.5),
                   width: 0.8,
@@ -3139,7 +3157,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
               child: Text(
                 mention,
                 style: dm(
-                  sz: 11,
+                  sz: 10.5,
                   w: FontWeight.w600,
                   c: const Color(0xFFB388FF),
                 ),
