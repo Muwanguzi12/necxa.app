@@ -1053,7 +1053,25 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   Future<void> _loadClip(TimelineClip clip) async {
     if (clip.file == null || !clip.file!.existsSync()) return;
 
+    final mediaFile = (clip.isProxyReady &&
+            clip.proxyFile != null &&
+            clip.proxyFile!.existsSync())
+        ? clip.proxyFile!
+        : clip.file!;
+
+    // Guard: if controller is already initialized with this exact clip, reuse it without tearing down!
+    if (_videoController != null &&
+        _videoController!.value.isInitialized &&
+        _activeVisualClipId == clip.id) {
+      if (_playback.state.isPlaying && !_videoController!.value.isPlaying && !clip.isReversed) {
+        _videoController!.play();
+      }
+      return;
+    }
+
     final loadGeneration = ++_videoLoadGeneration;
+    _activeVisualClipId = clip.id;
+    _compositionVisualClip = clip;
     if (mounted) setState(() => _isVideoReady = false);
 
     if (_videoController != null) {
@@ -1062,12 +1080,6 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
       await oldCtrl.pause();
       await oldCtrl.dispose();
     }
-
-    final mediaFile = (clip.isProxyReady &&
-            clip.proxyFile != null &&
-            clip.proxyFile!.existsSync())
-        ? clip.proxyFile!
-        : clip.file!;
     final controller = VideoPlayerController.file(mediaFile);
     if (!clip.isProxyReady) {
       _generateProxyForClip(clip);
