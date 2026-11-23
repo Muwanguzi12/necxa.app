@@ -2289,7 +2289,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                 ),
 
                 // 🚀 UNIFIED BOTTOM CONTROLS
-                // Avatar + Name, Scrubber, Description + Chevron, Hashtags/Nametags, Rotating Sound Disc
+                // Avatar, Scrubber, Search Similar Videos + Disc, Dynamic Metadata (Creator + Desc + Tags + Mentions)
                 Positioned(
                   left: 16,
                   right: 16,
@@ -2298,56 +2298,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 1. Creator Bubble + Display Name ('kiol')
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          _buildExpandableBubble(),
-                          AnimatedBuilder(
-                            animation: _expandController,
-                            builder: (context, _) {
-                              final double opacity =
-                                  (1.0 - _expandController.value * 2.5).clamp(
-                                    0.0,
-                                    1.0,
-                                  );
-                              if (opacity <= 0.0)
-                                return const SizedBox.shrink();
-                              return Opacity(
-                                opacity: opacity,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(left: 10),
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      final authorId =
-                                          widget.post['author_id'] ??
-                                          widget.post['user_id'] ??
-                                          widget.post['lister_id'];
-                                      if (authorId != null &&
-                                          authorId.toString().isNotEmpty) {
-                                        widget.state.targetProfileId = authorId
-                                            .toString();
-                                        widget.state.go('public_profile');
-                                      }
-                                    },
-                                    child: Text(
-                                      username,
-                                      style: syne(
-                                        sz: 14,
-                                        w: FontWeight.w700,
-                                        c: Colors.white,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
+                      // 1. Creator Bubble (Floating Avatar)
+                      _buildExpandableBubble(),
                       const SizedBox(height: 10),
 
                       // 2. Video Progress Scrubber Bar (Horizontal line with thumb)
@@ -2358,68 +2310,63 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 10),
 
-                      // 3. Bottom Row: Description + Hashtags on Left, Rotating Sound Disc on Right
+                      // 3. Similar-Video Search Button + Rotating Sound Disc
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Description with '>' chevron expand button
-                                _buildDescriptionRow(description),
-                                const SizedBox(height: 8),
-
-                                // Hashtag / nametag / mentions chips
-                                _buildHashtagRow(description),
-
-                                // Music / Sound marquee pill
-                                if (_track != null || widget.post['music_track_id'] != null) ...[
-                                  const SizedBox(height: 8),
-                                  _buildSoundMarqueeRow(),
-                                ],
-
-                                // Shop Reel inline buy card if linked to a listing
-                                if (widget.post['listings'] != null) ...[
-                                  const SizedBox(height: 8),
-                                  if (widget.post['is_promoted'] == true)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF00E5FF).withAlpha(30),
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(color: const Color(0xFF00E5FF).withAlpha(100)),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(Icons.campaign_rounded, color: Color(0xFF00E5FF), size: 10),
-                                            const SizedBox(width: 4),
-                                            const Text(
-                                              'Sponsored',
-                                              style: TextStyle(fontSize: 10, color: Color(0xFF00E5FF), fontWeight: FontWeight.w600),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  _buildMiniBuyCard(widget.post['listings']),
-                                ],
-                              ],
-                            ),
+                            child: _buildSimilarSearchButton(),
                           ),
-                          const SizedBox(width: 12),
-
-                          // 4. Rotating Sound Disc (Bottom Right)
+                          const SizedBox(width: 10),
                           GestureDetector(
                             onTap: _goToSoundHub,
                             child: _buildRotatingDisc(),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 10),
+
+                      // 4. Dynamic Video Metadata Row: Creator Identity + Description Chip + Hashtags + Mentions
+                      _buildDynamicMetadataRow(
+                        username: username,
+                        description: description,
+                        isVerified: _profile?['is_verified'] == true || widget.post['is_verified'] == true,
+                      ),
+
+                      // 5. Music / Sound marquee pill
+                      if (_track != null || widget.post['music_track_id'] != null) ...[
+                        const SizedBox(height: 8),
+                        _buildSoundMarqueeRow(),
+                      ],
+
+                      // 6. Shop Reel inline buy card if linked to a listing
+                      if (widget.post['listings'] != null) ...[
+                        const SizedBox(height: 8),
+                        if (widget.post['is_promoted'] == true)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF).withAlpha(30),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(color: const Color(0xFF00E5FF).withAlpha(100)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.campaign_rounded, color: Color(0xFF00E5FF), size: 10),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    'Sponsored',
+                                    style: TextStyle(fontSize: 10, color: Color(0xFF00E5FF), fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        _buildMiniBuyCard(widget.post['listings']),
+                      ],
                     ],
                   ),
                 ),
@@ -2884,115 +2831,358 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     );
   }
 
-  // ── NEW UI COMPONENTS ───────────────────────────────────────
+  // ── DYNAMIC METADATA & BOTTOM FEED CONTROLS ─────────────────
 
-  Widget _buildDescriptionRow(String description) {
-    if (description.isEmpty) return const SizedBox.shrink();
-
-    // Strip trailing hashtags from text so they don't duplicate with the chips below
-    String displayDesc = description
-        .replaceAll(RegExp(r'(#[a-zA-Z0-9_]+\s*)+$'), '')
-        .trim();
-    if (displayDesc.isEmpty) displayDesc = description;
-
+  Widget _buildSimilarSearchButton() {
     return GestureDetector(
       onTap: () {
-        setState(() {
-          _isDescExpanded = !_isDescExpanded;
-        });
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => Align(
+            alignment: kIsWeb ? Alignment.center : Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: communityModalMaxWidth(MediaQuery.sizeOf(context).width),
+              ),
+              child: _CommunitySearchSheet(state: widget.state, initialTab: 0),
+            ),
+          ),
+        );
+      },
+      child: Container(
+        height: 38,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: const LinearGradient(
+            colors: [
+              Color(0xFF00E5FF),
+              Color(0xFF0052D4),
+              Color(0xFF0A0F2C),
+            ],
+            stops: [0.0, 0.45, 1.0],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          border: Border.all(
+            color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+            width: 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF00E5FF).withValues(alpha: 0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 4),
+            Container(
+              width: 30,
+              height: 30,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF00E5FF),
+              ),
+              child: const Icon(
+                Icons.search_rounded,
+                color: Color(0xFF0A0F2C),
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 1,
+              height: 16,
+              color: Colors.white.withValues(alpha: 0.25),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Search similar videos',
+                style: dm(
+                  sz: 12.5,
+                  w: FontWeight.w600,
+                  c: Colors.white.withValues(alpha: 0.95),
+                  ls: 0.2,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Icon(
+                Icons.north_east_rounded,
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.9),
+                size: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDynamicMetadataRow({
+    required String username,
+    required String description,
+    required bool isVerified,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // 1. Content creator identity (Fixed left side, independently visible)
+        _buildCreatorIdentity(username, isVerified),
+
+        // Subtle separator
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Text(
+            '|',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.25),
+              fontSize: 13,
+              fontWeight: FontWeight.w300,
+            ),
+          ),
+        ),
+
+        // 2. Horizontally scrollable metadata chips: [Description Chip] [Hashtags...] [Mentions...]
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Chip 1: Video Description
+                _buildDescriptionChip(description, username, isVerified),
+
+                // Chips 2 & 3: Hashtags and Mentions
+                ..._buildTagAndMentionChips(description),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCreatorIdentity(String username, bool isVerified) {
+    return GestureDetector(
+      onTap: () {
+        final authorId = widget.post['author_id'] ??
+            widget.post['user_id'] ??
+            widget.post['lister_id'];
+        if (authorId != null && authorId.toString().isNotEmpty) {
+          widget.state.targetProfileId = authorId.toString();
+          widget.state.go('public_profile');
+        }
       },
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Flexible(
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 110),
             child: Text(
-              displayDesc,
-              style: dm(
-                sz: 13,
-                w: FontWeight.w500,
-                c: Colors.white.withValues(alpha: 0.95),
+              username,
+              style: syne(
+                sz: 13.5,
+                w: FontWeight.w700,
+                c: Colors.white,
               ),
-              maxLines: _isDescExpanded ? null : 1,
-              overflow: _isDescExpanded
-                  ? TextOverflow.visible
-                  : TextOverflow.ellipsis,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 6),
-          Icon(
-            _isDescExpanded
-                ? Icons.keyboard_arrow_down_rounded
-                : Icons.chevron_right_rounded,
-            color: const Color(0xFF00E5FF),
-            size: 18,
+          if (isVerified) ...[
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.verified,
+              color: Color(0xFF00E5FF),
+              size: 13,
+            ),
+          ],
+          const SizedBox(width: 2),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Color(0xFF00E5FF),
+            size: 16,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHashtagRow(String description) {
-    final tags = _extractPostTags(description);
-    if (tags.isEmpty) return const SizedBox.shrink();
+  Widget _buildDescriptionChip(
+    String description,
+    String username,
+    bool isVerified,
+  ) {
+    String cleanDesc = description
+        .replaceAll(RegExp(r'(#[a-zA-Z0-9_]+s*)+$'), '')
+        .replaceAll(RegExp(r'(@[a-zA-Z0-9_]+s*)+$'), '')
+        .trim();
+    if (cleanDesc.isEmpty) cleanDesc = description.trim();
+    if (cleanDesc.isEmpty) return const SizedBox.shrink();
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: tags.map((tag) {
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: GestureDetector(
-              onTap: () => _openTagSearch(tag),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4.5,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    width: 0.8,
-                  ),
-                ),
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: GestureDetector(
+        onTap: () => _showDescriptionSheet(
+          context,
+          description,
+          username,
+          isVerified,
+        ),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0A0F2C).withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.18),
+              width: 0.8,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
                 child: Text(
-                  tag,
+                  cleanDesc,
                   style: dm(
-                    sz: 11,
-                    w: FontWeight.w600,
-                    c: Colors.white.withValues(alpha: 0.9),
+                    sz: 11.5,
+                    w: FontWeight.w500,
+                    c: Colors.white.withValues(alpha: 0.95),
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-          );
-        }).toList(),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: const Color(0xFF00E5FF).withValues(alpha: 0.8),
+                size: 14,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  List<String> _extractPostTags(String description) {
-    final List<String> result = [];
+  List<Widget> _buildTagAndMentionChips(String description) {
+    final List<Widget> chips = [];
+    final hashtags = _extractHashtags(description);
+    for (final tag in hashtags) {
+      chips.add(
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: GestureDetector(
+            onTap: () => _openTagSearch(tag),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                  width: 0.8,
+                ),
+              ),
+              child: Text(
+                tag,
+                style: dm(
+                  sz: 11,
+                  w: FontWeight.w600,
+                  c: const Color(0xFF00E5FF),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
+    final mentions = _extractMentions(description);
+    for (final mention in mentions) {
+      chips.add(
+        Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: GestureDetector(
+            onTap: () => _openTagSearch(mention),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A0F2C).withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFF7C4DFF).withValues(alpha: 0.5),
+                  width: 0.8,
+                ),
+              ),
+              child: Text(
+                mention,
+                style: dm(
+                  sz: 11,
+                  w: FontWeight.w600,
+                  c: const Color(0xFFB388FF),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return chips;
+  }
+
+  List<String> _extractHashtags(String description) {
+    final List<String> result = [];
     final rawTags = widget.post['tags'] ?? widget.post['hashtags'];
     if (rawTags is List) {
       for (final t in rawTags) {
         final s = t.toString().trim();
-        if (s.isNotEmpty) {
-          result.add(s.startsWith('#') || s.startsWith('@') ? s : '#$s');
+        if (s.isNotEmpty && !s.startsWith('@')) {
+          result.add(s.startsWith('#') ? s : '#$s');
         }
       }
     } else if (rawTags is String && rawTags.trim().isNotEmpty) {
-      result.addAll(ContentSanitizer.sanitizeTags(rawTags));
+      for (final s in ContentSanitizer.sanitizeTags(rawTags)) {
+        if (!s.startsWith('@')) {
+          result.add(s.startsWith('#') ? s : '#$s');
+        }
+      }
     }
 
     final inlineTags = ContentSanitizer.extractHashtagsFromText(description);
     result.addAll(inlineTags);
 
+    if (result.isEmpty) {
+      result.addAll(['#NightVibes', '#StreetStyle', '#NecxaMoments']);
+    }
+
+    return result.toSet().toList();
+  }
+
+  List<String> _extractMentions(String description) {
+    final List<String> result = [];
     final mentionRegex = RegExp(r'@[a-zA-Z0-9_]+');
     for (final m in mentionRegex.allMatches(description)) {
       final mention = m.group(0);
@@ -3001,11 +3191,190 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       }
     }
 
-    if (result.isEmpty) {
-      result.addAll(['#NightVibes', '#StreetStyle', '#NecxaMoments']);
+    final rawMentions = widget.post['mentions'];
+    if (rawMentions is List) {
+      for (final m in rawMentions) {
+        final s = m.toString().trim();
+        if (s.isNotEmpty) {
+          result.add(s.startsWith('@') ? s : '@$s');
+        }
+      }
     }
-
     return result.toSet().toList();
+  }
+
+  void _showDescriptionSheet(
+    BuildContext context,
+    String description,
+    String username,
+    bool isVerified,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Align(
+        alignment: kIsWeb ? Alignment.center : Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: communityModalMaxWidth(MediaQuery.sizeOf(context).width),
+            maxHeight: MediaQuery.sizeOf(context).height * 0.65,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A0F2C).withValues(alpha: 0.96),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.12),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  blurRadius: 20,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Drag handle
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 8),
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.25),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                // Header: Creator identity + Close button
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Text(
+                              username,
+                              style: syne(
+                                sz: 16,
+                                w: FontWeight.w700,
+                                c: Colors.white,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (isVerified) ...[
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.verified,
+                                color: Color(0xFF00E5FF),
+                                size: 15,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white70,
+                          size: 20,
+                        ),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white12, height: 1),
+                // Content: Scrollable full description
+                Flexible(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          description,
+                          style: dm(
+                            sz: 14,
+                            w: FontWeight.w400,
+                            c: Colors.white.withValues(alpha: 0.95),
+                            h: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        // Tags & mentions in wrap
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ..._extractHashtags(description).map(
+                              (tag) => GestureDetector(
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  _openTagSearch(tag);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: const Color(0xFF00E5FF).withValues(alpha: 0.4),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    tag,
+                                    style: dm(sz: 12, w: FontWeight.w600, c: const Color(0xFF00E5FF)),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            ..._extractMentions(description).map(
+                              (mention) => GestureDetector(
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  _openTagSearch(mention);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF7C4DFF).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: const Color(0xFF7C4DFF).withValues(alpha: 0.4),
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    mention,
+                                    style: dm(sz: 12, w: FontWeight.w600, c: const Color(0xFFB388FF)),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildExpandableBubble() {
