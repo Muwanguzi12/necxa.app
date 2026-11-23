@@ -936,7 +936,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           clip.proxyFile = proxy;
           clip.isProxyReady = true;
         });
-        if (_compositionVisualClip?.id == clip.id) {
+        // Only reload if not actively playing, to prevent blinking/reloading mid-playback.
+        if (_compositionVisualClip?.id == clip.id && !_playback.state.isPlaying) {
           _loadClip(clip);
         }
       }
@@ -1690,21 +1691,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           ..._buildEffectOverlayWidgets(),
           ..._buildTimelineOverlayWidgets(),
           _buildTransitionOverlay(compositionClip),
-          Positioned(
-            bottom: 10,
-            left: 10,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                _isPlaying ? 'Playing' : 'Paused',
-                style: dm(sz: 10, c: Colors.white, w: FontWeight.w600),
-              ),
-            ),
-          ),
+
         ],
       );
     }
@@ -6960,6 +6947,11 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         }
       }
 
+      if (_videoController != null && _videoController!.value.isInitialized) {
+        if (!_videoController!.value.isPlaying && !(_compositionVisualClip?.isReversed ?? false)) {
+          _videoController!.play();
+        }
+      }
       _playback.play(_tracks);
     }
   }
@@ -7056,12 +7048,12 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
           const Duration(milliseconds: 350);
       final needsVideoCorrection =
           visualChanged ||
-          !state.isPlaying ||
-          !controller.value.isPlaying ||
           timelineJump ||
-          (drift > const Duration(milliseconds: 350) &&
+          (!state.isPlaying && drift > const Duration(milliseconds: 40)) ||
+          (state.isPlaying &&
+              drift > const Duration(milliseconds: 500) &&
               now.difference(_lastVideoSyncAt) >
-                  const Duration(milliseconds: 750));
+                  const Duration(milliseconds: 1500));
       if (needsVideoCorrection) {
         await _seekVideoToTimeline(visual, state.currentTime, force: true);
         _lastVideoSyncAt = now;
@@ -11480,13 +11472,18 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   }
 
   void _syncVideoState() {
-    if (!mounted || _videoController == null) return;
+    if (!mounted || _videoController == null || !_videoController!.value.isInitialized) return;
+    // During active timeline playback, the master timeline orchestrates advancing time and switching clips.
+    // Avoid seeking backwards while playing.
+    if (_playback.state.isPlaying) return;
     final clip = TimelinePlaybackController.resolve(
       _tracks,
       _playback.state.currentTime,
     ).ofType(TrackType.video).lastOrNull;
     if (clip != null && clip.file != null && !clip.isReversed) {
-      final sourceEnd = clip.sourceEnd ?? _videoController!.value.duration;
+      final totalDuration = _videoController!.value.duration;
+      if (totalDuration <= Duration.zero) return;
+      final sourceEnd = clip.sourceEnd ?? totalDuration;
       if (_videoController!.value.position >= sourceEnd) {
         _videoController!.seekTo(clip.sourceStart);
       }
