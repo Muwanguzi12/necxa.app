@@ -104,7 +104,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   bool _isLiftSwipeUp = false;
   bool _isDeleteSwipeDown = false;
   final Map<String, Duration> _dragRippleOriginalStarts = <String, Duration>{};
-  double _clipHandleWidth = 12.0; // hit area for handles in pixels
+  double _clipHandleWidth = 32.0; // ergonomic hit area for handles in pixels
   bool _isRippleMode = false; // when true, edits ripple following clips
   bool _isStretchMode = false; // when true, resize changes speed (stretch)
   bool _isSnappingEnabled = true;
@@ -184,18 +184,340 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     );
   }
 
-  void _onClipPanStart(
+  // ═══════════════════════════════════════════════════════════
+  // PRO TIMELINE GESTURES & INTERACTION ENGINE
+  // ═══════════════════════════════════════════════════════════
+
+  /// Dedicated Left Trim Handle: Drag start
+  void _onTrimLeftStart(
     TimelineTrack track,
     TimelineClip clip,
     DragStartDetails details,
-    double width,
   ) {
     if (track.isLocked) {
       _showSnack('Unlock ${track.label} before editing');
       return;
     }
+    _selectClip(track, clip);
     _activeDragClipId = clip.id;
-    _dragStartLocalX = details.localPosition.dx;
+    _clipDragMode = _ClipDragMode.resizeLeft;
+    _dragOriginalStart = clip.start;
+    _dragOriginalDuration = clip.duration;
+    _dragCumulativeDx = 0;
+    _hasClipOverlap = false;
+
+    final originalEnd = clip.start + clip.duration;
+    _dragRippleOriginalStarts
+      ..clear()
+      ..addEntries(
+        track.clips
+            .where((c) => c.id != clip.id && c.start >= originalEnd)
+            .map((c) => MapEntry(c.id, c.start)),
+      );
+
+    _ghostClipId = clip.id;
+    _ghostTrackId = track.id;
+    _ghostStart = clip.start;
+    _ghostDuration = clip.duration;
+
+    HapticFeedback.selectionClick();
+    _captureTimeline();
+  }
+
+  /// Dedicated Left Trim Handle: Drag update with frame snapping & live ghost
+  void _onTrimLeftUpdate(
+    TimelineTrack track,
+    TimelineClip clip,
+    DragUpdateDetails details,
+  ) {
+    if (_activeDragClipId != clip.id || _clipDragMode != _ClipDragMode.resizeLeft) return;
+    _dragCumulativeDx += details.delta.dx;
+    final scale = _pixelsPerSecond * _timelineZoom;
+    final rawDelta = Duration(
+      milliseconds: (_dragCumulativeDx / scale * 1000.0).round(),
+    );
+    final frameDelta = _isSnappingEnabled ? _snapToFrame(rawDelta) : rawDelta;
+
+    setState(() {
+      final origStart = _dragOriginalStart ?? clip.start;
+      final origDur = _dragOriginalDuration ?? clip.duration;
+      final newStart = origStart + frameDelta;
+      final newDur = origDur - frameDelta;
+
+      if (newDur >= const Duration(milliseconds: 100)) {
+        if (clip.operation is TrimOperation) {
+          final trim = clip.operation as TrimOperation;
+          final newSourceStart = _clampDuration(
+            trim.start + frameDelta,
+            Duration.zero,
+            trim.end - const Duration(milliseconds: 100),
+          );
+          trim.start = newSourceStart;
+          clip.sourceStart = trim.start;
+          final available = trim.end - trim.start;
+          clip.duration = Duration(
+            milliseconds: (available.inMilliseconds / clip.speed).round(),
+          );
+        } else {
+          clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
+          clip.duration = newDur;
+        }
+
+        clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+
+        if (_isRippleMode) {
+          _positionRippleFollowers(track, frameDelta);
+        }
+      }
+
+      _ghostStart = clip.start;
+      _ghostDuration = clip.duration;
+      _playback.updateProject(_tracks);
+    });
+  }
+
+  /// Dedicated Left Trim Handle: Drag end
+  void _onTrimLeftEnd(
+    TimelineTrack track,
+    TimelineClip clip,
+    DragEndDetails details,
+  ) {
+    _activeDragClipId = null;
+    _clipDragMode = _ClipDragMode.none;
+    _ghostClipId = null;
+    _ghostTrackId = null;
+    _ghostStart = null;
+    _ghostDuration = null;
+    _dragRippleOriginalStarts.clear();
+    _dragCumulativeDx = 0;
+
+    HapticFeedback.selectionClick();
+    _playback.seek(clip.start, _tracks);
+    setState(() => _currentTime = clip.start);
+    _playback.updateProject(_tracks);
+  }
+
+  /// Dedicated Right Trim Handle: Drag start (supports Trim, Stretch, & Roll Trim)
+  void _onTrimRightStart(
+    TimelineTrack track,
+    TimelineClip clip,
+    DragStartDetails details,
+  ) {
+    if (track.isLocked) {
+      _showSnack('Unlock ${track.label} before editing');
+      return;
+    }
+    _selectClip(track, clip);
+    _activeDragClipId = clip.id;
+    _dragOriginalStart = clip.start;
+    _dragOriginalDuration = clip.duration;
+    _dragCumulativeDx = 0;
+    _hasClipOverlap = false;
+
+    if (_isStretchMode) {
+      _clipDragMode = _ClipDragMode.stretch;
+    } else {
+      final clipEnd = clip.start + clip.duration;
+      const kRollSnapMs = 80;
+      TimelineClip? adjacent;
+      for (final c in track.clips) {
+        if (c.id == clip.id) continue;
+        final gap = (c.start - clipEnd).inMilliseconds.abs();
+        if (gap <= kRollSnapMs && c.start >= clip.start) {
+          adjacent = c;
+          break;
+        }
+      }
+      if (adjacent != null && !_isRippleMode) {
+        _clipDragMode = _ClipDragMode.rollTrim;
+        _rollAdjacentClipId = adjacent.id;
+        _rollAdjacentOriginalStart = adjacent.start;
+        _rollAdjacentOriginalDuration = adjacent.duration;
+        _ghostBStart = adjacent.start;
+        _ghostBDuration = adjacent.duration;
+      } else {
+        _clipDragMode = _ClipDragMode.resizeRight;
+      }
+    }
+
+    final originalEnd = clip.start + clip.duration;
+    _dragRippleOriginalStarts
+      ..clear()
+      ..addEntries(
+        track.clips
+            .where((c) => c.id != clip.id && c.start >= originalEnd)
+            .map((c) => MapEntry(c.id, c.start)),
+      );
+
+    _ghostClipId = clip.id;
+    _ghostTrackId = track.id;
+    _ghostStart = clip.start;
+    _ghostDuration = clip.duration;
+
+    HapticFeedback.selectionClick();
+    _captureTimeline();
+  }
+
+  /// Dedicated Right Trim Handle: Drag update
+  void _onTrimRightUpdate(
+    TimelineTrack track,
+    TimelineClip clip,
+    DragUpdateDetails details,
+  ) {
+    if (_activeDragClipId != clip.id) return;
+    _dragCumulativeDx += details.delta.dx;
+    final scale = _pixelsPerSecond * _timelineZoom;
+    final rawDelta = Duration(
+      milliseconds: (_dragCumulativeDx / scale * 1000.0).round(),
+    );
+    final frameDelta = _isSnappingEnabled ? _snapToFrame(rawDelta) : rawDelta;
+
+    setState(() {
+      if (_clipDragMode == _ClipDragMode.resizeRight) {
+        final origDur = _dragOriginalDuration ?? clip.duration;
+        final newDur = origDur + frameDelta;
+        if (newDur >= const Duration(milliseconds: 100)) {
+          if (clip.operation is TrimOperation) {
+            final trim = clip.operation as TrimOperation;
+            final newEnd = _clampDuration(
+              trim.end + frameDelta,
+              trim.start + const Duration(milliseconds: 100),
+              const Duration(days: 36500),
+            );
+            trim.end = newEnd;
+            clip.sourceEnd = trim.end;
+            final available = trim.end - trim.start;
+            clip.duration = Duration(
+              milliseconds: (available.inMilliseconds / clip.speed).round(),
+            );
+          } else {
+            clip.duration = newDur;
+          }
+          clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+          if (_isRippleMode) {
+            _positionRippleFollowers(track, frameDelta);
+          }
+        }
+      } else if (_clipDragMode == _ClipDragMode.stretch) {
+        final origDur = _dragOriginalDuration ?? clip.duration;
+        final newDur = origDur + frameDelta;
+        if (newDur >= const Duration(milliseconds: 100)) {
+          final sourceDurMs = clip.sourceDuration.inMilliseconds;
+          final newSpeed = newDur.inMilliseconds > 0
+              ? (sourceDurMs / newDur.inMilliseconds).clamp(0.1, 10.0)
+              : clip.speed;
+          clip.duration = newDur;
+          clip.speed = newSpeed;
+          if (clip.operation is TrimOperation) {
+            final trim = clip.operation as TrimOperation;
+            trim.end = trim.start + Duration(milliseconds: clip.sourceDuration.inMilliseconds);
+          }
+          clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+          if (_isRippleMode) {
+            _positionRippleFollowers(track, frameDelta);
+          }
+        }
+      } else if (_clipDragMode == _ClipDragMode.rollTrim) {
+        final adjId = _rollAdjacentClipId;
+        if (adjId != null) {
+          TimelineClip? adjClip;
+          for (final c in track.clips) {
+            if (c.id == adjId) {
+              adjClip = c;
+              break;
+            }
+          }
+          if (adjClip != null) {
+            final origADur = _dragOriginalDuration ?? clip.duration;
+            final newADur = origADur + frameDelta;
+            final origBStart = _rollAdjacentOriginalStart ?? adjClip.start;
+            final origBDur = _rollAdjacentOriginalDuration ?? adjClip.duration;
+            final newBStart = origBStart + frameDelta;
+            final newBDur = origBDur - frameDelta;
+
+            if (newADur >= const Duration(milliseconds: 100) &&
+                newBDur >= const Duration(milliseconds: 100)) {
+              if (clip.operation is TrimOperation) {
+                final trim = clip.operation as TrimOperation;
+                trim.end = _clampDuration(
+                  trim.end + frameDelta,
+                  trim.start + const Duration(milliseconds: 100),
+                  const Duration(days: 36500),
+                );
+                clip.sourceEnd = trim.end;
+                clip.duration = Duration(
+                  milliseconds: ((trim.end - trim.start).inMilliseconds / clip.speed).round(),
+                );
+              } else {
+                clip.duration = newADur;
+              }
+
+              if (adjClip.operation is TrimOperation) {
+                final trim = adjClip.operation as TrimOperation;
+                trim.start = _clampDuration(
+                  trim.start + frameDelta,
+                  Duration.zero,
+                  trim.end - const Duration(milliseconds: 100),
+                );
+                adjClip.sourceStart = trim.start;
+                adjClip.start = newBStart;
+                adjClip.duration = Duration(
+                  milliseconds: ((trim.end - trim.start).inMilliseconds / adjClip.speed).round(),
+                );
+              } else {
+                adjClip.start = newBStart;
+                adjClip.duration = newBDur;
+              }
+            }
+          }
+        }
+      }
+
+      _ghostStart = clip.start;
+      _ghostDuration = clip.duration;
+      _playback.updateProject(_tracks);
+    });
+  }
+
+  /// Dedicated Right Trim Handle: Drag end
+  void _onTrimRightEnd(
+    TimelineTrack track,
+    TimelineClip clip,
+    DragEndDetails details,
+  ) {
+    _activeDragClipId = null;
+    _clipDragMode = _ClipDragMode.none;
+    _ghostClipId = null;
+    _ghostTrackId = null;
+    _ghostStart = null;
+    _ghostDuration = null;
+    _rollAdjacentClipId = null;
+    _rollAdjacentOriginalStart = null;
+    _rollAdjacentOriginalDuration = null;
+    _ghostBStart = null;
+    _ghostBDuration = null;
+    _dragRippleOriginalStarts.clear();
+    _dragCumulativeDx = 0;
+
+    HapticFeedback.selectionClick();
+    _playback.seek(clip.start + clip.duration, _tracks);
+    setState(() => _currentTime = clip.start + clip.duration);
+    _playback.updateProject(_tracks);
+  }
+
+  /// Press & Hold (Long-Press): Lifts clip into move/reorder mode
+  void _onClipLongPressStart(
+    TimelineTrack track,
+    TimelineClip clip,
+    LongPressStartDetails details,
+  ) {
+    if (track.isLocked) {
+      _showSnack('Unlock ${track.label} before editing');
+      return;
+    }
+    _selectClip(track, clip);
+    _activeDragClipId = clip.id;
+    _clipDragMode = _ClipDragMode.move;
     _dragOriginalStart = clip.start;
     _dragOriginalDuration = clip.duration;
     _dragCumulativeDx = 0;
@@ -203,299 +525,94 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _hasClipOverlap = false;
     _isLiftSwipeUp = false;
     _isDeleteSwipeDown = false;
+
     final originalEnd = clip.start + clip.duration;
     _dragRippleOriginalStarts
       ..clear()
       ..addEntries(
         track.clips
-            .where(
-              (candidate) =>
-                  candidate.id != clip.id && candidate.start >= originalEnd,
-            )
-            .map((candidate) => MapEntry(candidate.id, candidate.start)),
+            .where((c) => c.id != clip.id && c.start >= originalEnd)
+            .map((c) => MapEntry(c.id, c.start)),
       );
 
-    if (_dragStartLocalX != null) {
-      if (_dragStartLocalX! < _clipHandleWidth) {
-        _clipDragMode = _ClipDragMode.resizeLeft;
-      } else if (_dragStartLocalX! > width - _clipHandleWidth) {
-        if (_isStretchMode) {
-          _clipDragMode = _ClipDragMode.stretch;
-        } else {
-          // Detect adjacent clip abutting this clip's right edge → roll trim
-          final clipEnd = clip.start + clip.duration;
-          const kRollSnapMs = 80; // ms threshold for considering clips adjacent
-          TimelineClip? adjacent;
-          for (final c in track.clips) {
-            if (c.id == clip.id) continue;
-            final gap = (c.start - clipEnd).inMilliseconds.abs();
-            if (gap <= kRollSnapMs && c.start >= clip.start) {
-              adjacent = c;
-              break;
-            }
-          }
-          if (adjacent != null && !_isRippleMode) {
-            _clipDragMode = _ClipDragMode.rollTrim;
-            _rollAdjacentClipId = adjacent.id;
-            _rollAdjacentOriginalStart = adjacent.start;
-            _rollAdjacentOriginalDuration = adjacent.duration;
-            // Snapshot ghost B (adjacent clip's original position)
-            _ghostBStart = adjacent.start;
-            _ghostBDuration = adjacent.duration;
-            HapticFeedback.selectionClick();
-          } else {
-            _clipDragMode = _ClipDragMode.resizeRight;
-          }
-        }
-      } else {
-        _clipDragMode = _ClipDragMode.move;
-      }
-    }
-
-    // Snapshot ghost position for trim outline preview
-    _ghostClipId = clip.id;
-    _ghostTrackId = track.id;
-    _ghostStart = clip.start;
-    _ghostDuration = clip.duration;
-
-    // Capture timeline for undo
+    HapticFeedback.heavyImpact();
     _captureTimeline();
+    setState(() {});
   }
 
-  void _onClipPanUpdate(
+  /// Press & Hold: Move update along timeline with edge auto-scroll & snapping
+  void _onClipLongPressMoveUpdate(
     TimelineTrack track,
     TimelineClip clip,
-    DragUpdateDetails details,
+    LongPressMoveUpdateDetails details,
   ) {
-    if (_activeDragClipId != clip.id) return;
+    if (_activeDragClipId != clip.id || _clipDragMode != _ClipDragMode.move) return;
     final scale = _pixelsPerSecond * _timelineZoom;
-    _dragCumulativeDx += details.delta.dx;
-    _dragCumulativeDy += details.delta.dy;
+    _dragCumulativeDx = details.offsetFromOrigin.dx;
+    _dragCumulativeDy = details.offsetFromOrigin.dy;
 
-    // Vertical swipe gesture tracking during move mode
-    if (_clipDragMode == _ClipDragMode.move) {
-      final isLift = _dragCumulativeDy < -36.0;
-      final isDelete = _dragCumulativeDy > 36.0;
-      if (isLift != _isLiftSwipeUp) {
-        _isLiftSwipeUp = isLift;
-        if (isLift) HapticFeedback.selectionClick();
-      }
-      if (isDelete != _isDeleteSwipeDown) {
-        _isDeleteSwipeDown = isDelete;
-        if (isDelete) HapticFeedback.mediumImpact();
-      }
+    final isLift = _dragCumulativeDy < -36.0;
+    final isDelete = _dragCumulativeDy > 36.0;
+    if (isLift != _isLiftSwipeUp) {
+      _isLiftSwipeUp = isLift;
+      if (isLift) HapticFeedback.selectionClick();
     }
+    if (isDelete != _isDeleteSwipeDown) {
+      _isDeleteSwipeDown = isDelete;
+      if (isDelete) HapticFeedback.mediumImpact();
+    }
+
+    // Auto-scroll when dragging near screen edge
+    _checkTimelineAutoScroll(details.globalPosition.dx);
 
     final rawDelta = Duration(
       milliseconds: (_dragCumulativeDx / scale * 1000.0).round(),
     );
-    // Step 1: frame-snap the delta (keeps edits on frame boundaries).
     final frameDelta = _isSnappingEnabled ? _snapToFrame(rawDelta) : rawDelta;
+
     setState(() {
-      switch (_clipDragMode) {
-        case _ClipDragMode.move:
-          final rawStart = (_dragOriginalStart ?? clip.start) + frameDelta;
-          final clampedStart =
-              rawStart >= Duration.zero ? rawStart : Duration.zero;
-          // Step 2: snap the proposed start to nearby clip edges (exclude this
-          // clip from snap targets so it doesn't snap to its own old position).
-          final otherTracks = _tracks
-              .map(
-                (t) => TimelineTrack(
-                  id: t.id,
-                  type: t.type,
-                  clips: t.clips.where((c) => c.id != clip.id).toList(),
-                  label: t.label,
-                  icon: t.icon,
-                  isLocked: t.isLocked,
-                  isVisible: t.isVisible,
-                ),
-              )
-              .toList();
-          clip.start = TimelineSnapEngine.snap(
-            clampedStart,
-            otherTracks,
-            pixelsPerSecond: _pixelsPerSecond,
-            zoom: _timelineZoom,
-            enabled: _isSnappingEnabled,
-          );
-          final appliedDelta =
-              clip.start - (_dragOriginalStart ?? Duration.zero);
-          if (_isRippleMode) {
-            _positionRippleFollowers(track, appliedDelta);
-          }
-          break;
-        case _ClipDragMode.resizeLeft:
-          final origStart = _dragOriginalStart ?? clip.start;
-          final origDur = _dragOriginalDuration ?? clip.duration;
-          final newStart = origStart + frameDelta;
-          final newDur = origDur - frameDelta;
-          if (newDur >= const Duration(milliseconds: 100)) {
-            // Advanced trim: update TrimOperation if available to restore/hide source
-            if (clip.operation is TrimOperation) {
-              final trim = clip.operation as TrimOperation;
-              final newSourceStart = _clampDuration(
-                trim.start + frameDelta,
-                Duration.zero,
-                trim.end,
-              );
-              trim.start = newSourceStart;
-              clip.sourceStart = trim.start;
-              final available = (trim.end - trim.start);
-              clip.duration = Duration(
-                milliseconds: (available.inMilliseconds / clip.speed).round(),
-              );
-            } else {
-              clip.start = newStart >= Duration.zero ? newStart : Duration.zero;
-              clip.duration = newDur;
-            }
+      final proposedStart = (_dragOriginalStart ?? clip.start) + frameDelta;
+      final clampedStart = proposedStart >= Duration.zero ? proposedStart : Duration.zero;
 
-            // hide semantics: if duration becomes very small, mark hidden
-            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
+      // Magnetic snap to other clips
+      final otherTracks = _tracks
+          .map(
+            (t) => TimelineTrack(
+              id: t.id,
+              type: t.type,
+              clips: t.clips.where((c) => c.id != clip.id).toList(),
+              label: t.label,
+              icon: t.icon,
+              isLocked: t.isLocked,
+              isVisible: t.isVisible,
+              isMuted: t.isMuted,
+            ),
+          )
+          .toList();
 
-            if (_isRippleMode) {
-              _positionRippleFollowers(track, frameDelta);
-            }
-          }
-          break;
-        case _ClipDragMode.resizeRight:
-          final origDur = _dragOriginalDuration ?? clip.duration;
-          final newDur = origDur + frameDelta;
-          if (newDur >= const Duration(milliseconds: 100)) {
-            if (clip.operation is TrimOperation) {
-              final trim = clip.operation as TrimOperation;
-              final newEnd = _clampDuration(
-                trim.end + frameDelta,
-                trim.start + const Duration(milliseconds: 1),
-                Duration(days: 36500),
-              );
-              trim.end = newEnd;
-              clip.sourceEnd = trim.end;
-              final available = (trim.end - trim.start);
-              clip.duration = Duration(
-                milliseconds: (available.inMilliseconds / clip.speed).round(),
-              );
-            } else {
-              clip.duration = newDur;
-            }
+      clip.start = TimelineSnapEngine.snap(
+        clampedStart,
+        otherTracks,
+        pixelsPerSecond: _pixelsPerSecond,
+        zoom: _timelineZoom,
+        enabled: _isSnappingEnabled,
+      );
 
-            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
-
-            if (_isRippleMode) {
-              _positionRippleFollowers(track, frameDelta);
-            }
-          }
-          break;
-        case _ClipDragMode.stretch:
-          final origDur = _dragOriginalDuration ?? clip.duration;
-          final newDur = origDur + frameDelta;
-          if (newDur >= const Duration(milliseconds: 100)) {
-            // Stretch changes playback speed to keep source mapping
-            final sourceDurMs = clip.sourceDuration.inMilliseconds;
-            final newSpeed = newDur.inMilliseconds > 0
-                ? (sourceDurMs / newDur.inMilliseconds).clamp(0.1, 10.0)
-                : clip.speed;
-            clip.duration = newDur;
-            clip.speed = newSpeed;
-            if (clip.operation is TrimOperation) {
-              // keep trim end aligned to source end, adjust operation end accordingly
-              final trim = clip.operation as TrimOperation;
-              trim.end =
-                  trim.start +
-                  Duration(milliseconds: (clip.sourceDuration.inMilliseconds));
-            }
-            clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
-            if (_isRippleMode) {
-              _positionRippleFollowers(track, frameDelta);
-            }
-          }
-          break;
-        case _ClipDragMode.rollTrim:
-          // Roll trim: slide A's out-point and B's in-point by the same delta.
-          // Total timeline duration stays constant — no ripple needed.
-          final adjId = _rollAdjacentClipId;
-          if (adjId != null) {
-            TimelineClip? adjClip;
-            for (final c in track.clips) {
-              if (c.id == adjId) { adjClip = c; break; }
-            }
-            if (adjClip != null) {
-              final origADur = _dragOriginalDuration ?? clip.duration;
-              final newADur = origADur + frameDelta;
-              final origBStart = _rollAdjacentOriginalStart ?? adjClip.start;
-              final origBDur = _rollAdjacentOriginalDuration ?? adjClip.duration;
-              final newBStart = origBStart + frameDelta;
-              final newBDur = origBDur - frameDelta;
-
-              // Guard: neither clip may shrink below 100ms
-              if (newADur >= const Duration(milliseconds: 100) &&
-                  newBDur >= const Duration(milliseconds: 100)) {
-                // Extend / retract clip A (out-point)
-                if (clip.operation is TrimOperation) {
-                  final trim = clip.operation as TrimOperation;
-                  final newEnd = _clampDuration(
-                    trim.end + frameDelta,
-                    trim.start + const Duration(milliseconds: 1),
-                    Duration(days: 36500),
-                  );
-                  trim.end = newEnd;
-                  clip.sourceEnd = trim.end;
-                  clip.duration = Duration(
-                    milliseconds:
-                        ((trim.end - trim.start).inMilliseconds / clip.speed)
-                            .round(),
-                  );
-                } else {
-                  clip.duration = newADur;
-                }
-
-                // Retract clip B in-point (start moves right, duration shrinks)
-                if (adjClip.operation is TrimOperation) {
-                  final trim = adjClip.operation as TrimOperation;
-                  final newSrcStart = _clampDuration(
-                    trim.start + frameDelta,
-                    Duration.zero,
-                    trim.end - const Duration(milliseconds: 1),
-                  );
-                  trim.start = newSrcStart;
-                  adjClip.sourceStart = trim.start;
-                  adjClip.start = newBStart;
-                  adjClip.duration = Duration(
-                    milliseconds:
-                        ((trim.end - trim.start).inMilliseconds / adjClip.speed)
-                            .round(),
-                  );
-                } else {
-                  adjClip.start = newBStart;
-                  adjClip.duration = newBDur;
-                }
-
-                clip.isHidden = clip.duration <= const Duration(milliseconds: 150);
-                adjClip.isHidden =
-                    adjClip.duration <= const Duration(milliseconds: 150);
-              }
-            }
-          }
-          break;
-        case _ClipDragMode.none:
-          break;
-      }
-
-      // Overlap / Collision Warning detection
-      final isOverlap = _checkTrackOverlap(track, clip);
-      if (isOverlap != _hasClipOverlap) {
-        _hasClipOverlap = isOverlap;
-        if (isOverlap) {
-          HapticFeedback.heavyImpact();
-        }
+      if (_isRippleMode) {
+        final appliedDelta = clip.start - (_dragOriginalStart ?? Duration.zero);
+        _positionRippleFollowers(track, appliedDelta);
       }
 
       _playback.updateProject(_tracks);
     });
   }
 
-  void _onClipPanEnd(DragEndDetails details) {
-    final wasMove = _clipDragMode == _ClipDragMode.move;
+  /// Press & Hold: Drop clip, magnetically reorder if video track, and update
+  void _onClipLongPressEnd(
+    TimelineTrack track,
+    TimelineClip clip,
+    LongPressEndDetails details,
+  ) {
     final movedClipId = _activeDragClipId;
     final isLift = _isLiftSwipeUp;
     final isDelete = _isDeleteSwipeDown;
@@ -511,83 +628,141 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     _isLiftSwipeUp = false;
     _isDeleteSwipeDown = false;
     _dragRippleOriginalStarts.clear();
-    // Clear ghost trim preview
-    _ghostClipId = null;
-    _ghostTrackId = null;
-    _ghostStart = null;
-    _ghostDuration = null;
-    // Clear roll trim state
-    _rollAdjacentClipId = null;
-    _rollAdjacentOriginalStart = null;
-    _rollAdjacentOriginalDuration = null;
-    _ghostBStart = null;
-    _ghostBDuration = null;
 
     if (movedClipId != null) {
-      TimelineTrack? sourceTrack;
-      TimelineClip? targetClip;
-      for (final t in _tracks) {
-        for (final c in t.clips) {
-          if (c.id == movedClipId) {
-            sourceTrack = t;
-            targetClip = c;
-            break;
+      if (isDelete) {
+        _magneticallyDeleteClips([clip.id]);
+        HapticFeedback.heavyImpact();
+        _showSnack('Deleted clip & closed timeline gap');
+        return;
+      } else if (isLift) {
+        final currentIdx = _tracks.indexWhere((t) => t.id == track.id);
+        setState(() {
+          track.clips.removeWhere((c) => c.id == clip.id);
+          if (currentIdx > 0) {
+            _tracks[currentIdx - 1].clips.add(clip);
+            _selectedTrackId = _tracks[currentIdx - 1].id;
+          } else {
+            final newTrack = TimelineTrack(
+              id: 'track_${DateTime.now().millisecondsSinceEpoch}',
+              type: track.type,
+              label: '${track.label} Overlay',
+              icon: track.icon,
+              clips: [clip],
+            );
+            _tracks.insert(0, newTrack);
+            _selectedTrackId = newTrack.id;
           }
-        }
+        });
+        HapticFeedback.mediumImpact();
+        _showSnack('Moved clip to track above');
+        return;
       }
 
-      if (targetClip != null && sourceTrack != null) {
-        if (isDelete) {
-          // Swipe-down delete with magnetic ripple collapse
-          _magneticallyDeleteClips([targetClip!.id]);
-          HapticFeedback.heavyImpact();
-          _showSnack('Deleted clip & magnetically closed timeline gap');
-          return;
-        } else if (isLift) {
-          // Swipe-up move to track above
-          final currentIdx = _tracks.indexWhere((t) => t.id == sourceTrack!.id);
-          setState(() {
-            sourceTrack!.clips.removeWhere((c) => c.id == targetClip!.id);
-            if (currentIdx > 0) {
-              _tracks[currentIdx - 1].clips.add(targetClip!);
-              _selectedTrackId = _tracks[currentIdx - 1].id;
-            } else {
-              final newTrack = TimelineTrack(
-                id: 'track_${DateTime.now().millisecondsSinceEpoch}',
-                type: sourceTrack!.type,
-                label: '${sourceTrack.label} Overlay',
-                icon: sourceTrack.icon,
-                clips: [targetClip!],
-              );
-              _tracks.insert(0, newTrack);
-              _selectedTrackId = newTrack.id;
-            }
-          });
-          HapticFeedback.mediumImpact();
-          _showSnack('Moved clip to track above');
-          return;
-        }
-      }
-    }
+      // Drop & Magnetic Reorder
+      setState(() {
+        _reflowTrackClips(track);
+      });
 
-    // Playhead Parking: auto-park playhead at start of moved clip with smooth reposition
-    if (wasMove && movedClipId != null) {
-      TimelineClip? movedClip;
-      for (final t in _tracks) {
-        for (final c in t.clips) {
-          if (c.id == movedClipId) {
-            movedClip = c;
-            break;
-          }
-        }
-      }
-      if (movedClip != null) {
-        _playback.seek(movedClip.start, _tracks);
-        setState(() => _currentTime = movedClip!.start);
-        _ensureTimelinePosition();
+      HapticFeedback.selectionClick();
+      _playback.seek(clip.start, _tracks);
+      setState(() => _currentTime = clip.start);
+      _playback.updateProject(_tracks);
+      _ensureTimelinePosition();
+    }
+  }
+
+  /// Re-sorts and magnetically aligns track clips
+  void _reflowTrackClips(TimelineTrack track) {
+    track.clips.sort((a, b) => a.start.compareTo(b.start));
+    if (track.type == TrackType.video) {
+      var cursor = Duration.zero;
+      for (final c in track.clips) {
+        c.start = cursor;
+        cursor += c.duration;
       }
     }
-    // finalize history capture already taken at start
+  }
+
+  /// Edge auto-scrolling when dragging near phone borders
+  void _checkTimelineAutoScroll(double globalX) {
+    const edgeThreshold = 50.0;
+    final screenWidth = MediaQuery.of(context).size.width;
+    if (globalX < _leftPaneWidth + edgeThreshold) {
+      if (_timelineScrollController.hasClients && _timelineScrollController.offset > 0) {
+        _timelineScrollController.jumpTo(
+          math.max(0.0, _timelineScrollController.offset - 12.0),
+        );
+      }
+    } else if (globalX > screenWidth - edgeThreshold) {
+      if (_timelineScrollController.hasClients &&
+          _timelineScrollController.offset <
+              _timelineScrollController.position.maxScrollExtent) {
+        _timelineScrollController.jumpTo(
+          math.min(
+            _timelineScrollController.position.maxScrollExtent,
+            _timelineScrollController.offset + 12.0,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Tactile Pro Trim Handle Widget with 32px touch target & sleek grip ribs
+  Widget _buildTrimHandle({
+    required bool isLeft,
+    required Color color,
+    bool isStretch = false,
+  }) {
+    return Container(
+      color: Colors.transparent, // expanded touch hit target
+      alignment: isLeft ? Alignment.centerLeft : Alignment.centerRight,
+      child: Container(
+        width: isStretch ? 16 : 14,
+        margin: EdgeInsets.only(
+          left: isLeft ? 1 : 0,
+          right: isLeft ? 0 : 1,
+        ),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.horizontal(
+            left: isLeft ? const Radius.circular(6) : Radius.zero,
+            right: isLeft ? Radius.zero : const Radius.circular(6),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.45),
+              blurRadius: 5,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 2,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Container(
+                width: 2,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   bool _isPlaying = false;
@@ -3535,6 +3710,8 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                     ? const Color(0xFFA855F7)
                     : const Color(0xFF94A3B8));
 
+            final handleTouchWidth = math.min(_clipHandleWidth, width / 2.0);
+
             return Positioned(
               left: left,
               top: 2,
@@ -3543,8 +3720,10 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
+                  // 1. Clip Body: Tap to select, double tap for audio/trim sheet, long-press to lift & reorder
                   RepaintBoundary(
                     child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
                       onTap: () => _selectClip(track, clip),
                       onDoubleTap: () {
                         if (track.type == TrackType.audio ||
@@ -3556,14 +3735,14 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                           _trimClip();
                         }
                       },
-                      onLongPress: () => _enterMultiSelect(track, clip),
-                      onPanStart: (details) =>
-                          _onClipPanStart(track, clip, details, width),
-                      onPanUpdate: (details) =>
-                          _onClipPanUpdate(track, clip, details),
-                      onPanEnd: (details) => _onClipPanEnd(details),
+                      onLongPressStart: (details) =>
+                          _onClipLongPressStart(track, clip, details),
+                      onLongPressMoveUpdate: (details) =>
+                          _onClipLongPressMoveUpdate(track, clip, details),
+                      onLongPressEnd: (details) =>
+                          _onClipLongPressEnd(track, clip, details),
                       child: AnimatedScale(
-                        scale: isMoving ? 1.03 : 1.0,
+                        scale: isMoving ? 1.05 : 1.0,
                         duration: const Duration(milliseconds: 120),
                         curve: Curves.easeOutCubic,
                         child: AnimatedContainer(
@@ -3574,94 +3753,71 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                                   borderRadius: BorderRadius.circular(10),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.45),
-                                      blurRadius: 12,
+                                      color: const Color(0xFF00E5FF).withValues(alpha: 0.45),
+                                      blurRadius: 16,
+                                      spreadRadius: 2,
                                       offset: const Offset(0, 4),
                                     ),
                                   ],
                                 )
                               : null,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              _buildClipContent(
-                                track,
-                                clip,
-                                width,
-                                isSelected,
-                                isTrimming,
-                                hasOverlap,
-                              ),
-                              if (isSelected || isTrimming) ...[
-                                // Left trim handle
-                                Positioned(
-                                  left: 0,
-                                  top: 0,
-                                  bottom: 0,
-                                  width: _clipHandleWidth,
-                                  child: MouseRegion(
-                                    cursor: SystemMouseCursors.resizeLeftRight,
-                                    child: Container(
-                                      color: Colors.transparent,
-                                      child: Center(
-                                        child: Container(
-                                          width: 4,
-                                          height: 20,
-                                          decoration: BoxDecoration(
-                                            color: leftHandleColor,
-                                            borderRadius:
-                                                BorderRadius.circular(2),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                // Right trim / stretch handle
-                                Positioned(
-                                  right: 0,
-                                  top: 0,
-                                  bottom: 0,
-                                  width: _clipHandleWidth,
-                                  child: MouseRegion(
-                                    cursor: SystemMouseCursors.resizeLeftRight,
-                                    child: Container(
-                                      color: Colors.transparent,
-                                      child: Center(
-                                        child: Container(
-                                          width: isStretchActive ? 6 : 4,
-                                          height: 20,
-                                          decoration: BoxDecoration(
-                                            color: rightHandleColor,
-                                            borderRadius:
-                                                BorderRadius.circular(2),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                // Center drag hint line
-                                Positioned(
-                                  left: width / 2 - 10,
-                                  top: 0,
-                                  bottom: 0,
-                                  width: 20,
-                                  child: Center(
-                                    child: Container(
-                                      width: 2,
-                                      height: 20,
-                                      color: Colors.white12,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+                          child: _buildClipContent(
+                            track,
+                            clip,
+                            width,
+                            isSelected,
+                            isTrimming,
+                            hasOverlap,
                           ),
                         ),
                       ),
                     ),
                   ),
+
+                  // 2. Dedicated Left Trim Handle
+                  if (isSelected || isTrimming)
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: handleTouchWidth,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onHorizontalDragStart: (details) =>
+                            _onTrimLeftStart(track, clip, details),
+                        onHorizontalDragUpdate: (details) =>
+                            _onTrimLeftUpdate(track, clip, details),
+                        onHorizontalDragEnd: (details) =>
+                            _onTrimLeftEnd(track, clip, details),
+                        child: _buildTrimHandle(
+                          isLeft: true,
+                          color: leftHandleColor,
+                        ),
+                      ),
+                    ),
+
+                  // 3. Dedicated Right Trim / Stretch / Roll Handle
+                  if (isSelected || isTrimming)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: handleTouchWidth,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onHorizontalDragStart: (details) =>
+                            _onTrimRightStart(track, clip, details),
+                        onHorizontalDragUpdate: (details) =>
+                            _onTrimRightUpdate(track, clip, details),
+                        onHorizontalDragEnd: (details) =>
+                            _onTrimRightEnd(track, clip, details),
+                        child: _buildTrimHandle(
+                          isLeft: false,
+                          color: rightHandleColor,
+                          isStretch: isStretchActive,
+                        ),
+                      ),
+                    ),
 
                   // Floating swipe-up pill: [↑ TRACK ABOVE]
                   if (isMoving && isThisActive && _isLiftSwipeUp)
