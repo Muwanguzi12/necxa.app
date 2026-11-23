@@ -3227,23 +3227,29 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Left Pane: Track Headers
+                  // ── Left Pane: Pro Track Headers ──────────────────────
                   Container(
-                    width: 52,
+                    width: 64,
                     decoration: const BoxDecoration(
-                      color: Color(0xFF070D18),
-                      border: Border(right: BorderSide(color: Color(0xFF131D2E))),
+                      color: Color(0xFF060C17),
+                      border: Border(right: BorderSide(color: Color(0xFF131D2E), width: 1)),
                     ),
                     child: ListView.builder(
                       controller: _sidebarScrollController,
-                      padding: const EdgeInsets.only(
-                        top: 22,
-                        bottom: 8,
-                      ), // 22 is ruler height
+                      padding: const EdgeInsets.only(top: 22, bottom: 8),
                       itemCount: visibleTracks.length,
                       itemBuilder: (context, index) {
                         final track = visibleTracks[index];
                         final isSelected = _selectedTrackId == track.id;
+                        final trackColor = _trackColorForType(track.type);
+                        final trackIcon = track.type.defaultIcon;
+                        final trackLabel = _trackShortLabel(track.type);
+                        final rowHeight = _trackRowHeight(track.type);
+                        final isAudioTrack = track.type == TrackType.audio ||
+                            track.type == TrackType.music ||
+                            track.type == TrackType.voiceOver ||
+                            track.type == TrackType.soundEffects;
+
                         return GestureDetector(
                           onTap: () => setState(() {
                             _selectedTrackId = track.id;
@@ -3251,54 +3257,98 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
                               (candidate) => candidate.id == track.id,
                             );
                           }),
-                          child: Container(
-                            height: 52,
-                            margin: const EdgeInsets.only(bottom: 4),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            height: rowHeight,
+                            margin: const EdgeInsets.only(bottom: 2),
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? C.brand.withValues(alpha: 0.12)
+                                  ? trackColor.withValues(alpha: 0.14)
                                   : Colors.transparent,
                               border: Border(
                                 left: BorderSide(
-                                  color: isSelected
-                                      ? C.brand
-                                      : Colors.transparent,
+                                  color: isSelected ? trackColor : Colors.transparent,
                                   width: 2,
                                 ),
                               ),
                             ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(
-                                  Icons.movie_creation_outlined,
-                                  size: 18,
-                                  color: Color(0xFF94A3B8),
-                                ),
-                                const SizedBox(height: 3),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _buildTrackButton(
-                                      Icons.visibility_outlined,
-                                      () => _toggleTrackVisibility(track),
-                                      size: 11,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    _buildTrackButton(
-                                      Icons.lock_outline,
-                                      () => _toggleTrackLock(track),
-                                      size: 11,
-                                    ),
-                                  ],
-                                ),
-                              ],
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  // Type icon + label
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        trackIcon,
+                                        size: 13,
+                                        color: isSelected
+                                            ? trackColor
+                                            : const Color(0xFF64748B),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Flexible(
+                                        child: Text(
+                                          trackLabel,
+                                          style: TextStyle(
+                                            fontSize: 7.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: isSelected
+                                                ? trackColor
+                                                : const Color(0xFF64748B),
+                                            letterSpacing: 0.3,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.clip,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  // Control buttons row: mute (audio only) | visibility | lock
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      if (isAudioTrack) ...[
+                                        _buildTrackIconBtn(
+                                          track.isMuted
+                                              ? Icons.volume_off_rounded
+                                              : Icons.volume_up_rounded,
+                                          () => _toggleTrackMute(track),
+                                          activeColor: const Color(0xFFEF4444),
+                                          isActive: track.isMuted,
+                                        ),
+                                        const SizedBox(width: 2),
+                                      ],
+                                      _buildTrackIconBtn(
+                                        track.isVisible
+                                            ? Icons.visibility_rounded
+                                            : Icons.visibility_off_rounded,
+                                        () => _toggleTrackVisibility(track),
+                                        isActive: !track.isVisible,
+                                        activeColor: const Color(0xFFFBBF24),
+                                      ),
+                                      const SizedBox(width: 2),
+                                      _buildTrackIconBtn(
+                                        track.isLocked
+                                            ? Icons.lock_rounded
+                                            : Icons.lock_open_rounded,
+                                        () => _toggleTrackLock(track),
+                                        isActive: track.isLocked,
+                                        activeColor: const Color(0xFFA855F7),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         );
                       },
                     ),
                   ),
+
 
                   // Right Pane: Timeline Area
                   Expanded(
@@ -3388,7 +3438,7 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         _ghostBDuration != null;
 
     return Container(
-      height: 52,
+      height: _trackRowHeight(track.type),
       margin: const EdgeInsets.only(bottom: 2),
       decoration: BoxDecoration(color: C.surface.withValues(alpha: 0.5)),
       child: Stack(
@@ -4066,18 +4116,181 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: stickerWidget,
       );
-    } else {
+    } else if (track.type == TrackType.text || track.type == TrackType.captions) {
+      // ── Text / Captions ───────────────────────────────────────────
+      final String textContent;
+      final bool isCaption = track.type == TrackType.captions;
+      if (clip.operation is TextOverlay) {
+        textContent = (clip.operation as TextOverlay).text;
+      } else if (clip.operation is OverlayOperation) {
+        textContent = (clip.operation as OverlayOperation).text;
+      } else {
+        textContent = isCaption ? 'Caption' : 'Text';
+      }
+      final trackColor2 = _trackColorForType(track.type);
+      content = Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              trackColor2.withValues(alpha: 0.85),
+              trackColor2.withValues(alpha: 0.55),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          child: Row(
+            children: [
+              Icon(
+                isCaption ? Icons.closed_caption_rounded : Icons.title_rounded,
+                size: 11,
+                color: Colors.white70,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  textContent,
+                  style: dm(sz: 9, c: Colors.white, w: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _formatDuration(clip.duration),
+                style: dm(sz: 7.5, c: Colors.white60),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else if (track.type == TrackType.effects) {
+      // ── Effects / Grade ───────────────────────────────────────────
+      final String effectName;
+      double intensity = 0.7;
+      if (clip.operation is EffectOperation) {
+        final effOp = clip.operation as EffectOperation;
+        effectName = effOp.presetName.isNotEmpty ? effOp.presetName : effOp.icon;
+        intensity = effOp.intensity;
+      } else {
+        effectName = 'Effect';
+      }
+      final trackColorFx = _trackColorForType(track.type);
       content = Padding(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _clipLabelForTrack(track.type),
-              style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Row(
+              children: [
+                Icon(Icons.auto_awesome_rounded, size: 11, color: trackColorFx),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    effectName,
+                    style: dm(sz: 9, c: Colors.white, w: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            // Intensity bar
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: intensity.clamp(0.0, 1.0),
+                minHeight: 3,
+                backgroundColor: Colors.white10,
+                valueColor: AlwaysStoppedAnimation<Color>(trackColorFx),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (track.type == TrackType.images) {
+      // ── Images / B-roll ───────────────────────────────────────────
+      final imgFile = clip.file;
+      content = Stack(
+        fit: StackFit.expand,
+        children: [
+          if (imgFile != null)
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.file(
+                  imgFile,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const DecoratedBox(
+                    decoration: BoxDecoration(color: Color(0xFF0F766E)),
+                  ),
+                ),
+              ),
+            )
+          else
+            const DecoratedBox(
+              decoration: BoxDecoration(color: Color(0xFF0F766E)),
+            ),
+          // Gradient scrim + filename
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.55),
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.6),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 5,
+            right: 5,
+            bottom: 4,
+            child: Row(
+              children: [
+                const Icon(Icons.image_rounded, size: 10, color: Colors.white70),
+                const SizedBox(width: 3),
+                Expanded(
+                  child: Text(
+                    imgFile?.path.split('/').last.split('\\').last ?? 'Image',
+                    style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  _formatDuration(clip.duration),
+                  style: dm(sz: 7, c: Colors.white60),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    } else {
+      // ── Universal slim fallback for any new track type ────────────
+      final tc = _trackColorForType(track.type);
+      content = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        child: Row(
+          children: [
+            Icon(track.type.defaultIcon, size: 11, color: tc),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                _clipLabelForTrack(track.type),
+                style: dm(sz: 8, c: Colors.white, w: FontWeight.w700),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             Text(
               _formatDuration(clip.duration),
@@ -4156,21 +4369,82 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
     }
   }
 
-  Widget _buildTrackButton(
+
+  /// Compact icon button used in the pro track header sidebar.
+  Widget _buildTrackIconBtn(
     IconData icon,
     VoidCallback onTap, {
-    double size = 20,
+    bool isActive = false,
+    Color activeColor = const Color(0xFF0284C7),
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: Icon(icon, size: size, color: C.dim),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 16,
+        height: 16,
+        alignment: Alignment.center,
+        decoration: isActive
+            ? BoxDecoration(
+                color: activeColor.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(3),
+              )
+            : null,
+        child: Icon(
+          icon,
+          size: 10,
+          color: isActive ? activeColor : const Color(0xFF475569),
         ),
       ),
     );
+  }
+
+  /// Returns the display row height for each track type.
+  /// Video tracks are tallest (filmstrip), audio mid-height, text/overlay compact.
+  double _trackRowHeight(TrackType type) {
+    switch (type) {
+      case TrackType.video:
+        return 72;
+      case TrackType.images:
+        return 60;
+      case TrackType.audio:
+      case TrackType.music:
+      case TrackType.voiceOver:
+      case TrackType.soundEffects:
+        return 52;
+      case TrackType.text:
+      case TrackType.captions:
+        return 40;
+      case TrackType.overlay:
+        return 44;
+      case TrackType.effects:
+        return 36;
+    }
+  }
+
+  /// Compact 4-5 character label for use in the narrow track header sidebar.
+  String _trackShortLabel(TrackType type) {
+    switch (type) {
+      case TrackType.video:
+        return 'VID';
+      case TrackType.images:
+        return 'IMG';
+      case TrackType.audio:
+        return 'AUD';
+      case TrackType.music:
+        return 'BGM';
+      case TrackType.voiceOver:
+        return 'VOX';
+      case TrackType.soundEffects:
+        return 'SFX';
+      case TrackType.text:
+        return 'TXT';
+      case TrackType.captions:
+        return 'CAP';
+      case TrackType.overlay:
+        return 'OVR';
+      case TrackType.effects:
+        return 'FX';
+    }
   }
 
   Widget _buildAudioPanel(Size screenSize) {
@@ -6965,6 +7239,17 @@ class _MobileMediaEditorState extends State<MobileMediaEditor>
   void _toggleTrackLock(TimelineTrack track) {
     _captureTimeline();
     track.isLocked = !track.isLocked;
+    setState(() {});
+  }
+
+  void _toggleTrackMute(TimelineTrack track) {
+    _captureTimeline();
+    track.isMuted = !track.isMuted;
+    // Propagate mute to all clips in the track so playback controller honours it.
+    for (final clip in track.clips) {
+      clip.volume = track.isMuted ? 0.0 : 1.0;
+    }
+    _playback.updateProject(_tracks);
     setState(() {});
   }
 

@@ -1139,6 +1139,8 @@ class TimelineTrack {
   final IconData icon;
   bool isLocked;
   bool isVisible;
+  /// When true the track's audio output is silenced during playback and export.
+  bool isMuted;
 
   TimelineTrack({
     required this.id,
@@ -1148,6 +1150,7 @@ class TimelineTrack {
     required this.icon,
     this.isLocked = false,
     this.isVisible = true,
+    this.isMuted = false,
   });
 }
 
@@ -1201,6 +1204,26 @@ class TimelineModelUtils {
     return elapsed;
   }
 
+  // ─── Pro NLE track hierarchy ───────────────────────────────────────────────
+  // Timeline display order (top → bottom) mirrors DaVinci Resolve / Premiere:
+  //   Effects/Grade → Text → Captions → Overlay/Stickers
+  //   → Video → Images/B-roll
+  //   → VoiceOver → Audio → Sound Effects → Music/BGM (bed, bottommost)
+  static const Map<TrackType, int> _kTrackOrder = <TrackType, int>{
+    TrackType.effects:      0,
+    TrackType.text:         1,
+    TrackType.captions:     2,
+    TrackType.overlay:      3,
+    TrackType.video:        4,
+    TrackType.images:       5,
+    TrackType.voiceOver:    6,
+    TrackType.audio:        7,
+    TrackType.soundEffects: 8,
+    TrackType.music:        9,
+  };
+
+  static int _orderOf(TrackType t) => _kTrackOrder[t] ?? 5;
+
   static TimelineTrack ensureTrackForType(
     List<TimelineTrack> tracks,
     TrackType type, {
@@ -1221,7 +1244,17 @@ class TimelineModelUtils {
       icon: icon ?? type.defaultIcon,
       clips: [],
     );
-    tracks.add(newTrack);
+
+    // Insert preserving canonical hierarchy: find the first existing track
+    // whose rank is strictly greater than the new track's rank and insert
+    // before it; otherwise append.
+    final newOrder = _orderOf(type);
+    final insertIdx = tracks.indexWhere((t) => _orderOf(t.type) > newOrder);
+    if (insertIdx == -1) {
+      tracks.add(newTrack);
+    } else {
+      tracks.insert(insertIdx, newTrack);
+    }
     return newTrack;
   }
 
@@ -1296,13 +1329,23 @@ class TimelineModelUtils {
     );
   }
 
+  /// Returns all visible, non-empty tracks sorted by the canonical pro NLE
+  /// hierarchy. Stable sort: primary key = [_kTrackOrder], secondary key =
+  /// original list position (preserves relative order of multiple video tracks,
+  /// multiple audio tracks, etc.).
   static List<TimelineTrack> visibleTracks(List<TimelineTrack> tracks) {
-    return tracks
+    final filtered = tracks
         .where(
           (track) =>
               track.isVisible &&
               (track.type == TrackType.video || track.clips.isNotEmpty),
         )
         .toList();
+    filtered.sort((a, b) {
+      final cmp = _orderOf(a.type).compareTo(_orderOf(b.type));
+      if (cmp != 0) return cmp;
+      return tracks.indexOf(a).compareTo(tracks.indexOf(b));
+    });
+    return filtered;
   }
 }
