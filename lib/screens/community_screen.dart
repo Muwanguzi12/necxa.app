@@ -1829,6 +1829,10 @@ class _ReelItem extends StatefulWidget {
 }
 
 class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
+  // ── Global In-Memory Caches (Smart & Lazy Loading Policy) ──
+  static final Map<String, Map<String, dynamic>> _creatorProfileCache = {};
+  static final Map<String, MusicTrack> _trackMemoryCache = {};
+
   bool _isLiked = false;
   int _likesCount = 0;
   int _commentsCount = 0;
@@ -1839,14 +1843,91 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   final GlobalKey<NecxaVideoPlayerState> _videoKey = GlobalKey();
   VideoPlayerController? _activeVideoController;
 
-  // ── New UX States ──
+  // Memoized metadata parsed lazily once per post
+  List<String> _cachedHashtags = const [];
+  List<String> _cachedMentions = const [];
+
+  // ── UX States ──
   bool _isExpanded = false;
   bool _isDescExpanded = false;
   bool _isCleanMode = false;
   bool _showCleanHint = false;
   late AnimationController _pulseController;
   late AnimationController _expandController;
+  late AnimationController _discController;
   Timer? _collapseTimer;
+
+  // ── Smart & Lazy Metadata Destination Resolvers ──
+  String get creatorName {
+    final pName = _profile?['display_name'] ?? _profile?['name'] ?? _profile?['username'];
+    if (pName != null && pName.toString().trim().isNotEmpty) {
+      return pName.toString().trim();
+    }
+    final embedded = widget.post['profiles'] ??
+        widget.post['author'] ??
+        widget.post['user'] ??
+        widget.post['creator'];
+    if (embedded is Map) {
+      final eName = embedded['display_name'] ?? embedded['name'] ?? embedded['username'];
+      if (eName != null && eName.toString().trim().isNotEmpty) {
+        return eName.toString().trim();
+      }
+    }
+    final direct = widget.post['creator_name'] ??
+        widget.post['author_name'] ??
+        widget.post['display_name'] ??
+        widget.post['username'] ??
+        widget.post['user_name'];
+    if (direct != null && direct.toString().trim().isNotEmpty) {
+      return direct.toString().trim();
+    }
+    return 'Creator';
+  }
+
+  String? get creatorAvatarUrl {
+    final photo = _profile?['photo_url'] ?? _profile?['avatar_url'];
+    if (photo != null && photo.toString().trim().isNotEmpty) {
+      return photo.toString().trim();
+    }
+    final embedded = widget.post['profiles'] ??
+        widget.post['author'] ??
+        widget.post['user'] ??
+        widget.post['creator'];
+    if (embedded is Map) {
+      final ePhoto = embedded['photo_url'] ?? embedded['avatar_url'];
+      if (ePhoto != null && ePhoto.toString().trim().isNotEmpty) {
+        return ePhoto.toString().trim();
+      }
+    }
+    final direct = widget.post['author_avatar'] ??
+        widget.post['avatar_url'] ??
+        widget.post['profile_photo'] ??
+        widget.post['user_avatar'];
+    if (direct != null && direct.toString().trim().isNotEmpty) {
+      return direct.toString().trim();
+    }
+    return null;
+  }
+
+  bool get isCreatorVerified {
+    if (_profile?['is_verified'] == true) return true;
+    final embedded = widget.post['profiles'] ??
+        widget.post['author'] ??
+        widget.post['user'] ??
+        widget.post['creator'];
+    if (embedded is Map && embedded['is_verified'] == true) return true;
+    return widget.post['is_verified'] == true;
+  }
+
+  String get videoDescription {
+    final d = widget.post['content'] ??
+        widget.post['description'] ??
+        widget.post['caption'] ??
+        widget.post['title'] ??
+        widget.post['text'] ??
+        '';
+    return d.toString().trim();
+  }
 
   @override
   void initState() {
@@ -1854,7 +1935,15 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     _isLiked = widget.post['is_liked'] == true || widget.post['is_liked'] == 1;
     _likesCount = widget.post['likes_count'] ?? 0;
     _commentsCount = widget.post['comments_count'] ?? 0;
-    _hydrateData();
+
+    // 🚀 SMART LOADING: Immediate synchronous resolution from embedded post or memory cache
+    _resolveImmediateProfile();
+    _precomputeMetadata();
+
+    // 🚀 LAZY HYDRATION: Background load db/network data without stalling first frame playback
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _hydrateData();
+    });
     _initAudio();
 
     _pulseController = AnimationController(
@@ -1874,13 +1963,56 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     if (_isPlaying) _discController.repeat();
   }
 
-  late AnimationController _discController;
+  void _resolveImmediateProfile() {
+    // 1. Embedded profile object inside post map
+    final embedded = widget.post['profiles'] ??
+        widget.post['author'] ??
+        widget.post['user'] ??
+        widget.post['creator'];
+    if (embedded is Map<String, dynamic>) {
+      _profile = embedded;
+      final pId = embedded['id']?.toString();
+      if (pId != null && pId.isNotEmpty) {
+        _creatorProfileCache[pId] = embedded;
+      }
+      return;
+    } else if (embedded is Map) {
+      final converted = Map<String, dynamic>.from(embedded);
+      _profile = converted;
+      final pId = converted['id']?.toString();
+      if (pId != null && pId.isNotEmpty) {
+        _creatorProfileCache[pId] = converted;
+      }
+      return;
+    }
+
+    // 2. In-memory cache from previous visits/reels
+    final authorId = (widget.post['author_id'] ??
+            widget.post['user_id'] ??
+            widget.post['lister_id'])
+        ?.toString();
+    if (authorId != null && authorId.isNotEmpty && _creatorProfileCache.containsKey(authorId)) {
+      _profile = _creatorProfileCache[authorId];
+    }
+  }
+
+  void _precomputeMetadata() {
+    _cachedHashtags = _extractHashtags(videoDescription);
+    _cachedMentions = _extractMentions(videoDescription);
+  }
 
   @override
   void didUpdateWidget(covariant _ReelItem oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.post['id'] != widget.post['id']) {
       _activeVideoController = null;
+      _profile = null;
+      _track = null;
+      _resolveImmediateProfile();
+      _precomputeMetadata();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _hydrateData();
+      });
     }
     _isLiked = widget.post['is_liked'] == true || widget.post['is_liked'] == 1;
     _likesCount = (widget.post['likes_count'] as num?)?.toInt() ?? 0;
@@ -1918,24 +2050,48 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   MusicTrack? _track;
 
   Future<void> _hydrateData() async {
-    // 1. Fetch Profile if not already in the stream (which it typically isn't for Supabase streams)
-    final profileId = widget.post['author_id'];
-    if (profileId != null) {
-      final p = await widget.state.social.getProfile(profileId);
-      if (mounted) {
-        setState(() {
-          _profile = p;
-        });
+    // 1. Lazy profile fetching with smart caching
+    final profileId = (widget.post['author_id'] ??
+            widget.post['user_id'] ??
+            widget.post['lister_id'])
+        ?.toString();
+    if (profileId != null && profileId.isNotEmpty) {
+      if (_creatorProfileCache.containsKey(profileId)) {
+        if (mounted && _profile == null) {
+          setState(() => _profile = _creatorProfileCache[profileId]);
+        }
+      } else {
+        try {
+          final p = await widget.state.social.getProfile(profileId);
+          if (p != null) {
+            _creatorProfileCache[profileId] = p;
+            if (mounted) {
+              setState(() => _profile = p);
+            }
+          }
+        } catch (e) {
+          debugPrint('Smart profile load error: $e');
+        }
       }
     }
 
-    final trackId = widget.post['music_track_id'];
-    if (trackId != null) {
-      final t = await widget.state.music.getTrackById(trackId);
-      if (mounted && t != null) {
-        setState(() {
-          _track = t;
-        });
+    // 2. Lazy music track fetching with smart caching
+    final trackId = widget.post['music_track_id']?.toString();
+    if (trackId != null && trackId.isNotEmpty) {
+      if (_trackMemoryCache.containsKey(trackId)) {
+        if (mounted && _track == null) {
+          setState(() => _track = _trackMemoryCache[trackId]);
+        }
+      } else {
+        try {
+          final t = await widget.state.music.getTrackById(trackId);
+          if (mounted && t != null) {
+            _trackMemoryCache[trackId] = t;
+            setState(() => _track = t);
+          }
+        } catch (e) {
+          debugPrint('Smart track load error: $e');
+        }
       }
     }
   }
@@ -2136,8 +2292,9 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
     // media_url is the authoritative published master (the validated MP4).
     // Prefer it over adaptive derivatives that may be stale or audio-incomplete.
     final String? videoUrl = mediaUrl ?? hlsUrl ?? dashUrl;
-    final username = _profile?['display_name'] ?? 'Necxa User';
-    final description = widget.post['content'] ?? widget.post['title'] ?? '';
+    final username = creatorName;
+    final description = videoDescription;
+    final isVerified = isCreatorVerified;
 
     final bool isVideo =
         widget.post['media_type'] == 'video' ||
@@ -2328,7 +2485,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                 _buildDynamicMetadataRow(
                                   username: username,
                                   description: description,
-                                  isVerified: _profile?['is_verified'] == true || widget.post['is_verified'] == true,
+                                  isVerified: isVerified,
                                 ),
                                 // Music / Sound marquee pill
                                 if (_track != null || widget.post['music_track_id'] != null) ...[
@@ -2996,7 +3153,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       onTap: () {
         final authorId = widget.post['author_id'] ??
             widget.post['user_id'] ??
-            widget.post['lister_id'];
+            widget.post['lister_id'] ??
+            _profile?['id'];
         if (authorId != null && authorId.toString().isNotEmpty) {
           widget.state.targetProfileId = authorId.toString();
           widget.state.go('public_profile');
@@ -3106,7 +3264,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
 
   List<Widget> _buildTagAndMentionChips(String description) {
     final List<Widget> chips = [];
-    final hashtags = _extractHashtags(description);
+    final hashtags = _cachedHashtags.isNotEmpty ? _cachedHashtags : _extractHashtags(description);
     for (final tag in hashtags) {
       chips.add(
         Padding(
@@ -3137,7 +3295,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
       );
     }
 
-    final mentions = _extractMentions(description);
+    final mentions = _cachedMentions.isNotEmpty ? _cachedMentions : _extractMentions(description);
     for (final mention in mentions) {
       chips.add(
         Padding(
@@ -3335,7 +3493,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            ..._extractHashtags(description).map(
+                            ...(_cachedHashtags.isNotEmpty ? _cachedHashtags : _extractHashtags(description)).map(
                               (tag) => GestureDetector(
                                 onTap: () {
                                   Navigator.of(ctx).pop();
@@ -3358,7 +3516,7 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
                                 ),
                               ),
                             ),
-                            ..._extractMentions(description).map(
+                            ...(_cachedMentions.isNotEmpty ? _cachedMentions : _extractMentions(description)).map(
                               (mention) => GestureDetector(
                                 onTap: () {
                                   Navigator.of(ctx).pop();
@@ -3430,8 +3588,8 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
   }
 
   Widget _buildAvatar() {
-    final photoUrl = _profile?['photo_url'];
-    final username = _profile?['display_name'] ?? 'U';
+    final photoUrl = creatorAvatarUrl;
+    final username = creatorName;
 
     return ScaleTransition(
       scale: Tween(begin: 1.0, end: 1.05).animate(
@@ -3493,8 +3651,10 @@ class _ReelItemState extends State<_ReelItem> with TickerProviderStateMixin {
             child: CircleAvatar(
               radius: 21,
               backgroundColor: const Color(0xFF0A0F2C),
-              backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-              child: photoUrl == null
+              backgroundImage: photoUrl != null && photoUrl.isNotEmpty
+                  ? CachedNetworkImageProvider(photoUrl)
+                  : null,
+              child: photoUrl == null || photoUrl.isEmpty
                   ? Text(
                       username.isNotEmpty ? username[0].toUpperCase() : 'U',
                       style: syne(c: C.text, w: FontWeight.bold),
