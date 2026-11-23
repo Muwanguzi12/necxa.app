@@ -342,10 +342,10 @@ class VideoEnhancementService {
         ? "-vf \"${filters.join(',')}\""
         : "";
 
-    // -c:v libx264 -crf 26: High-efficiency "Smart" compression
+    // Universal high-quality mpeg4 compression (-q:v 3) compatible with all Android devices
     // -movflags +faststart: Instant play in social feeds
     String command =
-        "-i '${_escapePath(inputVideo.path)}' $filterComplex -c:v libx264 -crf 26 -preset fast -c:a copy -movflags +faststart -y \"$outputPath\"";
+        "-i '${_escapePath(inputVideo.path)}' $filterComplex -c:v mpeg4 -q:v 3 -c:a copy -movflags +faststart -y \"$outputPath\"";
 
     debugPrint('Executing FFmpeg enhance command: $command');
     final session = await FFmpegKit.execute(command);
@@ -975,28 +975,22 @@ class VideoEnhancementService {
       filterComplex += "[outa_orig]anull[outa]";
     }
 
-    // libx264 -crf 26: The "Economical" compression sweet spot
-    // -maxrate 2.5M: Prevents bitrate spikes on mobile data
+    // Universal high-quality mpeg4 compression (-q:v 3) compatible with all Android devices
+    // and standard FFmpeg builds without requiring external GPL libx264 flags.
     String command =
-        "$inputs -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v libx264 -crf 26 -maxrate 2.5M -bufsize 5M -c:a aac -preset fast -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
+        "$inputs -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v mpeg4 -q:v 3 -maxrate 4M -bufsize 8M -c:a aac -b:a 192k -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
 
     debugPrint('Executing smarter FFmpeg command: $command');
     var session = await FFmpegKit.execute(command);
     var returnCode = await session.getReturnCode();
 
-    // If libx264 or -crf fails (e.g. standard/min FFmpeg build without external x264),
-    // automatically fallback to universally supported mpeg4 encoding so export NEVER fails.
+    // Resilient fallback: if mpeg4 fails for any reason, retry with hardware mediacodec
     if (!ReturnCode.isSuccess(returnCode) && !ReturnCode.isCancel(returnCode)) {
-      final initialLogs = await session.getAllLogsAsString() ?? '';
-      if (initialLogs.contains("Unrecognized option 'crf'") ||
-          initialLogs.contains("Unknown encoder 'libx264'") ||
-          initialLogs.contains("Encoder not found")) {
-        debugPrint('FFmpeg libx264 unavailable ($returnCode), retrying with universal mpeg4 encoder...');
-        final fallbackCommand =
-            "$inputs -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v mpeg4 -q:v 4 -maxrate 3M -bufsize 6M -c:a aac -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
-        session = await FFmpegKit.execute(fallbackCommand);
-        returnCode = await session.getReturnCode();
-      }
+      debugPrint('FFmpeg primary encode returned $returnCode, retrying with hardware h264_mediacodec...');
+      final fallbackCommand =
+          "$inputs -filter_complex \"$filterComplex\" -map \"[$currentVideo]\" -map \"[outa]\" -map_metadata 0 -c:v h264_mediacodec -b:v 2.5M -c:a aac -b:a 192k -pix_fmt yuv420p -movflags +faststart -y \"$outputPath\"";
+      session = await FFmpegKit.execute(fallbackCommand);
+      returnCode = await session.getReturnCode();
     }
     for (final temporaryFile in downloadedAudioFiles) {
       try {
@@ -1279,7 +1273,7 @@ class VideoEnhancementService {
     final audioArgs = hasAudio ? '-af areverse -c:a aac -b:a 96k' : '-an';
     final command =
         "-i '${_escapePath(inputVideo.path)}' -vf \"scale=-2:720,reverse\" $audioArgs "
-        "-c:v libx264 -preset ultrafast -crf 28 -movflags +faststart "
+        "-c:v mpeg4 -q:v 4 -movflags +faststart "
         "-y '${_escapePath(outputPath)}'";
     try {
       final session = await FFmpegKit.execute(command);
@@ -1307,11 +1301,10 @@ class VideoEnhancementService {
     final outputPath =
         '${tempDir.path}/proxy_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
-    // -vf "scale=-2:540": Scales to 540p height while maintaining aspect ratio (must be even for libx264)
-    // -preset ultrafast: Maximum speed for proxy generation
-    // -crf 28: Lower quality is acceptable for proxy
+    // -vf "scale=-2:540": Scales to 540p height while maintaining aspect ratio
+    // -q:v 5: Fast proxy generation with standard mpeg4
     String command =
-        "-i '${_escapePath(inputVideo.path)}' -vf \"scale=-2:540\" -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 64k -y \"$outputPath\"";
+        "-i '${_escapePath(inputVideo.path)}' -vf \"scale=-2:540\" -c:v mpeg4 -q:v 5 -c:a aac -b:a 64k -y \"$outputPath\"";
 
     debugPrint('Generating Proxy: $command');
     final session = await FFmpegKit.execute(command);
